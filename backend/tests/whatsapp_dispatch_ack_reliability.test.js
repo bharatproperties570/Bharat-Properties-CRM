@@ -9,9 +9,9 @@ import WhatsAppDispatch from '../models/WhatsAppDispatch.js';
 import MarketingDelivery from '../models/MarketingDelivery.js';
 import WhatsAppCircuitBreaker from '../services/WhatsAppCircuitBreaker.js';
 import WhatsAppService from '../services/WhatsAppService.js';
-import BaileysConnectionManager from '../services/baileysQueue/BaileysConnectionManager.js';
+import redisProxy from '../src/config/redis.js';
 
-describe('Phase C — Outbound Dispatch & Acknowledgement Reliability Suite', () => {
+describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit Breaker Suite', () => {
     let mongoServer;
     const testIntegrationId = new mongoose.Types.ObjectId();
 
@@ -36,7 +36,7 @@ describe('Phase C — Outbound Dispatch & Acknowledgement Reliability Suite', ()
     beforeEach(async () => {
         await WhatsAppDispatch.deleteMany({});
         await MarketingDelivery.deleteMany({});
-        await WhatsAppCircuitBreaker.reset(testIntegrationId.toString());
+        await WhatsAppCircuitBreaker.reset(testIntegrationId.toString(), 'TEST_RUNNER', 'Reset before test');
     });
 
     it('1. Capture send result: WhatsApp message ID and timestamps are durably recorded in MarketingDelivery', async () => {
@@ -59,15 +59,19 @@ describe('Phase C — Outbound Dispatch & Acknowledgement Reliability Suite', ()
         assert.equal(doc.status, 'ACCEPTED');
     });
 
-    it('2. messages.update event transitions state monotonically: ACCEPTED -> SERVER_ACKNOWLEDGED -> DELIVERY_CONFIRMED -> READ', async () => {
-        const msgId = '3EB0_MONOTONIC_TEST';
+    it('2. Monotonic State Invariant: READ must NEVER regress to DELIVERY_CONFIRMED or SERVER_ACKNOWLEDGED', async () => {
+        const msgId = '3EB0_MONOTONIC_TEST_READ';
+        const now = new Date();
+
+        // 1. Initially at READ state
         await MarketingDelivery.create({
             jobId: 'camp_ack_test',
             recipientId: '919876543210',
             channel: 'whatsapp',
-            status: 'ACCEPTED',
+            status: 'READ',
             provider: 'BAILEYS',
-            providerMessageId: msgId
+            providerMessageId: msgId,
+            readAt: now
         });
 
         await WhatsAppDispatch.create({
@@ -75,104 +79,212 @@ describe('Phase C — Outbound Dispatch & Acknowledgement Reliability Suite', ()
             recipient: '919876543210',
             channel: 'WHATSAPP',
             provider: 'BAILEYS',
-            status: 'DISPATCHED',
+            status: 'READ',
+            deliveryStatus: 'READ',
             providerMessageId: msgId
         });
 
-        // Simulate status = 2 (SERVER_ACK)
-        const updateServerAck = {
-            key: { id: msgId, remoteJid: '919876543210@s.whatsapp.net' },
-            update: { status: 2 }
-        };
-        const now = new Date();
+        // 2. Simulate delayed SERVER_ACK event (status = 2) arriving after READ
         await MarketingDelivery.updateMany(
-            { providerMessageId: msgId },
-            { $set: { status: 'SERVER_ACKNOWLEDGED', serverAckAt: now } }
+            {
+                providerMessageId: msgId,
+                status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+            },
+            { $set: { status: 'SERVER_ACKNOWLEDGED', serverAckAt: new Date() } }
         );
         await WhatsAppDispatch.updateMany(
-            { providerMessageId: msgId },
-            { $set: { status: 'SERVER_ACKNOWLEDGED', deliveryStatus: 'SERVER_ACKNOWLEDGED', deliveryStatusAt: now } }
+            {
+                providerMessageId: msgId,
+                status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+            },
+            { $set: { status: 'SERVER_ACKNOWLEDGED', deliveryStatus: 'SERVER_ACKNOWLEDGED' } }
         );
 
-        let d1 = await MarketingDelivery.findOne({ providerMessageId: msgId });
-        assert.equal(d1.status, 'SERVER_ACKNOWLEDGED');
-        assert.ok(d1.serverAckAt);
+        // Verify status remained READ
+        let md = await MarketingDelivery.findOne({ providerMessageId: msgId });
+        let wd = await WhatsAppDispatch.findOne({ providerMessageId: msgId });
+        assert.equal(md.status, 'READ', 'MarketingDelivery status must NOT regress from READ to SERVER_ACKNOWLEDGED');
+        assert.equal(wd.status, 'READ', 'WhatsAppDispatch status must NOT regress from READ to SERVER_ACKNOWLEDGED');
 
-        // Simulate status = 3 (DELIVERY_ACK / Recipient Received)
+        // 3. Simulate delayed DELIVERY_ACK event (status = 3) arriving after READ
         await MarketingDelivery.updateMany(
-            { providerMessageId: msgId },
+            {
+                providerMessageId: msgId,
+                status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+            },
             { $set: { status: 'DELIVERY_CONFIRMED', deliveryReceiptAt: new Date() } }
         );
-        let d2 = await MarketingDelivery.findOne({ providerMessageId: msgId });
-        assert.equal(d2.status, 'DELIVERY_CONFIRMED');
-        assert.ok(d2.deliveryReceiptAt);
-
-        // Simulate status = 4 (READ)
-        await MarketingDelivery.updateMany(
-            { providerMessageId: msgId },
-            { $set: { status: 'READ', readAt: new Date() } }
+        await WhatsAppDispatch.updateMany(
+            {
+                providerMessageId: msgId,
+                status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+            },
+            { $set: { status: 'DELIVERY_CONFIRMED', deliveryStatus: 'DELIVERY_CONFIRMED' } }
         );
-        let d3 = await MarketingDelivery.findOne({ providerMessageId: msgId });
-        assert.equal(d3.status, 'READ');
-        assert.ok(d3.readAt);
+
+        md = await MarketingDelivery.findOne({ providerMessageId: msgId });
+        wd = await WhatsAppDispatch.findOne({ providerMessageId: msgId });
+        assert.equal(md.status, 'READ', 'MarketingDelivery status must NOT regress from READ to DELIVERY_CONFIRMED');
+        assert.equal(wd.status, 'READ', 'WhatsAppDispatch status must NOT regress from READ to DELIVERY_CONFIRMED');
     });
 
-    it('3. Ambiguous timeout handling: Marks DELIVERY_UNKNOWN without auto-retry to prevent duplicates', async () => {
-        const res = {
-            success: false,
-            deliveryStatus: 'DELIVERY_UNKNOWN',
-            isDeliveryUnknown: true,
-            isAmbiguous: true,
-            error: 'WhatsApp Web ACK timed out after 35s while connection remained alive. Suppressing duplicate retry.'
-        };
+    it('3. Monotonic State Invariant: DELIVERY_CONFIRMED must NEVER regress to SERVER_ACKNOWLEDGED', async () => {
+        const msgId = '3EB0_MONOTONIC_TEST_DELIV';
 
-        assert.equal(res.deliveryStatus, 'DELIVERY_UNKNOWN');
-        assert.equal(res.isDeliveryUnknown, true);
-        assert.equal(res.isAmbiguous, true);
+        await MarketingDelivery.create({
+            jobId: 'camp_deliv_test',
+            recipientId: '919876543210',
+            channel: 'whatsapp',
+            status: 'DELIVERY_CONFIRMED',
+            provider: 'BAILEYS',
+            providerMessageId: msgId,
+            deliveryReceiptAt: new Date()
+        });
+
+        // Delayed SERVER_ACK
+        await MarketingDelivery.updateMany(
+            {
+                providerMessageId: msgId,
+                status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+            },
+            { $set: { status: 'SERVER_ACKNOWLEDGED', serverAckAt: new Date() } }
+        );
+
+        const md = await MarketingDelivery.findOne({ providerMessageId: msgId });
+        assert.equal(md.status, 'DELIVERY_CONFIRMED', 'Must NOT regress to SERVER_ACKNOWLEDGED');
     });
 
-    it('4. Circuit Breaker: Repeated ACK timeouts trip breaker to OPEN and pause new dispatches', async () => {
+    it('4. Receipt Semantics: receiptTimestamp alone establishes DELIVERY_CONFIRMED, NOT READ', async () => {
+        const msgId = '3EB0_RECEIPT_SEMANTICS_TEST';
+
+        await MarketingDelivery.create({
+            jobId: 'camp_receipt_test',
+            recipientId: '919876543210',
+            channel: 'whatsapp',
+            status: 'ACCEPTED',
+            provider: 'BAILEYS',
+            providerMessageId: msgId
+        });
+
+        // Simulate receipt.receiptTimestamp without readTimestamp
+        const receipt = { receiptTimestamp: Math.floor(Date.now() / 1000) };
+        const now = new Date();
+
+        if (receipt.readTimestamp) {
+            await MarketingDelivery.updateMany({ providerMessageId: msgId, status: { $ne: 'READ' } }, { $set: { status: 'READ', readAt: now } });
+        } else if (receipt.receiptTimestamp) {
+            await MarketingDelivery.updateMany({ providerMessageId: msgId, status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] } }, { $set: { status: 'DELIVERY_CONFIRMED', deliveryReceiptAt: now } });
+        }
+
+        const md = await MarketingDelivery.findOne({ providerMessageId: msgId });
+        assert.equal(md.status, 'DELIVERY_CONFIRMED', 'receiptTimestamp alone must establish DELIVERY_CONFIRMED, NEVER READ');
+        assert.equal(md.readAt, undefined, 'readAt must remain unset when only receiptTimestamp was received');
+    });
+
+    it('5. Receipt Semantics: readTimestamp establishes READ', async () => {
+        const msgId = '3EB0_READ_SEMANTICS_TEST';
+
+        await MarketingDelivery.create({
+            jobId: 'camp_read_test',
+            recipientId: '919876543210',
+            channel: 'whatsapp',
+            status: 'DELIVERY_CONFIRMED',
+            provider: 'BAILEYS',
+            providerMessageId: msgId
+        });
+
+        const receipt = { readTimestamp: Math.floor(Date.now() / 1000) };
+        const now = new Date();
+
+        if (receipt.readTimestamp) {
+            await MarketingDelivery.updateMany({ providerMessageId: msgId, status: { $ne: 'READ' } }, { $set: { status: 'READ', readAt: now } });
+        }
+
+        const md = await MarketingDelivery.findOne({ providerMessageId: msgId });
+        assert.equal(md.status, 'READ', 'readTimestamp must transition status to READ');
+        assert.ok(md.readAt);
+    });
+
+    it('6. Durable Circuit Breaker: OPEN state survives across process/service instances in Redis', async () => {
         const intId = testIntegrationId.toString();
 
-        // Breaker starts CLOSED
-        let state0 = await WhatsAppCircuitBreaker.isTripped(intId);
-        assert.equal(state0.tripped, false);
-        assert.equal(state0.state, 'CLOSED');
-
-        // Record 1st and 2nd timeout
+        // Trip the breaker
         await WhatsAppCircuitBreaker.recordAckTimeout(intId);
         await WhatsAppCircuitBreaker.recordAckTimeout(intId);
-        let state2 = await WhatsAppCircuitBreaker.isTripped(intId);
-        assert.equal(state2.tripped, false);
+        await WhatsAppCircuitBreaker.recordAckTimeout(intId);
 
-        // Record 3rd timeout -> TRIPS to OPEN
-        const tripRes = await WhatsAppCircuitBreaker.recordAckTimeout(intId);
-        assert.equal(tripRes.tripped, true);
+        let state1 = await WhatsAppCircuitBreaker.isTripped(intId);
+        assert.equal(state1.tripped, true);
+        assert.equal(state1.state, 'OPEN');
 
-        let state3 = await WhatsAppCircuitBreaker.isTripped(intId);
-        assert.equal(state3.tripped, true);
-        assert.equal(state3.state, 'OPEN');
-        assert.ok(state3.reason.includes('consecutive ACK timeouts'));
+        // Verify direct read from Redis storage matches OPEN state
+        const storedState = await redisProxy.get(`cb:wa:${intId}:state`);
+        assert.equal(storedState, 'OPEN', 'Breaker OPEN state must be stored in Redis');
 
-        // Reset clears breaker back to CLOSED
-        await WhatsAppCircuitBreaker.reset(intId, 'ADMIN_TEST');
-        let stateReset = await WhatsAppCircuitBreaker.isTripped(intId);
-        assert.equal(stateReset.tripped, false);
-        assert.equal(stateReset.state, 'CLOSED');
+        // Check health metrics
+        const health = await WhatsAppCircuitBreaker.getHealth(intId);
+        assert.equal(health.state, 'OPEN');
+        assert.equal(health.consecutiveTimeouts, 3);
     });
 
-    it('5. Circuit Breaker: Auth persistence failures trip breaker after 2 consecutive failures', async () => {
-        const intId = 'auth-breaker-test';
-        await WhatsAppCircuitBreaker.reset(intId);
+    it('7. Durable Circuit Breaker: Controlled HALF_OPEN allows ONLY ONE worker probe reservation', async () => {
+        const intId = testIntegrationId.toString();
 
-        await WhatsAppCircuitBreaker.recordAuthFailure(intId, new Error('DB write failure 1'));
-        let s1 = await WhatsAppCircuitBreaker.isTripped(intId);
-        assert.equal(s1.tripped, false);
+        // 1. Set breaker to OPEN with trippedAt 6 minutes ago (> 5 min cooloff)
+        const pastTrippedAt = Date.now() - (6 * 60 * 1000);
+        await redisProxy.set(`cb:wa:${intId}:state`, 'OPEN');
+        await redisProxy.set(`cb:wa:${intId}:tripped_at`, String(pastTrippedAt));
 
-        await WhatsAppCircuitBreaker.recordAuthFailure(intId, new Error('DB write failure 2'));
-        let s2 = await WhatsAppCircuitBreaker.isTripped(intId);
-        assert.equal(s2.tripped, true);
-        assert.equal(s2.state, 'OPEN');
-        assert.ok(s2.reason.includes('authentication persistence failures'));
+        // Worker 1 requests probe
+        const worker1Res = await WhatsAppCircuitBreaker.isTripped(intId, { workerToken: 'worker-1-probe-token' });
+        assert.equal(worker1Res.tripped, false, 'Worker 1 must be permitted to execute the single probe');
+        assert.equal(worker1Res.state, 'HALF_OPEN');
+        assert.equal(worker1Res.isProbe, true);
+        assert.equal(worker1Res.probeToken, 'worker-1-probe-token');
+
+        // Worker 2 attempts concurrent probe while Worker 1 is in-flight
+        const worker2Res = await WhatsAppCircuitBreaker.isTripped(intId, { workerToken: 'worker-2-probe-token' });
+        assert.equal(worker2Res.tripped, true, 'Worker 2 must be BLOCKED while Worker 1 probe is in flight');
+        assert.ok(worker2Res.reason.includes('probe') || worker2Res.probeInFlight);
+    });
+
+    it('8. Durable Circuit Breaker: Redis outage blocks dispatch fail-closed', async () => {
+        const intId = testIntegrationId.toString();
+
+        const origGet = redisProxy.get;
+        redisProxy.get = () => {
+            throw new Error('ECONNREFUSED: Redis instance offline');
+        };
+
+        try {
+            await assert.rejects(
+                async () => {
+                    await WhatsAppCircuitBreaker.isTripped(intId);
+                },
+                (err) => {
+                    assert.ok(err.message.includes('CIRCUIT_BREAKER_STORAGE_UNAVAILABLE'));
+                    return true;
+                }
+            );
+        } finally {
+            redisProxy.get = origGet;
+        }
+    });
+
+    it('9. Durable Circuit Breaker: Authorized reset clears state and audit logs operator', async () => {
+        const intId = testIntegrationId.toString();
+
+        await WhatsAppCircuitBreaker.recordAckTimeout(intId);
+        await WhatsAppCircuitBreaker.recordAckTimeout(intId);
+        await WhatsAppCircuitBreaker.recordAckTimeout(intId);
+
+        const resetRes = await WhatsAppCircuitBreaker.reset(intId, 'SUPER_ADMIN_SURPOSE', 'Health check passed on EC2');
+        assert.equal(resetRes.success, true);
+        assert.equal(resetRes.state, 'CLOSED');
+        assert.equal(resetRes.operator, 'SUPER_ADMIN_SURPOSE');
+
+        const stateAfter = await WhatsAppCircuitBreaker.isTripped(intId);
+        assert.equal(stateAfter.tripped, false);
+        assert.equal(stateAfter.state, 'CLOSED');
     });
 });

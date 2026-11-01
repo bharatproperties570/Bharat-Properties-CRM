@@ -358,6 +358,11 @@ export const BaileysConnectionManager = {
                         
                         console.log(`[BaileysConnectionManager] Connection closed for ${integrationId} (code: ${statusCode}, reason: ${errorMsg})`);
                         
+                        // 🛡️ Phase 2: Record disconnect in durable circuit breaker
+                        import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                            WhatsAppCircuitBreaker.recordDisconnect(integrationId, statusCode).catch(() => {});
+                        }).catch(() => {});
+
                         if (connections.get(integrationId) === sock) {
                             connections.delete(integrationId);
                         }
@@ -553,7 +558,7 @@ export const BaileysConnectionManager = {
                     }
                 });
 
-                // 🚀 Phase C Enterprise Reliability: Outbound ACK & Delivery State Reconciliation
+                // 🚀 Phase C Enterprise Reliability: Outbound ACK & Delivery State Monotonic Reconciliation
                 sock.ev.on('messages.update', async (updates) => {
                     try {
                         const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
@@ -565,37 +570,105 @@ export const BaileysConnectionManager = {
                             const newStatusNumber = item.update?.status;
                             if (!msgId || !newStatusNumber) continue;
 
-                            let deliveryStatus = null;
+                            const now = new Date();
+
                             if (newStatusNumber === 2) { // SERVER_ACK
-                                deliveryStatus = 'SERVER_ACKNOWLEDGED';
                                 await WhatsAppCircuitBreaker.recordSuccess(integrationId);
-                            } else if (newStatusNumber === 3) { // DELIVERY_ACK
-                                deliveryStatus = 'DELIVERY_CONFIRMED';
-                            } else if (newStatusNumber === 4) { // READ
-                                deliveryStatus = 'READ';
-                            }
 
-                            if (deliveryStatus) {
-                                const now = new Date();
-                                const updateFields = {
-                                    status: deliveryStatus,
-                                    lastAttemptAt: now
-                                };
-                                if (deliveryStatus === 'SERVER_ACKNOWLEDGED') updateFields.serverAckAt = now;
-                                if (deliveryStatus === 'DELIVERY_CONFIRMED') updateFields.deliveryReceiptAt = now;
-                                if (deliveryStatus === 'READ') updateFields.readAt = now;
-
+                                // 🔒 Monotonic check: Never regress DELIVERY_CONFIRMED, DELIVERED, or READ back to SERVER_ACKNOWLEDGED
                                 await MarketingDelivery.updateMany(
-                                    { providerMessageId: msgId },
-                                    { $set: updateFields }
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'SERVER_ACKNOWLEDGED',
+                                            serverAckAt: now,
+                                            lastAttemptAt: now
+                                        }
+                                    }
+                                );
+                                await MarketingDelivery.updateMany(
+                                    { providerMessageId: msgId, serverAckAt: { $exists: false } },
+                                    { $set: { serverAckAt: now } }
                                 );
 
                                 await WhatsAppDispatch.updateMany(
-                                    { providerMessageId: msgId },
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                    },
                                     {
                                         $set: {
-                                            status: deliveryStatus,
-                                            deliveryStatus: deliveryStatus,
+                                            status: 'SERVER_ACKNOWLEDGED',
+                                            deliveryStatus: 'SERVER_ACKNOWLEDGED',
+                                            deliveryStatusAt: now
+                                        }
+                                    }
+                                );
+                            } else if (newStatusNumber === 3) { // DELIVERY_ACK
+                                // 🔒 Monotonic check: Never regress READ back to DELIVERY_CONFIRMED
+                                await MarketingDelivery.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'DELIVERY_CONFIRMED',
+                                            deliveryReceiptAt: now,
+                                            lastAttemptAt: now
+                                        }
+                                    }
+                                );
+                                await MarketingDelivery.updateMany(
+                                    { providerMessageId: msgId, deliveryReceiptAt: { $exists: false } },
+                                    { $set: { deliveryReceiptAt: now } }
+                                );
+
+                                await WhatsAppDispatch.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'DELIVERY_CONFIRMED',
+                                            deliveryStatus: 'DELIVERY_CONFIRMED',
+                                            deliveryStatusAt: now
+                                        }
+                                    }
+                                );
+                            } else if (newStatusNumber === 4) { // READ
+                                // 🔒 Monotonic check: Only update if not already READ
+                                await MarketingDelivery.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $ne: 'READ' }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'READ',
+                                            readAt: now,
+                                            lastAttemptAt: now
+                                        }
+                                    }
+                                );
+                                await MarketingDelivery.updateMany(
+                                    { providerMessageId: msgId, readAt: { $exists: false } },
+                                    { $set: { readAt: now } }
+                                );
+
+                                await WhatsAppDispatch.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $ne: 'READ' }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'READ',
+                                            deliveryStatus: 'READ',
                                             deliveryStatusAt: now
                                         }
                                     }
@@ -610,14 +683,46 @@ export const BaileysConnectionManager = {
                 sock.ev.on('message-receipt.update', async (receipts) => {
                     try {
                         const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+                        const { default: WhatsAppDispatch } = await import('../../models/WhatsAppDispatch.js');
+                        const now = new Date();
+
                         for (const item of (receipts || [])) {
                             const msgId = item.key?.id;
                             if (!msgId) continue;
                             const receipt = item.receipt;
-                            if (receipt && (receipt.readTimestamp || receipt.receiptTimestamp)) {
+                            if (!receipt) continue;
+
+                            // ⚠️ Directive Rule: receiptTimestamp alone must NOT be interpreted as READ!
+                            // Only readTimestamp establishes READ. receiptTimestamp establishes DELIVERY_CONFIRMED.
+                            if (receipt.readTimestamp) {
                                 await MarketingDelivery.updateMany(
-                                    { providerMessageId: msgId },
-                                    { $set: { status: 'READ', readAt: new Date() } }
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $ne: 'READ' }
+                                    },
+                                    { $set: { status: 'READ', readAt: now } }
+                                );
+                                await WhatsAppDispatch.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $ne: 'READ' }
+                                    },
+                                    { $set: { status: 'READ', deliveryStatus: 'READ', deliveryStatusAt: now } }
+                                );
+                            } else if (receipt.receiptTimestamp) {
+                                await MarketingDelivery.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                    },
+                                    { $set: { status: 'DELIVERY_CONFIRMED', deliveryReceiptAt: now } }
+                                );
+                                await WhatsAppDispatch.updateMany(
+                                    {
+                                        providerMessageId: msgId,
+                                        status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                    },
+                                    { $set: { status: 'DELIVERY_CONFIRMED', deliveryStatus: 'DELIVERY_CONFIRMED', deliveryStatusAt: now } }
                                 );
                             }
                         }

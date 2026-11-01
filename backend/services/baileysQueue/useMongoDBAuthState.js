@@ -12,6 +12,17 @@ export class BaileysAuthDatabaseError extends Error {
     }
 }
 
+export class BaileysAuthKeyCorruptionError extends Error {
+    constructor(message, originalError, sessionDetails = {}) {
+        super(message);
+        this.name = 'BaileysAuthKeyCorruptionError';
+        this.originalError = originalError;
+        this.sessionId = sessionDetails?.sessionId;
+        this.fileId = sessionDetails?.fileId;
+        this.type = sessionDetails?.type;
+    }
+}
+
 export const useMongoDBAuthState = async (sessionId) => {
     const writeData = async (data, fileId) => {
         try {
@@ -22,21 +33,38 @@ export const useMongoDBAuthState = async (sessionId) => {
             );
         } catch (error) {
             console.error(`[BaileysAuth] Error writing to MongoDB for session ${sessionId} and file ${fileId}:`, error.message);
+            // Wire auth persistence failure to durable circuit breaker
+            import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                WhatsAppCircuitBreaker.recordAuthFailure(sessionId, error).catch(() => {});
+            }).catch(() => {});
+
             throw new BaileysAuthDatabaseError(`Failed to write Baileys auth record for fileId '${fileId}'`, error, { sessionId, fileId });
         }
     };
 
     const readData = async (fileId) => {
+        let document;
         try {
-            const document = await BaileysAuth.findOne({ sessionId, fileId });
-            if (document && document.data) {
-                return JSON.parse(document.data, BufferJSON.reviver);
-            }
-            return null;
+            document = await BaileysAuth.findOne({ sessionId, fileId });
         } catch (error) {
             console.error(`[BaileysAuth] Error reading from MongoDB for session ${sessionId} and file ${fileId}:`, error.message);
             throw new BaileysAuthDatabaseError(`Failed to read Baileys auth record for fileId '${fileId}'`, error, { sessionId, fileId });
         }
+
+        if (!document) {
+            return null; // Genuinely absent key
+        }
+
+        if (document.data) {
+            try {
+                return JSON.parse(document.data, BufferJSON.reviver);
+            } catch (parseErr) {
+                console.error(`[BaileysAuth] CRITICAL: Corrupted authentication payload for session ${sessionId}, fileId ${fileId}:`, parseErr.message);
+                throw new BaileysAuthKeyCorruptionError(`Persisted authentication record for '${fileId}' in session '${sessionId}' is corrupted and cannot be parsed`, parseErr, { sessionId, fileId });
+            }
+        }
+
+        return null;
     };
 
     const removeData = async (fileId) => {
@@ -48,8 +76,8 @@ export const useMongoDBAuthState = async (sessionId) => {
         }
     };
 
-    // Reads credentials. If readData throws due to a DB/network outage, the error propagates
-    // and initAuthCreds() is NEVER called, protecting existing session state from corruption.
+    // Reads credentials. If readData throws due to a DB outage or key corruption, the error propagates
+    // and initAuthCreds() is NEVER called, protecting existing session state from destruction.
     const credsData = await readData('creds');
     let creds = credsData || initAuthCreds();
 
@@ -86,21 +114,22 @@ export const useMongoDBAuthState = async (sessionId) => {
                                         data[origId] = value;
                                     }
                                 } catch (parseErr) {
-                                    console.error(`[BaileysAuth] Parse error for ${doc.fileId}:`, parseErr.message);
-                                    const origId = fileIdMap.get(doc.fileId);
-                                    if (origId) {
-                                        data[origId] = null;
-                                    }
+                                    console.error(`[BaileysAuth] CRITICAL: Persisted key '${doc.fileId}' for session '${sessionId}' is corrupted:`, parseErr.message);
+                                    // P0 Rule: Corrupt persisted key must produce explicit integrity error, NEVER silently convert to null!
+                                    throw new BaileysAuthKeyCorruptionError(`Persisted key '${doc.fileId}' for session '${sessionId}' is corrupted and cannot be deserialized`, parseErr, { sessionId, fileId: doc.fileId, type });
                                 }
                             }
                         }
                     } catch (error) {
+                        if (error instanceof BaileysAuthKeyCorruptionError) {
+                            throw error;
+                        }
                         console.error(`[BaileysAuth] Database batch read error for type ${type}, session ${sessionId}:`, error.message);
                         // Explicit failure semantics: A database/network failure must NOT be disguised as missing keys!
                         throw new BaileysAuthDatabaseError(`Database query failed during keys.get for type '${type}'`, error, { sessionId, type });
                     }
 
-                    // Fill genuinely absent keys with null only when the database read was successful
+                    // Fill genuinely absent keys with null only when the database read was successful and key was not found
                     for (const id of ids) {
                         if (data[id] === undefined) {
                             data[id] = null;
@@ -138,6 +167,10 @@ export const useMongoDBAuthState = async (sessionId) => {
                             await BaileysAuth.bulkWrite(operations, { ordered: false });
                         } catch (error) {
                             console.error(`[BaileysAuth] Bulk write error for session ${sessionId}:`, error.message);
+                            import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                                WhatsAppCircuitBreaker.recordAuthFailure(sessionId, error).catch(() => {});
+                            }).catch(() => {});
+
                             throw new BaileysAuthDatabaseError(`Failed to persist keys bulkWrite for session '${sessionId}'`, error, { sessionId });
                         }
                     }

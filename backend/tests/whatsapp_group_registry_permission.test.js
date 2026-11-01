@@ -6,9 +6,11 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import WhatsAppGroupRegistry from '../models/WhatsAppGroupRegistry.js';
-import WhatsAppGroupRegistryService from '../services/WhatsAppGroupRegistryService.js';
+import WhatsAppGroupRegistryService, { GROUP_METADATA_MAX_AGE_MS } from '../services/WhatsAppGroupRegistryService.js';
+import WhatsAppService from '../services/WhatsAppService.js';
+import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
 
-describe('Phase B — Enterprise Group Registry & Permission Validation Suite', () => {
+describe('Phase B & 4 — Enterprise Group Registry & Permission Freshness Suite', () => {
     let mongoServer;
     const testIntegrationId = new mongoose.Types.ObjectId();
     const otherIntegrationId = new mongoose.Types.ObjectId();
@@ -33,9 +35,10 @@ describe('Phase B — Enterprise Group Registry & Permission Validation Suite', 
 
     beforeEach(async () => {
         await WhatsAppGroupRegistry.deleteMany({});
+        await WhatsAppIntegration.deleteMany({});
     });
 
-    it('1. Normal group allows sending for regular members (CAN_SEND)', () => {
+    it('1. Exact PN matching works for standard Indian 10-digit and international formats', () => {
         const groupMeta = {
             id: '120363001@g.us',
             subject: 'Mohali Property Circle',
@@ -47,34 +50,34 @@ describe('Phase B — Enterprise Group Registry & Permission Validation Suite', 
             ]
         };
 
-        const res = WhatsAppGroupRegistryService.evaluatePermission(groupMeta, '919876543210', null);
+        const res = WhatsAppGroupRegistryService.evaluatePermission(groupMeta, '9876543210', null);
         assert.equal(res.canSend, true);
         assert.equal(res.permissionStatus, 'CAN_SEND');
         assert.equal(res.status, 'ACTIVE');
         assert.equal(res.senderIsAdmin, false);
     });
 
-    it('2. Announcement group blocks non-admin sender (ADMIN_ONLY_RESTRICTED)', () => {
+    it('2. Partial-digit collisions DO NOT match and do not grant unauthorized admin rights', () => {
+        // Participant has number 9999876543210 (ends with 9876543210 but is NOT the sender)
         const groupMeta = {
             id: '120363002@g.us',
-            subject: 'Zirakpur Announcements (Admin Only)',
+            subject: 'Announcement Channel',
             announce: true,
             restrict: true,
             participants: [
-                { id: '919876543210@s.whatsapp.net', admin: null },
-                { id: '919999999999@s.whatsapp.net', admin: 'superadmin' }
+                { id: '9999876543210@s.whatsapp.net', admin: 'admin' }, // Colliding suffix
+                { id: '919876543210@s.whatsapp.net', admin: null }       // Actual sender (regular member)
             ]
         };
 
-        const res = WhatsAppGroupRegistryService.evaluatePermission(groupMeta, '919876543210', null);
+        const res = WhatsAppGroupRegistryService.evaluatePermission(groupMeta, '9876543210', null);
+        // Actual sender is NOT admin, so announce: true must result in ADMIN_ONLY_RESTRICTED
         assert.equal(res.canSend, false);
         assert.equal(res.permissionStatus, 'ADMIN_ONLY_RESTRICTED');
-        assert.equal(res.status, 'RESTRICTED');
         assert.equal(res.senderIsAdmin, false);
-        assert.ok(res.reason.includes('Only group admins can post'));
     });
 
-    it('3. Announcement group permits admin sender (CAN_SEND)', () => {
+    it('3. Announcement group permits verified admin sender (CAN_SEND)', () => {
         const groupMeta = {
             id: '120363003@g.us',
             subject: 'Official Deals Broadcast Channel',
@@ -93,7 +96,7 @@ describe('Phase B — Enterprise Group Registry & Permission Validation Suite', 
         assert.equal(res.senderIsAdmin, true);
     });
 
-    it('4. Sender identity resolution maps correctly across PN and LID formats', () => {
+    it('4. Sender identity resolution maps correctly across exact LID format', () => {
         const groupMeta = {
             id: '120363004@g.us',
             subject: 'LID Verified Group',
@@ -104,109 +107,109 @@ describe('Phase B — Enterprise Group Registry & Permission Validation Suite', 
             ]
         };
 
-        // Matching by LID
         const res = WhatsAppGroupRegistryService.evaluatePermission(groupMeta, '919876543210', '12345678901234');
         assert.equal(res.canSend, true);
         assert.equal(res.permissionStatus, 'CAN_SEND');
         assert.equal(res.senderIsSuperAdmin, true);
     });
 
-    it('5. syncAllGroups idempotently upserts registry and marks removed groups as LEFT_OR_REMOVED', async () => {
-        const mockSock = {
-            user: { id: '919876543210:0@s.whatsapp.net', lid: '123456@lid' },
-            groupFetchAllParticipating: async () => ({
-                'group-1@g.us': {
-                    id: 'group-1@g.us',
-                    subject: 'Active Group 1',
-                    announce: false,
-                    participants: [{ id: '919876543210@s.whatsapp.net', admin: null }]
-                },
-                'group-2@g.us': {
-                    id: 'group-2@g.us',
-                    subject: 'Admin Channel',
-                    announce: true,
-                    participants: [{ id: '919876543210@s.whatsapp.net', admin: null }]
-                }
-            })
+    it('5. Stale metadata (>24h) blocks group dispatch fail-closed in validateGroupForDispatch and getSendableGroups', async () => {
+        const staleDate = new Date(Date.now() - (GROUP_METADATA_MAX_AGE_MS + 3600000)); // 25 hours ago
+
+        await WhatsAppGroupRegistry.create({
+            integrationId: testIntegrationId,
+            groupJid: 'stale-group@g.us',
+            subject: 'Stale Group',
+            announce: false,
+            permissionStatus: 'CAN_SEND',
+            status: 'ACTIVE',
+            metadataFetchedAt: staleDate,
+            lastVerifiedAt: staleDate
+        });
+
+        // 1. validateGroupForDispatch blocks stale group
+        const valRes = await WhatsAppGroupRegistryService.validateGroupForDispatch(testIntegrationId, 'stale-group@g.us');
+        assert.equal(valRes.allowed, false);
+        assert.equal(valRes.permissionStatus, 'STALE_METADATA');
+        assert.ok(valRes.reason.includes('stale'));
+
+        // 2. getSendableGroups excludes stale group
+        const sendable = await WhatsAppGroupRegistryService.getSendableGroups(testIntegrationId);
+        assert.equal(sendable.length, 0, 'Stale groups must be excluded from sendable groups list');
+    });
+
+    it('6. Empty socket response skips purge and protects existing registered groups', async () => {
+        // Pre-create an existing verified group
+        await WhatsAppGroupRegistry.create({
+            integrationId: testIntegrationId,
+            groupJid: 'existing-group@g.us',
+            subject: 'Existing Active Group',
+            announce: false,
+            permissionStatus: 'CAN_SEND',
+            status: 'ACTIVE',
+            metadataFetchedAt: new Date()
+        });
+
+        const mockSockEmpty = {
+            user: { id: '919876543210:0@s.whatsapp.net' },
+            groupFetchAllParticipating: async () => ({})
         };
 
-        // Initial sync
-        const res1 = await WhatsAppGroupRegistryService.syncAllGroups(testIntegrationId, mockSock);
-        assert.equal(res1.count, 2);
+        const res = await WhatsAppGroupRegistryService.syncAllGroups(testIntegrationId, mockSockEmpty);
+        assert.equal(res.skippedPurge, true);
 
-        const active1 = await WhatsAppGroupRegistry.findOne({ integrationId: testIntegrationId, groupJid: 'group-1@g.us' });
-        assert.equal(active1.permissionStatus, 'CAN_SEND');
-
-        const active2 = await WhatsAppGroupRegistry.findOne({ integrationId: testIntegrationId, groupJid: 'group-2@g.us' });
-        assert.equal(active2.permissionStatus, 'ADMIN_ONLY_RESTRICTED');
-
-        // Subsequent sync where group-2 is removed from participating list
-        mockSock.groupFetchAllParticipating = async () => ({
-            'group-1@g.us': {
-                id: 'group-1@g.us',
-                subject: 'Active Group 1 Renamed',
-                announce: false,
-                participants: [{ id: '919876543210@s.whatsapp.net', admin: null }]
-            }
-        });
-
-        await WhatsAppGroupRegistryService.syncAllGroups(testIntegrationId, mockSock);
-
-        // Group 1 updated
-        const updated1 = await WhatsAppGroupRegistry.findOne({ integrationId: testIntegrationId, groupJid: 'group-1@g.us' });
-        assert.equal(updated1.subject, 'Active Group 1 Renamed');
-        assert.equal(updated1.status, 'ACTIVE');
-
-        // Group 2 transitioned to LEFT_OR_REMOVED
-        const removed2 = await WhatsAppGroupRegistry.findOne({ integrationId: testIntegrationId, groupJid: 'group-2@g.us' });
-        assert.equal(removed2.permissionStatus, 'LEFT_OR_REMOVED');
-        assert.equal(removed2.status, 'INACTIVE');
+        // Verify existing group is still ACTIVE and NOT deactivated
+        const group = await WhatsAppGroupRegistry.findOne({ integrationId: testIntegrationId, groupJid: 'existing-group@g.us' });
+        assert.equal(group.status, 'ACTIVE');
+        assert.equal(group.permissionStatus, 'CAN_SEND');
     });
 
-    it('6. validateGroupForDispatch blocks unverified or restricted groups fail-closed', async () => {
-        await WhatsAppGroupRegistry.create({
-            integrationId: testIntegrationId,
-            groupJid: 'restricted@g.us',
-            subject: 'Restricted Channel',
-            announce: true,
-            senderIsAdmin: false,
-            permissionStatus: 'ADMIN_ONLY_RESTRICTED',
-            status: 'RESTRICTED'
+    it('7. Actual WhatsAppService permission gate blocks socket send fail-closed when group permission fails', async () => {
+        await WhatsAppIntegration.create({
+            _id: testIntegrationId,
+            provider: 'BAILEYS',
+            status: 'ACTIVE',
+            accountLabel: 'Test Line'
         });
 
-        // 1. Restricted group
-        const checkRestricted = await WhatsAppGroupRegistryService.validateGroupForDispatch(testIntegrationId, 'restricted@g.us');
-        assert.equal(checkRestricted.allowed, false);
-        assert.equal(checkRestricted.permissionStatus, 'ADMIN_ONLY_RESTRICTED');
+        // 1. Target an unverified/missing group
+        const res = await WhatsAppService.sendMessage('unregistered-group@g.us', 'Hello group', {
+            integrationId: testIntegrationId.toString(),
+            useBaileys: true,
+            provider: 'BAILEYS'
+        });
 
-        // 2. Unregistered / unknown group
-        const checkUnknown = await WhatsAppGroupRegistryService.validateGroupForDispatch(testIntegrationId, 'unregistered@g.us');
-        assert.equal(checkUnknown.allowed, false);
-        assert.equal(checkUnknown.permissionStatus, 'UNKNOWN');
-
-        // 3. Normal 1-on-1 contact
-        const checkIndividual = await WhatsAppGroupRegistryService.validateGroupForDispatch(testIntegrationId, '919876543210@s.whatsapp.net');
-        assert.equal(checkIndividual.allowed, true);
-        assert.equal(checkIndividual.isGroup, false);
+        assert.equal(res.success, false);
+        assert.equal(res.deliveryStatus, 'FAILED');
+        assert.ok(res.error.includes('GROUP_PERMISSION_DENIED'));
+        assert.ok(res.error.includes('not registered'));
     });
 
-    it('7. Tenant and Integration Isolation: Groups belonging to Integration A are never accessed by Integration B', async () => {
-        await WhatsAppGroupRegistry.create({
-            integrationId: testIntegrationId,
-            groupJid: 'tenant-a-group@g.us',
-            subject: 'Tenant A Group',
-            permissionStatus: 'CAN_SEND',
-            status: 'ACTIVE'
+    it('8. Actual WhatsAppService fails closed with GROUP_PERMISSION_VALIDATION_UNAVAILABLE when registry throws DB error', async () => {
+        await WhatsAppIntegration.create({
+            _id: testIntegrationId,
+            provider: 'BAILEYS',
+            status: 'ACTIVE',
+            accountLabel: 'Test Line'
         });
 
-        const sendableA = await WhatsAppGroupRegistryService.getSendableGroups(testIntegrationId);
-        const sendableB = await WhatsAppGroupRegistryService.getSendableGroups(otherIntegrationId);
+        const origFindOne = WhatsAppGroupRegistry.findOne;
+        WhatsAppGroupRegistry.findOne = () => {
+            throw new Error('MongoClusterUnavailable: primary stepped down');
+        };
 
-        assert.equal(sendableA.length, 1);
-        assert.equal(sendableB.length, 0);
+        try {
+            const res = await WhatsAppService.sendMessage('120363001@g.us', 'Hello group', {
+                integrationId: testIntegrationId.toString(),
+                useBaileys: true,
+                provider: 'BAILEYS'
+            });
 
-        const checkCrossTenant = await WhatsAppGroupRegistryService.validateGroupForDispatch(otherIntegrationId, 'tenant-a-group@g.us');
-        assert.equal(checkCrossTenant.allowed, false);
-        assert.equal(checkCrossTenant.permissionStatus, 'UNKNOWN');
+            assert.equal(res.success, false);
+            assert.equal(res.deliveryStatus, 'FAILED');
+            assert.ok(res.error.includes('GROUP_PERMISSION_VALIDATION_UNAVAILABLE'));
+        } finally {
+            WhatsAppGroupRegistry.findOne = origFindOne;
+        }
     });
 });

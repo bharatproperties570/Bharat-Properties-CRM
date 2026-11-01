@@ -1,7 +1,29 @@
 import WhatsAppGroupRegistry from '../models/WhatsAppGroupRegistry.js';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
 
+export const GROUP_METADATA_MAX_AGE_MS = process.env.WHATSAPP_GROUP_METADATA_TTL_MS
+    ? parseInt(process.env.WHATSAPP_GROUP_METADATA_TTL_MS, 10)
+    : 24 * 60 * 60 * 1000; // 24-hour default freshness limit
+
 export class WhatsAppGroupRegistryService {
+    /**
+     * Normalizes a phone number to standard 10-digit Indian mobile or clean digits for exact identity matching
+     */
+    static normalizeIdentityPhone(rawPhone) {
+        if (!rawPhone) return null;
+        const digits = String(rawPhone).replace(/\D/g, '');
+        if (digits.length === 12 && digits.startsWith('91')) {
+            return digits.slice(2);
+        }
+        if (digits.length === 11 && digits.startsWith('0')) {
+            return digits.slice(1);
+        }
+        if (digits.length === 10) {
+            return digits;
+        }
+        return digits.length > 0 ? digits : null;
+    }
+
     /**
      * Extracts normalized sender identifiers (phone and optional LID) from Baileys sock.user
      */
@@ -17,24 +39,34 @@ export class WhatsAppGroupRegistryService {
     }
 
     /**
-     * Determines whether a participant in Baileys group metadata matches the sender
+     * Determines whether a participant in Baileys group metadata matches the sender using EXACT identity matching.
+     * Replaces unsafe endsWith() with strict normalized comparisons to prevent partial-digit collisions.
      */
     static isSenderParticipant(participant, senderPhone, senderLid) {
         if (!participant || !participant.id) return false;
-        const pDigits = participant.id.split('@')[0].split(':')[0].replace(/\D/g, '');
+        const rawId = String(participant.id).trim();
+        const pDigits = rawId.split('@')[0].split(':')[0].replace(/\D/g, '');
         if (!pDigits) return false;
 
-        if (senderPhone && (pDigits === senderPhone || pDigits.endsWith(senderPhone) || senderPhone.endsWith(pDigits))) {
+        const isLidParticipant = rawId.endsWith('@lid') || rawId.includes('@lid');
+        if (isLidParticipant) {
+            // Strict exact LID matching only
+            return Boolean(senderLid && pDigits === senderLid);
+        }
+
+        // Standard phone matching: exact normalized comparison
+        const normP = this.normalizeIdentityPhone(pDigits);
+        const normSender = this.normalizeIdentityPhone(senderPhone);
+        if (normP && normSender && normP === normSender) {
             return true;
         }
-        if (senderLid && pDigits === senderLid) {
-            return true;
-        }
+
         return false;
     }
 
     /**
-     * Evaluates permission status from group metadata and sender identifiers
+     * Evaluates permission status from group metadata and sender identifiers.
+     * Note: announce controls message posting permissions; restrict controls group settings changes.
      */
     static evaluatePermission(groupMeta, senderPhone, senderLid) {
         const isAnnounce = Boolean(groupMeta?.announce || groupMeta?.isCommunityAnnounce);
@@ -59,7 +91,7 @@ export class WhatsAppGroupRegistryService {
         }
 
         // If participants list was provided but sender was not found in it,
-        // sender might have left or been removed
+        // sender has left or been removed from this group
         if (participants.length > 0 && !senderInGroup) {
             return {
                 announce: isAnnounce,
@@ -73,7 +105,7 @@ export class WhatsAppGroupRegistryService {
             };
         }
 
-        // Announcement group: Only admins/superadmins can post
+        // Announcement group: Only admins/superadmins can post messages
         if (isAnnounce) {
             if (senderIsAdmin || senderIsSuperAdmin) {
                 return {
@@ -116,6 +148,7 @@ export class WhatsAppGroupRegistryService {
     /**
      * Synchronizes all participating groups from a live Baileys socket into WhatsAppGroupRegistry.
      * Idempotent: upserts active groups and marks removed groups as LEFT_OR_REMOVED.
+     * Protects existing groups if socket fetch fails or returns an empty result.
      */
     static async syncAllGroups(integrationId, sock) {
         if (!integrationId || !sock) return { count: 0, groups: [] };
@@ -133,6 +166,12 @@ export class WhatsAppGroupRegistryService {
         }
 
         const groupsList = Object.values(rawGroups || {});
+        // Safety guard: Empty/failed sync must NOT purge or deactivate all registered groups
+        if (groupsList.length === 0) {
+            console.warn(`[WhatsAppGroupRegistry] groupFetchAllParticipating returned empty list for integration ${integrationId}. Skipping registry purge to protect existing registered groups.`);
+            return { count: 0, skippedPurge: true };
+        }
+
         const activeGroupJids = new Set();
         const bulkOps = [];
         const now = new Date();
@@ -173,7 +212,7 @@ export class WhatsAppGroupRegistryService {
             await WhatsAppGroupRegistry.bulkWrite(bulkOps, { ordered: false });
         }
 
-        // Mark previously registered groups that are no longer in participating list as LEFT_OR_REMOVED
+        // Mark previously registered groups that are absent from participating list as LEFT_OR_REMOVED
         if (activeGroupJids.size > 0) {
             await WhatsAppGroupRegistry.updateMany(
                 {
@@ -206,7 +245,11 @@ export class WhatsAppGroupRegistryService {
         if (updateData.subject !== undefined) setFields.subject = updateData.subject;
         if (updateData.announce !== undefined) setFields.announce = Boolean(updateData.announce);
         if (updateData.restrict !== undefined) setFields.restrict = Boolean(updateData.restrict);
-        if (updateData.participantCount !== undefined) setFields.participantCount = updateData.participantCount;
+        if (updateData.participantCount !== undefined) {
+            setFields.participantCount = updateData.participantCount;
+            // Refreshed participant count implies fresh metadata fetch
+            setFields.metadataFetchedAt = now;
+        }
         if (updateData.permissionStatus !== undefined) setFields.permissionStatus = updateData.permissionStatus;
         if (updateData.status !== undefined) setFields.status = updateData.status;
 
@@ -218,19 +261,23 @@ export class WhatsAppGroupRegistryService {
     }
 
     /**
-     * Fast read (<20ms) of sendable groups for UI selectors and campaign builders
+     * Fast read (<20ms) of sendable groups for UI selectors and campaign builders.
+     * Excludes stale records where metadata is older than GROUP_METADATA_MAX_AGE_MS.
      */
     static async getSendableGroups(integrationId) {
         if (!integrationId) return [];
+        const freshnessThreshold = new Date(Date.now() - GROUP_METADATA_MAX_AGE_MS);
         return await WhatsAppGroupRegistry.find({
             integrationId,
             status: 'ACTIVE',
-            permissionStatus: 'CAN_SEND'
+            permissionStatus: 'CAN_SEND',
+            metadataFetchedAt: { $gte: freshnessThreshold }
         }).lean();
     }
 
     /**
-     * Pre-flight dispatch verification: guarantees a group is verified and sendable before external network I/O
+     * Pre-flight dispatch verification: guarantees a group is registered, verified, fresh and sendable
+     * before any external network socket transmission is initiated.
      */
     static async validateGroupForDispatch(integrationId, groupJid) {
         if (!groupJid || !groupJid.endsWith('@g.us')) {
@@ -249,6 +296,21 @@ export class WhatsAppGroupRegistryService {
                 isGroup: true,
                 permissionStatus: 'UNKNOWN',
                 reason: `Group ${cleanJid} is not registered in the verified Group Registry for this account. Refresh group list before dispatching.`
+            };
+        }
+
+        // Validate metadata freshness limit
+        const metadataAge = record.metadataFetchedAt
+            ? (Date.now() - new Date(record.metadataFetchedAt).getTime())
+            : Infinity;
+
+        if (metadataAge > GROUP_METADATA_MAX_AGE_MS) {
+            const ageHours = record.metadataFetchedAt ? Math.round(metadataAge / (1000 * 60 * 60)) : 'unrecorded';
+            return {
+                allowed: false,
+                isGroup: true,
+                permissionStatus: 'STALE_METADATA',
+                reason: `Group '${record.subject}' metadata is stale (${ageHours}h old, limit ${Math.round(GROUP_METADATA_MAX_AGE_MS / (1000 * 60 * 60))}h). Refresh group list before dispatching.`
             };
         }
 

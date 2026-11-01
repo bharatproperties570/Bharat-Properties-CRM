@@ -2378,7 +2378,7 @@ class WhatsAppService {
                 }
             }
 
-            // 🛡️ Enterprise Circuit Breaker Check
+            // 🛡️ Enterprise Circuit Breaker Check (Fail-Closed)
             try {
                 const { default: WhatsAppCircuitBreaker } = await import('./WhatsAppCircuitBreaker.js');
                 const cbStatus = await WhatsAppCircuitBreaker.isTripped(config.integrationId);
@@ -2394,10 +2394,20 @@ class WhatsAppService {
                     };
                 }
             } catch (cbErr) {
-                // Non-fatal if circuit breaker check fails
+                // Fail-Closed: If circuit breaker infrastructure / Redis is unavailable, block dispatch
+                console.error(`[WhatsAppService/Baileys] Circuit breaker check failed for integration ${config.integrationId}:`, cbErr.message);
+                return {
+                    success: false,
+                    deliveryStatus: 'FAILED',
+                    isDeliveryUnknown: false,
+                    isAmbiguous: false,
+                    error: `CIRCUIT_BREAKER_CHECK_FAILED: Cannot verify WhatsApp line safety status: ${cbErr.message}`,
+                    provider: 'baileys',
+                    latencyMs: 0
+                };
             }
 
-            // 🛡️ Enterprise Phase B: Pre-flight Group Permission Validation
+            // 🛡️ Enterprise Phase B: Pre-flight Group Permission Validation (Fail-Closed)
             if (jid.includes('@g.us')) {
                 try {
                     const { default: WhatsAppGroupRegistryService } = await import('./WhatsAppGroupRegistryService.js');
@@ -2414,7 +2424,17 @@ class WhatsAppService {
                         };
                     }
                 } catch (permErr) {
-                    // Non-fatal if registry check throws
+                    // Fail-Closed: DB error, registry outage, or validation exception MUST block socket transmission
+                    console.error(`[WhatsAppService/Baileys] Group permission validation failed for ${jid}:`, permErr.message);
+                    return {
+                        success: false,
+                        deliveryStatus: 'FAILED',
+                        isDeliveryUnknown: false,
+                        isAmbiguous: false,
+                        error: `GROUP_PERMISSION_VALIDATION_UNAVAILABLE: Unable to verify group permissions: ${permErr.message}`,
+                        provider: 'baileys',
+                        latencyMs: Date.now() - sendStartTime
+                    };
                 }
             }
 
