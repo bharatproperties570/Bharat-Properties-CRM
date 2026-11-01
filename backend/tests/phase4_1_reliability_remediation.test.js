@@ -1,10 +1,16 @@
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import http from 'node:http';
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryServer, MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import config from '../src/config/env.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
@@ -21,6 +27,7 @@ import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
+import { runMigration } from '../scripts/migrate_audit_log_idempotency_index.js';
 
 import {
     AuthorityBulkProcessor,
@@ -39,6 +46,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
     before(async () => {
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
+        await AuditLog.ensureIdempotencyIndex();
 
         tenantA = new mongoose.Types.ObjectId();
         tenantB = new mongoose.Types.ObjectId();
@@ -2107,6 +2115,3014 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 runItemId: item._id
             });
             assert.equal(finalSnapshots.length, 1, 'Exactly one snapshot exists after retry');
+        });
+
+        it('4.17 Worker B pauses during orphan cleanup; lease expires; Worker C reclaims via atomic claim path; B fails. Verify B cannot delete C snapshot or mark C RunItem FAILED, clear C lease, or change recovery metadata', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'FENCE-REC-417-1',
+                projectName: 'Lease Expiry Fencing Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Worker A crashed leaving orphan snapshot
+            const orphanedSnapshotA = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'a'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Worker B claims item
+            item.claimedBy = 'worker_fence_B';
+            item.leaseExpiresAt = new Date(Date.now() + 30000);
+            await item.save();
+
+            let snapC = null;
+
+            // Worker B attempts processing, but pauses in beforeOrphanCleanup while Worker C takes over
+            const bResult = await AuthorityBulkProcessor.processItem(item, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_fence_B',
+                beforeOrphanCleanup: async () => {
+                    // Simulate Worker B lease expiring
+                    await PropertyVerificationRunItem.updateOne(
+                        { _id: item._id },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    // Worker C reclaims the item using the production atomic claim query
+                    const claimTime = new Date();
+                    const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                        {
+                            _id: item._id,
+                            tenantId: tenantA,
+                            $or: [
+                                { status: 'PENDING' },
+                                { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                            ]
+                        },
+                        {
+                            $set: {
+                                status: 'PROCESSING',
+                                claimedBy: 'worker_reclaim_C',
+                                claimedAt: claimTime,
+                                leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                            }
+                        },
+                        { new: true }
+                    );
+                    assert.ok(claimedItemC, 'Worker C must claim item via production atomic claim query');
+
+                    // Worker C purges crashed Worker A's orphan snapshot, and creates snapshot C
+                    await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                        tenantId: tenantA,
+                        runItemId: item._id,
+                        snapshotId: orphanedSnapshotA._id,
+                        createdByWorkerId: 'worker_crashed_A'
+                    });
+
+                    snapC = await PropertyVerificationSnapshot.create({
+                        tenantId: tenantA,
+                        authorityCode: 'CHD',
+                        linkId: link._id,
+                        runItemId: item._id,
+                        createdByWorkerId: 'worker_reclaim_C',
+                        sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                        observedAt: new Date(),
+                        isSynthetic: true,
+                        provenance: 'SYNTHETIC_FIXTURE',
+                        identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                        normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                        contentHash: 'c'.repeat(64),
+                        isSealed: true,
+                        dataQualityStatus: 'COMPLETE'
+                    });
+
+                    await PropertyVerificationRunItem.updateOne(
+                        { _id: item._id },
+                        {
+                            $set: {
+                                snapshotId: snapC._id,
+                                'recoveryState.stage': 'ORPHAN_RECOVERED',
+                                'recoveryState.recoveredByWorkerId': 'worker_reclaim_C',
+                                'recoveryState.recoveredAt': new Date()
+                            }
+                        }
+                    );
+                }
+            });
+
+            // 1. Worker B must fail with ownershipLost
+            assert.equal(bResult.success, false);
+            assert.equal(bResult.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(bResult.ownershipLost, true);
+
+            // 2. Verify Worker B did NOT delete Worker C snapshot
+            const checkSnapC = await PropertyVerificationSnapshot.findById(snapC._id);
+            assert.ok(checkSnapC, 'Worker C snapshot must NOT be deleted by stale Worker B');
+            assert.equal(checkSnapC.createdByWorkerId, 'worker_reclaim_C');
+
+            // 3. Verify Worker B did NOT mark Worker C RunItem FAILED, clear lease, or overwrite recoveryState
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'PROCESSING', 'RunItem must remain in PROCESSING under Worker C ownership');
+            assert.equal(itemInDb.claimedBy, 'worker_reclaim_C');
+            assert.ok(itemInDb.leaseExpiresAt > new Date(), 'Worker C lease must not be cleared by Worker B');
+            assert.equal(itemInDb.recoveryState.recoveredByWorkerId, 'worker_reclaim_C', 'Recovery metadata must not be overwritten by Worker B');
+        });
+
+        it('4.18 AuditLog insertion fails after a successful cleanup attempt', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'AUDIT-FAIL-PURGE-1',
+                projectName: 'Audit Purge Fail Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_fail_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'd'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Intercept AuditLog.create to simulate failure when logging orphan purge
+            const originalCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                const event = Array.isArray(doc) ? doc[0]?.eventType : doc?.eventType;
+                if (event === 'authority_orphan_snapshot_purged') {
+                    throw new Error('Simulated database error during orphan purge audit insertion');
+                }
+                return originalCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_fail_B'
+                });
+            } finally {
+                AuditLog.create = originalCreate;
+            }
+
+            // Confirmed snapshot deletion with failed audit must transition to ORPHAN_PURGED_AUDIT_PENDING (not CLEANUP_FAILED)
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_PURGED_AUDIT_PENDING');
+            assert.equal(result.auditPending, true);
+            assert.ok(result.error.includes('Simulated database error during orphan purge audit insertion'));
+
+            // Verify RunItem preserves audit-pending state and remains eligible for safe retry
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'PROCESSING', 'Item must remain PROCESSING to allow safe retry/reconciliation');
+            assert.equal(itemInDb.recoveryState.stage, 'ORPHAN_PURGED_AUDIT_PENDING');
+            assert.equal(String(itemInDb.recoveryState.orphanedSnapshotId), String(orphanedSnapshot._id));
+            assert.equal(itemInDb.recoveryState.recoveredByWorkerId, 'worker_audit_fail_B');
+            assert.ok(itemInDb.recoveryState.purgedAt, 'purgedAt timestamp must be recorded');
+            assert.ok(itemInDb.recoveryState.error.includes('Simulated database error during orphan purge audit insertion'));
+
+            // Verify orphan snapshot was deleted from DB
+            const checkSnap = await PropertyVerificationSnapshot.findById(orphanedSnapshot._id);
+            assert.equal(checkSnap, null, 'Orphaned snapshot must be purged from database');
+
+            // Restore AuditLog and simulate retry / replacement worker claim
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    status: 'PROCESSING'
+                },
+                {
+                    $set: {
+                        claimedBy: 'worker_reconciler_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC, 'Worker C successfully claims the item in ORPHAN_PURGED_AUDIT_PENDING state');
+
+            // Worker C processes the item — it reconciles the missing audit event and completes successfully
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_reconciler_C'
+            });
+
+            assert.equal(cResult.success, true);
+            assert.ok(cResult.snapshotId);
+
+            // Verify missing audit is now reconciled and persisted
+            const reconciledAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: orphanedSnapshot._id
+            });
+            assert.ok(reconciledAudit, 'Reconciled audit log must be persisted for the purged snapshot');
+
+            // Verify RunItem completed with SUCCEEDED and ORPHAN_RECOVERED
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem.recoveryState.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Verify exactly 1 valid snapshot exists in DB (owned by Worker C)
+            const snapshotsInDb = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snapshotsInDb.length, 1);
+            assert.equal(snapshotsInDb[0].createdByWorkerId, 'worker_reconciler_C');
+        });
+
+        it('4.19 AuditLog insertion fails during cleanup failure handling', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'AUDIT-FAIL-CLEAN-1',
+                projectName: 'Audit Cleanup Error Fail Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_cleanup_fail',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'e'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Simulate AuditLog.create throwing on cleanup failure recording
+            const originalCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                if (doc.eventType === 'authority_orphan_cleanup_failed') {
+                    throw new Error('Simulated secondary audit persistence failure');
+                }
+                return originalCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_cleanup_fail',
+                    beforeOrphanCleanup: async () => {
+                        throw new Error('Primary orphan purge exception');
+                    }
+                });
+            } finally {
+                AuditLog.create = originalCreate;
+            }
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_CLEANUP_FAILED');
+            assert.ok(result.error.includes('Primary orphan purge exception'));
+            assert.ok(result.error.includes('Simulated secondary audit persistence failure') || result.auditError?.includes('Simulated secondary audit persistence failure'));
+
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'FAILED');
+            assert.equal(itemInDb.recoveryState.stage, 'CLEANUP_FAILED');
+            assert.ok(itemInDb.recoveryState.error.includes('Primary orphan purge exception'));
+            assert.ok(itemInDb.recoveryState.error.includes('Simulated secondary audit persistence failure'));
+        });
+
+        it('4.20 Orphan deletion returns deletedCount: 0', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ZERO-DEL-420-1',
+                projectName: 'Zero Deleted Count Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_zero_del_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '1'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Stub purgeOrphanedSnapshot to return deletedCount: 0
+            const originalPurge = PropertyVerificationSnapshot.purgeOrphanedSnapshot;
+            PropertyVerificationSnapshot.purgeOrphanedSnapshot = async function () {
+                return { acknowledged: true, deletedCount: 0, success: false };
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_zero_del_B'
+                });
+            } finally {
+                PropertyVerificationSnapshot.purgeOrphanedSnapshot = originalPurge;
+            }
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_CLEANUP_FAILED');
+            assert.ok(result.error.includes('ORPHAN_DELETION_UNCONFIRMED'));
+
+            // Verify no purge audit log was created
+            const purgeAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: orphanedSnapshot._id
+            });
+            assert.equal(purgeAudit, null, 'Must NOT write successful purge audit when deletedCount is 0');
+
+            // Verify RunItem state is FAILED and stage is CLEANUP_FAILED
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'FAILED');
+            assert.equal(itemInDb.recoveryState.stage, 'CLEANUP_FAILED');
+            assert.ok(itemInDb.recoveryState.error.includes('ORPHAN_DELETION_UNCONFIRMED'));
+        });
+
+        it('4.21 Cleanup exceeds the worker lease duration', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'LEASE-DUR-421-1',
+                projectName: 'Lease Duration Exceeded Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_timeout_B',
+                leaseExpiresAt: new Date(Date.now() + 40), // Short lease: 40ms
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '2'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            const result = await AuthorityBulkProcessor.processItem(item, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_timeout_B',
+                beforeOrphanCleanup: async () => {
+                    // Sleep 80ms to exceed worker lease duration
+                    await new Promise(resolve => setTimeout(resolve, 80));
+                }
+            });
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(result.ownershipLost, true);
+
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.notEqual(itemInDb.recoveryState?.stage, 'ORPHAN_RECOVERED', 'Stale worker must not record ORPHAN_RECOVERED');
+        });
+
+        it('4.22 Concurrent workers encounter the same orphan snapshot', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CONC-SNAP-422-1',
+                projectName: 'Concurrent Orphan Snapshot Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1,
+                processedItems: 0,
+                succeededItems: 0,
+                failedItems: 0
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000), // Expired lease
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '3'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Concurrent execution of Worker B and Worker C attempting recovery on the same run
+            const [resB, resC] = await Promise.all([
+                AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    batchSize: 1,
+                    workerId: 'worker_conc_B_422',
+                    isFixtureMode: true,
+                    maxWaitAttempts: 5,
+                    waitIntervalMs: 30
+                }),
+                AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    batchSize: 1,
+                    workerId: 'worker_conc_C_422',
+                    isFixtureMode: true,
+                    maxWaitAttempts: 5,
+                    waitIntervalMs: 30
+                })
+            ]);
+
+            assert.ok(['COMPLETED', 'PROCESSING'].includes(resB.status));
+            assert.ok(['COMPLETED', 'PROCESSING'].includes(resC.status));
+
+            const finalRun = await PropertyVerificationRun.findById(run._id);
+            assert.equal(finalRun.status, 'COMPLETED');
+            assert.equal(finalRun.processedItems, 1);
+            assert.equal(finalRun.succeededItems, 1);
+            assert.equal(finalRun.failedItems, 0);
+
+            // Exactly 1 accepted snapshot exists in DB
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snapshots.length, 1, 'Exactly one accepted snapshot must exist in database');
+
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'SUCCEEDED');
+            assert.equal(String(itemInDb.snapshotId), String(snapshots[0]._id));
+            assert.equal(itemInDb.recoveryState.stage, 'ORPHAN_RECOVERED');
+        });
+
+        it('4.23 Simulate a process crash after snapshot deletion but before AuditLog persistence', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CRASH-RECON-423-1',
+                projectName: 'Crash Reconciliation Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Worker A crashed leaving an orphan snapshot
+            const orphanedSnapshotA = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '7'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Worker B claims the item
+            item.claimedBy = 'worker_crashing_B';
+            item.leaseExpiresAt = new Date(Date.now() + 30000);
+            await item.save();
+
+            // Worker B runs processItem, but crashes immediately after snapshot purge (simulated via afterOrphanPurged)
+            try {
+                await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_crashing_B',
+                    afterOrphanPurged: async () => {
+                        // Simulate sudden node process death / crash immediately after snapshot purge
+                        await PropertyVerificationRunItem.updateOne(
+                            { _id: item._id },
+                            { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                        );
+                        throw new Error('SIMULATED_PROCESS_DEATH_AFTER_PURGE');
+                    }
+                });
+            } catch (err) {
+                // simulated crash
+            }
+
+            // Verify snapshot A was indeed purged from MongoDB
+            const checkSnapA = await PropertyVerificationSnapshot.findById(orphanedSnapshotA._id);
+            assert.equal(checkSnapA, null, 'Orphaned snapshot A was purged before the crash');
+
+            // Worker C reclaims the item using the production atomic claim query
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    $or: [
+                        { status: 'PENDING' },
+                        { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                    ]
+                },
+                {
+                    $set: {
+                        status: 'PROCESSING',
+                        claimedBy: 'worker_reconciler_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC, 'Worker C successfully claims the crashed item');
+
+            // Worker C processes the item — it reconciles the missing audit event, completes recovery, and generates snapshot C
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_reconciler_C'
+            });
+
+            assert.equal(cResult.success, true);
+            assert.ok(cResult.snapshotId);
+
+            // Verify reconciled audit log was generated
+            const reconciledAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                'metadata.reconciledAfterCrash': true,
+                'metadata.recoveredByWorkerId': 'worker_reconciler_C'
+            });
+            assert.ok(reconciledAudit, 'Reconciled audit log must be persisted for the purged snapshot');
+
+            // Verify RunItem completed successfully
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem.recoveryState.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Exactly 1 valid snapshot exists in DB (owned by Worker C)
+            const finalSnapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(finalSnapshots.length, 1);
+            assert.equal(finalSnapshots[0].createdByWorkerId, 'worker_reconciler_C');
+        });
+
+        it('4.24 Exercise standalone rollback when purge returns deletedCount: 0', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ROLLBACK-ZERO-424-1',
+                projectName: 'Rollback Zero Deleted Count Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_rollback_zero',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Mock _finalizeItemWithOwnershipCheck to simulate finalization failure (e.g. lease expired right before finalization)
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function () {
+                return null; // Triggers standalone rollback
+            };
+
+            // Stub purgeOrphanedSnapshot to return deletedCount: 0
+            const originalPurge = PropertyVerificationSnapshot.purgeOrphanedSnapshot;
+            PropertyVerificationSnapshot.purgeOrphanedSnapshot = async function () {
+                return { acknowledged: true, deletedCount: 0, success: false };
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_rollback_zero'
+                });
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+                PropertyVerificationSnapshot.purgeOrphanedSnapshot = originalPurge;
+            }
+
+            // Worker returns lease expired or preempted with ownershipLost: true
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(result.ownershipLost, true);
+
+            // AuditLog records authority_orphan_cleanup_failed due to unconfirmed purge
+            const failureAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_cleanup_failed',
+                'metadata.workerId': 'worker_rollback_zero'
+            });
+            assert.ok(failureAudit, 'AuditLog must record cleanup failure in standalone rollback');
+            assert.ok(failureAudit.description.includes('ORPHAN_DELETION_UNCONFIRMED'));
+        });
+
+        it('4.25 Simulate AuditLog failures in the standalone rollback branch', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ROLLBACK-AUDIT-425-1',
+                projectName: 'Rollback Audit Failure Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_fail_rollback',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Mock _finalizeItemWithOwnershipCheck to trigger rollback
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function () {
+                return null;
+            };
+
+            // Intercept AuditLog.create to throw on orphan purge logging
+            const originalAuditCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                const event = Array.isArray(doc) ? doc[0]?.eventType : doc?.eventType;
+                if (event === 'authority_orphan_snapshot_purged') {
+                    throw new Error('Simulated database error during rollback purge audit');
+                }
+                return originalAuditCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_fail_rollback'
+                });
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+                AuditLog.create = originalAuditCreate;
+            }
+
+            // Worker returns lease expired or preempted safely
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(result.ownershipLost, true);
+
+            // Verify RunItem recoveryState recorded ORPHAN_PURGED_AUDIT_PENDING (confirmed purge, pending audit)
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.recoveryState.stage, 'ORPHAN_PURGED_AUDIT_PENDING');
+            assert.ok(itemInDb.recoveryState.purgedAt, 'purgedAt timestamp must be preserved');
+            assert.ok(itemInDb.recoveryState.error.includes('Simulated database error during rollback purge audit'));
+
+            // Restore AuditLog and verify replacement worker can safely claim and reconcile
+            const claimTime = new Date();
+            const claimedItem = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    status: 'PROCESSING'
+                },
+                {
+                    $set: {
+                        claimedBy: 'worker_rollback_reconciler',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItem);
+
+            const reconcileRes = await AuthorityBulkProcessor.processItem(claimedItem, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_rollback_reconciler'
+            });
+
+            assert.equal(reconcileRes.success, true);
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+        });
+
+        it('4.26 Process crash after standalone rollback deletion but before audit insertion; replacement worker recovers pending audit', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ROLLBACK-CRASH-426-1',
+                projectName: 'Rollback Crash Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashing_rollback_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Mock finalization to simulate ownership loss during finalization
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function () {
+                return null;
+            };
+
+            let capturedSnapshotId = null;
+            try {
+                await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_crashing_rollback_B',
+                    afterRollbackPurged: async (snap) => {
+                        capturedSnapshotId = snap._id;
+                        // Expire lease and simulate crash before audit insertion
+                        await PropertyVerificationRunItem.updateOne(
+                            { _id: item._id },
+                            { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                        );
+                        throw new Error('SIMULATED_PROCESS_DEATH_AFTER_ROLLBACK_PURGE');
+                    }
+                });
+            } catch (err) {
+                // Expected simulated crash
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+            }
+
+            assert.ok(capturedSnapshotId, 'Snapshot must have been created and captured before rollback purge');
+
+            // Snapshot must be purged from DB
+            const checkPurged = await PropertyVerificationSnapshot.findById(capturedSnapshotId);
+            assert.equal(checkPurged, null, 'Snapshot must be deleted from DB by rollback purge');
+
+            // Replacement Worker C claims the item via production atomic claim query
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    $or: [
+                        { status: 'PENDING' },
+                        { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                    ]
+                },
+                {
+                    $set: {
+                        status: 'PROCESSING',
+                        claimedBy: 'worker_reconciler_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC, 'Worker C successfully claims crashed rollback item');
+
+            // Worker C processes item — detects ROLLBACK_PURGE_PENDING with purged snapshot, reconciles audit, and completes
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_reconciler_C'
+            });
+
+            assert.equal(cResult.success, true);
+            assert.ok(cResult.snapshotId);
+
+            // Verify reconciled audit log was persisted
+            const reconciledAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: capturedSnapshotId,
+                'metadata.reconciledAfterCrash': true
+            });
+            assert.ok(reconciledAudit, 'Reconciled audit log must be recorded for rolled back snapshot');
+
+            // Verify RunItem completed SUCCEEDED and ORPHAN_RECOVERED
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem.recoveryState.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Exactly 1 valid snapshot in DB (owned by Worker C)
+            const finalSnaps = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(finalSnaps.length, 1);
+            assert.equal(finalSnaps[0].createdByWorkerId, 'worker_reconciler_C');
+        });
+
+        it('4.27 Process crash after successful audit insertion but before recovery-state completion; verify no duplicate purge audit is created', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'IDEMPOTENT-AUDIT-427-1',
+                projectName: 'Idempotent Audit Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'e'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Pre-seed the audit log as if Worker B purged snapshot and logged audit, but died before setting ORPHAN_RECOVERED
+            const correlationId = `orphan_purge:${tenantA}:${item._id}:${orphanedSnapshot._id}`;
+            await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System/AuthorityEngine',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId: orphanedSnapshot._id,
+                description: `Pre-existing audit for ${orphanedSnapshot._id}`,
+                correlationId,
+                metadata: {
+                    snapshotId: orphanedSnapshot._id,
+                    runItemId: item._id,
+                    tenantId: tenantA
+                },
+                ipAddress: '127.0.0.1',
+                userAgent: 'AuthorityBulkProcessor/v4.1',
+                status: 'success'
+            });
+
+            // Purge snapshot from DB using authorized purge method (simulating successful purge before crash)
+            await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                tenantId: tenantA,
+                runItemId: item._id,
+                snapshotId: orphanedSnapshot._id,
+                createdByWorkerId: 'worker_crashed_A'
+            });
+
+            // Leave RunItem in pending state (simulating crash before recovery-state completion)
+            item.claimedBy = 'worker_crashing_B';
+            item.leaseExpiresAt = new Date(Date.now() - 1000); // expired
+            item.recoveryState = {
+                stage: 'ORPHAN_DETECTED',
+                orphanedSnapshotId: orphanedSnapshot._id,
+                orphanedByWorkerId: 'worker_crashed_A',
+                recoveredByWorkerId: 'worker_crashing_B',
+                detectedAt: new Date()
+            };
+            await item.save();
+
+            // Verify exactly 1 audit record exists currently
+            const initialAudits = await AuditLog.find({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: orphanedSnapshot._id
+            });
+            assert.equal(initialAudits.length, 1);
+
+            // Replacement Worker C claims the item
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    status: 'PROCESSING',
+                    leaseExpiresAt: { $lt: claimTime }
+                },
+                {
+                    $set: {
+                        claimedBy: 'worker_idempotent_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC);
+
+            // Worker C processes the item — should detect existing audit via correlationId/targetId and not create duplicate
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_idempotent_C'
+            });
+
+            assert.equal(cResult.success, true);
+
+            // Verify no duplicate audit was inserted
+            const finalAudits = await AuditLog.find({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: orphanedSnapshot._id
+            });
+            assert.equal(finalAudits.length, 1, 'P2 Idempotency: Audit log must not be duplicated on crash recovery');
+
+            // Verify RunItem SUCCEEDED with Worker C snapshot
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+        });
+
+        it('4.28 Verify pending audit states cannot be silently marked ORPHAN_RECOVERED while audit is failing', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'AUDIT-PENDING-FAIL-428-1',
+                projectName: 'Audit Pending Fail Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const fakeSnapId = new mongoose.Types.ObjectId();
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_reconcile_C',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                recoveryState: {
+                    stage: 'ORPHAN_PURGED_AUDIT_PENDING',
+                    orphanedSnapshotId: fakeSnapId,
+                    orphanedByWorkerId: 'worker_crashed_A',
+                    recoveredByWorkerId: 'worker_audit_fail_B',
+                    purgedAt: new Date()
+                },
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Intercept AuditLog.create to simulate persistent AuditLog failure
+            const originalCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                const event = Array.isArray(doc) ? doc[0]?.eventType : doc?.eventType;
+                if (event === 'authority_orphan_snapshot_purged') {
+                    throw new Error('Persistent AuditLog outage');
+                }
+                return originalCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_reconcile_C'
+                });
+            } finally {
+                AuditLog.create = originalCreate;
+            }
+
+            // Must fail closed without marking ORPHAN_RECOVERED or creating snapshot
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_PURGED_AUDIT_PENDING');
+            assert.equal(result.auditPending, true);
+
+            // DB item must NOT be marked ORPHAN_RECOVERED
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.recoveryState.stage, 'ORPHAN_PURGED_AUDIT_PENDING');
+            assert.notEqual(itemInDb.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.notEqual(itemInDb.status, 'SUCCEEDED');
+
+            // No snapshot must be persisted
+            const snaps = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snaps.length, 0, 'No snapshot may be persisted while required audit is pending');
+        });
+
+        it('4.29 Verify replacement worker ownership, snapshot count, and run counters remain correct across multiple items', async () => {
+            const inv1 = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'BATCH-OWN-429-1',
+                projectName: 'Batch Ownership Project 1',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+            const inv2 = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'BATCH-OWN-429-2',
+                projectName: 'Batch Ownership Project 2',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link1 = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv1._id,
+                authorityCode: 'CHD',
+                propertyId: inv1.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+            const link2 = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv2._id,
+                authorityCode: 'CHD',
+                propertyId: inv2.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 2
+            });
+
+            const item1 = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv1._id,
+                linkId: link1._id,
+                authorityCode: 'CHD',
+                status: 'PENDING',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const item2 = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv2._id,
+                linkId: link2._id,
+                authorityCode: 'CHD',
+                status: 'PENDING',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Leave orphan snapshot on item1 from a dead worker
+            const orphanedSnapshot1 = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link1._id,
+                runItemId: item1._id,
+                createdByWorkerId: 'dead_worker_X',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link1.propertyId, sectorNumber: link1.sectorNumber, propertyId: link1.propertyId },
+                normalizedData: { propertyId: link1.propertyId, sectorNumber: link1.sectorNumber },
+                contentHash: 'f'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Execute processRun with worker_batch_runner
+            const processedRun = await AuthorityBulkProcessor.processRun(run._id, {
+                tenantId: tenantA,
+                workerId: 'worker_batch_runner'
+            });
+
+            assert.equal(processedRun.status, 'COMPLETED');
+            assert.equal(processedRun.processedItems, 2);
+            assert.equal(processedRun.succeededItems, 2);
+            assert.equal(processedRun.failedItems, 0);
+
+            // Verify both items succeeded and are owned by worker_batch_runner
+            const finalItem1 = await PropertyVerificationRunItem.findById(item1._id);
+            const finalItem2 = await PropertyVerificationRunItem.findById(item2._id);
+            assert.equal(finalItem1.status, 'SUCCEEDED');
+            assert.equal(finalItem2.status, 'SUCCEEDED');
+            assert.equal(finalItem1.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem1.recoveryState.recoveredByWorkerId, 'worker_batch_runner');
+
+            // Verify exactly 2 valid snapshots in DB, both owned by worker_batch_runner
+            const snaps1 = await PropertyVerificationSnapshot.find({ runItemId: item1._id, tenantId: tenantA });
+            const snaps2 = await PropertyVerificationSnapshot.find({ runItemId: item2._id, tenantId: tenantA });
+            assert.equal(snaps1.length, 1);
+            assert.equal(snaps2.length, 1);
+            assert.equal(snaps1[0].createdByWorkerId, 'worker_batch_runner');
+            assert.equal(snaps2[0].createdByWorkerId, 'worker_batch_runner');
+
+            // Verify old orphan snapshot was purged
+            const oldSnap = await PropertyVerificationSnapshot.findById(orphanedSnapshot1._id);
+            assert.equal(oldSnap, null);
+        });
+
+        it('4.30 Worker B genuinely loses its lease after snapshot persistence; rollback fails closed; Worker C reclaims via atomic claim path; Worker C safely recovers unfinalized snapshot and completes item', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'GENUINE-LEASE-430-1',
+                projectName: 'Genuine Lease Loss Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_losing_lease_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Simulate real lease expiry immediately before finalization:
+            // Worker B successfully persisted SNAPSHOT_PERSISTENCE_PENDING intent and created snapshot in DB.
+            // But before finalization, Worker B's lease genuinely expires in DB!
+            let capturedSnapshotId = null;
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function (itemId, tenantId, workerId, updateFields, session) {
+                // To simulate genuine lease expiry in database:
+                await PropertyVerificationRunItem.updateOne(
+                    { _id: itemId },
+                    { $set: { leaseExpiresAt: new Date(Date.now() - 5000) } }
+                );
+                // Now call the real _finalizeItemWithOwnershipCheck — it MUST query DB and return null because lease is expired!
+                return originalFinalize.call(this, itemId, tenantId, workerId, updateFields, session);
+            };
+
+            let bResult;
+            try {
+                bResult = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_losing_lease_B'
+                });
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+            }
+
+            // Worker B returns lease expired / ownershipLost
+            assert.equal(bResult.success, false);
+            assert.equal(bResult.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(bResult.ownershipLost, true);
+
+            // Verify that RunItem still holds the durable SNAPSHOT_PERSISTENCE_PENDING intent (Worker B could not overwrite it because its lease had expired)
+            const itemAfterB = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemAfterB.recoveryState.stage, 'SNAPSHOT_PERSISTENCE_PENDING');
+            assert.equal(itemAfterB.recoveryState.orphanedByWorkerId, 'worker_losing_lease_B');
+            assert.ok(itemAfterB.recoveryState.orphanedSnapshotId);
+            capturedSnapshotId = itemAfterB.recoveryState.orphanedSnapshotId;
+
+            // Verify Worker B's snapshot was created in DB and remains present
+            const snapInDb = await PropertyVerificationSnapshot.findById(capturedSnapshotId);
+            assert.ok(snapInDb, 'Worker B snapshot must exist in DB (unfinalized orphan)');
+            assert.equal(snapInDb.createdByWorkerId, 'worker_losing_lease_B');
+
+            // Worker C reclaims the item via production atomic claim query
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    $or: [
+                        { status: 'PENDING' },
+                        { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                    ]
+                },
+                {
+                    $set: {
+                        status: 'PROCESSING',
+                        claimedBy: 'worker_reconciler_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC, 'Worker C must successfully reclaim the item through atomic claim path');
+
+            // Worker C processes the item — reconciles Worker B's unfinalized snapshot, cleans it up with audit trail, and generates its own snapshot
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_reconciler_C'
+            });
+
+            assert.equal(cResult.success, true);
+            assert.ok(cResult.snapshotId);
+            assert.notEqual(String(cResult.snapshotId), String(capturedSnapshotId));
+
+            // Verify Worker B's orphaned snapshot was purged
+            const checkOldSnap = await PropertyVerificationSnapshot.findById(capturedSnapshotId);
+            assert.equal(checkOldSnap, null, 'Worker B orphaned snapshot must be purged');
+
+            // Verify purge audit was recorded with Worker C as reconciler
+            const purgeAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: capturedSnapshotId
+            });
+            assert.ok(purgeAudit, 'Audit trail must record purge of Worker B unfinalized snapshot');
+            assert.equal(purgeAudit.metadata.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Verify RunItem completed with SUCCEEDED and ORPHAN_RECOVERED
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem.recoveryState.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Exactly 1 valid snapshot in DB, owned by Worker C
+            const finalSnaps = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(finalSnaps.length, 1);
+            assert.equal(finalSnaps[0].createdByWorkerId, 'worker_reconciler_C');
+        });
+
+        it('4.31 Database-level audit idempotency: partial unique index rejects duplicate (eventType, correlationId) with code 11000, and concurrent insertion race results in exactly one AuditLog record', async () => {
+            await AuditLog.ensureIdempotencyIndex();
+
+            const correlationId = `concurrent_audit_test_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            // 1. Verify that raw MongoDB unique index rejects duplicate insertion at database level
+            const doc1 = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System/AuthorityEngine',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                description: 'Initial audit insert',
+                correlationId,
+                metadata: { test: true },
+                ipAddress: '127.0.0.1',
+                userAgent: 'AuthorityBulkProcessor/v4.1',
+                status: 'success'
+            };
+            const created1 = await AuditLog.create(doc1);
+            assert.ok(created1);
+
+            let duplicateError = null;
+            try {
+                // Attempt raw duplicate insert directly into Mongoose/MongoDB
+                await AuditLog.create({
+                    ...doc1,
+                    description: 'Duplicate audit insert'
+                });
+            } catch (err) {
+                duplicateError = err;
+            }
+            assert.ok(duplicateError, 'Database partial unique index must reject duplicate (eventType, correlationId)');
+            assert.equal(duplicateError.code, 11000, 'Error code must be MongoDB duplicate key 11000');
+
+            // Clean up the initial record for the concurrent race test
+            await AuditLog.deleteOne({ _id: created1._id });
+
+            // 2. Perform actual concurrent race using AuthorityBulkProcessor.logAuditEvent
+            const raceCorrelationId = `race_audit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            const raceTargetId = new mongoose.Types.ObjectId();
+
+            const [raceRes1, raceRes2] = await Promise.all([
+                AuthorityBulkProcessor.logAuditEvent(
+                    'authority_orphan_snapshot_purged',
+                    userA._id,
+                    'authority_snapshot',
+                    raceTargetId,
+                    'Concurrent audit race entry 1',
+                    { attempt: 1 },
+                    'success',
+                    { throwOnError: true, correlationId: raceCorrelationId }
+                ),
+                AuthorityBulkProcessor.logAuditEvent(
+                    'authority_orphan_snapshot_purged',
+                    userA._id,
+                    'authority_snapshot',
+                    raceTargetId,
+                    'Concurrent audit race entry 2',
+                    { attempt: 2 },
+                    'success',
+                    { throwOnError: true, correlationId: raceCorrelationId }
+                )
+            ]);
+
+            // Both concurrent requests must resolve successfully and return valid documents
+            assert.ok(raceRes1, 'Concurrent attempt 1 must resolve to a valid audit log document');
+            assert.ok(raceRes2, 'Concurrent attempt 2 must resolve to a valid audit log document');
+            assert.equal(String(raceRes1._id), String(raceRes2._id), 'Both concurrent attempts must resolve to the identical persisted record');
+
+            // Exactly ONE document exists in the database
+            const matchingRecords = await AuditLog.find({
+                eventType: 'authority_orphan_snapshot_purged',
+                correlationId: raceCorrelationId
+            });
+            assert.equal(matchingRecords.length, 1, 'Database partial unique index must ensure exactly one AuditLog record remains in DB under concurrent race');
+        });
+
+        it('4.32 Existing duplicate AuditLog records remain untouched after read-only preflight and preflight returns deterministic report', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `preflight_safety_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success'
+            };
+
+            const doc1 = await AuditLog.create({
+                ...baseDoc,
+                description: 'First record (earliest)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+            const doc2 = await AuditLog.create({
+                ...baseDoc,
+                description: 'Second record',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+            const doc3 = await AuditLog.create({
+                ...baseDoc,
+                description: 'Third record',
+                timestamp: new Date('2026-10-31T03:00:00.000Z')
+            });
+
+            // Run read-only preflight
+            const preflight = await AuditLog.getDuplicatePreflightReport();
+            assert.ok(preflight.totalDuplicateGroups >= 1);
+
+            const group = preflight.groups.find(g => g.correlationId === corrId);
+            assert.ok(group, 'Preflight report must include our duplicate correlation group');
+            assert.equal(group.totalCount, 3);
+            assert.equal(group.duplicateCount, 2);
+            assert.equal(String(group.retainedId), String(doc1._id), 'Earliest record by timestamp must be selected as retention candidate');
+            assert.deepEqual(group.duplicateIds.map(String), [String(doc2._id), String(doc3._id)]);
+            assert.equal(group.duplicateDetails.length, 2);
+            assert.equal(group.duplicateDetails[0].eventType, 'authority_orphan_snapshot_purged');
+            assert.equal(group.duplicateDetails[0].correlationId, corrId);
+
+            // Verify database records remain 100% untouched
+            const recordsInDb = await AuditLog.find({ correlationId: corrId });
+            assert.equal(recordsInDb.length, 3, 'Preflight MUST be read-only and preserve all duplicate records in database');
+
+            // Clean up test documents
+            await AuditLog.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.33 Migration and ensureIdempotencyIndex() abort safely without deleting records when unresolved duplicates exist', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `migration_abort_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success'
+            };
+
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Original',
+                timestamp: new Date('2026-10-31T04:00:00.000Z')
+            });
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Duplicate',
+                timestamp: new Date('2026-10-31T05:00:00.000Z')
+            });
+
+            // 1. ensureIdempotencyIndex() must fail closed without deleting records
+            let caughtErr = null;
+            try {
+                await AuditLog.ensureIdempotencyIndex();
+            } catch (err) {
+                caughtErr = err;
+            }
+
+            assert.ok(caughtErr, 'ensureIdempotencyIndex must throw when duplicate records exist');
+            assert.equal(caughtErr.code, 'DUPLICATE_AUDIT_LOGS_DETECTED');
+
+            const recordsAfterEnsure = await AuditLog.find({ correlationId: corrId });
+            assert.equal(recordsAfterEnsure.length, 2, 'ensureIdempotencyIndex must NOT delete duplicate records');
+
+            // 2. Standalone migration runner must also abort safely
+            let migErr = null;
+            try {
+                await runMigration({ preflightOnly: false, archiveDuplicates: false });
+            } catch (err) {
+                migErr = err;
+            }
+
+            assert.ok(migErr, 'runMigration must reject when unresolved duplicates exist');
+            assert.equal(migErr.code, 'UNRESOLVED_DUPLICATES');
+
+            const recordsAfterMig = await AuditLog.find({ correlationId: corrId });
+            assert.equal(recordsAfterMig.length, 2, 'Migration must NOT delete duplicate records without approved archival');
+
+            // Clean up test documents
+            await AuditLog.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.34 Approved reconciliation archives complete original records with verified counts and identity before removal, and is crash-resumable', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `archive_reconcile_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success'
+            };
+
+            const doc1 = await AuditLog.create({
+                ...baseDoc,
+                description: 'To keep',
+                timestamp: new Date('2026-10-31T06:00:00.000Z')
+            });
+            const doc2 = await AuditLog.create({
+                ...baseDoc,
+                description: 'To archive 1',
+                timestamp: new Date('2026-10-31T07:00:00.000Z')
+            });
+            const doc3 = await AuditLog.create({
+                ...baseDoc,
+                description: 'To archive 2',
+                timestamp: new Date('2026-10-31T08:00:00.000Z')
+            });
+
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            // 1. Simulate process interruption: doc2 was ALREADY archived during a prior run before process died
+            await archiveColl.insertOne({
+                ...doc2.toObject(),
+                archivalMetadata: {
+                    archivedAt: new Date('2026-10-31T07:30:00.000Z'),
+                    retainedRecordId: doc1._id,
+                    archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                    migrationVersion: 'P4.1_HOTFIX'
+                }
+            });
+
+            assert.equal(await archiveColl.countDocuments({ correlationId: corrId }), 1);
+
+            // Execute crash-resumable reconciliation: must NOT insert duplicate doc2, must insert missing doc3, and delete both from primary
+            const archiveRes = await AuditLog.archiveAndReconcileDuplicates();
+            assert.equal(archiveRes.success, true);
+            assert.equal(archiveRes.archivedCount, 2); // 2 total duplicates accounted for
+            assert.equal(archiveRes.newlyArchivedCount, 1); // Only doc3 was newly inserted
+            assert.equal(archiveRes.removedCount, 2);
+
+            // Verify in archive collection: exactly 2 distinct records, no duplicate doc2
+            const archivedDocs = await archiveColl.find({ correlationId: corrId }).toArray();
+            assert.equal(archivedDocs.length, 2, 'Exactly 2 records must exist in archive collection without duplicates');
+            const archivedIds = archivedDocs.map(d => String(d._id));
+            assert.ok(archivedIds.includes(String(doc2._id)));
+            assert.ok(archivedIds.includes(String(doc3._id)));
+
+            // Verify in primary collection: only doc1 remains
+            const primaryDocs = await AuditLog.find({ correlationId: corrId });
+            assert.equal(primaryDocs.length, 1, 'Only retained earliest record must remain in primary collection');
+            assert.equal(String(primaryDocs[0]._id), String(doc1._id));
+
+            // 2. Test conflict defense: if archive doc exists with conflicting content, must refuse to overwrite
+            const conflictDoc = await AuditLog.create({
+                ...baseDoc,
+                description: 'Conflict test',
+                targetType: 'authority_snapshot',
+                timestamp: new Date('2026-10-31T09:00:00.000Z')
+            });
+            const conflictDocDup = await AuditLog.create({
+                ...baseDoc,
+                description: 'Conflict duplicate',
+                timestamp: new Date('2026-10-31T10:00:00.000Z')
+            });
+
+            // Put a conflicting document in archive with same _id but different eventType
+            await archiveColl.insertOne({
+                _id: conflictDocDup._id,
+                eventType: 'user_login', // Mismatched content
+                correlationId: corrId,
+                targetType: 'other',
+                timestamp: new Date('2026-10-31T10:00:00.000Z')
+            });
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            }
+
+            assert.ok(conflictErr);
+            assert.ok(conflictErr.message.includes('ARCHIVE_CONTENT_CONFLICT'));
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.35 Truly exact verifyIdempotencyIndexSpec() rejects extra operators ($gt, $exists), extra fields, and wrong key order', async () => {
+            // 1. Valid exact specification
+            const validSpec = {
+                name: 'unique_audit_event_correlation',
+                key: { eventType: 1, correlationId: 1 },
+                unique: true,
+                partialFilterExpression: { correlationId: { $type: 'string' } }
+            };
+            assert.equal(AuditLog.verifyIdempotencyIndexSpec(validSpec).valid, true);
+
+            // 2. Extra nested operator: $gt inside correlationId filter
+            const extraGtSpec = {
+                ...validSpec,
+                partialFilterExpression: { correlationId: { $type: 'string', $gt: '' } }
+            };
+            const gtCheck = AuditLog.verifyIdempotencyIndexSpec(extraGtSpec);
+            assert.equal(gtCheck.valid, false);
+            assert.ok(gtCheck.reason.includes("must contain exactly one operator '$type'"));
+
+            // 3. Extra nested operator: $exists inside correlationId filter
+            const extraExistsSpec = {
+                ...validSpec,
+                partialFilterExpression: { correlationId: { $type: 'string', $exists: true } }
+            };
+            const existsCheck = AuditLog.verifyIdempotencyIndexSpec(extraExistsSpec);
+            assert.equal(existsCheck.valid, false);
+            assert.ok(existsCheck.reason.includes("must contain exactly one operator '$type'"));
+
+            // 4. Extra filter field in partialFilterExpression
+            const extraFieldSpec = {
+                ...validSpec,
+                partialFilterExpression: { correlationId: { $type: 'string' }, eventType: { $exists: true } }
+            };
+            const fieldCheck = AuditLog.verifyIdempotencyIndexSpec(extraFieldSpec);
+            assert.equal(fieldCheck.valid, false);
+            assert.ok(fieldCheck.reason.includes("must contain exactly 'correlationId'"));
+
+            // 5. Reversed compound key order
+            const reversedKeySpec = {
+                ...validSpec,
+                key: { correlationId: 1, eventType: 1 }
+            };
+            const keyCheck = AuditLog.verifyIdempotencyIndexSpec(reversedKeySpec);
+            assert.equal(keyCheck.valid, false);
+            assert.ok(keyCheck.reason.includes("Index key order/fields mismatch"));
+
+            // 6. Non-unique index
+            const nonUniqueSpec = { ...validSpec, unique: false };
+            assert.equal(AuditLog.verifyIdempotencyIndexSpec(nonUniqueSpec).valid, false);
+
+            // 7. Wrong name
+            const wrongNameSpec = { ...validSpec, name: 'other_name' };
+            assert.equal(AuditLog.verifyIdempotencyIndexSpec(wrongNameSpec).valid, false);
+
+            // 8. Integration: ensureIdempotencyIndex rejects index on MongoDB collection with wrong specification
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+            await AuditLog.collection.createIndex(
+                { eventType: 1, correlationId: 1 },
+                { name: 'unique_audit_event_correlation' } // Missing unique and partialFilterExpression
+            );
+
+            let caughtErr = null;
+            try {
+                await AuditLog.ensureIdempotencyIndex();
+            } catch (err) {
+                caughtErr = err;
+            }
+
+            assert.ok(caughtErr);
+            assert.equal(caughtErr.code, 'INVALID_INDEX_SPECIFICATION');
+            await AuditLog.collection.dropIndex('unique_audit_event_correlation');
+        });
+
+        it('4.36 Index creation errors propagate and cause migration failure, and valid index configuration restores cleanly', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            // Mock collection.createIndex to simulate unexpected database outage
+            const originalCreateIndex = AuditLog.collection.createIndex;
+            AuditLog.collection.createIndex = async function () {
+                throw new Error('SIMULATED_MONGODB_INDEX_CREATION_FAILURE');
+            };
+
+            let outageErr = null;
+            try {
+                await AuditLog.ensureIdempotencyIndex();
+            } catch (err) {
+                outageErr = err;
+            } finally {
+                AuditLog.collection.createIndex = originalCreateIndex;
+            }
+
+            assert.ok(outageErr, 'Index creation failure must propagate without being swallowed');
+            assert.equal(outageErr.message, 'SIMULATED_MONGODB_INDEX_CREATION_FAILURE');
+
+            // Restore genuine index cleanly
+            const restoreRes = await AuditLog.ensureIdempotencyIndex();
+            assert.equal(restoreRes.verified, true);
+        });
+
+        it('4.37 Programmatic runMigration() enforces production guard and cannot bypass authorization', async () => {
+            // Direct call targeting production Atlas hostname without authorization must throw
+            let atlasErr = null;
+            try {
+                await runMigration({
+                    mongoUri: 'mongodb+srv://admin:pass@cluster0.abcde.mongodb.net/production_db?retryWrites=true',
+                    allowProductionMigration: false
+                });
+            } catch (err) {
+                atlasErr = err;
+            }
+
+            assert.ok(atlasErr, 'Direct programmatic invocation must not bypass production Atlas guard');
+            assert.equal(atlasErr.code, 'PRODUCTION_MIGRATION_UNAUTHORIZED');
+
+            // Explicitly authorized call allows proceeding to preflight
+            const authResult = await runMigration({
+                mongoUri: 'mongodb+srv://admin:pass@cluster0.abcde.mongodb.net/production_db?retryWrites=true',
+                allowProductionMigration: true,
+                preflightOnly: true
+            });
+            assert.ok(authResult.success);
+        });
+
+        it('4.38 Executable CLI preflight exit behavior: non-zero exit on duplicates, no mutation, zero exit on clean', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const cliCorrId = `cli_preflight_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: cliCorrId,
+                status: 'success'
+            };
+
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Record 1',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Record 2',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const scriptPath = path.resolve(__dirname, '..', 'scripts', 'migrate_audit_log_idempotency_index.js');
+            const mongoUri = mongoServer.getUri();
+
+            // 1. Run CLI with --preflight-only when duplicates exist
+            const cliWithDuplicates = spawnSync('node', [scriptPath, '--preflight-only'], {
+                env: { ...process.env, MONGODB_URI: mongoUri },
+                encoding: 'utf8'
+            });
+
+            // Must exit non-zero (exit code 1)
+            assert.equal(cliWithDuplicates.status, 1, 'CLI preflight-only must exit non-zero when duplicate groups are detected');
+            const combinedOutput = cliWithDuplicates.stdout + cliWithDuplicates.stderr;
+            assert.ok(combinedOutput.includes('PREFLIGHT_FOUND_DUPLICATES') || combinedOutput.includes('Preflight Result: 1 duplicate group'));
+            assert.equal(combinedOutput.includes('Migration completed successfully'), false, 'Failed preflight must NOT report migration success');
+
+            // Verify database records remain 100% untouched
+            const recordsInDb = await AuditLog.find({ correlationId: cliCorrId });
+            assert.equal(recordsInDb.length, 2, 'CLI preflight-only must not delete or modify any records');
+
+            // 2. Clean up duplicates and rerun CLI with --preflight-only
+            await AuditLog.deleteMany({ correlationId: cliCorrId });
+
+            const cliClean = spawnSync('node', [scriptPath, '--preflight-only'], {
+                env: { ...process.env, MONGODB_URI: mongoUri },
+                encoding: 'utf8'
+            });
+
+            assert.equal(cliClean.status, 0, 'CLI preflight-only must exit 0 when zero duplicate groups exist');
+            const cleanOutput = cliClean.stdout + cliClean.stderr;
+            assert.ok(cleanOutput.includes('Preflight check passed') || cleanOutput.includes('Preflight check completed successfully'));
+
+            // Restore idempotency index for subsequent tests
+            await AuditLog.ensureIdempotencyIndex();
+        });
+
+        it('4.39 Canonical full-document comparison: rejects archival reconciliation when archived metadata, description, changes, userId or errorMessage differ while core fields match', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const baseUserId = new mongoose.Types.ObjectId();
+            const targetId = new mongoose.Types.ObjectId();
+            const corrId = `canonical_full_doc_test_${Date.now()}`;
+            const now = new Date('2026-10-31T12:00:00.000Z');
+
+            const baseSrc = {
+                _id: new mongoose.Types.ObjectId(),
+                eventType: 'authority_orphan_snapshot_purged',
+                correlationId: corrId,
+                targetType: 'authority_snapshot',
+                targetId,
+                status: 'success',
+                timestamp: now,
+                userId: baseUserId,
+                userName: 'Test Operator',
+                userEmail: 'operator@crm.internal',
+                description: 'Original purge description',
+                changes: { before: { status: 'PENDING' }, after: { status: 'SUCCEEDED' } },
+                metadata: { attempt: 1, workerId: 'worker_orig' },
+                errorMessage: 'None'
+            };
+
+            const baseArchived = {
+                ...baseSrc,
+                archivalMetadata: {
+                    archivedAt: new Date(),
+                    retainedRecordId: new mongoose.Types.ObjectId(),
+                    archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                    migrationVersion: 'P4.1_HOTFIX'
+                }
+            };
+
+            // 1. Direct unit verification of isContentEquivalent()
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, baseArchived), true, 'Exact canonical match must return true');
+
+            // 1a. metadata differs while core fields are identical
+            const diffMetadata = { ...baseArchived, metadata: { attempt: 2, workerId: 'worker_different' } };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffMetadata), false, 'Differing metadata must return false');
+
+            // 1b. description differs while core fields are identical
+            const diffDescription = { ...baseArchived, description: 'Tampered description' };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffDescription), false, 'Differing description must return false');
+
+            // 1c. changes differs while core fields are identical
+            const diffChanges = { ...baseArchived, changes: { before: { status: 'FAILED' }, after: { status: 'SUCCEEDED' } } };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffChanges), false, 'Differing changes must return false');
+
+            // 1d. userId differs while core fields are identical
+            const diffUserId = { ...baseArchived, userId: new mongoose.Types.ObjectId() };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffUserId), false, 'Differing userId must return false');
+
+            // 1e. errorMessage differs while core fields are identical
+            const diffErrorMessage = { ...baseArchived, errorMessage: 'Corrupted worker lease' };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffErrorMessage), false, 'Differing errorMessage must return false');
+
+            // 1f. Extra or unexpected source field
+            const unexpectedField = { ...baseArchived, unexpectedKey: 'smuggled_data' };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, unexpectedField), false, 'Unexpected field must return false');
+
+            // 2. Integration verification: archiveAndReconcileDuplicates() rejects each differing field
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const differingFields = [
+                { field: 'metadata', archiveVal: { attempt: 99, modified: true } },
+                { field: 'description', archiveVal: 'Conflicting description in archive' },
+                { field: 'changes', archiveVal: { before: { status: 'ALTERED' }, after: { status: 'MODIFIED' } } },
+                { field: 'userId', archiveVal: new mongoose.Types.ObjectId() },
+                { field: 'errorMessage', archiveVal: 'Different failure reason' }
+            ];
+
+            for (const { field, archiveVal } of differingFields) {
+                const testCorrId = `diff_test_${field}_${Date.now()}`;
+
+                // Create retained record and duplicate record in primary collection
+                const recRetained = await AuditLog.create({
+                    ...baseSrc,
+                    _id: new mongoose.Types.ObjectId(),
+                    correlationId: testCorrId,
+                    timestamp: new Date('2026-10-31T05:00:00.000Z')
+                });
+
+                const recDup = await AuditLog.create({
+                    ...baseSrc,
+                    _id: new mongoose.Types.ObjectId(),
+                    correlationId: testCorrId,
+                    timestamp: new Date('2026-10-31T06:00:00.000Z')
+                });
+
+                // Pre-populate archive with conflicting record for recDup where ONLY `field` differs
+                await archiveColl.insertOne({
+                    ...recDup.toObject(),
+                    [field]: archiveVal,
+                    archivalMetadata: {
+                        archivedAt: new Date(),
+                        retainedRecordId: recRetained._id,
+                        archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                        migrationVersion: 'P4.1_HOTFIX'
+                    }
+                });
+
+                // Reconciliation must strictly reject due to canonical full-document content mismatch
+                let caughtReconcileErr = null;
+                try {
+                    await AuditLog.archiveAndReconcileDuplicates();
+                } catch (err) {
+                    caughtReconcileErr = err;
+                }
+
+                assert.ok(caughtReconcileErr, `Reconciliation must reject when '${field}' differs`);
+                assert.ok(caughtReconcileErr.message.includes('ARCHIVE_CONTENT_CONFLICT'));
+
+                // Verify neither primary document was deleted
+                const primaryCount = await AuditLog.countDocuments({ correlationId: testCorrId });
+                assert.equal(primaryCount, 2, `Primary documents must not be deleted when '${field}' differs`);
+
+                // Clean up for next field
+                await AuditLog.deleteMany({ correlationId: testCorrId });
+                await archiveColl.deleteMany({ correlationId: testCorrId });
+            }
+        });
+
+        it('4.40 Pre-deletion verification aborts without deleting source documents if source document is modified after archival', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `pre_delete_verify_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to retain',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to archive and delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            // Intercept db.collection to wrap insertMany on auditlogs_archive_duplicates
+            // This simulates an in-flight race where the primary record in AuditLog is modified
+            // after initial archival insertion but before primary deletion
+            const originalDbCollection = AuditLog.db.db.collection.bind(AuditLog.db.db);
+            AuditLog.db.db.collection = function (name, opts) {
+                const col = originalDbCollection(name, opts);
+                if (name === 'auditlogs_archive_duplicates') {
+                    const originalInsertMany = col.insertMany.bind(col);
+                    col.insertMany = async function (docs, insertOpts) {
+                        const res = await originalInsertMany(docs, insertOpts);
+                        // Mutate primary source document in AuditLog collection AFTER archive insert
+                        await AuditLog.collection.updateOne(
+                            { _id: recDup._id },
+                            { $set: { description: 'MUTATED_AFTER_ARCHIVAL_PRIOR_TO_DELETION' } }
+                        );
+                        return res;
+                    };
+                }
+                return col;
+            };
+
+            let verifyErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                verifyErr = err;
+            } finally {
+                AuditLog.db.db.collection = originalDbCollection;
+            }
+
+            assert.ok(verifyErr, 'Pre-deletion verification must detect modified source document');
+            assert.ok(verifyErr.message.includes('SOURCE_VERIFICATION_FAILED'));
+
+            // Verify primary records are completely preserved (NOT deleted)
+            const remainingPrimary = await AuditLog.find({ correlationId: corrId });
+            assert.equal(remainingPrimary.length, 2, 'Primary records must remain intact when pre-deletion verification fails');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.41 Strictly read-only preflight: when AuditLog collection is absent, preflight returns empty report and leaves collection absent without mutation', async () => {
+            // 1. Drop auditlogs collection completely
+            await AuditLog.db.db.dropCollection('auditlogs').catch(() => {});
+
+            // Confirm collection is absent
+            const collectionsBefore = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsBefore.length, 0, 'AuditLog collection must initially be absent');
+
+            // 2. Call getDuplicatePreflightReport() directly
+            const preflightReport = await AuditLog.getDuplicatePreflightReport();
+            assert.equal(preflightReport.totalDuplicateGroups, 0);
+            assert.equal(preflightReport.totalDuplicateRecords, 0);
+            assert.deepEqual(preflightReport.groups, []);
+
+            // Confirm collection remains absent (no createCollection was invoked)
+            const collectionsAfterReport = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsAfterReport.length, 0, 'AuditLog collection must remain absent after getDuplicatePreflightReport()');
+
+            // 3. Call programmatic runMigration({ preflightOnly: true })
+            const migrationRes = await runMigration({ preflightOnly: true });
+            assert.equal(migrationRes.success, true);
+            assert.equal(migrationRes.preflight.totalDuplicateGroups, 0);
+
+            // Confirm collection remains absent after runMigration({ preflightOnly: true })
+            const collectionsAfterMigration = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsAfterMigration.length, 0, 'AuditLog collection must remain absent after programmatic preflight');
+
+            // 4. Call CLI with --preflight-only
+            const scriptPath = path.resolve(__dirname, '..', 'scripts', 'migrate_audit_log_idempotency_index.js');
+            const mongoUri = mongoServer.getUri();
+
+            const cliAbsent = spawnSync('node', [scriptPath, '--preflight-only'], {
+                env: { ...process.env, MONGODB_URI: mongoUri },
+                encoding: 'utf8'
+            });
+
+            assert.equal(cliAbsent.status, 0, 'CLI preflight-only must exit 0 when collection is absent');
+            const cliOutput = cliAbsent.stdout + cliAbsent.stderr;
+            assert.ok(cliOutput.includes('Preflight check passed') || cliOutput.includes('Preflight check completed successfully'));
+
+            // Confirm collection STILL remains absent after CLI invocation
+            const collectionsAfterCli = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsAfterCli.length, 0, 'AuditLog collection must remain absent after CLI preflight');
+
+            // 5. Restore AuditLog collection and index for subsequent test suites
+            await AuditLog.ensureIdempotencyIndex();
+        });
+
+        it('4.42 TOCTOU Concurrency: pre-deletion verification completes, source mutation is injected immediately before deletion operation; mutated record is NOT deleted, archived data remains intact, and reconciliation reports source conflict', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `toctou_mutation_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to retain',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Original record to archive and delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            // Intercept deleteOne on AuditLog to inject mutation immediately before the deletion operation
+            // This guarantees pre-deletion verification (Step 5) has already passed
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                // Check if this deleteOne call is targeting the duplicate record
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    // Inject source mutation in primary AuditLog immediately before delete executes
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { description: 'MUTATED_AFTER_PRE_DELETION_VERIFICATION_BEFORE_DELETE' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'Mutation must have been injected right before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must report an error on source conflict');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Error message must indicate SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Verify the mutated record is NOT deleted and still exists in primary AuditLog
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(
+                survivingDup.description,
+                'MUTATED_AFTER_PRE_DELETION_VERIFICATION_BEFORE_DELETE',
+                'Mutated record content must remain preserved in primary collection'
+            );
+
+            // Verify the retained record is also intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary AuditLog');
+
+            // Verify archived data remains intact in archive collection
+            const archivedRecord = await archiveColl.findOne({ _id: recDup._id });
+            assert.ok(archivedRecord, 'Archived record must remain intact in archive collection');
+            assert.equal(
+                archivedRecord.description,
+                'Original record to archive and delete',
+                'Archived record must preserve original pre-mutation state'
+            );
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.43 Concurrent migration attempts: multiple workers reconcile duplicate records in parallel without data loss or duplicate archive corruption', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `concurrent_migration_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to retain concurrent',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup1 = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record dup 1 to archive concurrent',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const recDup2 = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record dup 2 to archive concurrent',
+                timestamp: new Date('2026-10-31T03:00:00.000Z')
+            });
+
+            // Run 3 concurrent reconciliation attempts in parallel
+            const p1 = AuditLog.archiveAndReconcileDuplicates();
+            const p2 = AuditLog.archiveAndReconcileDuplicates();
+            const p3 = AuditLog.archiveAndReconcileDuplicates();
+
+            const outcomes = await Promise.allSettled([p1, p2, p3]);
+
+            // At least one worker must succeed fully
+            const succeeded = outcomes.filter(o => o.status === 'fulfilled' && o.value?.success);
+            assert.ok(succeeded.length >= 1, 'At least one concurrent reconciliation worker must succeed');
+
+            // Verify no source records are lost:
+            // 1. Primary collection must retain exactly the earliest record
+            const primaryDocs = await AuditLog.find({ correlationId: corrId }).lean();
+            assert.equal(primaryDocs.length, 1, 'Primary collection must retain exactly 1 record');
+            assert.equal(String(primaryDocs[0]._id), String(recRetained._id), 'Surviving primary record must be the retained earliest record');
+
+            // 2. Both duplicate records must be verifiably preserved in archive collection
+            const archivedDocs = await archiveColl.find({ correlationId: corrId }).toArray();
+            assert.equal(archivedDocs.length, 2, 'Archive collection must have exactly 2 archived records');
+            const archivedIds = new Set(archivedDocs.map(d => String(d._id)));
+            assert.ok(archivedIds.has(String(recDup1._id)), 'Duplicate 1 must be present in archive');
+            assert.ok(archivedIds.has(String(recDup2._id)), 'Duplicate 2 must be present in archive');
+
+            // 3. Ensuring unique index now succeeds cleanly
+            const idxRes = await AuditLog.ensureIdempotencyIndex();
+            assert.equal(idxRes.verified, true);
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44a Optimistic filter field coverage: mutate department immediately before conditional deletion causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `mutate_dept_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to retain (dept test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to mutate dept before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { department: 'compliance_audit' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'Department mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when department is mutated');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(survivingDup.department, 'compliance_audit', 'Mutated department value must be preserved in primary record');
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44b Optimistic filter field coverage: mutate requestUrl immediately before conditional deletion causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `mutate_requrl_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestUrl: 'https://crm.local/api/authority/runs',
+                description: 'Record to retain (reqUrl test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestUrl: 'https://crm.local/api/authority/runs',
+                description: 'Record to mutate requestUrl before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { requestUrl: 'https://crm.local/api/authority/runs/mutated_endpoint' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'requestUrl mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when requestUrl is mutated');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(
+                survivingDup.requestUrl,
+                'https://crm.local/api/authority/runs/mutated_endpoint',
+                'Mutated requestUrl must be preserved in primary record'
+            );
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44c Optimistic filter field coverage: mutate requestMethod immediately before conditional deletion causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `mutate_reqmethod_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestMethod: 'GET',
+                description: 'Record to retain (reqMethod test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestMethod: 'GET',
+                description: 'Record to mutate requestMethod before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { requestMethod: 'POST' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'requestMethod mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when requestMethod is mutated');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(survivingDup.requestMethod, 'POST', 'Mutated requestMethod must be preserved in primary record');
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44d Optimistic filter key-set validation: inject unexpected top-level key without changing total key count causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `inject_key_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to retain (key-set test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to replace key before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    // Unset department and set unexpectedKey: total key count remains identical!
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $unset: { department: '' }, $set: { unexpectedKey: 'injected_unauthorized_key' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'Key substitution mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when an unexpected key replaces an existing key with equal count');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingRaw = await AuditLog.collection.findOne({ _id: recDup._id });
+            assert.ok(survivingRaw, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(
+                survivingRaw.unexpectedKey,
+                'injected_unauthorized_key',
+                'Injected unexpected key must be preserved in surviving document'
+            );
+            assert.equal(survivingRaw.department, undefined, 'Unset field must remain absent in surviving document');
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.45 Genuine Replica-Set Transaction Path: archiveAndReconcileDuplicates commits atomically via MongoDB transaction on replica set, and write-conflict / mutation rolls back cleanly without data loss', async () => {
+            const replSet = await MongoMemoryReplSet.create({
+                replSet: { count: 1, storageEngine: 'wiredTiger' }
+            });
+            const replUri = replSet.getUri();
+            const replConn = await mongoose.createConnection(replUri).asPromise();
+            const ReplAuditLog = replConn.model('AuditLog', AuditLog.schema);
+
+            try {
+                const targetId = new mongoose.Types.ObjectId();
+                const corrIdHappy = `repl_tx_happy_${Date.now()}`;
+
+                const recRetainedHappy = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdHappy,
+                    status: 'success',
+                    department: 'finance',
+                    description: 'ReplicaSet Retained Record (Transaction Success)',
+                    timestamp: new Date('2026-10-31T01:00:00.000Z')
+                });
+
+                const recDupHappy1 = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdHappy,
+                    status: 'success',
+                    department: 'finance',
+                    description: 'ReplicaSet Duplicate 1 (Transaction Success)',
+                    timestamp: new Date('2026-10-31T02:00:00.000Z')
+                });
+
+                const recDupHappy2 = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdHappy,
+                    status: 'success',
+                    department: 'finance',
+                    description: 'ReplicaSet Duplicate 2 (Transaction Success)',
+                    timestamp: new Date('2026-10-31T03:00:00.000Z')
+                });
+
+                // Execute reconciliation on replica set with real transactions
+                const reconcileResult = await ReplAuditLog.archiveAndReconcileDuplicates();
+                assert.equal(reconcileResult.success, true);
+                assert.equal(reconcileResult.archivedCount, 2);
+                assert.equal(reconcileResult.removedCount, 2);
+
+                // Verify primary collection retains exactly 1 record (the earliest)
+                const survivingPrimary = await ReplAuditLog.find({ correlationId: corrIdHappy }).lean();
+                assert.equal(survivingPrimary.length, 1);
+                assert.equal(String(survivingPrimary[0]._id), String(recRetainedHappy._id));
+
+                // Verify archive collection has both duplicates safely preserved
+                const archiveColl = replConn.db.collection('auditlogs_archive_duplicates');
+                const archivedDocs = await archiveColl.find({ correlationId: corrIdHappy }).toArray();
+                assert.equal(archivedDocs.length, 2);
+                const archivedIdSet = new Set(archivedDocs.map(d => String(d._id)));
+                assert.ok(archivedIdSet.has(String(recDupHappy1._id)));
+                assert.ok(archivedIdSet.has(String(recDupHappy2._id)));
+
+                // Test Transaction Rollback / Abort on Concurrent Mutation:
+                const corrIdConflict = `repl_tx_conflict_${Date.now()}`;
+                const recRetainedConflict = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdConflict,
+                    status: 'success',
+                    department: 'operations',
+                    description: 'ReplicaSet Retained Record (Transaction Conflict)',
+                    timestamp: new Date('2026-10-31T01:00:00.000Z')
+                });
+
+                const recDupConflict = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdConflict,
+                    status: 'success',
+                    department: 'operations',
+                    description: 'ReplicaSet Duplicate to Mutate Concurrently',
+                    timestamp: new Date('2026-10-31T02:00:00.000Z')
+                });
+
+                const originalDeleteOne = ReplAuditLog.deleteOne.bind(ReplAuditLog);
+                ReplAuditLog.deleteOne = async function (filter, options) {
+                    if (filter && String(filter._id) === String(recDupConflict._id)) {
+                        // Mutate outside the transaction in primary collection to trigger conflict
+                        await ReplAuditLog.collection.updateOne(
+                            { _id: recDupConflict._id },
+                            { $set: { department: 'mutated_ops_dept' } }
+                        );
+                    }
+                    return originalDeleteOne(filter, options);
+                };
+
+                let conflictError = null;
+                try {
+                    await ReplAuditLog.archiveAndReconcileDuplicates();
+                } catch (err) {
+                    conflictError = err;
+                } finally {
+                    ReplAuditLog.deleteOne = originalDeleteOne;
+                }
+
+                assert.ok(conflictError, 'Transaction must abort on concurrent mutation during deletion');
+                assert.ok(
+                    conflictError.message.includes('SOURCE_CONFLICT') || conflictError.code === 'SOURCE_CONFLICT',
+                    `Expected SOURCE_CONFLICT on replica set, got: ${conflictError.message}`
+                );
+
+                // Both records in conflict group must still exist in primary collection
+                const primaryAfterConflict = await ReplAuditLog.find({ correlationId: corrIdConflict }).lean();
+                assert.equal(primaryAfterConflict.length, 2, 'Primary collection must preserve all records when transaction aborts');
+                const mutatedDupInDb = primaryAfterConflict.find(d => String(d._id) === String(recDupConflict._id));
+                assert.ok(mutatedDupInDb, 'Mutated duplicate record must survive in primary collection');
+                assert.equal(mutatedDupInDb.department, 'mutated_ops_dept');
+            } finally {
+                await replConn.close();
+                await replSet.stop();
+            }
         });
     });
 
