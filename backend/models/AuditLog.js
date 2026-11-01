@@ -253,7 +253,9 @@ const AuditLogSchema = new mongoose.Schema({
         index: true
     }
 }, {
-    timestamps: false // We use custom timestamp field
+    timestamps: false, // We use custom timestamp field
+    autoCreate: false,
+    autoIndex: false
 });
 
 

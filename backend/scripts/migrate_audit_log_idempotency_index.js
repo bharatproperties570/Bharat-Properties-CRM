@@ -126,7 +126,9 @@ async function cli() {
         console.log('🔗 Connecting to MongoDB...');
         await mongoose.connect(MONGODB_URI, {
             serverSelectionTimeoutMS: 15000,
-            socketTimeoutMS: 45000
+            socketTimeoutMS: 45000,
+            autoCreate: false,
+            autoIndex: false
         });
         console.log('✅ Connected securely.');
 
