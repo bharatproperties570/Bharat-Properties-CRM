@@ -8,9 +8,10 @@
  * 4. safeRedisCall() rejects with STORAGE_UNAVAILABLE.
  * 5. WhatsAppCircuitBreaker.isTripped() rejects with CIRCUIT_BREAKER_STORAGE_UNAVAILABLE.
  * 6. Actual Queue and Worker exports throw CRITICAL_STORAGE_ERROR if MockRedis or absent connection is used.
- * 7. Simulated event-handler state transitions (error/close/ready) maintain fail-closed state without Mock replacement.
- * 8. Natural child-process shutdown: removes process.exit(0), disconnects handles, exits naturally with code 0.
- * 9. Genuine provisioned Redis connection lifecycle and actual BullMQ enqueue/worker integration in CI.
+ * 7. Offline production Queue and Worker constructors: Attaches genuine BullMQ classes without in-memory fallback.
+ * 8. Simulated event-handler state transitions (error/close/ready) maintain fail-closed state without Mock replacement.
+ * 9. Natural child-process shutdown: removes process.exit(0), disconnects handles, exits naturally with code 0.
+ * 10. Genuine provisioned Redis connection lifecycle and actual BullMQ enqueue/worker integration in CI.
  */
 
 import { describe, it } from 'node:test';
@@ -195,27 +196,29 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
         assert.strictEqual(code, 0, `Child process failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
     });
 
-    it('3. Production Queue and Worker lifecycle: Uses real connection, relies on BullMQ reconnection without silent in-memory fallback', async () => {
+    it('3. Offline production Queue and Worker constructors: Attaches genuine BullMQ classes without in-memory MockQueue/MockWorker fallback when Redis is offline', async () => {
         const script = `
             import redisProxy, { Queue, Worker } from './src/config/redis.js';
             import assert from 'assert';
 
             assert.strictEqual(process.env.NODE_ENV, 'production');
 
-            // When real Redis configuration is present, Queue creation succeeds by attaching
-            // to the real connection (BullMQ client management). It does NOT instantiate MockQueue.
-            const q = new Queue('productionLiveQueue');
-            assert.strictEqual(q.name, 'productionLiveQueue');
+            // Offline constructor verification on intentionally unavailable port 59998:
+            // When Redis is offline in production, Queue creation succeeds by attaching
+            // genuine BullMQ class structures (which rely on BullMQ native offline buffering and reconnection).
+            // It strictly forbids falling back to in-memory MockQueue or MockWorker.
+            const q = new Queue('productionOfflineQueue');
+            assert.strictEqual(q.name, 'productionOfflineQueue');
 
-            // Verify it is a genuine BullMQ Queue, not a MockQueue
+            // Verify it is a genuine BullMQ Queue, not an in-memory MockQueue
             assert.strictEqual(typeof q.add, 'function');
             assert.strictEqual(typeof q.close, 'function');
-            assert.strictEqual(q.isMock, undefined, 'Real Queue must never be MockQueue');
+            assert.strictEqual(q.isMock, undefined, 'Queue must be genuine BullMQ Queue, never MockQueue');
 
-            // Pass autorun: false to worker so that offline testing does not hang blocking connection loops
-            const w = new Worker('productionLiveWorker', async () => {}, { autorun: false });
-            assert.strictEqual(w.name, 'productionLiveWorker');
-            assert.strictEqual(w.isMock, undefined, 'Real Worker must never be MockWorker');
+            // Pass autorun: false to Worker to verify class constructor without hanging on offline blocking loop
+            const w = new Worker('productionOfflineWorker', async () => {}, { autorun: false });
+            assert.strictEqual(w.name, 'productionOfflineWorker');
+            assert.strictEqual(w.isMock, undefined, 'Worker must be genuine BullMQ Worker, never MockWorker');
 
             await q.close();
             await w.close();
@@ -347,51 +350,99 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
                 const uniqueJobId = 'ci-job-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
                 const testPayload = { task: 'verify_real_bullmq_processing', timestamp: Date.now() };
 
-                let processedJobId = null;
-                let processedPayload = null;
                 let workerResolve;
-                const workerDonePromise = new Promise((resolve) => { workerResolve = resolve; });
+                let workerReject;
+                const workerCompletedPromise = new Promise((resolve, reject) => {
+                    workerResolve = resolve;
+                    workerReject = reject;
+                });
 
                 const queue = new Queue(uniqueQueueName);
                 assert.strictEqual(queue.isMock, undefined, 'Must be genuine BullMQ Queue, not MockQueue');
 
+                // Instantiate Worker. Note: do not resolve from inside the processor before it returns.
                 const worker = new Worker(uniqueQueueName, async (job) => {
-                    processedJobId = job.id;
-                    processedPayload = job.data;
-                    workerResolve(job.id);
+                    assert.strictEqual(job.id, uniqueJobId);
+                    assert.deepStrictEqual(job.data, testPayload);
                     return { success: true, processedAt: Date.now() };
                 });
                 assert.strictEqual(worker.isMock, undefined, 'Must be genuine BullMQ Worker, not MockWorker');
+
+                // Register listener for the actual BullMQ Worker 'completed' event
+                worker.on('completed', (job, result) => {
+                    workerResolve({ job, result });
+                });
+                worker.on('failed', (job, err) => {
+                    workerReject(err);
+                });
 
                 try {
                     // Enqueue one uniquely identified job
                     const job = await queue.add('testJob', testPayload, { jobId: uniqueJobId });
                     assert.strictEqual(job.id, uniqueJobId);
 
-                    // Wait for worker to receive and process job
-                    const finishedJobId = await Promise.race([
-                        workerDonePromise,
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Worker timed out processing job in CI')), 10000))
+                    // Await actual Worker 'completed' event with bounded timeout
+                    const completedData = await Promise.race([
+                        workerCompletedPromise,
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for BullMQ Worker completed event')), 10000))
                     ]);
 
-                    assert.strictEqual(finishedJobId, uniqueJobId);
-                    assert.strictEqual(processedJobId, uniqueJobId);
-                    assert.deepStrictEqual(processedPayload, testPayload);
+                    // Verify completed event attributes
+                    assert.strictEqual(completedData.job.id, uniqueJobId, 'Completed event must contain unique test job ID');
+                    assert.deepStrictEqual(completedData.job.data, testPayload, 'Completed event job data must match payload');
+                    assert.strictEqual(completedData.result.success, true);
 
-                    // Verify job result and completion state directly in real Redis
+                    // Verify job state directly in real Redis
                     const retrievedJob = await queue.getJob(uniqueJobId);
                     assert.ok(retrievedJob, 'Job must exist in real Redis');
+                    assert.deepStrictEqual(retrievedJob.data, testPayload);
                     const state = await retrievedJob.getState();
                     assert.strictEqual(state, 'completed', 'Job state in real Redis must be completed');
-
-                    // Clean up: ensure no durable test jobs are left behind
-                    await retrievedJob.remove();
-                    await queue.drain();
-                    await queue.obliterate({ force: true });
                 } finally {
-                    await queue.close();
-                    await worker.close();
-                    redisProxy.disconnect(false);
+                    // Cleanup responsibilities guaranteed through finally
+                    // 1. Close Worker first so no additional jobs are picked up
+                    try {
+                        await worker.close();
+                    } catch (e) {
+                        console.warn('Cleanup error closing worker:', e.message);
+                    }
+
+                    // 2. Pause and drain the unique test queue
+                    try {
+                        await queue.pause();
+                        await queue.drain();
+                    } catch (e) {
+                        console.warn('Cleanup error draining queue:', e.message);
+                    }
+
+                    // 3. Remove test job and obliterate unique queue
+                    try {
+                        const jobToRemove = await queue.getJob(uniqueJobId);
+                        if (jobToRemove) {
+                            await jobToRemove.remove();
+                        }
+                        await queue.obliterate({ force: true });
+                    } catch (e) {
+                        console.warn('Cleanup error obliterating queue:', e.message);
+                    }
+
+                    // 4. Verify unique job is absent after successful cleanup
+                    try {
+                        const postCleanupJob = await queue.getJob(uniqueJobId);
+                        assert.ok(!postCleanupJob, 'Unique job must be absent from Redis after cleanup');
+                    } catch (e) {
+                        console.warn('Verification error for post-cleanup job:', e.message);
+                    }
+
+                    // 5. Close Queue and disconnect production Redis client
+                    try {
+                        await queue.close();
+                    } catch (e) {
+                        console.warn('Cleanup error closing queue:', e.message);
+                    }
+                    try {
+                        redisProxy.disconnect(false);
+                    } catch (e) {}
                 }
             `;
 
