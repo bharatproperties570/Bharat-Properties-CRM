@@ -2540,11 +2540,19 @@ class WhatsAppService {
                     // Enterprise rule: Do NOT blindly retry; mark as DELIVERY_UNKNOWN to prevent duplicate messages in groups.
                     import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
                         if (cbStatus?.isProbe && cbStatus?.probeToken) {
-                            WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, 'ACK timeout').catch(() => {});
+                            WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, 'ACK timeout')
+                                .catch(cbErr => {
+                                    console.error(`[WhatsAppService/Baileys] Circuit breaker probe failure recording error for ${config.integrationId}:`, cbErr.message);
+                                });
                         } else {
-                            WhatsAppCircuitBreaker.recordAckTimeout(config.integrationId, { jid }).catch(() => {});
+                            WhatsAppCircuitBreaker.recordAckTimeout(config.integrationId, { jid })
+                                .catch(cbErr => {
+                                    console.error(`[WhatsAppService/Baileys] Circuit breaker ACK timeout recording error for ${config.integrationId}:`, cbErr.message);
+                                });
                         }
-                    }).catch(() => {});
+                    }).catch(impErr => {
+                        console.error(`[WhatsAppService/Baileys] Failed to import WhatsAppCircuitBreaker on timeout for ${config.integrationId}:`, impErr.message);
+                    });
 
                     return {
                         success: false,
@@ -2613,8 +2621,13 @@ class WhatsAppService {
             }
 
             import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                WhatsAppCircuitBreaker.recordSuccess(config.integrationId, cbStatus?.probeToken).catch(() => {});
-            }).catch(() => {});
+                WhatsAppCircuitBreaker.recordSuccess(config.integrationId, cbStatus?.probeToken)
+                    .catch(cbErr => {
+                        console.error(`[WhatsAppService/Baileys] Circuit breaker success recording error for ${config.integrationId}:`, cbErr.message);
+                    });
+            }).catch(impErr => {
+                console.error(`[WhatsAppService/Baileys] Failed to import WhatsAppCircuitBreaker on success for ${config.integrationId}:`, impErr.message);
+            });
 
             return { 
                 success: true, 
@@ -2627,8 +2640,13 @@ class WhatsAppService {
         } catch (error) {
             if (cbStatus?.isProbe && cbStatus?.probeToken) {
                 import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                    WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, error?.message || 'Send failed').catch(() => {});
-                }).catch(() => {});
+                    WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, error?.message || 'Send failed')
+                        .catch(cbErr => {
+                            console.error(`[WhatsAppService/Baileys] Circuit breaker probe failure recording error for ${config.integrationId}:`, cbErr.message);
+                        });
+                }).catch(impErr => {
+                    console.error(`[WhatsAppService/Baileys] Failed to import WhatsAppCircuitBreaker on error for ${config.integrationId}:`, impErr.message);
+                });
             }
 
             if (error?.message?.includes('DISTRIBUTED_LOCK_LOST') || error?.code === 'DISTRIBUTED_LOCK_LOST' || lockContext?.isLockLost?.()) {

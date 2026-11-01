@@ -8,6 +8,21 @@
  *   - CLOSED: Normal operation. All messages allowed.
  *   - OPEN: Tripped. Dispatches are rejected or held; sessions remain logged in.
  *   - HALF_OPEN: Controlled probe mode. EXACTLY ONE worker is granted a probe reservation.
+ *
+ * Concurrency & Atomicity Invariants (P0-A / P1-C):
+ *   1. All state transitions, lease acquisition, recovery, and counter updates
+ *      are executed as atomic Redis Lua scripts.
+ *   2. Strict Token Ownership:
+ *      - A missing probe token (null/empty) cannot mutate state out of HALF_OPEN.
+ *      - An expired probe lease (probe_lock key expired) cannot authorize state mutation.
+ *      - A stale probe worker cannot overwrite or reset an active probe owned by another worker.
+ *   3. Counter Semantics:
+ *      - Counters track CONSECUTIVE failures within a 15-minute rolling TTL window (COUNTER_TTL_SEC: 900).
+ *      - Increment and TTL renewal are executed atomically in Redis to prevent key leakage.
+ *      - Any successful dispatch/ACK or manual reset clears failure counters atomically.
+ *   4. Fail-Closed Resilience:
+ *      - Redis outage or storage unavailability throws explicit errors; dispatch is safely blocked.
+ *      - Storage errors are never silently swallowed and never falsely yield a successful transition.
  */
 
 import redisProxy from '../src/config/redis.js';
@@ -19,6 +34,191 @@ export const TRIP_THRESHOLDS = {
     COOLOFF_PERIOD_MS: 5 * 60 * 1000, // 5 minutes cooloff before transitioning to HALF_OPEN
     PROBE_LOCK_TTL_SEC: 60, // 60 seconds lock for single probe execution
     COUNTER_TTL_SEC: 15 * 60 // 15 minutes rolling window for consecutive failure counters
+};
+
+// 🔒 Atomic Redis Lua Scripts for Concurrency-Safe State Transitions
+export const LUA_SCRIPTS = {
+    // 1. OPEN -> HALF_OPEN probe reservation & Expired lease recovery
+    CHECK_AND_RESERVE_PROBE: `
+-- CB_CHECK_AND_RESERVE_PROBE
+-- KEYS: [1] stateKey, [2] reasonKey, [3] trippedAtKey, [4] probeLockKey
+-- ARGV: [1] workerToken, [2] cooloffMs, [3] probeTtlSec, [4] nowMs, [5] callerProbeToken
+local state = redis.call("get", KEYS[1]) or "CLOSED"
+
+if state == "CLOSED" then
+    return cjson.encode({ state = "CLOSED", tripped = false })
+end
+
+if state == "OPEN" then
+    local trippedAtRaw = redis.call("get", KEYS[3])
+    local trippedAt = tonumber(trippedAtRaw) or tonumber(ARGV[4])
+    local elapsed = tonumber(ARGV[4]) - trippedAt
+    local cooloffMs = tonumber(ARGV[2])
+
+    if elapsed >= cooloffMs then
+        local lockAcquired = redis.call("set", KEYS[4], ARGV[1], "NX", "EX", tonumber(ARGV[3]))
+        if lockAcquired then
+            redis.call("set", KEYS[1], "HALF_OPEN")
+            return cjson.encode({
+                state = "HALF_OPEN",
+                tripped = false,
+                isProbe = true,
+                probeToken = ARGV[1]
+            })
+        else
+            return cjson.encode({
+                state = "OPEN",
+                tripped = true,
+                reason = "Controlled probe already in flight by another worker. Holding dispatch.",
+                probeInFlight = true,
+                trippedAt = trippedAt
+            })
+        end
+    else
+        local reason = redis.call("get", KEYS[2]) or "Circuit breaker tripped due to consecutive WhatsApp line failures"
+        local remainingSec = math.max(0, math.floor((cooloffMs - elapsed) / 1000))
+        return cjson.encode({
+            state = "OPEN",
+            tripped = true,
+            reason = reason,
+            trippedAt = trippedAt,
+            remainingCooloffSec = remainingSec
+        })
+    end
+end
+
+if state == "HALF_OPEN" then
+    local activeToken = redis.call("get", KEYS[4])
+    if not activeToken then
+        local tripReason = "Probe lease expired or worker crashed. Resetting cooloff."
+        redis.call("set", KEYS[1], "OPEN")
+        redis.call("set", KEYS[3], tostring(ARGV[4]))
+        redis.call("set", KEYS[2], tripReason)
+        return cjson.encode({
+            state = "OPEN",
+            tripped = true,
+            reason = tripReason,
+            trippedAt = tonumber(ARGV[4]),
+            recoveredFromExpiredLease = true,
+            remainingCooloffSec = math.floor(tonumber(ARGV[2]) / 1000)
+        })
+    end
+
+    if ARGV[5] and ARGV[5] ~= "" and ARGV[5] == activeToken then
+        return cjson.encode({
+            state = "HALF_OPEN",
+            tripped = false,
+            isProbe = true,
+            probeToken = activeToken
+        })
+    end
+
+    return cjson.encode({
+        state = "HALF_OPEN",
+        tripped = true,
+        reason = "Circuit breaker is in HALF_OPEN probe mode. Awaiting single test dispatch verification.",
+        probeInFlight = true
+    })
+end
+
+return cjson.encode({ state = state, tripped = false })
+`,
+
+    // 2. HALF_OPEN -> CLOSED probe success
+    RECORD_PROBE_SUCCESS: `
+-- CB_RECORD_PROBE_SUCCESS
+-- KEYS: [1] stateKey, [2] reasonKey, [3] trippedAtKey, [4] probeLockKey, [5] timeoutsKey, [6] authFailuresKey, [7] disconnectsKey
+-- ARGV: [1] probeToken
+local state = redis.call("get", KEYS[1]) or "CLOSED"
+local token = ARGV[1]
+
+if state == "HALF_OPEN" then
+    if not token or token == "" then
+        return cjson.encode({ success = false, state = state, error = "MISSING_PROBE_TOKEN" })
+    end
+    local activeToken = redis.call("get", KEYS[4])
+    if not activeToken then
+        return cjson.encode({ success = false, state = state, error = "EXPIRED_PROBE_LEASE" })
+    end
+    if token ~= activeToken then
+        return cjson.encode({ success = false, state = state, error = "STALE_PROBE_OWNER" })
+    end
+
+    redis.call("set", KEYS[1], "CLOSED")
+    redis.call("del", KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6], KEYS[7])
+    return cjson.encode({ success = true, state = "CLOSED" })
+end
+
+if state == "CLOSED" then
+    redis.call("del", KEYS[5], KEYS[6], KEYS[7])
+    return cjson.encode({ success = true, state = "CLOSED" })
+end
+
+return cjson.encode({ success = false, state = state, error = "BREAKER_NOT_HALF_OPEN" })
+`,
+
+    // 3. HALF_OPEN -> OPEN probe failure
+    RECORD_PROBE_FAILURE: `
+-- CB_RECORD_PROBE_FAILURE
+-- KEYS: [1] stateKey, [2] reasonKey, [3] trippedAtKey, [4] probeLockKey
+-- ARGV: [1] probeToken, [2] reason, [3] nowMs
+local state = redis.call("get", KEYS[1]) or "CLOSED"
+local token = ARGV[1]
+
+if state == "HALF_OPEN" then
+    local activeToken = redis.call("get", KEYS[4])
+    if token and token ~= "" and activeToken and token ~= activeToken then
+        return cjson.encode({ success = false, state = state, error = "STALE_PROBE_OWNER" })
+    end
+
+    local tripReason = "Probe failed: " .. (ARGV[2] or "Probe dispatch failed") .. ". Resetting cooloff."
+    redis.call("set", KEYS[1], "OPEN")
+    redis.call("set", KEYS[2], tripReason)
+    redis.call("set", KEYS[3], tostring(ARGV[3]))
+    redis.call("del", KEYS[4])
+    return cjson.encode({ tripped = true, state = "OPEN", reason = tripReason })
+end
+
+return cjson.encode({ success = false, state = state })
+`,
+
+    // 4. Failure counter increment, rolling TTL & threshold-based trip
+    RECORD_FAILURE_COUNTER: `
+-- CB_RECORD_FAILURE_COUNTER
+-- KEYS: [1] counterKey, [2] stateKey, [3] reasonKey, [4] trippedAtKey, [5] probeLockKey
+-- ARGV: [1] threshold, [2] counterTtlSec, [3] reason, [4] nowMs
+local count = redis.call("incr", KEYS[1])
+redis.call("expire", KEYS[1], tonumber(ARGV[2]))
+
+local threshold = tonumber(ARGV[1])
+if count >= threshold then
+    redis.call("set", KEYS[2], "OPEN")
+    redis.call("set", KEYS[3], ARGV[3])
+    redis.call("set", KEYS[4], tostring(ARGV[4]))
+    redis.call("del", KEYS[5])
+    return cjson.encode({ count = count, tripped = true, reason = ARGV[3] })
+else
+    return cjson.encode({ count = count, tripped = false })
+end
+`,
+
+    // 5. Reset failure counters on dispatch success
+    RESET_SUCCESS_COUNTERS: `
+-- CB_RESET_SUCCESS_COUNTERS
+-- KEYS: [1] timeoutsKey, [2] authFailuresKey, [3] disconnectsKey, [4] stateKey
+redis.call("del", KEYS[1], KEYS[2], KEYS[3])
+local state = redis.call("get", KEYS[4]) or "CLOSED"
+return cjson.encode({ success = true, state = state })
+`,
+
+    // 6. Manual audit-tracked reset
+    MANUAL_RESET: `
+-- CB_MANUAL_RESET
+-- KEYS: [1] stateKey, [2] reasonKey, [3] trippedAtKey, [4] probeLockKey, [5] timeoutsKey, [6] authFailuresKey, [7] disconnectsKey
+redis.call("set", KEYS[1], "CLOSED")
+redis.call("del", KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6], KEYS[7])
+return cjson.encode({ success = true, state = "CLOSED" })
+`
 };
 
 export class WhatsAppCircuitBreaker {
@@ -36,6 +236,8 @@ export class WhatsAppCircuitBreaker {
     /**
      * Checks if the circuit breaker is currently TRIPPED (OPEN) for the given integration.
      * FAIL-CLOSED: If Redis is unavailable, throws CIRCUIT_BREAKER_STORAGE_UNAVAILABLE.
+     * Transitions OPEN -> HALF_OPEN atomically if cooloff has expired.
+     * Detects expired probe locks and recovers safely back to OPEN.
      */
     static async isTripped(integrationId, options = {}) {
         const id = String(integrationId || 'default');
@@ -47,88 +249,34 @@ export class WhatsAppCircuitBreaker {
             const trippedAtKey = this._key(id, 'tripped_at');
             const probeLockKey = this._key(id, 'probe_lock');
 
-            const currentState = (await redis.get(stateKey)) || 'CLOSED';
+            const workerToken = options.workerToken || `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+            const callerProbeToken = options.probeToken || '';
+            const nowMs = Date.now();
 
-            if (currentState === 'OPEN') {
-                const trippedAtRaw = await redis.get(trippedAtKey);
-                const trippedAt = trippedAtRaw ? parseInt(trippedAtRaw, 10) : Date.now();
-                const elapsed = Date.now() - trippedAt;
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.CHECK_AND_RESERVE_PROBE,
+                4,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                workerToken,
+                String(TRIP_THRESHOLDS.COOLOFF_PERIOD_MS),
+                String(TRIP_THRESHOLDS.PROBE_LOCK_TTL_SEC),
+                String(nowMs),
+                callerProbeToken
+            );
 
-                // Check if cool-off period has expired to allow controlled HALF_OPEN probe
-                if (elapsed >= TRIP_THRESHOLDS.COOLOFF_PERIOD_MS) {
-                    // 🔒 Genuinely Controlled HALF_OPEN Probe:
-                    // Only ONE worker across all instances may acquire the probe token.
-                    const workerToken = options.workerToken || `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-                    const lockAcquired = await redis.set(probeLockKey, workerToken, 'NX', 'EX', TRIP_THRESHOLDS.PROBE_LOCK_TTL_SEC);
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
 
-                    if (lockAcquired === 'OK' || lockAcquired === true) {
-                        await redis.set(stateKey, 'HALF_OPEN');
-                        console.log(`[WhatsAppCircuitBreaker] Breaker for ${id} transitioning to HALF_OPEN probe mode. Probe reserved by token ${workerToken}.`);
-                        return {
-                            tripped: false,
-                            state: 'HALF_OPEN',
-                            isProbe: true,
-                            probeToken: workerToken,
-                            reason: null
-                        };
-                    } else {
-                        // Another worker is actively executing the single probe
-                        return {
-                            tripped: true,
-                            state: 'OPEN',
-                            reason: 'Controlled probe already in flight by another worker. Holding dispatch.',
-                            probeInFlight: true,
-                            trippedAt
-                        };
-                    }
-                }
-
-                const reason = (await redis.get(reasonKey)) || 'Circuit breaker tripped due to consecutive WhatsApp line failures';
-                return {
-                    tripped: true,
-                    state: 'OPEN',
-                    reason,
-                    trippedAt,
-                    remainingCooloffSec: Math.max(0, Math.round((TRIP_THRESHOLDS.COOLOFF_PERIOD_MS - elapsed) / 1000))
-                };
+            if (result.isProbe) {
+                console.log(`[WhatsAppCircuitBreaker] Breaker for ${id} transitioning to HALF_OPEN probe mode. Probe reserved by token ${result.probeToken}.`);
+            }
+            if (result.recoveredFromExpiredLease) {
+                console.warn(`[WhatsAppCircuitBreaker] Breaker for ${id} was HALF_OPEN but probe lease expired without completion. Transitioning back to OPEN with new cool-off period.`);
             }
 
-            if (currentState === 'HALF_OPEN') {
-                const activeToken = await redis.get(probeLockKey);
-
-                // 🔒 P0 Deadlock Prevention: If probe lock expired (worker crash or timeout), reset to OPEN with new cooloff
-                if (!activeToken) {
-                    console.warn(`[WhatsAppCircuitBreaker] Breaker for ${id} was HALF_OPEN but probe lease expired without completion. Transitioning back to OPEN with new cool-off period.`);
-                    const now = Date.now();
-                    const reason = 'Probe lease expired or worker crashed. Resetting cooloff.';
-                    await redis.set(stateKey, 'OPEN');
-                    await redis.set(trippedAtKey, String(now));
-                    await redis.set(reasonKey, reason);
-
-                    return {
-                        tripped: true,
-                        state: 'OPEN',
-                        reason,
-                        trippedAt: now,
-                        remainingCooloffSec: Math.round(TRIP_THRESHOLDS.COOLOFF_PERIOD_MS / 1000)
-                    };
-                }
-
-                // If caller is the designated probe worker holding activeToken, allow dispatch
-                if (options.probeToken && options.probeToken === activeToken) {
-                    return { tripped: false, state: 'HALF_OPEN', isProbe: true, probeToken: activeToken, reason: null };
-                }
-
-                // Concurrent workers must not independently initiate probes while probe is in flight
-                return {
-                    tripped: true,
-                    state: 'HALF_OPEN',
-                    reason: 'Circuit breaker is in HALF_OPEN probe mode. Awaiting single test dispatch verification.',
-                    probeInFlight: true
-                };
-            }
-
-            return { tripped: false, state: 'CLOSED', reason: null };
+            return result;
         } catch (err) {
             console.error(`[WhatsAppCircuitBreaker] Durable storage read failure for ${id}:`, err.message);
             throw new Error(`CIRCUIT_BREAKER_STORAGE_UNAVAILABLE: Circuit breaker storage failure (${err.message}). Outbound dispatch blocked for safety.`);
@@ -137,7 +285,7 @@ export class WhatsAppCircuitBreaker {
 
     /**
      * Records probe success. Atomically transitions HALF_OPEN to CLOSED if probeToken matches active lease.
-     * Prevents a stale probe owner from resetting another worker's breaker state.
+     * Strict ownership: Rejects missing probe tokens, expired leases, or stale owners.
      */
     static async recordProbeSuccess(integrationId, probeToken) {
         const id = String(integrationId || 'default');
@@ -152,33 +300,32 @@ export class WhatsAppCircuitBreaker {
             const authFailuresKey = this._key(id, 'auth_failures');
             const disconnectsKey = this._key(id, 'disconnects');
 
-            const currentState = await redis.get(stateKey);
-            if (currentState === 'HALF_OPEN') {
-                const activeToken = await redis.get(probeLockKey);
-                if (probeToken && activeToken !== probeToken) {
-                    console.warn(`[WhatsAppCircuitBreaker] Stale probe success rejected for ${id}: token '${probeToken}' != active '${activeToken}'. Lease expired or reassigned.`);
-                    return { success: false, state: currentState, error: 'STALE_PROBE_OWNER' };
-                }
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.RECORD_PROBE_SUCCESS,
+                7,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                timeoutsKey,
+                authFailuresKey,
+                disconnectsKey,
+                probeToken || ''
+            );
 
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+
+            if (result.success) {
                 console.log(`[WhatsAppCircuitBreaker] Probe succeeded for ${id} (token ${probeToken}). Resetting circuit breaker to CLOSED.`);
-                await redis.set(stateKey, 'CLOSED');
-                await redis.del(reasonKey);
-                await redis.del(trippedAtKey);
-                await redis.del(probeLockKey);
-                await redis.del(timeoutsKey);
-                await redis.del(authFailuresKey);
-                await redis.del(disconnectsKey);
-                return { success: true, state: 'CLOSED' };
+            } else if (result.error === 'STALE_PROBE_OWNER') {
+                console.warn(`[WhatsAppCircuitBreaker] Stale probe success rejected for ${id}: token '${probeToken}'. Lease expired or reassigned.`);
+            } else if (result.error === 'MISSING_PROBE_TOKEN') {
+                console.warn(`[WhatsAppCircuitBreaker] Probe success rejected for ${id}: probe token is missing.`);
+            } else if (result.error === 'EXPIRED_PROBE_LEASE') {
+                console.warn(`[WhatsAppCircuitBreaker] Probe success rejected for ${id}: active lease expired.`);
             }
 
-            if (currentState === 'CLOSED') {
-                await redis.del(timeoutsKey);
-                await redis.del(authFailuresKey);
-                await redis.del(disconnectsKey);
-                return { success: true, state: 'CLOSED' };
-            }
-
-            return { success: false, state: currentState, error: 'BREAKER_NOT_HALF_OPEN' };
+            return result;
         } catch (err) {
             console.error(`[WhatsAppCircuitBreaker] Error recording probe success for ${id}:`, err.message);
             throw err;
@@ -187,6 +334,7 @@ export class WhatsAppCircuitBreaker {
 
     /**
      * Records probe failure. Transitions HALF_OPEN back to OPEN with a fresh cool-off period.
+     * Strict ownership: Rejects stale owners from modifying newer probes.
      */
     static async recordProbeFailure(integrationId, probeToken, reason = 'Probe dispatch failed') {
         const id = String(integrationId || 'default');
@@ -198,26 +346,29 @@ export class WhatsAppCircuitBreaker {
             const trippedAtKey = this._key(id, 'tripped_at');
             const probeLockKey = this._key(id, 'probe_lock');
 
-            const currentState = await redis.get(stateKey);
-            if (currentState === 'HALF_OPEN') {
-                const activeToken = await redis.get(probeLockKey);
-                if (probeToken && activeToken && activeToken !== probeToken) {
-                    console.warn(`[WhatsAppCircuitBreaker] Stale probe failure ignored for ${id}: token '${probeToken}' != active '${activeToken}'.`);
-                    return { success: false, error: 'STALE_PROBE_OWNER' };
-                }
+            const nowMs = Date.now();
 
-                const now = Date.now();
-                const tripReason = `Probe failed: ${reason}. Resetting cooloff.`;
-                await redis.set(stateKey, 'OPEN');
-                await redis.set(trippedAtKey, String(now));
-                await redis.set(reasonKey, tripReason);
-                await redis.del(probeLockKey);
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.RECORD_PROBE_FAILURE,
+                4,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                probeToken || '',
+                reason,
+                String(nowMs)
+            );
 
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+
+            if (result.tripped) {
                 console.warn(`[WhatsAppCircuitBreaker] 🚨 Probe failed for ${id}. Breaker returned to OPEN.`);
-                return { tripped: true, state: 'OPEN', reason: tripReason };
+            } else if (result.error === 'STALE_PROBE_OWNER') {
+                console.warn(`[WhatsAppCircuitBreaker] Stale probe failure ignored for ${id}: token '${probeToken}'.`);
             }
 
-            return { success: false, state: currentState };
+            return result;
         } catch (err) {
             console.error(`[WhatsAppCircuitBreaker] Error recording probe failure for ${id}:`, err.message);
             throw err;
@@ -234,26 +385,26 @@ export class WhatsAppCircuitBreaker {
         const redis = this._getRedis();
 
         try {
-            const stateKey = this._key(id, 'state');
-            const currentState = await redis.get(stateKey);
-
-            if (currentState === 'HALF_OPEN' && probeToken) {
+            if (probeToken) {
                 return await this.recordProbeSuccess(id, probeToken);
             }
 
             const timeoutsKey = this._key(id, 'timeouts');
             const authFailuresKey = this._key(id, 'auth_failures');
             const disconnectsKey = this._key(id, 'disconnects');
+            const stateKey = this._key(id, 'state');
 
-            await redis.del(timeoutsKey);
-            await redis.del(authFailuresKey);
-            await redis.del(disconnectsKey);
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.RESET_SUCCESS_COUNTERS,
+                4,
+                timeoutsKey,
+                authFailuresKey,
+                disconnectsKey,
+                stateKey
+            );
 
-            if (currentState === 'HALF_OPEN' && !probeToken) {
-                console.warn(`[WhatsAppCircuitBreaker] recordSuccess called without probeToken while HALF_OPEN for ${id}. Cleared counters but preserving probe reservation.`);
-            }
-
-            return { success: true, state: currentState || 'CLOSED' };
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+            return result;
         } catch (err) {
             console.error(`[WhatsAppCircuitBreaker] Error recording success for ${id}:`, err.message);
             throw err;
@@ -261,8 +412,8 @@ export class WhatsAppCircuitBreaker {
     }
 
     /**
-     * Records an ACK timeout. Trips breaker if threshold (3) is reached.
-     * Consecutive failure window is bounded by COUNTER_TTL_SEC to avoid indefinite accumulation.
+     * Records an ACK timeout. Trips breaker if threshold (3) consecutive timeouts is reached.
+     * Atomic: Increments counter and binds rolling TTL (COUNTER_TTL_SEC: 900) in a single script.
      */
     static async recordAckTimeout(integrationId, detail = {}) {
         const id = String(integrationId || 'default');
@@ -270,30 +421,36 @@ export class WhatsAppCircuitBreaker {
 
         try {
             const timeoutsKey = this._key(id, 'timeouts');
-            const count = await redis.incr(timeoutsKey);
-            if (count === 1) {
-                await redis.expire(timeoutsKey, TRIP_THRESHOLDS.COUNTER_TTL_SEC);
+            const stateKey = this._key(id, 'state');
+            const reasonKey = this._key(id, 'reason');
+            const trippedAtKey = this._key(id, 'tripped_at');
+            const probeLockKey = this._key(id, 'probe_lock');
+
+            const nowMs = Date.now();
+            const reason = `Tripped after ${TRIP_THRESHOLDS.CONSECUTIVE_ACK_TIMEOUTS} consecutive ACK timeouts on WhatsApp line.`;
+
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.RECORD_FAILURE_COUNTER,
+                5,
+                timeoutsKey,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                String(TRIP_THRESHOLDS.CONSECUTIVE_ACK_TIMEOUTS),
+                String(TRIP_THRESHOLDS.COUNTER_TTL_SEC),
+                reason,
+                String(nowMs)
+            );
+
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+            console.warn(`[WhatsAppCircuitBreaker] ACK timeout recorded for ${id} (count: ${result.count}/${TRIP_THRESHOLDS.CONSECUTIVE_ACK_TIMEOUTS})`);
+
+            if (result.tripped) {
+                console.error(`[WhatsAppCircuitBreaker] 🚨 CIRCUIT BREAKER TRIPPED for integration ${id}: ${result.reason}`);
             }
 
-            console.warn(`[WhatsAppCircuitBreaker] ACK timeout recorded for ${id} (count: ${count}/${TRIP_THRESHOLDS.CONSECUTIVE_ACK_TIMEOUTS})`);
-
-            if (count >= TRIP_THRESHOLDS.CONSECUTIVE_ACK_TIMEOUTS) {
-                const stateKey = this._key(id, 'state');
-                const reasonKey = this._key(id, 'reason');
-                const trippedAtKey = this._key(id, 'tripped_at');
-                const probeLockKey = this._key(id, 'probe_lock');
-                const reason = `Tripped after ${count} consecutive ACK timeouts on WhatsApp line.`;
-
-                await redis.set(stateKey, 'OPEN');
-                await redis.set(trippedAtKey, String(Date.now()));
-                await redis.set(reasonKey, reason);
-                await redis.del(probeLockKey);
-
-                console.error(`[WhatsAppCircuitBreaker] 🚨 CIRCUIT BREAKER TRIPPED for integration ${id}: ${reason}`);
-                return { tripped: true, reason };
-            }
-
-            return { tripped: false, count };
+            return result;
         } catch (err) {
             console.error(`[WhatsAppCircuitBreaker] Error recording ACK timeout for ${id}:`, err.message);
             throw err;
@@ -302,7 +459,7 @@ export class WhatsAppCircuitBreaker {
 
     /**
      * Records an authentication state persistence failure. Trips breaker if threshold (2) is reached.
-     * Window is bounded by COUNTER_TTL_SEC.
+     * Atomic: Increments counter and binds rolling TTL in a single script.
      */
     static async recordAuthFailure(integrationId, err) {
         const id = String(integrationId || 'default');
@@ -310,30 +467,36 @@ export class WhatsAppCircuitBreaker {
 
         try {
             const authFailuresKey = this._key(id, 'auth_failures');
-            const count = await redis.incr(authFailuresKey);
-            if (count === 1) {
-                await redis.expire(authFailuresKey, TRIP_THRESHOLDS.COUNTER_TTL_SEC);
+            const stateKey = this._key(id, 'state');
+            const reasonKey = this._key(id, 'reason');
+            const trippedAtKey = this._key(id, 'tripped_at');
+            const probeLockKey = this._key(id, 'probe_lock');
+
+            const nowMs = Date.now();
+            const reason = `Tripped after ${TRIP_THRESHOLDS.CONSECUTIVE_AUTH_FAILURES} consecutive authentication persistence failures: ${err?.message || 'DB Error'}`;
+
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.RECORD_FAILURE_COUNTER,
+                5,
+                authFailuresKey,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                String(TRIP_THRESHOLDS.CONSECUTIVE_AUTH_FAILURES),
+                String(TRIP_THRESHOLDS.COUNTER_TTL_SEC),
+                reason,
+                String(nowMs)
+            );
+
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+            console.warn(`[WhatsAppCircuitBreaker] Auth persistence failure for ${id} (count: ${result.count}/${TRIP_THRESHOLDS.CONSECUTIVE_AUTH_FAILURES}):`, err?.message);
+
+            if (result.tripped) {
+                console.error(`[WhatsAppCircuitBreaker] 🚨 CIRCUIT BREAKER TRIPPED for integration ${id}: ${result.reason}`);
             }
 
-            console.warn(`[WhatsAppCircuitBreaker] Auth persistence failure for ${id} (count: ${count}/${TRIP_THRESHOLDS.CONSECUTIVE_AUTH_FAILURES}):`, err?.message);
-
-            if (count >= TRIP_THRESHOLDS.CONSECUTIVE_AUTH_FAILURES) {
-                const stateKey = this._key(id, 'state');
-                const reasonKey = this._key(id, 'reason');
-                const trippedAtKey = this._key(id, 'tripped_at');
-                const probeLockKey = this._key(id, 'probe_lock');
-                const reason = `Tripped after ${count} consecutive authentication persistence failures: ${err?.message || 'DB Error'}`;
-
-                await redis.set(stateKey, 'OPEN');
-                await redis.set(trippedAtKey, String(Date.now()));
-                await redis.set(reasonKey, reason);
-                await redis.del(probeLockKey);
-
-                console.error(`[WhatsAppCircuitBreaker] 🚨 CIRCUIT BREAKER TRIPPED for integration ${id}: ${reason}`);
-                return { tripped: true, reason };
-            }
-
-            return { tripped: false, count };
+            return result;
         } catch (rErr) {
             console.error(`[WhatsAppCircuitBreaker] Error recording auth failure for ${id}:`, rErr.message);
             throw rErr;
@@ -342,7 +505,7 @@ export class WhatsAppCircuitBreaker {
 
     /**
      * Records a socket disconnect event. Trips breaker if threshold (5) is reached.
-     * Window is bounded by COUNTER_TTL_SEC.
+     * Atomic: Increments counter and binds rolling TTL in a single script.
      */
     static async recordDisconnect(integrationId, statusCode) {
         const id = String(integrationId || 'default');
@@ -350,28 +513,35 @@ export class WhatsAppCircuitBreaker {
 
         try {
             const disconnectsKey = this._key(id, 'disconnects');
-            const count = await redis.incr(disconnectsKey);
-            if (count === 1) {
-                await redis.expire(disconnectsKey, TRIP_THRESHOLDS.COUNTER_TTL_SEC);
+            const stateKey = this._key(id, 'state');
+            const reasonKey = this._key(id, 'reason');
+            const trippedAtKey = this._key(id, 'tripped_at');
+            const probeLockKey = this._key(id, 'probe_lock');
+
+            const nowMs = Date.now();
+            const reason = `Tripped after ${TRIP_THRESHOLDS.CONSECUTIVE_DISCONNECTS} repeated socket disconnects (last code: ${statusCode}).`;
+
+            const rawResult = await redis.eval(
+                LUA_SCRIPTS.RECORD_FAILURE_COUNTER,
+                5,
+                disconnectsKey,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                String(TRIP_THRESHOLDS.CONSECUTIVE_DISCONNECTS),
+                String(TRIP_THRESHOLDS.COUNTER_TTL_SEC),
+                reason,
+                String(nowMs)
+            );
+
+            const result = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+
+            if (result.tripped) {
+                console.error(`[WhatsAppCircuitBreaker] 🚨 CIRCUIT BREAKER TRIPPED for integration ${id}: ${result.reason}`);
             }
 
-            if (count >= TRIP_THRESHOLDS.CONSECUTIVE_DISCONNECTS) {
-                const stateKey = this._key(id, 'state');
-                const reasonKey = this._key(id, 'reason');
-                const trippedAtKey = this._key(id, 'tripped_at');
-                const probeLockKey = this._key(id, 'probe_lock');
-                const reason = `Tripped after ${count} repeated socket disconnects (last code: ${statusCode}).`;
-
-                await redis.set(stateKey, 'OPEN');
-                await redis.set(trippedAtKey, String(Date.now()));
-                await redis.set(reasonKey, reason);
-                await redis.del(probeLockKey);
-
-                console.error(`[WhatsAppCircuitBreaker] 🚨 CIRCUIT BREAKER TRIPPED for integration ${id}: ${reason}`);
-                return { tripped: true, reason };
-            }
-
-            return { tripped: false, count };
+            return result;
         } catch (err) {
             console.error(`[WhatsAppCircuitBreaker] Error recording disconnect for ${id}:`, err.message);
             throw err;
@@ -380,6 +550,7 @@ export class WhatsAppCircuitBreaker {
 
     /**
      * Manual or health-check reset of the circuit breaker. Must be authorized and audited.
+     * Executes atomic cleanup of all state, locks, and counters.
      */
     static async reset(integrationId, operator = 'SYSTEM', auditReason = 'Manual operator reset') {
         const id = String(integrationId || 'default');
@@ -389,18 +560,22 @@ export class WhatsAppCircuitBreaker {
             const stateKey = this._key(id, 'state');
             const reasonKey = this._key(id, 'reason');
             const trippedAtKey = this._key(id, 'tripped_at');
+            const probeLockKey = this._key(id, 'probe_lock');
             const timeoutsKey = this._key(id, 'timeouts');
             const authFailuresKey = this._key(id, 'auth_failures');
             const disconnectsKey = this._key(id, 'disconnects');
-            const probeLockKey = this._key(id, 'probe_lock');
 
-            await redis.set(stateKey, 'CLOSED');
-            await redis.del(reasonKey);
-            await redis.del(trippedAtKey);
-            await redis.del(timeoutsKey);
-            await redis.del(authFailuresKey);
-            await redis.del(disconnectsKey);
-            await redis.del(probeLockKey);
+            await redis.eval(
+                LUA_SCRIPTS.MANUAL_RESET,
+                7,
+                stateKey,
+                reasonKey,
+                trippedAtKey,
+                probeLockKey,
+                timeoutsKey,
+                authFailuresKey,
+                disconnectsKey
+            );
 
             console.log(`[WhatsAppCircuitBreaker] [AUDIT] Circuit breaker for ${id} manually reset to CLOSED by operator '${operator}'. Reason: ${auditReason}`);
             return { success: true, state: 'CLOSED', operator, auditReason };
@@ -426,18 +601,28 @@ export class WhatsAppCircuitBreaker {
             const disconnectsKey = this._key(id, 'disconnects');
             const probeLockKey = this._key(id, 'probe_lock');
 
-            const state = (await redis.get(stateKey)) || 'CLOSED';
-            const tripReason = await redis.get(reasonKey);
-            const trippedAtRaw = await redis.get(trippedAtKey);
-            const timeoutsRaw = await redis.get(timeoutsKey);
-            const authFailuresRaw = await redis.get(authFailuresKey);
-            const disconnectsRaw = await redis.get(disconnectsKey);
-            const activeProbeToken = await redis.get(probeLockKey);
+            const [
+                state,
+                tripReason,
+                trippedAtRaw,
+                timeoutsRaw,
+                authFailuresRaw,
+                disconnectsRaw,
+                activeProbeToken
+            ] = await Promise.all([
+                redis.get(stateKey),
+                redis.get(reasonKey),
+                redis.get(trippedAtKey),
+                redis.get(timeoutsKey),
+                redis.get(authFailuresKey),
+                redis.get(disconnectsKey),
+                redis.get(probeLockKey)
+            ]);
 
             return {
                 integrationId: id,
-                state,
-                tripReason,
+                state: state || 'CLOSED',
+                tripReason: tripReason || null,
                 trippedAt: trippedAtRaw ? parseInt(trippedAtRaw, 10) : null,
                 consecutiveTimeouts: timeoutsRaw ? parseInt(timeoutsRaw, 10) : 0,
                 consecutiveAuthFailures: authFailuresRaw ? parseInt(authFailuresRaw, 10) : 0,

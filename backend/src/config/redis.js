@@ -32,21 +32,21 @@ class MockRedis extends EventEmitter {
         if (exIdx !== -1 && args[exIdx + 1] !== undefined) {
             const sec = parseInt(args[exIdx + 1], 10);
             if (!isNaN(sec)) {
-                setTimeout(() => this.data.delete(key), sec * 1000);
+                setTimeout(() => this.data.delete(key), sec * 1000).unref();
             }
         }
         const pxIdx = argStrings.indexOf('PX');
         if (pxIdx !== -1 && args[pxIdx + 1] !== undefined) {
             const ms = parseInt(args[pxIdx + 1], 10);
             if (!isNaN(ms)) {
-                setTimeout(() => this.data.delete(key), ms);
+                setTimeout(() => this.data.delete(key), ms).unref();
             }
         }
         return 'OK'; 
     }
     async setex(key, seconds, val) { 
         this.data.set(key, val); 
-        setTimeout(() => this.data.delete(key), seconds * 1000);
+        setTimeout(() => this.data.delete(key), seconds * 1000).unref();
         return 'OK'; 
     }
     async del(key) { this.data.delete(key); return 1; }
@@ -63,13 +63,246 @@ class MockRedis extends EventEmitter {
             if (this.data.get(key) === val) {
                 this.data.delete(key);
             }
-        }, seconds * 1000);
+        }, seconds * 1000).unref();
         return 1;
+    }
+    async mget(...keys) {
+        const flatKeys = keys.flat();
+        return flatKeys.map(k => this.data.get(k) || null);
     }
     async eval(script, numkeys, ...args) {
         const keys = args.slice(0, numkeys);
         const argv = args.slice(numkeys);
         const s = String(script || '');
+
+        // Circuit Breaker: Check and reserve probe
+        if (s.includes('CB_CHECK_AND_RESERVE_PROBE')) {
+            const stateKey = keys[0];
+            const reasonKey = keys[1];
+            const trippedAtKey = keys[2];
+            const probeLockKey = keys[3];
+
+            const workerToken = argv[0];
+            const cooloffMs = parseInt(argv[1], 10) || (5 * 60 * 1000);
+            const probeTtlSec = parseInt(argv[2], 10) || 60;
+            const nowMs = parseInt(argv[3], 10) || Date.now();
+            const callerProbeToken = argv[4] || '';
+
+            const state = this.data.get(stateKey) || 'CLOSED';
+
+            if (state === 'CLOSED') {
+                return JSON.stringify({ state: 'CLOSED', tripped: false });
+            }
+
+            if (state === 'OPEN') {
+                const trippedAtRaw = this.data.get(trippedAtKey);
+                const trippedAt = trippedAtRaw ? parseInt(trippedAtRaw, 10) : nowMs;
+                const elapsed = nowMs - trippedAt;
+
+                if (elapsed >= cooloffMs) {
+                    if (this.data.has(probeLockKey)) {
+                        return JSON.stringify({
+                            state: 'OPEN',
+                            tripped: true,
+                            reason: 'Controlled probe already in flight by another worker. Holding dispatch.',
+                            probeInFlight: true,
+                            trippedAt
+                        });
+                    }
+                    await this.set(probeLockKey, workerToken, 'NX', 'EX', probeTtlSec);
+                    this.data.set(stateKey, 'HALF_OPEN');
+                    return JSON.stringify({
+                        state: 'HALF_OPEN',
+                        tripped: false,
+                        isProbe: true,
+                        probeToken: workerToken
+                    });
+                } else {
+                    const reason = this.data.get(reasonKey) || 'Circuit breaker tripped due to consecutive WhatsApp line failures';
+                    const remainingSec = Math.max(0, Math.floor((cooloffMs - elapsed) / 1000));
+                    return JSON.stringify({
+                        state: 'OPEN',
+                        tripped: true,
+                        reason,
+                        trippedAt,
+                        remainingCooloffSec: remainingSec
+                    });
+                }
+            }
+
+            if (state === 'HALF_OPEN') {
+                const activeToken = this.data.get(probeLockKey);
+                if (!activeToken) {
+                    const tripReason = 'Probe lease expired or worker crashed. Resetting cooloff.';
+                    this.data.set(stateKey, 'OPEN');
+                    this.data.set(trippedAtKey, String(nowMs));
+                    this.data.set(reasonKey, tripReason);
+                    return JSON.stringify({
+                        state: 'OPEN',
+                        tripped: true,
+                        reason: tripReason,
+                        trippedAt: nowMs,
+                        recoveredFromExpiredLease: true,
+                        remainingCooloffSec: Math.floor(cooloffMs / 1000)
+                    });
+                }
+
+                if (callerProbeToken && callerProbeToken === activeToken) {
+                    return JSON.stringify({
+                        state: 'HALF_OPEN',
+                        tripped: false,
+                        isProbe: true,
+                        probeToken: activeToken
+                    });
+                }
+
+                return JSON.stringify({
+                    state: 'HALF_OPEN',
+                    tripped: true,
+                    reason: 'Circuit breaker is in HALF_OPEN probe mode. Awaiting single test dispatch verification.',
+                    probeInFlight: true
+                });
+            }
+
+            return JSON.stringify({ state, tripped: false });
+        }
+
+        // Circuit Breaker: Record probe success
+        if (s.includes('CB_RECORD_PROBE_SUCCESS')) {
+            const stateKey = keys[0];
+            const reasonKey = keys[1];
+            const trippedAtKey = keys[2];
+            const probeLockKey = keys[3];
+            const timeoutsKey = keys[4];
+            const authFailuresKey = keys[5];
+            const disconnectsKey = keys[6];
+            const probeToken = argv[0] || '';
+
+            const state = this.data.get(stateKey) || 'CLOSED';
+
+            if (state === 'HALF_OPEN') {
+                if (!probeToken || probeToken === '') {
+                    return JSON.stringify({ success: false, state, error: 'MISSING_PROBE_TOKEN' });
+                }
+                const activeToken = this.data.get(probeLockKey);
+                if (!activeToken) {
+                    return JSON.stringify({ success: false, state, error: 'EXPIRED_PROBE_LEASE' });
+                }
+                if (probeToken !== activeToken) {
+                    return JSON.stringify({ success: false, state, error: 'STALE_PROBE_OWNER' });
+                }
+
+                this.data.set(stateKey, 'CLOSED');
+                this.data.delete(reasonKey);
+                this.data.delete(trippedAtKey);
+                this.data.delete(probeLockKey);
+                this.data.delete(timeoutsKey);
+                this.data.delete(authFailuresKey);
+                this.data.delete(disconnectsKey);
+                return JSON.stringify({ success: true, state: 'CLOSED' });
+            }
+
+            if (state === 'CLOSED') {
+                this.data.delete(timeoutsKey);
+                this.data.delete(authFailuresKey);
+                this.data.delete(disconnectsKey);
+                return JSON.stringify({ success: true, state: 'CLOSED' });
+            }
+
+            return JSON.stringify({ success: false, state, error: 'BREAKER_NOT_HALF_OPEN' });
+        }
+
+        // Circuit Breaker: Record probe failure
+        if (s.includes('CB_RECORD_PROBE_FAILURE')) {
+            const stateKey = keys[0];
+            const reasonKey = keys[1];
+            const trippedAtKey = keys[2];
+            const probeLockKey = keys[3];
+            const probeToken = argv[0] || '';
+            const failureReason = argv[1] || 'Probe dispatch failed';
+            const nowMs = parseInt(argv[2], 10) || Date.now();
+
+            const state = this.data.get(stateKey) || 'CLOSED';
+
+            if (state === 'HALF_OPEN') {
+                const activeToken = this.data.get(probeLockKey);
+                if (probeToken && activeToken && probeToken !== activeToken) {
+                    return JSON.stringify({ success: false, state, error: 'STALE_PROBE_OWNER' });
+                }
+
+                const tripReason = `Probe failed: ${failureReason}. Resetting cooloff.`;
+                this.data.set(stateKey, 'OPEN');
+                this.data.set(reasonKey, tripReason);
+                this.data.set(trippedAtKey, String(nowMs));
+                this.data.delete(probeLockKey);
+                return JSON.stringify({ tripped: true, state: 'OPEN', reason: tripReason });
+            }
+
+            return JSON.stringify({ success: false, state });
+        }
+
+        // Circuit Breaker: Record failure counter (atomic increment, rolling TTL & trip)
+        if (s.includes('CB_RECORD_FAILURE_COUNTER')) {
+            const counterKey = keys[0];
+            const stateKey = keys[1];
+            const reasonKey = keys[2];
+            const trippedAtKey = keys[3];
+            const probeLockKey = keys[4];
+
+            const threshold = parseInt(argv[0], 10);
+            const counterTtlSec = parseInt(argv[1], 10) || 900;
+            const tripReason = argv[2] || 'Circuit breaker tripped';
+            const nowMs = parseInt(argv[3], 10) || Date.now();
+
+            const current = parseInt(this.data.get(counterKey) || '0', 10);
+            const count = current + 1;
+            this.data.set(counterKey, String(count));
+            await this.expire(counterKey, counterTtlSec);
+
+            if (count >= threshold) {
+                this.data.set(stateKey, 'OPEN');
+                this.data.set(reasonKey, tripReason);
+                this.data.set(trippedAtKey, String(nowMs));
+                this.data.delete(probeLockKey);
+                return JSON.stringify({ count, tripped: true, reason: tripReason });
+            }
+
+            return JSON.stringify({ count, tripped: false });
+        }
+
+        // Circuit Breaker: Reset failure counters on dispatch success
+        if (s.includes('CB_RESET_SUCCESS_COUNTERS')) {
+            const timeoutsKey = keys[0];
+            const authFailuresKey = keys[1];
+            const disconnectsKey = keys[2];
+            const stateKey = keys[3];
+
+            this.data.delete(timeoutsKey);
+            this.data.delete(authFailuresKey);
+            this.data.delete(disconnectsKey);
+            const state = this.data.get(stateKey) || 'CLOSED';
+            return JSON.stringify({ success: true, state });
+        }
+
+        // Circuit Breaker: Manual reset
+        if (s.includes('CB_MANUAL_RESET')) {
+            const stateKey = keys[0];
+            const reasonKey = keys[1];
+            const trippedAtKey = keys[2];
+            const probeLockKey = keys[3];
+            const timeoutsKey = keys[4];
+            const authFailuresKey = keys[5];
+            const disconnectsKey = keys[6];
+
+            this.data.set(stateKey, 'CLOSED');
+            this.data.delete(reasonKey);
+            this.data.delete(trippedAtKey);
+            this.data.delete(probeLockKey);
+            this.data.delete(timeoutsKey);
+            this.data.delete(authFailuresKey);
+            this.data.delete(disconnectsKey);
+            return JSON.stringify({ success: true, state: 'CLOSED' });
+        }
 
         // Canonical acquire fenced lock script: if set NX EX then incr(gen) return gen else return 0
         if (s.includes('NX') && s.includes('incr')) {

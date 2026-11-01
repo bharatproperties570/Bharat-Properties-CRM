@@ -360,8 +360,13 @@ export const BaileysConnectionManager = {
                         
                         // 🛡️ Phase 2: Record disconnect in durable circuit breaker
                         import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                            WhatsAppCircuitBreaker.recordDisconnect(integrationId, statusCode).catch(() => {});
-                        }).catch(() => {});
+                            WhatsAppCircuitBreaker.recordDisconnect(integrationId, statusCode)
+                                .catch(cbErr => {
+                                    console.error(`[BaileysConnectionManager] Circuit breaker disconnect recording error for ${integrationId}:`, cbErr.message);
+                                });
+                        }).catch(impErr => {
+                            console.error(`[BaileysConnectionManager] Failed to import WhatsAppCircuitBreaker on disconnect for ${integrationId}:`, impErr.message);
+                        });
 
                         if (connections.get(integrationId) === sock) {
                             connections.delete(integrationId);
@@ -948,6 +953,7 @@ export const BaileysConnectionManager = {
 
     /**
      * Reconciles messages.update status events monotonically across MarketingDelivery and WhatsAppDispatch ledgers.
+     * Enforces the explicit DELIVERY_TRANSITION_MATRIX. Broad $nin queries are disallowed.
      * Partial ledger failure resilient: error in one ledger does not block updates to the other.
      */
     async handleMessagesUpdate(updates, integrationId) {
@@ -967,15 +973,15 @@ export const BaileysConnectionManager = {
                     try {
                         await WhatsAppCircuitBreaker.recordSuccess(integrationId);
                     } catch (cbErr) {
-                        console.warn('[Baileys/Reconciliation] Circuit breaker success record error:', cbErr.message);
+                        console.error(`[Baileys/Reconciliation] Circuit breaker success recording error for ${integrationId}:`, cbErr.message);
                     }
 
-                    // 🔒 Monotonic check: Never regress DELIVERY_CONFIRMED, DELIVERED, or READ back to SERVER_ACKNOWLEDGED
+                    // 🔒 Explicit Transition Matrix: Only permitted pre-ACK or reconcilable states can advance
                     try {
                         await MarketingDelivery.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.SERVER_ACK.MarketingDelivery }
                             },
                             {
                                 $set: {
@@ -985,19 +991,24 @@ export const BaileysConnectionManager = {
                                 }
                             }
                         );
+                        // Backfill serverAckAt timestamp on non-terminal records if missing
                         await MarketingDelivery.updateMany(
-                            { providerMessageId: msgId, serverAckAt: { $exists: false } },
+                            {
+                                providerMessageId: msgId,
+                                status: { $nin: PROTECTED_TERMINAL_STATES.MarketingDelivery },
+                                serverAckAt: { $exists: false }
+                            },
                             { $set: { serverAckAt: now } }
                         );
                     } catch (mdErr) {
-                        console.warn(`[Baileys/Reconciliation] MarketingDelivery update error for ${msgId}:`, mdErr.message);
+                        console.error(`[Baileys/Reconciliation] MarketingDelivery update error for ${msgId}:`, mdErr.message);
                     }
 
                     try {
                         await WhatsAppDispatch.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $nin: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.SERVER_ACK.WhatsAppDispatch }
                             },
                             {
                                 $set: {
@@ -1008,15 +1019,15 @@ export const BaileysConnectionManager = {
                             }
                         );
                     } catch (wdErr) {
-                        console.warn(`[Baileys/Reconciliation] WhatsAppDispatch update error for ${msgId}:`, wdErr.message);
+                        console.error(`[Baileys/Reconciliation] WhatsAppDispatch update error for ${msgId}:`, wdErr.message);
                     }
                 } else if (newStatusNumber === 3) { // DELIVERY_ACK
-                    // 🔒 Monotonic check: Never regress READ back to DELIVERY_CONFIRMED
+                    // 🔒 Explicit Transition Matrix: Cannot regress READ or overwrite protected terminal states
                     try {
                         await MarketingDelivery.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.DELIVERY_CONFIRMED.MarketingDelivery }
                             },
                             {
                                 $set: {
@@ -1027,18 +1038,22 @@ export const BaileysConnectionManager = {
                             }
                         );
                         await MarketingDelivery.updateMany(
-                            { providerMessageId: msgId, deliveryReceiptAt: { $exists: false } },
+                            {
+                                providerMessageId: msgId,
+                                status: { $nin: PROTECTED_TERMINAL_STATES.MarketingDelivery },
+                                deliveryReceiptAt: { $exists: false }
+                            },
                             { $set: { deliveryReceiptAt: now } }
                         );
                     } catch (mdErr) {
-                        console.warn(`[Baileys/Reconciliation] MarketingDelivery update error for ${msgId}:`, mdErr.message);
+                        console.error(`[Baileys/Reconciliation] MarketingDelivery update error for ${msgId}:`, mdErr.message);
                     }
 
                     try {
                         await WhatsAppDispatch.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.DELIVERY_CONFIRMED.WhatsAppDispatch }
                             },
                             {
                                 $set: {
@@ -1049,15 +1064,15 @@ export const BaileysConnectionManager = {
                             }
                         );
                     } catch (wdErr) {
-                        console.warn(`[Baileys/Reconciliation] WhatsAppDispatch update error for ${msgId}:`, wdErr.message);
+                        console.error(`[Baileys/Reconciliation] WhatsAppDispatch update error for ${msgId}:`, wdErr.message);
                     }
                 } else if (newStatusNumber === 4) { // READ
-                    // 🔒 Monotonic check: Only update if not already READ
+                    // 🔒 Explicit Transition Matrix: Moves valid states forward to READ without touching protected terminals
                     try {
                         await MarketingDelivery.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $ne: 'READ' }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.READ.MarketingDelivery }
                             },
                             {
                                 $set: {
@@ -1068,18 +1083,22 @@ export const BaileysConnectionManager = {
                             }
                         );
                         await MarketingDelivery.updateMany(
-                            { providerMessageId: msgId, readAt: { $exists: false } },
+                            {
+                                providerMessageId: msgId,
+                                status: { $nin: PROTECTED_TERMINAL_STATES.MarketingDelivery },
+                                readAt: { $exists: false }
+                            },
                             { $set: { readAt: now } }
                         );
                     } catch (mdErr) {
-                        console.warn(`[Baileys/Reconciliation] MarketingDelivery update error for ${msgId}:`, mdErr.message);
+                        console.error(`[Baileys/Reconciliation] MarketingDelivery update error for ${msgId}:`, mdErr.message);
                     }
 
                     try {
                         await WhatsAppDispatch.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $ne: 'READ' }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.READ.WhatsAppDispatch }
                             },
                             {
                                 $set: {
@@ -1090,17 +1109,17 @@ export const BaileysConnectionManager = {
                             }
                         );
                     } catch (wdErr) {
-                        console.warn(`[Baileys/Reconciliation] WhatsAppDispatch update error for ${msgId}:`, wdErr.message);
+                        console.error(`[Baileys/Reconciliation] WhatsAppDispatch update error for ${msgId}:`, wdErr.message);
                     }
                 }
             }
         } catch (ackErr) {
-            console.warn('[BaileysConnectionManager] messages.update handler error:', ackErr.message);
+            console.error('[BaileysConnectionManager] messages.update handler error:', ackErr.message);
         }
     },
 
     /**
-     * Reconciles message-receipt.update events.
+     * Reconciles message-receipt.update events using the exact same DELIVERY_TRANSITION_MATRIX.
      * Enforces directive rule: receiptTimestamp establishes DELIVERY_CONFIRMED; readTimestamp establishes READ.
      */
     async handleMessageReceiptUpdate(receipts, integrationId) {
@@ -1122,64 +1141,177 @@ export const BaileysConnectionManager = {
                         await MarketingDelivery.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $ne: 'READ' }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.READ.MarketingDelivery }
                             },
-                            { $set: { status: 'READ', readAt: now } }
+                            { $set: { status: 'READ', readAt: now, lastAttemptAt: now } }
                         );
                     } catch (mdErr) {
-                        console.warn(`[Baileys/Reconciliation] MarketingDelivery receipt update error:`, mdErr.message);
+                        console.error(`[Baileys/Reconciliation] MarketingDelivery receipt read update error:`, mdErr.message);
                     }
 
                     try {
                         await WhatsAppDispatch.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $ne: 'READ' }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.READ.WhatsAppDispatch }
                             },
                             { $set: { status: 'READ', deliveryStatus: 'READ', deliveryStatusAt: now } }
                         );
                     } catch (wdErr) {
-                        console.warn(`[Baileys/Reconciliation] WhatsAppDispatch receipt update error:`, wdErr.message);
+                        console.error(`[Baileys/Reconciliation] WhatsAppDispatch receipt read update error:`, wdErr.message);
                     }
                 } else if (receipt.receiptTimestamp) {
                     try {
                         await MarketingDelivery.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.DELIVERY_CONFIRMED.MarketingDelivery }
                             },
-                            { $set: { status: 'DELIVERY_CONFIRMED', deliveryReceiptAt: now } }
+                            { $set: { status: 'DELIVERY_CONFIRMED', deliveryReceiptAt: now, lastAttemptAt: now } }
                         );
                     } catch (mdErr) {
-                        console.warn(`[Baileys/Reconciliation] MarketingDelivery receipt update error:`, mdErr.message);
+                        console.error(`[Baileys/Reconciliation] MarketingDelivery receipt delivery update error:`, mdErr.message);
                     }
 
                     try {
                         await WhatsAppDispatch.updateMany(
                             {
                                 providerMessageId: msgId,
-                                status: { $nin: ['DELIVERY_CONFIRMED', 'DELIVERED', 'READ'] }
+                                status: { $in: DELIVERY_TRANSITION_MATRIX.DELIVERY_CONFIRMED.WhatsAppDispatch }
                             },
                             { $set: { status: 'DELIVERY_CONFIRMED', deliveryStatus: 'DELIVERY_CONFIRMED', deliveryStatusAt: now } }
                         );
                     } catch (wdErr) {
-                        console.warn(`[Baileys/Reconciliation] WhatsAppDispatch receipt update error:`, wdErr.message);
+                        console.error(`[Baileys/Reconciliation] WhatsAppDispatch receipt delivery update error:`, wdErr.message);
                     }
                 }
             }
         } catch (rcptErr) {
-            console.warn('[BaileysConnectionManager] message-receipt.update error:', rcptErr.message);
+            console.error('[BaileysConnectionManager] message-receipt.update error:', rcptErr.message);
         }
     },
 
     /**
      * Attaches message reconciliation event listeners to a Baileys socket.
+     * Records execution promises on socket instance (_lastMessagesUpdatePromise, _lastMessageReceiptPromise)
+     * so that callers and unit test suites can deterministically await completion of emitted events.
      */
     attachMessageReconciliationListeners(sock, integrationId) {
         if (!sock?.ev) return;
-        sock.ev.on('messages.update', (updates) => this.handleMessagesUpdate(updates, integrationId));
-        sock.ev.on('message-receipt.update', (receipts) => this.handleMessageReceiptUpdate(receipts, integrationId));
+        const updateHandler = (updates) => {
+            const p = this.handleMessagesUpdate(updates, integrationId);
+            sock._lastMessagesUpdatePromise = p;
+            return p;
+        };
+        const receiptHandler = (receipts) => {
+            const p = this.handleMessageReceiptUpdate(receipts, integrationId);
+            sock._lastMessageReceiptPromise = p;
+            return p;
+        };
+        sock.ev.on('messages.update', updateHandler);
+        sock.ev.on('message-receipt.update', receiptHandler);
+        return { updateHandler, receiptHandler };
     }
+};
+
+/**
+ * Explicit Delivery State Transition Matrix (P0-B)
+ * Protects confirmed terminal states and enforces monotonic positive progression.
+ * Broad $nin queries are strictly disallowed.
+ */
+export const DELIVERY_TRANSITION_MATRIX = {
+    SERVER_ACK: {
+        MarketingDelivery: [
+            'IN_PROGRESS',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'ACCEPTED',
+            'SENT',
+            // Retryable/Ambiguous states reconcilable by real server ACK:
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'FAILED_RETRYABLE'
+        ],
+        WhatsAppDispatch: [
+            'CLAIMED',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'DISPATCHED',
+            // Retryable/Ambiguous states reconcilable by real server ACK:
+            'AMBIGUOUS_TIMEOUT',
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'FAILED'
+        ]
+    },
+
+    DELIVERY_CONFIRMED: {
+        MarketingDelivery: [
+            'IN_PROGRESS',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'ACCEPTED',
+            'SENT',
+            'SERVER_ACKNOWLEDGED',
+            // Retryable/Ambiguous states reconcilable by real delivery confirmation:
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'FAILED_RETRYABLE'
+        ],
+        WhatsAppDispatch: [
+            'CLAIMED',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'DISPATCHED',
+            'SERVER_ACKNOWLEDGED',
+            // Retryable/Ambiguous states reconcilable by real delivery confirmation:
+            'AMBIGUOUS_TIMEOUT',
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'FAILED'
+        ]
+    },
+
+    READ: {
+        MarketingDelivery: [
+            'IN_PROGRESS',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'ACCEPTED',
+            'SENT',
+            'SERVER_ACKNOWLEDGED',
+            'DELIVERED',
+            'DELIVERY_CONFIRMED',
+            // Retryable/Ambiguous states reconcilable by real read receipt:
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'FAILED_RETRYABLE'
+        ],
+        WhatsAppDispatch: [
+            'CLAIMED',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'DISPATCHED',
+            'SERVER_ACKNOWLEDGED',
+            'DELIVERY_CONFIRMED',
+            // Retryable/Ambiguous states reconcilable by real read receipt:
+            'AMBIGUOUS_TIMEOUT',
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'FAILED'
+        ]
+    }
+};
+
+export const PROTECTED_TERMINAL_STATES = {
+    MarketingDelivery: ['FAILED_CONFIRMED', 'FAILED_FINAL', 'MANUAL_REVIEW', 'SUPPRESSED_OPTOUT', 'SKIPPED_DUPLICATE'],
+    WhatsAppDispatch: ['FAILED_CONFIRMED', 'MANUAL_REVIEW']
 };
 
 export const handleMessagesUpdate = BaileysConnectionManager.handleMessagesUpdate.bind(BaileysConnectionManager);
