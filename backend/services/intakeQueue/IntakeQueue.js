@@ -18,7 +18,7 @@ const log = {
     error: (jobId, msg, m={}) => console.error(JSON.stringify({ level:'error', svc:'IntakeWorker', jobId, msg, ...m, ts: new Date().toISOString() })),
 };
 
-const intakeQueue = new Queue('UnifiedIntakeQueue', { connection: redisConnection });
+export const intakeQueue = new Queue('UnifiedIntakeQueue', { connection: redisConnection });
 
 /**
  * Generates a normalized semantic content hash for property listings (Pillar 4).

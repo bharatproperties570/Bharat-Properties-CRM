@@ -90,11 +90,49 @@ export const uploadImageOnly = createUploader({
 export const uploadZipOnly = createUploader({
     'application/zip': ['.zip'],
     'application/x-zip-compressed': ['.zip']
-}, 50);
+}, 25);
 
 export const uploadPdfOnly = createUploader({
     'application/pdf': ['.pdf']
 }, 20);
+
+// 🛡️ Dedicated Quarantine Uploader for OCR (Gate 2R.12 Path Isolation)
+const getQuarantineDir = () => {
+    const qDir = path.resolve(process.cwd(), 'storage/intake/quarantine');
+    if (!fs.existsSync(qDir)) {
+        fs.mkdirSync(qDir, { recursive: true });
+    }
+    return qDir;
+};
+
+const ocrStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, getQuarantineDir());
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, 'staging_' + uniqueSuffix + ext);
+    }
+});
+
+export const uploadOcrImage = multer({
+    storage: ocrStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        const allowed = {
+            'image/jpeg': ['.jpg', '.jpeg'],
+            'image/png': ['.png'],
+            'image/webp': ['.webp']
+        };
+        if (allowed[file.mimetype] && allowed[file.mimetype].includes(ext)) {
+            cb(null, true);
+        } else {
+            cb(new Error(`Validation failed: Disallowed image type. MIME: ${file.mimetype}, Ext: ${ext}`), false);
+        }
+    }
+});
 
 // ==========================================================
 // Malware Protection Strategy Note:

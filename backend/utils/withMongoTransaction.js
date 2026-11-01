@@ -35,8 +35,8 @@ export const withMongoTransaction = async (callback, options = {}) => {
                 result = await callback(txnSession);
             }, {
                 readPreference: options.readPreference || 'primary',
-                readConcern: { level: 'local' },
-                writeConcern: { w: 'majority' }
+                readConcern: options.readConcern || { level: 'local' },
+                writeConcern: options.writeConcern || { w: 'majority' }
             });
             return result;
         } catch (error) {
@@ -44,11 +44,21 @@ export const withMongoTransaction = async (callback, options = {}) => {
             const isTransient = error.hasErrorLabel && error.hasErrorLabel('TransientTransactionError');
             const isCommitError = error.hasErrorLabel && error.hasErrorLabel('UnknownTransactionCommitResult');
 
-            if ((isTransient || isCommitError) && attempt < maxRetries) {
+            // 🛡️ Gate 2R.12: Never re-execute the business callback for UnknownTransactionCommitResult.
+            // The driver's session.withTransaction() already executes an internal commit retry loop.
+            // If UnknownTransactionCommitResult propagates here, the commit outcome is indeterminate;
+            // re-executing the callback on a new session risks creating duplicate records/side effects.
+            if (isCommitError) {
+                console.error(`[Transaction] Indeterminate commit outcome (UnknownTransactionCommitResult). Callback will NOT be re-executed.`, error.message);
+                error.isIndeterminateCommit = true;
+                throw error;
+            }
+
+            if (isTransient && attempt < maxRetries) {
                 console.warn(`[Transaction] Transient error encountered. Retrying attempt ${attempt}/${maxRetries}...`, error.message);
                 // Exponential backoff
                 await new Promise(res => setTimeout(res, Math.pow(2, attempt) * 100));
-                continue; // Retry loop
+                continue; // Retry loop on fresh session
             }
 
             // Propagate non-transient errors or exhausted retries
