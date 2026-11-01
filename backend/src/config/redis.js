@@ -431,6 +431,13 @@ if (isProduction) {
             internalConnection.on('ready', () => {
                 isRedisOnline = true;
                 console.log('✅ Redis connected successfully');
+                if (process.env.NODE_ENV === 'test') {
+                    try {
+                        if (internalConnection.stream && typeof internalConnection.stream.unref === 'function') {
+                            internalConnection.stream.unref();
+                        }
+                    } catch (e) {}
+                }
             });
 
             internalConnection.on('error', (err) => {
