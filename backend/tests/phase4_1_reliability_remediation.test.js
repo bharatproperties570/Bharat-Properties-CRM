@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 import http from 'node:http';
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryServer, MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import config from '../src/config/env.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
@@ -4686,6 +4686,443 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             // Clean up
             await AuditLog.deleteMany({ correlationId: corrId });
             await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44a Optimistic filter field coverage: mutate department immediately before conditional deletion causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `mutate_dept_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to retain (dept test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to mutate dept before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { department: 'compliance_audit' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'Department mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when department is mutated');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(survivingDup.department, 'compliance_audit', 'Mutated department value must be preserved in primary record');
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44b Optimistic filter field coverage: mutate requestUrl immediately before conditional deletion causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `mutate_requrl_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestUrl: 'https://crm.local/api/authority/runs',
+                description: 'Record to retain (reqUrl test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestUrl: 'https://crm.local/api/authority/runs',
+                description: 'Record to mutate requestUrl before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { requestUrl: 'https://crm.local/api/authority/runs/mutated_endpoint' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'requestUrl mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when requestUrl is mutated');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(
+                survivingDup.requestUrl,
+                'https://crm.local/api/authority/runs/mutated_endpoint',
+                'Mutated requestUrl must be preserved in primary record'
+            );
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44c Optimistic filter field coverage: mutate requestMethod immediately before conditional deletion causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `mutate_reqmethod_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestMethod: 'GET',
+                description: 'Record to retain (reqMethod test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                requestMethod: 'GET',
+                description: 'Record to mutate requestMethod before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { requestMethod: 'POST' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'requestMethod mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when requestMethod is mutated');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(survivingDup.requestMethod, 'POST', 'Mutated requestMethod must be preserved in primary record');
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.44d Optimistic filter key-set validation: inject unexpected top-level key without changing total key count causes SOURCE_CONFLICT and preserves primary record', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `inject_key_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to retain (key-set test)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                department: 'sales',
+                description: 'Record to replace key before delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    // Unset department and set unexpectedKey: total key count remains identical!
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $unset: { department: '' }, $set: { unexpectedKey: 'injected_unauthorized_key' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'Key substitution mutation must be injected immediately before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must reject delete when an unexpected key replaces an existing key with equal count');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Expected SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Mutated record must survive in primary collection
+            const survivingRaw = await AuditLog.collection.findOne({ _id: recDup._id });
+            assert.ok(survivingRaw, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(
+                survivingRaw.unexpectedKey,
+                'injected_unauthorized_key',
+                'Injected unexpected key must be preserved in surviving document'
+            );
+            assert.equal(survivingRaw.department, undefined, 'Unset field must remain absent in surviving document');
+
+            // Retained record remains intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary collection');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.45 Genuine Replica-Set Transaction Path: archiveAndReconcileDuplicates commits atomically via MongoDB transaction on replica set, and write-conflict / mutation rolls back cleanly without data loss', async () => {
+            const replSet = await MongoMemoryReplSet.create({
+                replSet: { count: 1, storageEngine: 'wiredTiger' }
+            });
+            const replUri = replSet.getUri();
+            const replConn = await mongoose.createConnection(replUri).asPromise();
+            const ReplAuditLog = replConn.model('AuditLog', AuditLog.schema);
+
+            try {
+                const targetId = new mongoose.Types.ObjectId();
+                const corrIdHappy = `repl_tx_happy_${Date.now()}`;
+
+                const recRetainedHappy = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdHappy,
+                    status: 'success',
+                    department: 'finance',
+                    description: 'ReplicaSet Retained Record (Transaction Success)',
+                    timestamp: new Date('2026-10-31T01:00:00.000Z')
+                });
+
+                const recDupHappy1 = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdHappy,
+                    status: 'success',
+                    department: 'finance',
+                    description: 'ReplicaSet Duplicate 1 (Transaction Success)',
+                    timestamp: new Date('2026-10-31T02:00:00.000Z')
+                });
+
+                const recDupHappy2 = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdHappy,
+                    status: 'success',
+                    department: 'finance',
+                    description: 'ReplicaSet Duplicate 2 (Transaction Success)',
+                    timestamp: new Date('2026-10-31T03:00:00.000Z')
+                });
+
+                // Execute reconciliation on replica set with real transactions
+                const reconcileResult = await ReplAuditLog.archiveAndReconcileDuplicates();
+                assert.equal(reconcileResult.success, true);
+                assert.equal(reconcileResult.archivedCount, 2);
+                assert.equal(reconcileResult.removedCount, 2);
+
+                // Verify primary collection retains exactly 1 record (the earliest)
+                const survivingPrimary = await ReplAuditLog.find({ correlationId: corrIdHappy }).lean();
+                assert.equal(survivingPrimary.length, 1);
+                assert.equal(String(survivingPrimary[0]._id), String(recRetainedHappy._id));
+
+                // Verify archive collection has both duplicates safely preserved
+                const archiveColl = replConn.db.collection('auditlogs_archive_duplicates');
+                const archivedDocs = await archiveColl.find({ correlationId: corrIdHappy }).toArray();
+                assert.equal(archivedDocs.length, 2);
+                const archivedIdSet = new Set(archivedDocs.map(d => String(d._id)));
+                assert.ok(archivedIdSet.has(String(recDupHappy1._id)));
+                assert.ok(archivedIdSet.has(String(recDupHappy2._id)));
+
+                // Test Transaction Rollback / Abort on Concurrent Mutation:
+                const corrIdConflict = `repl_tx_conflict_${Date.now()}`;
+                const recRetainedConflict = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdConflict,
+                    status: 'success',
+                    department: 'operations',
+                    description: 'ReplicaSet Retained Record (Transaction Conflict)',
+                    timestamp: new Date('2026-10-31T01:00:00.000Z')
+                });
+
+                const recDupConflict = await ReplAuditLog.create({
+                    eventType: 'authority_orphan_snapshot_purged',
+                    targetType: 'authority_snapshot',
+                    targetId,
+                    correlationId: corrIdConflict,
+                    status: 'success',
+                    department: 'operations',
+                    description: 'ReplicaSet Duplicate to Mutate Concurrently',
+                    timestamp: new Date('2026-10-31T02:00:00.000Z')
+                });
+
+                const originalDeleteOne = ReplAuditLog.deleteOne.bind(ReplAuditLog);
+                ReplAuditLog.deleteOne = async function (filter, options) {
+                    if (filter && String(filter._id) === String(recDupConflict._id)) {
+                        // Mutate outside the transaction in primary collection to trigger conflict
+                        await ReplAuditLog.collection.updateOne(
+                            { _id: recDupConflict._id },
+                            { $set: { department: 'mutated_ops_dept' } }
+                        );
+                    }
+                    return originalDeleteOne(filter, options);
+                };
+
+                let conflictError = null;
+                try {
+                    await ReplAuditLog.archiveAndReconcileDuplicates();
+                } catch (err) {
+                    conflictError = err;
+                } finally {
+                    ReplAuditLog.deleteOne = originalDeleteOne;
+                }
+
+                assert.ok(conflictError, 'Transaction must abort on concurrent mutation during deletion');
+                assert.ok(
+                    conflictError.message.includes('SOURCE_CONFLICT') || conflictError.code === 'SOURCE_CONFLICT',
+                    `Expected SOURCE_CONFLICT on replica set, got: ${conflictError.message}`
+                );
+
+                // Both records in conflict group must still exist in primary collection
+                const primaryAfterConflict = await ReplAuditLog.find({ correlationId: corrIdConflict }).lean();
+                assert.equal(primaryAfterConflict.length, 2, 'Primary collection must preserve all records when transaction aborts');
+                const mutatedDupInDb = primaryAfterConflict.find(d => String(d._id) === String(recDupConflict._id));
+                assert.ok(mutatedDupInDb, 'Mutated duplicate record must survive in primary collection');
+                assert.equal(mutatedDupInDb.department, 'mutated_ops_dept');
+            } finally {
+                await replConn.close();
+                await replSet.stop();
+            }
         });
     });
 

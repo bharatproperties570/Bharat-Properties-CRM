@@ -578,7 +578,9 @@ AuditLogSchema.statics.isContentEquivalent = isContentEquivalent;
  * Matches:
  * - _id
  * - All persisted fields (either exact value or { $exists: false } if undefined)
- * - Exact key count via $expr to detect any unexpected injected fields
+ * - Exact top-level key-set validation:
+ *   1. Same number of keys
+ *   2. Exact same key names as the verified source document (prevents unexpected key replacing existing key)
  */
 function buildOptimisticFilter(sourceDoc) {
     if (!sourceDoc || typeof sourceDoc !== 'object') {
@@ -597,11 +599,14 @@ function buildOptimisticFilter(sourceDoc) {
         'targetId',
         'targetName',
         'description',
+        'changes',
+        'metadata',
         'ipAddress',
         'userAgent',
-        'metadata',
-        'changes',
+        'requestUrl',
+        'requestMethod',
         'status',
+        'department',
         'errorMessage',
         'correlationId',
         'timestamp'
@@ -621,10 +626,15 @@ function buildOptimisticFilter(sourceDoc) {
         filter.__v = sourceDoc.__v;
     }
 
-    // Detect unexpected extra keys injected into the document
-    const knownKeys = Object.keys(sourceDoc).filter(k => sourceDoc[k] !== undefined);
+    // Exact top-level key-set validation:
+    // 1. Same number of keys
+    // 2. Exact same key names as the verified source document (prevents unexpected key replacing existing key)
+    const expectedKeys = Object.keys(sourceDoc).filter(k => sourceDoc[k] !== undefined);
     filter.$expr = {
-        $eq: [{ $size: { $objectToArray: '$$ROOT' } }, knownKeys.length]
+        $and: [
+            { $eq: [{ $size: { $objectToArray: '$$ROOT' } }, expectedKeys.length] },
+            { $setEquals: [{ $map: { input: { $objectToArray: '$$ROOT' }, as: 'entry', in: '$$entry.k' } }, expectedKeys] }
+        ]
     };
 
     return filter;
@@ -740,17 +750,24 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
     // Ensure that a source record can be deleted ONLY if the exact version verified against
     // its archived counterpart is still the version being deleted.
     // Prefer transaction-backed atomicity where supported, with safe optimistic fallback for standalone MongoDB.
-    const client = this.db?.client || this.collection?.conn?.client || mongoose.connection?.client;
+    const conn = this.db || mongoose.connection;
+    const client = conn?.client || this.collection?.conn?.client || mongoose.connection?.client;
     const topologyType = client?.topology?.description?.type;
     const supportsTransactions = (topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded') &&
-        typeof mongoose.startSession === 'function';
+        (typeof conn?.startSession === 'function' || typeof client?.startSession === 'function' || typeof mongoose.startSession === 'function');
 
     let removedCount = 0;
     let session = null;
 
     try {
         if (supportsTransactions) {
-            session = await mongoose.startSession();
+            if (typeof conn?.startSession === 'function') {
+                session = await conn.startSession();
+            } else if (typeof client?.startSession === 'function') {
+                session = await client.startSession();
+            } else {
+                session = await mongoose.startSession();
+            }
             session.startTransaction();
         }
 
@@ -764,7 +781,9 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
 
             // In-flight re-check against current DB state
             let findQuery = this.findOne({ _id: sourceDoc._id });
-            if (session) findQuery = findQuery.session(session);
+            if (session && typeof findQuery?.session === 'function') {
+                findQuery = findQuery.session(session);
+            }
             const currentDoc = await findQuery.lean();
 
             if (!currentDoc) {
@@ -782,14 +801,19 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
             const optimisticFilter = buildOptimisticFilter(currentDoc);
 
             // Execute conditional delete
-            let delQuery = this.deleteOne(optimisticFilter);
-            if (session) delQuery = delQuery.session(session);
-            const delRes = await delQuery;
+            const delOptions = session ? { session } : undefined;
+            let delCall = this.deleteOne(optimisticFilter, delOptions);
+            if (session && typeof delCall?.session === 'function') {
+                delCall = delCall.session(session);
+            }
+            const delRes = await delCall;
 
             if (delRes.deletedCount === 0) {
                 // Deletion did not match: check if document still exists (i.e. was mutated)
                 let checkSurviving = this.findOne({ _id: sourceDoc._id });
-                if (session) checkSurviving = checkSurviving.session(session);
+                if (session && typeof checkSurviving?.session === 'function') {
+                    checkSurviving = checkSurviving.session(session);
+                }
                 const survivingDoc = await checkSurviving.lean();
 
                 if (survivingDoc) {
