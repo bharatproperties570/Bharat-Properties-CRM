@@ -225,8 +225,14 @@ class MockRedis extends EventEmitter {
             const state = this.data.get(stateKey) || 'CLOSED';
 
             if (state === 'HALF_OPEN') {
+                if (!probeToken || probeToken === '') {
+                    return JSON.stringify({ success: false, state, error: 'MISSING_PROBE_TOKEN' });
+                }
                 const activeToken = this.data.get(probeLockKey);
-                if (probeToken && activeToken && probeToken !== activeToken) {
+                if (!activeToken) {
+                    return JSON.stringify({ success: false, state, error: 'EXPIRED_PROBE_LEASE' });
+                }
+                if (probeToken !== activeToken) {
                     return JSON.stringify({ success: false, state, error: 'STALE_PROBE_OWNER' });
                 }
 
@@ -235,10 +241,10 @@ class MockRedis extends EventEmitter {
                 this.data.set(reasonKey, tripReason);
                 this.data.set(trippedAtKey, String(nowMs));
                 this.data.delete(probeLockKey);
-                return JSON.stringify({ tripped: true, state: 'OPEN', reason: tripReason });
+                return JSON.stringify({ success: true, tripped: true, state: 'OPEN', reason: tripReason });
             }
 
-            return JSON.stringify({ success: false, state });
+            return JSON.stringify({ success: false, state, error: 'BREAKER_NOT_HALF_OPEN' });
         }
 
         // Circuit Breaker: Record failure counter (atomic increment, rolling TTL & trip)
@@ -349,63 +355,98 @@ class MockRedis extends EventEmitter {
 
 import { execSync } from "child_process";
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 // Standardize the Redis connection for BullMQ
 const redisOptions = {
     host: process.env.REDIS_HOST || '127.0.0.1', // Standardizing on 127.0.0.1 for Mac/Linux stability
-    port: process.env.REDIS_PORT || 6379,
+    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
     password: process.env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null, // Required by BullMQ
+    enableOfflineQueue: !isProduction, // In production, don't silently queue indefinitely when offline
+    connectTimeout: 5000,
     retryStrategy(times) {
         // Stop retrying after 3 attempts in development to prevent log spam and trigger fallback
-        if (times > 3 && process.env.NODE_ENV !== 'production') {
+        if (times > 3 && !isProduction) {
             return null; 
         }
         return Math.min(times * 200, 2000);
     }
 };
 
-let internalConnection;
+let internalConnection = null;
 let isRedisOnline = false;
 
-// Senior Professional Implementation: Pre-check Redis Availability
-// This prevents BullMQ from binding to a dead connection during initial import.
-let redisExists = false;
-try {
-    // Quick port check using nc (netcat) or lsof
-    execSync(`nc -z -w 1 ${redisOptions.host} ${redisOptions.port}`);
-    redisExists = true;
-} catch (e) {
-    redisExists = false;
-}
-
-if (!redisExists) {
-    console.warn('⚠️  Redis server not detected on port 6379. Pre-emptively starting in MOCK MODE.');
-    internalConnection = new MockRedis();
-    isRedisOnline = true;
-} else {
-    // Initialize connection normally
+// Senior Professional Implementation: Pre-check Redis Availability & Environment Gates
+// P0-A: MockRedis must NEVER be selected automatically in production.
+// If Redis is unavailable during production startup, expose explicit storage-unavailable condition.
+// If Redis disconnects or emits an error in production, do not silently replace the real connection with MockRedis.
+if (isProduction) {
     try {
         internalConnection = new Redis(redisOptions);
         internalConnection.isMock = false;
-        
+
         internalConnection.on('ready', () => {
             isRedisOnline = true;
-            console.log('✅ Redis connected successfully');
+            console.log('✅ [Redis:Production] Connected and ready');
+        });
+
+        internalConnection.on('connect', () => {
+            console.log('🔄 [Redis:Production] Connection established');
+        });
+
+        internalConnection.on('close', () => {
+            isRedisOnline = false;
+            console.warn('⚠️ [Redis:Production] Connection closed. isRedisOnline set to false.');
         });
 
         internalConnection.on('error', (err) => {
             isRedisOnline = false;
-            if (!internalConnection.isMock) {
-                console.warn('❌ Redis Error: Forcing Mock mode fallback...');
-                const oldConn = internalConnection;
-                internalConnection = new MockRedis();
-                isRedisOnline = true;
-                try { oldConn.disconnect(); } catch (e) {}
-            }
+            console.error('❌ [Redis:Production] Connection error:', err.message);
+            // FAIL-CLOSED: NEVER replace internalConnection with MockRedis in production!
         });
     } catch (err) {
+        console.error('❌ [Redis:Production] Failed to initialize Redis client:', err.message);
+        isRedisOnline = false;
+    }
+} else {
+    // Non-production environment (development / test)
+    let redisExists = false;
+    try {
+        execSync(`nc -z -w 1 ${redisOptions.host} ${redisOptions.port}`, { stdio: 'ignore' });
+        redisExists = true;
+    } catch (e) {
+        redisExists = false;
+    }
+
+    if (!redisExists) {
+        console.warn('⚠️  Redis server not detected on port 6379. Pre-emptively starting in MOCK MODE.');
         internalConnection = new MockRedis();
         isRedisOnline = true;
+    } else {
+        try {
+            internalConnection = new Redis(redisOptions);
+            internalConnection.isMock = false;
+            
+            internalConnection.on('ready', () => {
+                isRedisOnline = true;
+                console.log('✅ Redis connected successfully');
+            });
+
+            internalConnection.on('error', (err) => {
+                isRedisOnline = false;
+                if (!internalConnection.isMock) {
+                    console.warn('❌ Redis Error: Forcing Mock mode fallback for dev/test...');
+                    const oldConn = internalConnection;
+                    internalConnection = new MockRedis();
+                    isRedisOnline = true;
+                    try { oldConn.disconnect(); } catch (e) {}
+                }
+            });
+        } catch (err) {
+            internalConnection = new MockRedis();
+            isRedisOnline = true;
+        }
     }
 }
 
@@ -423,8 +464,13 @@ const redisProxy = new Proxy({}, {
             return tVal;
         }
         // Handle special properties
-        if (prop === 'isMock') return internalConnection.isMock;
-        if (prop === 'status') return internalConnection.status;
+        if (prop === 'isMock') return internalConnection ? Boolean(internalConnection.isMock) : false;
+        if (prop === 'status') return internalConnection ? internalConnection.status : 'disconnected';
+        if (prop === 'isOnline') return isRedisOnline;
+        
+        if (!internalConnection) {
+            throw new Error('STORAGE_UNAVAILABLE: Redis connection is not initialized');
+        }
         
         const value = internalConnection[prop];
         if (typeof value === 'function') {
@@ -443,14 +489,27 @@ const redisProxy = new Proxy({}, {
 });
 
 export { isRedisOnline };
+export const getRedisStatus = () => ({
+    isOnline: isRedisOnline,
+    isMock: internalConnection ? Boolean(internalConnection.isMock) : false,
+    status: internalConnection ? internalConnection.status : 'disconnected'
+});
 
 export const safeRedisCall = async (method, ...args) => {
     try {
-        if (internalConnection.isMock) {
+        if (internalConnection && internalConnection.isMock) {
+            if (process.env.NODE_ENV === 'production') {
+                throw new Error('STORAGE_UNAVAILABLE: MockRedis cannot be accessed in production environment');
+            }
             return await internalConnection[method](...args);
         }
 
-        if (!isRedisOnline) return null;
+        if (!isRedisOnline) {
+            if (process.env.NODE_ENV === 'production') {
+                throw new Error('STORAGE_UNAVAILABLE: Redis connection is currently offline in production environment');
+            }
+            return null;
+        }
         
         const timeout = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Redis Timeout')), 1000)
@@ -461,6 +520,9 @@ export const safeRedisCall = async (method, ...args) => {
             timeout
         ]);
     } catch (err) {
+        if (process.env.NODE_ENV === 'production') {
+            throw err;
+        }
         return null;
     }
 };
@@ -483,7 +545,10 @@ const mockWorkers = new Map();
 
 export class Queue {
     constructor(name, opts = {}) {
-        if (internalConnection.isMock) {
+        if (internalConnection && internalConnection.isMock) {
+            if (process.env.NODE_ENV === 'production') {
+                throw new Error(`CRITICAL_STORAGE_ERROR: MockQueue cannot be initialized in production environment for queue '${name}'. Redis is required.`);
+            }
             this.name = name;
             mockQueues.set(name, this);
             console.log(`[MockQueue] Registered mock queue: ${name}`);
@@ -493,7 +558,7 @@ export class Queue {
     }
     async add(name, data, opts) {
         const jobId = `mock-${Date.now()}`;
-        if (internalConnection.isMock) {
+        if (internalConnection && internalConnection.isMock) {
             const worker = mockWorkers.get(this.name);
             if (worker && worker.processor) {
                 setTimeout(async () => {
@@ -534,7 +599,10 @@ export class Queue {
 export class Worker extends EventEmitter {
     constructor(name, processor, opts = {}) {
         super();
-        if (internalConnection.isMock) {
+        if (internalConnection && internalConnection.isMock) {
+            if (process.env.NODE_ENV === 'production') {
+                throw new Error(`CRITICAL_STORAGE_ERROR: MockWorker cannot be initialized in production environment for worker '${name}'. Redis is required.`);
+            }
             this.name = name;
             this.processor = processor;
             mockWorkers.set(name, this);
@@ -548,6 +616,7 @@ export class Worker extends EventEmitter {
     }
 }
 
+export { MockRedis };
 export default redisProxy;
 
 

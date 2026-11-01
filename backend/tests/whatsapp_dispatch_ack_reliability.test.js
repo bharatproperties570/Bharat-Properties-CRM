@@ -677,6 +677,68 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
         assert.notEqual(storedState, 'CLOSED', 'State must NEVER become CLOSED when lease is expired');
     });
 
+    it('19b. Strict Token Ownership (P0-B): Missing probe token cannot mutate HALF_OPEN on recordProbeFailure', async () => {
+        const intId = testIntegrationId.toString();
+
+        await redisProxy.set(`cb:wa:${intId}:state`, 'HALF_OPEN');
+        await redisProxy.set(`cb:wa:${intId}:probe_lock`, 'worker-active-probe');
+        await redisProxy.set(`cb:wa:${intId}:reason`, 'Prior trip reason');
+        await redisProxy.set(`cb:wa:${intId}:tripped_at`, '123456');
+
+        // Missing/null probe token
+        const resNull = await WhatsAppCircuitBreaker.recordProbeFailure(intId, null, 'Some failure');
+        assert.equal(resNull.success, false);
+        assert.equal(resNull.error, 'MISSING_PROBE_TOKEN');
+
+        // Empty probe token
+        const resEmpty = await WhatsAppCircuitBreaker.recordProbeFailure(intId, '', 'Some failure');
+        assert.equal(resEmpty.success, false);
+        assert.equal(resEmpty.error, 'MISSING_PROBE_TOKEN');
+
+        // State, reason, tripped_at, probe_lock must remain untouched
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:state`), 'HALF_OPEN');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:probe_lock`), 'worker-active-probe');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:reason`), 'Prior trip reason');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:tripped_at`), '123456');
+    });
+
+    it('19c. Strict Token Ownership (P0-B): Stale probe owner cannot trigger failure reset on active probe', async () => {
+        const intId = testIntegrationId.toString();
+
+        await redisProxy.set(`cb:wa:${intId}:state`, 'HALF_OPEN');
+        await redisProxy.set(`cb:wa:${intId}:probe_lock`, 'worker-active-probe-2');
+        await redisProxy.set(`cb:wa:${intId}:reason`, 'Prior trip reason');
+        await redisProxy.set(`cb:wa:${intId}:tripped_at`, '123456');
+
+        const staleRes = await WhatsAppCircuitBreaker.recordProbeFailure(intId, 'worker-stale-token', 'Stale failure');
+        assert.equal(staleRes.success, false);
+        assert.equal(staleRes.error, 'STALE_PROBE_OWNER');
+
+        // State, reason, tripped_at, probe_lock must remain untouched
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:state`), 'HALF_OPEN');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:probe_lock`), 'worker-active-probe-2');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:reason`), 'Prior trip reason');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:tripped_at`), '123456');
+    });
+
+    it('19d. Strict Token Ownership (P0-B): Expired lease cannot trigger failure reset on recordProbeFailure', async () => {
+        const intId = testIntegrationId.toString();
+
+        await redisProxy.set(`cb:wa:${intId}:state`, 'HALF_OPEN');
+        await redisProxy.del(`cb:wa:${intId}:probe_lock`); // Expired lease
+        await redisProxy.set(`cb:wa:${intId}:reason`, 'Prior trip reason');
+        await redisProxy.set(`cb:wa:${intId}:tripped_at`, '123456');
+
+        const res = await WhatsAppCircuitBreaker.recordProbeFailure(intId, 'worker-previous-token', 'Failure after lease expired');
+        assert.equal(res.success, false);
+        assert.equal(res.error, 'EXPIRED_PROBE_LEASE');
+
+        // State, reason, tripped_at must remain untouched
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:state`), 'HALF_OPEN');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:reason`), 'Prior trip reason');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:tripped_at`), '123456');
+    });
+
     it('20. Concurrent probe reservation race (Deterministic Invariant): Exactly ONE worker reserves probe', async () => {
         const intId = testIntegrationId.toString();
 
@@ -802,5 +864,11 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
 
         const state = await WhatsAppCircuitBreaker.isTripped(intId);
         assert.equal(state.tripped, true);
+    });
+
+    it('26. CI / Provisioned Redis Verification (P0-C): Assert real Redis connection when provisioned', async () => {
+        if (process.env.CI) {
+            assert.strictEqual(redisProxy.isMock, false, 'In CI environment, real Redis service must be provisioned and isMock must be false');
+        }
     });
 });

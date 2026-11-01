@@ -25,7 +25,7 @@
  *      - Storage errors are never silently swallowed and never falsely yield a successful transition.
  */
 
-import redisProxy from '../src/config/redis.js';
+import redisProxy, { isRedisOnline } from '../src/config/redis.js';
 
 export const TRIP_THRESHOLDS = {
     CONSECUTIVE_ACK_TIMEOUTS: 3,
@@ -166,8 +166,14 @@ local state = redis.call("get", KEYS[1]) or "CLOSED"
 local token = ARGV[1]
 
 if state == "HALF_OPEN" then
+    if not token or token == "" then
+        return cjson.encode({ success = false, state = state, error = "MISSING_PROBE_TOKEN" })
+    end
     local activeToken = redis.call("get", KEYS[4])
-    if token and token ~= "" and activeToken and token ~= activeToken then
+    if not activeToken then
+        return cjson.encode({ success = false, state = state, error = "EXPIRED_PROBE_LEASE" })
+    end
+    if token ~= activeToken then
         return cjson.encode({ success = false, state = state, error = "STALE_PROBE_OWNER" })
     end
 
@@ -176,10 +182,10 @@ if state == "HALF_OPEN" then
     redis.call("set", KEYS[2], tripReason)
     redis.call("set", KEYS[3], tostring(ARGV[3]))
     redis.call("del", KEYS[4])
-    return cjson.encode({ tripped = true, state = "OPEN", reason = tripReason })
+    return cjson.encode({ success = true, tripped = true, state = "OPEN", reason = tripReason })
 end
 
-return cjson.encode({ success = false, state = state })
+return cjson.encode({ success = false, state = state, error = "BREAKER_NOT_HALF_OPEN" })
 `,
 
     // 4. Failure counter increment, rolling TTL & threshold-based trip
@@ -229,6 +235,14 @@ export class WhatsAppCircuitBreaker {
     static _getRedis() {
         if (!redisProxy) {
             throw new Error('CIRCUIT_BREAKER_STORAGE_UNAVAILABLE: Redis proxy is not initialized. Outbound dispatch blocked.');
+        }
+        if (process.env.NODE_ENV === 'production') {
+            if (redisProxy.isMock) {
+                throw new Error('CIRCUIT_BREAKER_STORAGE_UNAVAILABLE: MockRedis cannot be used in production environment. Outbound dispatch blocked.');
+            }
+            if (!isRedisOnline) {
+                throw new Error('CIRCUIT_BREAKER_STORAGE_UNAVAILABLE: Redis connection is currently offline in production environment. Outbound dispatch blocked.');
+            }
         }
         return redisProxy;
     }
@@ -365,7 +379,11 @@ export class WhatsAppCircuitBreaker {
             if (result.tripped) {
                 console.warn(`[WhatsAppCircuitBreaker] 🚨 Probe failed for ${id}. Breaker returned to OPEN.`);
             } else if (result.error === 'STALE_PROBE_OWNER') {
-                console.warn(`[WhatsAppCircuitBreaker] Stale probe failure ignored for ${id}: token '${probeToken}'.`);
+                console.warn(`[WhatsAppCircuitBreaker] Stale probe failure rejected for ${id}: token '${probeToken}'.`);
+            } else if (result.error === 'MISSING_PROBE_TOKEN') {
+                console.warn(`[WhatsAppCircuitBreaker] Probe failure rejected for ${id}: probe token is missing.`);
+            } else if (result.error === 'EXPIRED_PROBE_LEASE') {
+                console.warn(`[WhatsAppCircuitBreaker] Probe failure rejected for ${id}: active lease expired.`);
             }
 
             return result;
