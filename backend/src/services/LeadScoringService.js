@@ -256,11 +256,32 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
 
     // ── B. ACTIVITY SCORE (dynamic — ONLY counted here, NOT in enrichment) ──
     let activityScore = 0;
+    const activityContributions = [];
+    const seenActivityIds = new Set();
+    const seenSignatures = new Map(); // signature -> timestamp of first scored occurrence
+    const DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
     const activityBehaviouralEnabled = scoringConfig?.behavioural?.enabled !== false;
 
     if (activityBehaviouralEnabled && Array.isArray(activities)) {
-        activities.forEach(act => {
+        // Sort activities chronologically to evaluate replay order deterministically
+        const sortedActivities = [...activities].sort((a, b) => {
+            const timeA = new Date(a.completedAt || a.createdAt || 0).getTime();
+            const timeB = new Date(b.completedAt || b.createdAt || 0).getTime();
+            return timeA - timeB;
+        });
+
+        sortedActivities.forEach(act => {
             if (act.status !== 'Completed') return; // Only completed activities score
+
+            // Deduplicate by explicit activity _id
+            const actIdStr = act._id ? String(act._id) : null;
+            if (actIdStr) {
+                if (seenActivityIds.has(actIdStr)) {
+                    return; // Skip duplicate activity document
+                }
+                seenActivityIds.add(actIdStr);
+            }
 
             const actName = (act.type || '').toLowerCase();
             const actDef = activityMasterFields?.activities?.find(
@@ -297,23 +318,46 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
                     .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0] || '';
             }
 
+            // Rapid signature deduplication (prevent accidental replay or double webhook delivery)
+            const signature = `${actName}:${purpName}:${outcomeLabel}`;
+            const actTimestamp = new Date(act.completedAt || act.createdAt || Date.now()).getTime();
+            if (seenSignatures.has(signature)) {
+                const prevTimestamp = seenSignatures.get(signature);
+                if (Math.abs(actTimestamp - prevTimestamp) < DUPLICATE_WINDOW_MS) {
+                    return; // Replay within 5 minutes on same lead ignored
+                }
+            }
+            seenSignatures.set(signature, actTimestamp);
+
             const outcomeDef = purpDef.outcomes?.find(o => {
                 const ol = (o.label || '').toLowerCase();
                 return ol === outcomeLabel || outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
             });
 
+            let scoredPoints = 0;
             if (outcomeDef) {
-                activityScore += (Number(outcomeDef.score) || 0);
+                scoredPoints = Number(outcomeDef.score) || 0;
             } else {
                 // Safeguard: Hardcoded penalty for negative/missed outcomes if not in config
                 const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed', 'not interested'].some(s => outcomeLabel.includes(s));
                 if (isMissed) {
-                    activityScore -= 3; // Standard penalty for unsuccessful attempt
+                    scoredPoints = -3; // Standard penalty for unsuccessful attempt
                 }
             }
+
+            activityScore += scoredPoints;
+            activityContributions.push({
+                activityId: actIdStr,
+                type: act.type,
+                purpose: act.details?.purpose || purpName,
+                outcome: outcomeLabel,
+                points: scoredPoints,
+                timestamp: new Date(actTimestamp)
+            });
         });
     }
     breakdown.activityScore = activityScore;
+    breakdown.activityContributions = activityContributions;
 
     // ── C. SOURCE QUALITY SCORE ──────────────────────────────────────────────
     let sourceScore = 0;

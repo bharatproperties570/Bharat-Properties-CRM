@@ -132,6 +132,7 @@ const AuditLogSchema = new mongoose.Schema({
             // Entity Trackers
             'stage_changed',
             'assignment_changed',
+            'lead_revived',
             'lead_revived_automation',
             'score_changed',
             'deal_converted',

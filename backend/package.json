@@ -7,6 +7,7 @@
         "start": "node src/server.js",
         "dev": "nodemon src/server.js",
         "test": "node --test --test-concurrency=1 tests/discovery_area_units.test.js tests/discovery_price_url_seller.test.js tests/phase1_deal_discovery.test.js tests/phase1_pipeline_integration.test.js tests/phase1_2_connectors.test.js tests/phase1_2_1_authorization_enforcement.test.js tests/phase1_2_2_security_remediation.test.js tests/phase1_2_3_domain_governance.test.js",
+        "test:phase3": "node --test --test-force-exit --test-concurrency=1 tests/phase3_lead_lifecycle_remediation.test.js",
         "test:phase4": "node --test --test-force-exit --test-concurrency=1 tests/phase4_multitenancy_isolation.test.js",
         "test:phase4.6": "node --test --test-force-exit --test-concurrency=1 tests/phase4_6_contact_deduplication.test.js",
         "test:phase5": "node --test --test-force-exit --test-concurrency=1 tests/phase5_r14_automation_reliability.test.js",
