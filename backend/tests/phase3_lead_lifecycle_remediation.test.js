@@ -323,14 +323,16 @@ describe('Phase 3 — Lead Lifecycle, Scoring & Qualification Remediation Test S
             // Genuine Call 2 at T - 60s (2 minutes later) with distinct _id (must NOT be suppressed)
             {
                 _id: actId2,
+                externalId: 'call-ext-genuine-2',
                 type: 'Call',
                 status: 'Completed',
                 details: { purpose: 'Follow Up', outcome: 'Interested' },
                 completedAt: new Date(baseTime - 60000)
             },
-            // Duplicate webhook insertion: same timestamp down to the second (within 1000ms) with distinct _id
+            // Duplicate webhook insertion: same external event ID re-delivered with a different _id (deduplicated by externalId)
             {
                 _id: actId3,
+                externalId: 'call-ext-genuine-2',
                 type: 'Call',
                 status: 'Completed',
                 details: { purpose: 'Follow Up', outcome: 'Interested' },
@@ -375,6 +377,108 @@ describe('Phase 3 — Lead Lifecycle, Scoring & Qualification Remediation Test S
         assert.ok(meetingContrib.timestamp instanceof Date && !isNaN(meetingContrib.timestamp.getTime()), 'Invalid date must safely resolve to a valid Date object');
 
         assert.ok(scoreResult.total >= 0 && scoreResult.total <= 100);
+    });
+
+    it('5b. Targeted Scoring Deduplication Validation: Cases A through E independently', async () => {
+        const testLead = {
+            requirement: 'Residential',
+            stage: stageLookups['prospect']?._id || new mongoose.Types.ObjectId()
+        };
+
+        const now = Date.now();
+
+        // ── Case A: Distinct persisted activities, identical timestamp ──
+        const caseA_act1 = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-a-1',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now)
+        };
+        const caseA_act2 = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-a-2',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now)
+        };
+        const resA = computeLeadScore(testLead, [caseA_act1, caseA_act2]);
+        assert.equal(resA.activityScore, 24, 'Case A: Both distinct persisted activities with identical timestamp must score');
+        assert.equal(resA.breakdown.activityContributions.length, 2, 'Case A: Exactly 2 contributions recorded');
+
+        // ── Case B: Same persisted activity replay ──
+        const caseB_act = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-b-1',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 10000)
+        };
+        const resB = computeLeadScore(testLead, [caseB_act, { ...caseB_act }]);
+        assert.equal(resB.activityScore, 12, 'Case B: Same persisted activity replayed must score only once');
+        assert.equal(resB.breakdown.activityContributions.length, 1, 'Case B: Exactly 1 contribution recorded');
+
+        // ── Case C: Same external event replay with a different database record ──
+        const caseC_act1 = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-c-shared',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 20000)
+        };
+        const caseC_act2 = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-c-shared',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 20000)
+        };
+        const resC = computeLeadScore(testLead, [caseC_act1, caseC_act2]);
+        assert.equal(resC.activityScore, 12, 'Case C: Same external event ID with different _id must score only once');
+        assert.equal(resC.breakdown.activityContributions.length, 1, 'Case C: Exactly 1 contribution recorded');
+
+        // ── Case D: Distinct persisted activities, timestamps within one second ──
+        const caseD_act1 = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-d-1',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 30000)
+        };
+        const caseD_act2 = {
+            _id: new mongoose.Types.ObjectId(),
+            externalId: 'ext-case-d-2',
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 30000 + 400) // 400ms apart (< 1 second)
+        };
+        const resD = computeLeadScore(testLead, [caseD_act1, caseD_act2]);
+        assert.equal(resD.activityScore, 24, 'Case D: Distinct persisted activities within 1 second must both score');
+        assert.equal(resD.breakdown.activityContributions.length, 2, 'Case D: Exactly 2 contributions recorded');
+
+        // ── Case E: Unpersisted activity without reliable identity ──
+        const caseE_act1 = {
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 40000)
+        };
+        const caseE_act2 = {
+            type: 'Call',
+            status: 'Completed',
+            details: { purpose: 'Follow Up', outcome: 'Interested' },
+            completedAt: new Date(now - 40000 + 30000) // 30s later (within 5 minutes)
+        };
+        const resE = computeLeadScore(testLead, [caseE_act1, caseE_act2]);
+        assert.equal(resE.activityScore, 12, 'Case E: Repeated unpersisted activity without stable ID within 5 min must score only once');
+        assert.equal(resE.breakdown.activityContributions.length, 1, 'Case E: Exactly 1 contribution recorded');
     });
 
     it('6. Lead Qualification Consistency: checkLeadQualifiedStatus aligns with dynamic threshold', async () => {

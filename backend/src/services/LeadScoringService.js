@@ -292,7 +292,7 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
             }
 
             // 2. Deduplicate by external event / message / call identifier if present
-            const extId = act.externalId || act.details?.callSid || act.details?.messageId || act.details?.idempotencyKey;
+            const extId = act.externalId || act.details?.externalId || act.details?.eventId || act.details?.callSid || act.details?.messageId || act.details?.idempotencyKey;
             if (extId) {
                 const extKey = `${(act.type || '').toLowerCase()}:${String(extId).trim()}`;
                 if (seenExternalIds.has(extKey)) {
@@ -344,19 +344,16 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
             }
             const actTimestamp = actDate.getTime();
 
-            // 4. Signature Deduplication:
-            // - If activity lacks an _id (transient/unpersisted payload), suppress identical replays within the 5-minute window.
-            // - If activity has an _id, only suppress exact duplicate insertions (within 1000ms).
-            // This prevents duplicate webhook bursts while preserving distinct legitimate activities with unique _ids.
+            // 4. Signature Deduplication for Unpersisted / Transient Activities:
+            // Activities without a persistent _id lack a stable database identity.
+            // Deduplicate unpersisted replays sharing the same activity signature within DUPLICATE_WINDOW_MS (5 min).
+            // Persisted activities with distinct _id values are never suppressed by timestamp/signature similarity alone.
             const signature = `${actName}:${purpName}:${outcomeLabel}`;
-            if (seenSignatures.has(signature)) {
+            if (!actIdStr && seenSignatures.has(signature)) {
                 const prevTimestamp = seenSignatures.get(signature);
                 const timeDiff = Math.abs(actTimestamp - prevTimestamp);
-                if (!actIdStr && timeDiff < DUPLICATE_WINDOW_MS) {
+                if (timeDiff < DUPLICATE_WINDOW_MS) {
                     return; // Unpersisted replay within 5 minutes on same lead ignored
-                }
-                if (actIdStr && timeDiff < 1000) {
-                    return; // Exact duplicate insertion of same physical event ignored
                 }
             }
             seenSignatures.set(signature, actTimestamp);
