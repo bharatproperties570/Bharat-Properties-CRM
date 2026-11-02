@@ -54,16 +54,22 @@ function isPortOpen(port, host = '127.0.0.1', timeoutMs = 400) {
  */
 function runProductionChildScript(scriptContent, envOverrides = {}, timeoutMs = 8000) {
     return new Promise((resolve, reject) => {
+        const childEnv = {
+            ...process.env,
+            NODE_ENV: 'production',
+            ...envOverrides
+        };
+        // Strip test runner IPC & context channels to prevent child from acting as a test-runner worker
+        delete childEnv.NODE_CHANNEL_FD;
+        delete childEnv.NODE_TEST_CONTEXT;
+
         const child = spawn(
             process.execPath,
             ['--input-type=module', '-e', scriptContent],
             {
                 cwd: backendRoot,
-                env: {
-                    ...process.env,
-                    NODE_ENV: 'production',
-                    ...envOverrides
-                }
+                env: childEnv,
+                stdio: ['ignore', 'pipe', 'pipe']
             }
         );
 
@@ -306,7 +312,7 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
             assert.strictEqual(signal, null, 'Child process must exit naturally without termination signal');
             assert.strictEqual(code, 0, `Child process failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
         } else {
-            console.log('ℹ️ Local environment without real Redis: Genuine Redis connection lifecycle verification deferred to CI runner.');
+            console.error('ℹ️ Local environment without real Redis: Genuine Redis connection lifecycle verification deferred to CI runner.');
         }
     });
 
@@ -513,7 +519,7 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
             assert.strictEqual(signal, null, 'Child process must exit naturally without termination signal');
             assert.strictEqual(code, 0, `BullMQ CI test failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
         } else {
-            console.log('ℹ️ CI-only BullMQ test: Local environment does not have real Redis 7 running on port 6379. Deferred to CI runner.');
+            console.error('ℹ️ CI-only BullMQ test: Local environment does not have real Redis 7 running on port 6379. Deferred to CI runner.');
         }
     });
 });

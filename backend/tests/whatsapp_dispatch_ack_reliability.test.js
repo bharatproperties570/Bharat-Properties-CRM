@@ -1394,4 +1394,214 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
         assert.strictEqual(reclaimed.status, 'CLAIMED', 'Status must transition to CLAIMED upon authorized override');
         assert.strictEqual(reclaimed.claimGeneration, 2);
     });
+
+    it('33. Pre-Send Hook Isolation: Hook throws ECONNRESET — zero socket writes, zero reconnect retries, returns FAILED', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+        let connectInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100007:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_never_send' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        const origConnect = BaileysConnectionManager.connect;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+        BaileysConnectionManager.connect = async (id) => {
+            connectInvocationCount++;
+            return mockSocket;
+        };
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100007',
+                'Hook throws ECONNRESET test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            throw new Error('read ECONNRESET');
+                        }
+                    }
+                }
+            );
+
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked when hook throws ECONNRESET');
+            assert.strictEqual(connectInvocationCount, 0, 'Reconnect retry must never be attempted when hook throws ECONNRESET');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('ECONNRESET'), `Error must contain ECONNRESET, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+            BaileysConnectionManager.connect = origConnect;
+        }
+    });
+
+    it('34. Pre-Send Hook Isolation: Hook throws Connection Terminated — zero socket writes, zero reconnect retries, returns FAILED', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+        let connectInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100008:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_never_send' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        const origConnect = BaileysConnectionManager.connect;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+        BaileysConnectionManager.connect = async (id) => {
+            connectInvocationCount++;
+            return mockSocket;
+        };
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100008',
+                'Hook throws Connection Terminated test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            throw new Error('Connection Terminated (1006)');
+                        }
+                    }
+                }
+            );
+
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked when hook throws Connection Terminated');
+            assert.strictEqual(connectInvocationCount, 0, 'Reconnect retry must never be attempted when hook throws Connection Terminated');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('Connection Terminated'), `Error must contain Connection Terminated, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+            BaileysConnectionManager.connect = origConnect;
+        }
+    });
+
+    it('35. Pre-Write Reconnect & Revalidation: Dead initial socket reconnects and revalidates pre-send hook before transmission', async () => {
+        const intId = testIntegrationId.toString();
+        let hookCallCount = 0;
+        let sendInvocationCount = 0;
+        let connectInvocationCount = 0;
+
+        // Initial socket has dead/closed websocket
+        const initialMockSocket = {
+            user: { id: '919811100009:1@s.whatsapp.net' },
+            ws: { isOpen: false, isConnecting: false },
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_initial_socket' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        // Reconnected socket has open websocket
+        const reconnectedMockSocket = {
+            user: { id: '919811100009:1@s.whatsapp.net' },
+            ws: { isOpen: true, isConnecting: false },
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_reconnect_success' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        const origConnect = BaileysConnectionManager.connect;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? initialMockSocket : null);
+        BaileysConnectionManager.connect = async (id) => {
+            connectInvocationCount++;
+            return reconnectedMockSocket;
+        };
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100009',
+                'Dead socket reconnect and revalidation test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async ({ sock }) => {
+                            hookCallCount++;
+                        }
+                    }
+                }
+            );
+
+            assert.strictEqual(connectInvocationCount, 1, 'Pre-write reconnect must be attempted exactly once for dead socket');
+            assert.strictEqual(hookCallCount, 2, 'Pre-send hook must be executed twice: initially and revalidated after reconnect before write');
+            assert.strictEqual(sendInvocationCount, 1, 'Socket write must be invoked exactly once on the reconnected socket');
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.deliveryStatus, 'ACCEPTED');
+            assert.strictEqual(result.messageId, 'msg_reconnect_success');
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+            BaileysConnectionManager.connect = origConnect;
+        }
+    });
+
+    it('36. Write Boundary Isolation: Callback throws before socket write — returns FAILED without ambiguous delivery state', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100010:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_not_send' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100010',
+                'Callback explosion before write test',
+                { integrationId: testIntegrationId },
+                {
+                    onSocketWriteInitiated: () => {
+                        throw new Error('CALLBACK_EXPLODED: failed before actual socket write');
+                    }
+                }
+            );
+
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked if callback throws');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('CALLBACK_EXPLODED'), `Error must contain callback message, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
 });
