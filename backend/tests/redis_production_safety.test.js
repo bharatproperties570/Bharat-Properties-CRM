@@ -357,26 +357,30 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
                     workerReject = reject;
                 });
 
-                const queue = new Queue(uniqueQueueName);
-                assert.strictEqual(queue.isMock, undefined, 'Must be genuine BullMQ Queue, not MockQueue');
-
-                // Instantiate Worker. Note: do not resolve from inside the processor before it returns.
-                const worker = new Worker(uniqueQueueName, async (job) => {
-                    assert.strictEqual(job.id, uniqueJobId);
-                    assert.deepStrictEqual(job.data, testPayload);
-                    return { success: true, processedAt: Date.now() };
-                });
-                assert.strictEqual(worker.isMock, undefined, 'Must be genuine BullMQ Worker, not MockWorker');
-
-                // Register listener for the actual BullMQ Worker 'completed' event
-                worker.on('completed', (job, result) => {
-                    workerResolve({ job, result });
-                });
-                worker.on('failed', (job, err) => {
-                    workerReject(err);
-                });
+                let queue;
+                let worker;
+                let testError = null;
 
                 try {
+                    queue = new Queue(uniqueQueueName);
+                    assert.strictEqual(queue.isMock, undefined, 'Must be genuine BullMQ Queue, not MockQueue');
+
+                    // Instantiate Worker. Note: do not resolve from inside the processor before it returns.
+                    worker = new Worker(uniqueQueueName, async (job) => {
+                        assert.strictEqual(job.id, uniqueJobId);
+                        assert.deepStrictEqual(job.data, testPayload);
+                        return { success: true, processedAt: Date.now() };
+                    });
+                    assert.strictEqual(worker.isMock, undefined, 'Must be genuine BullMQ Worker, not MockWorker');
+
+                    // Register listener for the actual BullMQ Worker 'completed' event
+                    worker.on('completed', (job, result) => {
+                        workerResolve({ job, result });
+                    });
+                    worker.on('failed', (job, err) => {
+                        workerReject(err);
+                    });
+
                     // Enqueue one uniquely identified job
                     const job = await queue.add('testJob', testPayload, { jobId: uniqueJobId });
                     assert.strictEqual(job.id, uniqueJobId);
@@ -398,51 +402,90 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
                     assert.deepStrictEqual(retrievedJob.data, testPayload);
                     const state = await retrievedJob.getState();
                     assert.strictEqual(state, 'completed', 'Job state in real Redis must be completed');
+                } catch (err) {
+                    testError = err;
                 } finally {
-                    // Cleanup responsibilities guaranteed through finally
+                    const cleanupErrors = [];
+
                     // 1. Close Worker first so no additional jobs are picked up
                     try {
-                        await worker.close();
+                        if (worker) {
+                            await worker.close();
+                        }
                     } catch (e) {
-                        console.warn('Cleanup error closing worker:', e.message);
+                        cleanupErrors.push(new Error('Failed to close BullMQ Worker: ' + e.message));
                     }
 
                     // 2. Pause and drain the unique test queue
                     try {
-                        await queue.pause();
-                        await queue.drain();
+                        if (queue) {
+                            await queue.pause();
+                            await queue.drain();
+                        }
                     } catch (e) {
-                        console.warn('Cleanup error draining queue:', e.message);
+                        cleanupErrors.push(new Error('Failed to pause/drain BullMQ Queue: ' + e.message));
                     }
 
                     // 3. Remove test job and obliterate unique queue
                     try {
-                        const jobToRemove = await queue.getJob(uniqueJobId);
-                        if (jobToRemove) {
-                            await jobToRemove.remove();
+                        if (queue) {
+                            const jobToRemove = await queue.getJob(uniqueJobId);
+                            if (jobToRemove) {
+                                await jobToRemove.remove();
+                            }
+                            await queue.obliterate({ force: true });
                         }
-                        await queue.obliterate({ force: true });
                     } catch (e) {
-                        console.warn('Cleanup error obliterating queue:', e.message);
+                        cleanupErrors.push(new Error('Failed to obliterate BullMQ Queue: ' + e.message));
                     }
 
-                    // 4. Verify unique job is absent after successful cleanup
+                    // 4. Verify unique job is absent after queue cleanup
                     try {
-                        const postCleanupJob = await queue.getJob(uniqueJobId);
-                        assert.ok(!postCleanupJob, 'Unique job must be absent from Redis after cleanup');
+                        if (queue) {
+                            const postCleanupJob = await queue.getJob(uniqueJobId);
+                            assert.ok(!postCleanupJob, 'Unique job must be absent from Redis after cleanup');
+                        }
                     } catch (e) {
-                        console.warn('Verification error for post-cleanup job:', e.message);
+                        cleanupErrors.push(new Error('Post-cleanup verification failed: ' + e.message));
                     }
 
-                    // 5. Close Queue and disconnect production Redis client
+                    // 5. Close Queue
                     try {
-                        await queue.close();
+                        if (queue) {
+                            await queue.close();
+                        }
                     } catch (e) {
-                        console.warn('Cleanup error closing queue:', e.message);
+                        cleanupErrors.push(new Error('Failed to close BullMQ Queue: ' + e.message));
                     }
+
+                    // 6. Ensure Redis client shutdown is attempted even if queue cleanup fails
                     try {
-                        redisProxy.disconnect(false);
-                    } catch (e) {}
+                        if (redisProxy && typeof redisProxy.disconnect === 'function') {
+                            redisProxy.disconnect(false);
+                        }
+                    } catch (e) {
+                        cleanupErrors.push(new Error('Failed to disconnect Redis client: ' + e.message));
+                    }
+
+                    // Propagate errors: preserve original test failure without masking, fail on cleanup failures
+                    if (testError) {
+                        if (cleanupErrors.length > 0) {
+                            const cleanupSummary = cleanupErrors.map(e => e.message).join('; ');
+                            testError.message = testError.message + ' (Teardown failures: ' + cleanupSummary + ')';
+                            testError.cleanupErrors = cleanupErrors;
+                            if (typeof AggregateError === 'function') {
+                                testError.cause = new AggregateError(cleanupErrors, 'Teardown failures');
+                            }
+                        }
+                        throw testError;
+                    }
+
+                    if (cleanupErrors.length > 0) {
+                        if (typeof AggregateError === 'function' && cleanupErrors.length > 1) {
+                            throw new AggregateError(cleanupErrors, 'Cleanup failed with ' + cleanupErrors.length + ' errors: ' + cleanupErrors.map(e => e.message).join('; '));
+                        }
+                        throw cleanupErrors[0];
+                    }
                 }
             `;
 
