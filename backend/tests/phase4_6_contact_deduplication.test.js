@@ -462,8 +462,8 @@ describe('Phase 4.6 — Contact Identity Deduplication & Reversible Merge Engine
         const postLead = await Lead.findById(lead._id);
         assert.equal(postLead.contactDetails.toString(), master._id.toString());
 
-        // Now Rollback!
-        const rolledBackAudit = await rollbackMerge(audit.mergeOperationId);
+        // Now Rollback! (with authorized user context)
+        const rolledBackAudit = await rollbackMerge(audit.mergeOperationId, { user: testAdminUser });
         assert.equal(rolledBackAudit.status, 'ROLLED_BACK');
         assert.equal(rolledBackAudit.rollbackAvailable, false);
 
@@ -488,7 +488,7 @@ describe('Phase 4.6 — Contact Identity Deduplication & Reversible Merge Engine
 
         // 4. Repeated Rollback attempt must fail
         await assert.rejects(async () => {
-            await rollbackMerge(audit.mergeOperationId);
+            await rollbackMerge(audit.mergeOperationId, { user: testAdminUser });
         }, /Invalid or uncompleted audit record|Rollback not available/);
     });
 

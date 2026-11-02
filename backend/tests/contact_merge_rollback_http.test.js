@@ -425,4 +425,81 @@ describe('Phase 4 — Contact Merge Rollback HTTP Router Integration Suite', () 
         assert.ok(adminAuth.masterContact);
         assert.ok(adminAuth.duplicateContact);
     });
+
+    it('12. Missing Caller Context: rollbackMerge rejects invocations with empty options', async () => {
+        const { audit } = await setupTestMerge(creatorUser, creatorUser);
+
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId);
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Missing caller authorization context'));
+            return true;
+        });
+
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId, {});
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Missing caller authorization context'));
+            return true;
+        });
+    });
+
+    it('13. Untrusted System Caller: rollbackMerge rejects unauthorized or unprovenanced system callers', async () => {
+        const { audit } = await setupTestMerge(creatorUser, creatorUser);
+
+        // Unknown systemId
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId, {
+                systemCaller: {
+                    systemId: 'MALICIOUS_BOT',
+                    actorProvenance: 'bot@evil.com',
+                    reason: 'bypass'
+                }
+            });
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Invalid or unverified system caller identity'));
+            return true;
+        });
+
+        // Missing actorProvenance
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId, {
+                systemCaller: {
+                    systemId: 'CRM_SYSTEM_RECOVERY_RUNNER',
+                    actorProvenance: '',
+                    reason: 'recovery'
+                }
+            });
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            return true;
+        });
+    });
+
+    it('14. Trusted System Caller: rollbackMerge succeeds with valid system identity & provenance and records audit trail', async () => {
+        const { duplicate, audit } = await setupTestMerge(creatorUser, creatorUser);
+
+        const rolledBack = await rollbackMerge(audit.mergeOperationId, {
+            systemCaller: {
+                systemId: 'CRM_SYSTEM_RECOVERY_RUNNER',
+                actorProvenance: 'lead-recovery-worker-inst-01',
+                reason: 'Disaster recovery automated reconciliation'
+            }
+        });
+
+        assert.equal(rolledBack.status, 'ROLLED_BACK');
+        assert.equal(rolledBack.rollbackAvailable, false);
+        assert.ok(rolledBack.rolledBackBySystem);
+        assert.equal(rolledBack.rolledBackBySystem.systemId, 'CRM_SYSTEM_RECOVERY_RUNNER');
+        assert.equal(rolledBack.rolledBackBySystem.actorProvenance, 'lead-recovery-worker-inst-01');
+        assert.equal(rolledBack.rolledBackBySystem.reason, 'Disaster recovery automated reconciliation');
+        assert.ok(rolledBack.rolledBackBySystem.timestamp instanceof Date);
+
+        const restoredDup = await Contact.findById(duplicate._id);
+        assert.equal(restoredDup.isMerged, false);
+        assert.equal(restoredDup.isDeleted, false);
+    });
 });

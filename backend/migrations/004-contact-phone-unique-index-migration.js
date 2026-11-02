@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+export const MIGRATION_NAME = '004-contact-phone-unique-index-migration';
 export const TARGET_INDEX_NAME = 'contacts_phones_number_active_unique';
 export const TARGET_INDEX_SPEC = { 'phones.number': 1 };
 export const TARGET_INDEX_OPTIONS = {
@@ -18,6 +19,27 @@ export const TARGET_INDEX_OPTIONS = {
     },
     background: true
 };
+
+// Production Cluster Fingerprints / Allowlist
+export const PRODUCTION_CLUSTER_FINGERPRINTS = Object.freeze([
+    '7dehanz.mongodb.net',
+    'cluster0.7dehanz.mongodb.net',
+    'atlas-145yac-shard-0'
+]);
+
+export const PRODUCTION_CLUSTER_ID = 'production-atlas-7dehanz';
+
+/**
+ * Sanitizes MongoDB URIs and host strings by removing credentials.
+ * Ensures passwords and tokens are never printed to logs or error messages.
+ *
+ * @param {string} raw
+ * @returns {string}
+ */
+export function sanitizeMongoUri(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    return raw.replace(/mongodb(\+srv)?:\/\/([^:]+):([^@]+)@/gi, 'mongodb$1://$2:***@');
+}
 
 /**
  * Normalizes phone numbers for business deduplication analysis.
@@ -43,27 +65,249 @@ export function normalizePhoneForDeduplication(phone) {
 }
 
 /**
+ * Resolves and validates connected MongoDB cluster identity.
+ * Validates actual host and cluster topology; database name alone is NOT sufficient.
+ *
+ * @param {mongoose.Connection|mongoose.mongo.Db|Object} conn
+ * @returns {Promise<{
+ *   isValid: boolean,
+ *   isProductionCluster: boolean,
+ *   clusterType: string,
+ *   clusterId: string,
+ *   dbName: string,
+ *   hosts: string[],
+ *   replicaSetName: string|null,
+ *   error?: string
+ * }>}
+ */
+export async function resolveClusterIdentity(conn) {
+    const db = conn?.db || conn;
+    const dbName = String(db?.databaseName || conn?.name || '').trim();
+    const rawHosts = new Set();
+
+    if (conn?.host) {
+        rawHosts.add(String(conn.host).toLowerCase());
+    }
+
+    const client = conn?.client || db?.client;
+    if (client?.topology?.description?.servers) {
+        for (const serverKey of client.topology.description.servers.keys()) {
+            const hostOnly = serverKey.split(':')[0].toLowerCase();
+            rawHosts.add(hostOnly);
+        }
+    }
+
+    if (Array.isArray(client?.options?.hosts)) {
+        client.options.hosts.forEach(h => {
+            const hostOnly = String(h).split(':')[0].toLowerCase();
+            rawHosts.add(hostOnly);
+        });
+    }
+
+    let replicaSetName = null;
+    try {
+        if (typeof db?.command === 'function') {
+            const hello = await db.command({ hello: 1 }).catch(() => db.command({ isMaster: 1 })).catch(() => null);
+            if (hello) {
+                if (hello.me) rawHosts.add(String(hello.me).split(':')[0].toLowerCase());
+                if (Array.isArray(hello.hosts)) {
+                    hello.hosts.forEach(h => rawHosts.add(String(h).split(':')[0].toLowerCase()));
+                }
+                if (hello.setName) replicaSetName = String(hello.setName).toLowerCase();
+            }
+        }
+    } catch (_) {}
+
+    const hosts = Array.from(rawHosts).map(h => sanitizeMongoUri(h));
+
+    if (hosts.length === 0 || !dbName) {
+        return {
+            isValid: false,
+            isProductionCluster: false,
+            clusterType: 'UNKNOWN_UNVERIFIED',
+            clusterId: 'unknown',
+            dbName,
+            hosts,
+            replicaSetName,
+            error: 'Database or cluster host identity cannot be established. Fail closed.'
+        };
+    }
+
+    // Check against production Atlas fingerprint allowlist
+    const isAtlasHost = hosts.some(h =>
+        PRODUCTION_CLUSTER_FINGERPRINTS.some(fp => h.includes(fp.toLowerCase()))
+    );
+    const isAtlasReplSet = replicaSetName && PRODUCTION_CLUSTER_FINGERPRINTS.some(fp => replicaSetName.includes(fp.toLowerCase()));
+
+    if (isAtlasHost || isAtlasReplSet) {
+        return {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName,
+            hosts,
+            replicaSetName
+        };
+    }
+
+    // Check if host is strictly local / test
+    const isLocalTestHost = hosts.every(h =>
+        h === 'localhost' ||
+        h === '127.0.0.1' ||
+        h === '::1' ||
+        h.startsWith('127.0.0.1') ||
+        h.includes('mongodb-memory-server') ||
+        h.includes('local')
+    );
+
+    if (isLocalTestHost) {
+        if (dbName === 'bharatproperties1') {
+            return {
+                isValid: true,
+                isProductionCluster: false,
+                clusterType: 'NON_PROD_CLUSTER_WITH_PROD_DB_NAME',
+                clusterId: 'local-test-simulated-prod',
+                dbName,
+                hosts,
+                replicaSetName
+            };
+        }
+        return {
+            isValid: true,
+            isProductionCluster: false,
+            clusterType: 'LOCAL_TEST',
+            clusterId: 'local-test',
+            dbName,
+            hosts,
+            replicaSetName
+        };
+    }
+
+    // Unverified remote host -> fail closed
+    return {
+        isValid: false,
+        isProductionCluster: false,
+        clusterType: 'UNKNOWN_UNVERIFIED',
+        clusterId: 'unknown-remote-cluster',
+        dbName,
+        hosts,
+        replicaSetName,
+        error: `Connected host(s) [${hosts.join(', ')}] do not match verified production allowlist or local test fingerprints. Fail closed.`
+    };
+}
+
+/**
+ * Validates operator approval.
+ * Persistent .env values must NOT independently count as explicit DBA approval.
+ * Requires controlled runtime confirmation token bound to migration name, operation and target cluster.
+ *
+ * @param {string} mode - 'dry-run' | 'execute' | 'rollback'
+ * @param {Object} clusterInfo - Result from resolveClusterIdentity
+ * @param {Object} opts - Migration options
+ * @returns {{ approved: boolean, approvalSource: string, confirmedToken?: string }}
+ */
+export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
+    if (mode === 'dry-run') {
+        return { approved: true, approvalSource: 'DRY_RUN_READ_ONLY' };
+    }
+
+    if (!clusterInfo.isValid) {
+        throw new Error(`[MIGRATION-004] FATAL: ${clusterInfo.error || 'Cluster identity is unverified. Fail closed.'}`);
+    }
+
+    // Production Cluster Guard: applies whenever connected to production Atlas, regardless of dbName
+    if (clusterInfo.isProductionCluster) {
+        const prodFlag = process.env.ALLOW_PRODUCTION_MIGRATION === 'true';
+        const dbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION === 'true';
+
+        // 1. Baseline environment flags
+        if (!prodFlag || !dbaFlag) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Production ${mode.toUpperCase()} blocked. Requires explicit ALLOW_PRODUCTION_MIGRATION=true AND DBA_APPROVED_INDEX_MIGRATION=true. Aborting.`
+            );
+        }
+
+        // 2. Controlled Runtime Approval Token Check
+        // Persistent .env values cannot independently authorize a production migration
+        const runtimeToken = opts.runtimeDbaConfirmation ||
+                             (process.argv.find(arg => arg.startsWith('--confirm-dba-approval='))?.split('=')[1]) ||
+                             process.env.DBA_CONFIRM_MIGRATION;
+
+        if (!runtimeToken || typeof runtimeToken !== 'string' || runtimeToken.trim() === '') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Persistent .env values cannot independently authorize a production migration. ` +
+                `Explicit runtime operator confirmation (DBA_CONFIRM_MIGRATION or --confirm-dba-approval) ` +
+                `binding migration name, operation, and cluster identity is strictly required.`
+            );
+        }
+
+        const expectedToken = `${MIGRATION_NAME}:${mode.toUpperCase()}:${clusterInfo.clusterId}`;
+        const parts = runtimeToken.trim().split(':');
+
+        if (parts.length !== 3) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Malformed runtime approval token. Expected format: "<migrationName>:<OPERATION>:<clusterId>". Received: "${runtimeToken}".`
+            );
+        }
+
+        const [tokenMigration, tokenOp, tokenCluster] = parts;
+
+        if (tokenMigration !== MIGRATION_NAME) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Mismatched migration approval. Expected approval for "${MIGRATION_NAME}", received approval for "${tokenMigration}".`
+            );
+        }
+
+        if (tokenOp.toUpperCase() !== mode.toUpperCase()) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Stale or mismatched operation approval. Expected operation "${mode.toUpperCase()}", received approval for "${tokenOp.toUpperCase()}".`
+            );
+        }
+
+        if (tokenCluster !== clusterInfo.clusterId) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Mismatched target cluster approval. Expected cluster "${clusterInfo.clusterId}", received approval for "${tokenCluster}".`
+            );
+        }
+
+        return {
+            approved: true,
+            approvalSource: 'RUNTIME_OPERATOR_TOKEN',
+            confirmedToken: expectedToken
+        };
+    }
+
+    // Non-production cluster using production database name: safely handled
+    if (clusterInfo.clusterType === 'NON_PROD_CLUSTER_WITH_PROD_DB_NAME') {
+        const devSimulateFlag = opts.allowNonProdSimulatedProd === true ||
+                                process.env.ALLOW_NON_PROD_SIMULATED_PROD === 'true' ||
+                                process.argv.includes('--allow-non-prod-simulated-prod');
+
+        if (!devSimulateFlag) {
+            throw new Error(
+                `[MIGRATION-004] SAFETY GUARD: Connected to non-production host [${clusterInfo.hosts.join(', ')}] with production database name "${clusterInfo.dbName}". ` +
+                `To execute on this local simulation target, explicitly set ALLOW_NON_PROD_SIMULATED_PROD=true or pass --allow-non-prod-simulated-prod.`
+            );
+        }
+
+        return {
+            approved: true,
+            approvalSource: 'LOCAL_DEV_SIMULATION_FLAG'
+        };
+    }
+
+    return {
+        approved: true,
+        approvalSource: 'LOCAL_TEST_ENVIRONMENT'
+    };
+}
+
+/**
  * Read-only phone duplicate detection on active contacts.
  *
- * Detects:
- * 1. Exact string duplicates across distinct contacts (blocking E11000 errors for index creation).
- * 2. Intra-contact duplicate numbers (same contact document containing duplicate entries; does NOT block MongoDB multikey index).
- * 3. Normalized phone variants (e.g. whitespace, formatting, or country-code variants that represent business duplicates but not exact string collisions).
- * 4. Active-intent contacts with missing or null isDeleted / isMerged lifecycle flags.
- *
  * @param {mongoose.Connection|mongoose.mongo.Db} targetDb
- * @returns {Promise<{
- *   totalActiveContacts: number,
- *   totalLifecycleFlagGaps: number,
- *   lifecycleFlagGaps: Array,
- *   exactDuplicateGroups: Array,
- *   crossContactDuplicates: Array,
- *   crossContactExactDuplicates: Array,
- *   intraContactDuplicates: Array,
- *   intraContactExactDuplicates: Array,
- *   normalizedPhoneDuplicates: Array,
- *   normalizedVariantsAcrossContacts: Array
- * }>}
+ * @returns {Promise<Object>}
  */
 export async function detectActivePhoneDuplicates(targetDb) {
     const db = targetDb.db || targetDb;
@@ -76,8 +320,6 @@ export async function detectActivePhoneDuplicates(targetDb) {
     });
 
     // 2. Detect lifecycle flag gaps: contacts where isDeleted or isMerged is missing or null
-    // MongoDB's partialFilterExpression { isDeleted: false, isMerged: false } strictly matches boolean false.
-    // Documents missing either field are excluded from the index and will not be protected against duplicates.
     const lifecycleGapsQuery = {
         $or: [
             { isDeleted: { $exists: false } },
@@ -131,17 +373,10 @@ export async function detectActivePhoneDuplicates(targetDb) {
     ];
 
     const exactDuplicateGroups = await collection.aggregate(exactPipeline).toArray();
-
-    // Cross-contact exact duplicates: distinct contact IDs sharing the exact same string
-    // These DIRECTLY cause MongoDB unique index build failure (E11000)
     const crossContactExactDuplicates = exactDuplicateGroups.filter(g => g.contactIds.length > 1);
-
-    // Intra-contact duplicates: same contact document containing the same phone number multiple times
-    // MongoDB multikey unique indexes permit identical array elements within the SAME document
     const intraContactExactDuplicates = exactDuplicateGroups.filter(g => g.contactIds.length === 1 && g.count > 1);
 
     // 4. Normalized Phone Business Duplicate Scan
-    // Scans active contacts for phone numbers that normalize to the same digits (e.g. "+91 9811122233" vs "9811122233")
     const activePhonesDocs = await collection.aggregate([
         {
             $match: {
@@ -201,8 +436,6 @@ export async function detectActivePhoneDuplicates(targetDb) {
             };
             normalizedPhoneDuplicates.push(group);
 
-            // If raw numbers differ, it's a normalized variant (e.g. country-code or whitespace difference)
-            // These will NOT cause E11000 during index build, but are business duplicates requiring manual review/merge
             if (data.rawNumbers.size > 1) {
                 normalizedVariantsAcrossContacts.push(group);
             }
@@ -214,10 +447,10 @@ export async function detectActivePhoneDuplicates(targetDb) {
         totalLifecycleFlagGaps,
         lifecycleFlagGaps: sampleLifecycleFlagGaps,
         exactDuplicateGroups,
-        duplicateGroups: exactDuplicateGroups, // Backwards compatibility alias
-        crossContactDuplicates: crossContactExactDuplicates, // Backwards compatibility alias
+        duplicateGroups: exactDuplicateGroups,
+        crossContactDuplicates: crossContactExactDuplicates,
         crossContactExactDuplicates,
-        intraContactDuplicates: intraContactExactDuplicates, // Backwards compatibility alias
+        intraContactDuplicates: intraContactExactDuplicates,
         intraContactExactDuplicates,
         normalizedPhoneDuplicates,
         normalizedVariantsAcrossContacts
@@ -230,6 +463,8 @@ export async function detectActivePhoneDuplicates(targetDb) {
  * @param {Object} opts
  * @param {'dry-run'|'execute'|'rollback'} [opts.mode='dry-run']
  * @param {mongoose.Connection} [opts.connection]
+ * @param {string} [opts.runtimeDbaConfirmation]
+ * @param {boolean} [opts.allowNonProdSimulatedProd]
  * @returns {Promise<Object>}
  */
 export async function runMigration(opts = {}) {
@@ -242,27 +477,22 @@ export async function runMigration(opts = {}) {
 
     const conn = opts.connection || mongoose.connection;
     const db = conn?.db || conn;
-    const dbName = db?.databaseName || conn?.name;
 
-    if (!dbName || typeof dbName !== 'string' || dbName.trim() === '') {
-        throw new Error('[MIGRATION-004] FATAL: Database identity cannot be established. Migration must FAIL CLOSED.');
+    // Resolve and validate connected cluster identity (fail closed on unknown cluster)
+    const clusterInfo = await resolveClusterIdentity(conn);
+    if (!clusterInfo.isValid) {
+        throw new Error(`[MIGRATION-004] FATAL: ${clusterInfo.error}`);
     }
+
+    // Verify explicit operator approval (binds migration name, operation, and target cluster)
+    const approval = verifyOperatorApproval(mode, clusterInfo, opts);
 
     const collection = db.collection('contacts');
 
     console.log(`[MIGRATION-004] Mode: ${mode.toUpperCase()}`);
-    console.log(`[MIGRATION-004] Target Database: ${dbName}`);
-
-    // Production safety check: BOTH execute and rollback require dual approval flags in production
-    if (dbName === 'bharatproperties1') {
-        const prodFlag = process.env.ALLOW_PRODUCTION_MIGRATION === 'true';
-        const dbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION === 'true';
-        if ((mode === 'execute' || mode === 'rollback') && (!prodFlag || !dbaFlag)) {
-            const msg = `[MIGRATION-004] FATAL: Production ${mode.toUpperCase()} blocked. Requires explicit ALLOW_PRODUCTION_MIGRATION=true AND DBA_APPROVED_INDEX_MIGRATION=true. Aborting.`;
-            console.error(msg);
-            throw new Error(msg);
-        }
-    }
+    console.log(`[MIGRATION-004] Target Database: ${clusterInfo.dbName}`);
+    console.log(`[MIGRATION-004] Target Cluster: ${clusterInfo.clusterId} (${clusterInfo.clusterType})`);
+    console.log(`[MIGRATION-004] Approval Source: ${approval.approvalSource}`);
 
     // Inspect existing indexes
     const existingIndexes = await collection.indexes();
@@ -285,7 +515,6 @@ export async function runMigration(opts = {}) {
             throw new Error(`[MIGRATION-004] Rollback verification failed: Index ${TARGET_INDEX_NAME} still exists after dropIndex.`);
         }
 
-        // Verify existing legacy index is preserved
         const legacyIndexPreserved = postRollbackIndexes.some(i => i.name === 'phones.number_1');
         if (existingIndexNames.includes('phones.number_1') && !legacyIndexPreserved) {
             throw new Error(`[MIGRATION-004] Rollback verification failed: Legacy index phones.number_1 was unexpectedly dropped.`);
@@ -294,7 +523,8 @@ export async function runMigration(opts = {}) {
         return {
             status: 'ROLLED_BACK',
             indexDropped: indexExists,
-            currentIndexes: postRollbackIndexes.map(i => i.name)
+            currentIndexes: postRollbackIndexes.map(i => i.name),
+            clusterInfo: { clusterId: clusterInfo.clusterId, clusterType: clusterInfo.clusterType }
         };
     }
 
@@ -348,7 +578,8 @@ export async function runMigration(opts = {}) {
             targetIndex: {
                 spec: TARGET_INDEX_SPEC,
                 options: TARGET_INDEX_OPTIONS
-            }
+            },
+            clusterInfo: { clusterId: clusterInfo.clusterId, clusterType: clusterInfo.clusterType }
         };
     }
 
@@ -360,7 +591,7 @@ export async function runMigration(opts = {}) {
         }
 
         console.log(`[MIGRATION-004] Preflight passed with 0 cross-contact exact duplicates. Creating index ${TARGET_INDEX_NAME}...`);
-        
+
         try {
             await collection.createIndex(TARGET_INDEX_SPEC, TARGET_INDEX_OPTIONS);
         } catch (err) {
@@ -375,25 +606,21 @@ export async function runMigration(opts = {}) {
             throw err;
         }
 
-        // Verify post-build index status and exact specifications
         const postBuildIndexes = await collection.indexes();
         const createdIndex = postBuildIndexes.find(i => i.name === TARGET_INDEX_NAME);
         if (!createdIndex) {
             throw new Error(`[MIGRATION-004] Post-build verification failed: Index ${TARGET_INDEX_NAME} was not found in collection.indexes().`);
         }
 
-        // Verify exact key specification
         const keyMatches = createdIndex.key && createdIndex.key['phones.number'] === 1 && Object.keys(createdIndex.key).length === 1;
         if (!keyMatches) {
             throw new Error(`[MIGRATION-004] Post-build verification failed: Index key does not match expected { 'phones.number': 1 }. Found: ${JSON.stringify(createdIndex.key)}`);
         }
 
-        // Verify unique constraint flag
         if (createdIndex.unique !== true) {
             throw new Error(`[MIGRATION-004] Post-build verification failed: Index is not unique. unique=${createdIndex.unique}`);
         }
 
-        // Verify partialFilterExpression
         const pfe = createdIndex.partialFilterExpression;
         if (!pfe || pfe.isDeleted !== false || pfe.isMerged !== false) {
             throw new Error(`[MIGRATION-004] Post-build verification failed: partialFilterExpression does not match expected { isDeleted: false, isMerged: false }. Found: ${JSON.stringify(pfe)}`);
@@ -403,7 +630,8 @@ export async function runMigration(opts = {}) {
         return {
             status: 'EXECUTED_AND_VERIFIED',
             createdIndex,
-            allIndexes: postBuildIndexes.map(i => i.name)
+            allIndexes: postBuildIndexes.map(i => i.name),
+            clusterInfo: { clusterId: clusterInfo.clusterId, clusterType: clusterInfo.clusterType }
         };
     }
 }
@@ -427,6 +655,7 @@ if (process.argv[1] && process.argv[1].endsWith('004-contact-phone-unique-index-
                 process.exit(1);
             }
 
+            console.log(`[MIGRATION-004] Connecting to target cluster: ${sanitizeMongoUri(uri)}`);
             await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
             await runMigration();
             await mongoose.disconnect();

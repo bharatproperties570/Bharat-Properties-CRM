@@ -5,7 +5,13 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import {
     detectActivePhoneDuplicates,
     normalizePhoneForDeduplication,
+    resolveClusterIdentity,
+    verifyOperatorApproval,
+    sanitizeMongoUri,
     runMigration,
+    MIGRATION_NAME,
+    PRODUCTION_CLUSTER_ID,
+    PRODUCTION_CLUSTER_FINGERPRINTS,
     TARGET_INDEX_NAME,
     TARGET_INDEX_SPEC,
     TARGET_INDEX_OPTIONS
@@ -233,13 +239,156 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.ok(currentIndexes.some(i => i.name === 'phones.number_1'), 'Legacy non-unique index must remain intact');
     });
 
-    it('7. Production Safety (Execute): Aborts if targeting production DB without both production flags', async () => {
-        const mockProdConn = {
-            name: 'bharatproperties1',
+    // ─────────────────────────────────────────────────────────────
+    // PRODUCTION IDENTITY & OPERATOR APPROVAL HARDENING TESTS
+    // ─────────────────────────────────────────────────────────────
+
+    const mockAtlasConn = {
+        name: 'bharatproperties1',
+        host: 'cluster0.7dehanz.mongodb.net',
+        db: {
+            databaseName: 'bharatproperties1',
+            collection: () => ({
+                indexes: async () => [{ name: '_id_' }, { name: 'phones.number_1' }],
+                countDocuments: async () => 0,
+                find: () => ({ limit: () => ({ toArray: async () => [] }) }),
+                aggregate: () => ({ toArray: async () => [] })
+            })
+        }
+    };
+
+    it('7. Production Safety: Rejects execution if baseline environment flags are missing', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const prevConfirm = process.env.DBA_CONFIRM_MIGRATION;
+
+        try {
+            delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            delete process.env.DBA_CONFIRM_MIGRATION;
+
+            await assert.rejects(async () => {
+                await runMigration({ mode: 'execute', connection: mockAtlasConn });
+            }, /FATAL: Production EXECUTE blocked. Requires explicit ALLOW_PRODUCTION_MIGRATION=true AND DBA_APPROVED_INDEX_MIGRATION=true/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            if (prevConfirm) process.env.DBA_CONFIRM_MIGRATION = prevConfirm;
+        }
+    });
+
+    it('8. Production Safety: Rejects execution when approval flags are present ONLY in .env (missing runtime token)', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const prevConfirm = process.env.DBA_CONFIRM_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+            delete process.env.DBA_CONFIRM_MIGRATION;
+
+            await assert.rejects(async () => {
+                await runMigration({ mode: 'execute', connection: mockAtlasConn });
+            }, /Persistent \.env values cannot independently authorize a production migration/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            if (prevConfirm) process.env.DBA_CONFIRM_MIGRATION = prevConfirm;
+        }
+    });
+
+    it('9. Production Safety: Rejects mismatched migration name in runtime approval token', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: '003-leads-scoring-migration:EXECUTE:production-atlas-7dehanz'
+                });
+            }, /Mismatched migration approval/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('10. Production Safety: Rejects mismatched or stale operation in runtime approval token', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            // Passing ROLLBACK token when executing EXECUTE
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: `${MIGRATION_NAME}:ROLLBACK:production-atlas-7dehanz`
+                });
+            }, /Stale or mismatched operation approval/);
+
+            // Passing EXECUTE token when executing ROLLBACK
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'rollback',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: `${MIGRATION_NAME}:EXECUTE:production-atlas-7dehanz`
+                });
+            }, /Stale or mismatched operation approval/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('11. Production Safety: Rejects mismatched target cluster in runtime approval token', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: `${MIGRATION_NAME}:EXECUTE:wrong-cluster-id`
+                });
+            }, /Mismatched target cluster approval/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('12. Production Safety: Production cluster with alternate database name CANNOT bypass protection', async () => {
+        const mockAtlasAlternateDbConn = {
+            name: 'alternate_dev_db',
+            host: 'cluster0.7dehanz.mongodb.net', // Atlas cluster host!
             db: {
-                databaseName: 'bharatproperties1',
+                databaseName: 'alternate_dev_db',
                 collection: () => ({
-                    indexes: async () => [{ name: '_id_' }]
+                    indexes: async () => [{ name: '_id_' }],
+                    countDocuments: async () => 0,
+                    find: () => ({ limit: () => ({ toArray: async () => [] }) }),
+                    aggregate: () => ({ toArray: async () => [] })
                 })
             }
         };
@@ -251,62 +400,124 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             delete process.env.ALLOW_PRODUCTION_MIGRATION;
             delete process.env.DBA_APPROVED_INDEX_MIGRATION;
 
+            // Must still fail closed as a production cluster regardless of database name
             await assert.rejects(async () => {
-                await runMigration({ mode: 'execute', connection: mockProdConn });
-            }, /FATAL: Production EXECUTE blocked/);
+                await runMigration({ mode: 'execute', connection: mockAtlasAlternateDbConn });
+            }, /Production EXECUTE blocked/);
         } finally {
             if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
             if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
         }
     });
 
-    it('8. Production Safety (Rollback): Aborts if targeting production DB without both production flags', async () => {
-        const mockProdConn = {
+    it('13. Production Safety: Non-production cluster with production database name is safely handled', async () => {
+        const mockLocalWithProdDbName = {
             name: 'bharatproperties1',
+            host: '127.0.0.1', // Local test host
             db: {
                 databaseName: 'bharatproperties1',
                 collection: () => ({
-                    indexes: async () => [{ name: '_id_' }, { name: TARGET_INDEX_NAME }]
+                    indexes: async () => [{ name: '_id_' }],
+                    countDocuments: async () => 0,
+                    find: () => ({ limit: () => ({ toArray: async () => [] }) }),
+                    aggregate: () => ({ toArray: async () => [] })
                 })
             }
         };
 
-        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
-        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        // Without allowNonProdSimulatedProd flag -> safety guard rejects to prevent accidental confusion
+        await assert.rejects(async () => {
+            await runMigration({ mode: 'execute', connection: mockLocalWithProdDbName });
+        }, /SAFETY GUARD: Connected to non-production host.*with production database name/);
+
+        // With explicit dev simulation flag -> safely allowed for local testing
+        const clusterIdentity = await resolveClusterIdentity(mockLocalWithProdDbName);
+        assert.equal(clusterIdentity.clusterType, 'NON_PROD_CLUSTER_WITH_PROD_DB_NAME');
+        assert.equal(clusterIdentity.isProductionCluster, false);
+
+        const approval = verifyOperatorApproval('execute', clusterIdentity, { allowNonProdSimulatedProd: true });
+        assert.equal(approval.approved, true);
+        assert.equal(approval.approvalSource, 'LOCAL_DEV_SIMULATION_FLAG');
+    });
+
+    it('14. Unknown Cluster Identity: Fails closed immediately on unverified host', async () => {
+        const mockUnknownConn = {
+            name: 'some_db',
+            host: '192.168.1.150', // Remote unverified IP
+            db: {
+                databaseName: 'some_db',
+                collection: () => ({ indexes: async () => [] })
+            }
+        };
+
+        await assert.rejects(async () => {
+            await runMigration({ mode: 'execute', connection: mockUnknownConn });
+        }, /Connected host\(s\).*do not match verified production allowlist or local test fingerprints\. Fail closed\./);
+    });
+
+    it('15. Credential Sanitization: Connection strings and passwords are never exposed in logs or errors', () => {
+        const rawUri = 'mongodb+srv://adminUser:SuperSecretPassword123@cluster0.7dehanz.mongodb.net/bharatproperties1';
+        const sanitized = sanitizeMongoUri(rawUri);
+
+        assert.ok(!sanitized.includes('SuperSecretPassword123'), 'Raw password must be stripped');
+        assert.ok(sanitized.includes('adminUser:***@'), 'Credentials must be masked');
+    });
+
+    it('16. Valid Operator Approval: Passes verification when exact token binding migration, op and cluster is supplied', () => {
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
 
         try {
-            delete process.env.ALLOW_PRODUCTION_MIGRATION;
-            delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
-            await assert.rejects(async () => {
-                await runMigration({ mode: 'rollback', connection: mockProdConn });
-            }, /FATAL: Production ROLLBACK blocked/);
+            const executeToken = `${MIGRATION_NAME}:EXECUTE:${PRODUCTION_CLUSTER_ID}`;
+            const approvalExecute = verifyOperatorApproval('execute', clusterInfo, {
+                runtimeDbaConfirmation: executeToken
+            });
+            assert.equal(approvalExecute.approved, true);
+            assert.equal(approvalExecute.confirmedToken, executeToken);
+
+            const rollbackToken = `${MIGRATION_NAME}:ROLLBACK:${PRODUCTION_CLUSTER_ID}`;
+            const approvalRollback = verifyOperatorApproval('rollback', clusterInfo, {
+                runtimeDbaConfirmation: rollbackToken
+            });
+            assert.equal(approvalRollback.approved, true);
+            assert.equal(approvalRollback.confirmedToken, rollbackToken);
         } finally {
-            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
-            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
         }
     });
 
-    it('9. Unknown Migration Mode: Rejects unknown mode with fatal error', async () => {
+    it('17. Unknown Migration Mode: Rejects unknown mode with fatal error', async () => {
         await assert.rejects(async () => {
             await runMigration({ mode: 'destroy-all', connection: conn.connection });
         }, /FATAL: Unknown migration mode/);
     });
 
-    it('10. Missing Database Identity: Fails closed when connection or dbName is missing', async () => {
+    it('18. Missing Database Identity: Fails closed when connection or dbName is missing', async () => {
         const invalidConn = { name: '', db: { databaseName: '' } };
         await assert.rejects(async () => {
             await runMigration({ mode: 'dry-run', connection: invalidConn });
-        }, /Database identity cannot be established/);
+        }, /Database or cluster host identity cannot be established/);
     });
 
-    it('11. Exact-String vs Normalized Phone Duplicates: Distinguishes byte collisions from business variants without mutating data', async () => {
+    it('19. Exact-String vs Normalized Phone Duplicates: Distinguishes byte collisions from business variants without mutating data', async () => {
         const collection = conn.connection.collection('contacts');
         await collection.deleteMany({});
 
-        // Contact A has "+91 9811122233"
-        // Contact B has "9811122233"
-        // Contact C has " 9811122233 "
         // Insert directly via MongoDB collection to simulate unnormalized legacy database records
         // bypassing Mongoose pre-save normalization
         await collection.insertOne({
@@ -345,7 +556,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.equal(recheckA.phones[0].number, '+91 9811122233', 'Raw phone string must not be normalized in database');
     });
 
-    it('12. Missing/Null Lifecycle Flags: Accurately reports active-intent contacts with missing flags', async () => {
+    it('20. Missing/Null Lifecycle Flags: Accurately reports active-intent contacts with missing flags', async () => {
         const collection = conn.connection.collection('contacts');
         await collection.deleteMany({});
 
@@ -362,7 +573,6 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             name: 'Legacy Contact Missing isDeleted',
             phones: [{ number: '9811100002' }],
             isMerged: false
-            // isDeleted omitted
         });
 
         // Contact with isMerged: null
@@ -379,7 +589,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.equal(scan.lifecycleFlagGaps.length, 2);
     });
 
-    it('13. Intra-Contact vs Cross-Contact Duplicates: Intra-contact duplicate does not block index build', async () => {
+    it('21. Intra-Contact vs Cross-Contact Duplicates: Intra-contact duplicate does not block index build', async () => {
         const collection = conn.connection.collection('contacts');
         await collection.deleteMany({});
 
@@ -399,12 +609,11 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.equal(scan.intraContactExactDuplicates.length, 1, 'Must detect intra-contact duplicate');
         assert.equal(scan.intraContactExactDuplicates[0]._id, '9811188899');
 
-        // Dry run should still be feasible because MongoDB multikey allows duplicate values within single doc
         const dryRun = await runMigration({ mode: 'dry-run', connection: conn.connection });
         assert.equal(dryRun.buildFeasible, true, 'Intra-contact duplicate must not block index build');
     });
 
-    it('14. Concurrent Insert Collision: Cleanly aborts with E11000_CONCURRENT_INSERT if collision happens during createIndex', async () => {
+    it('22. Concurrent Insert Collision: Cleanly aborts with E11000_CONCURRENT_INSERT if collision happens during createIndex', async () => {
         const mockColl = {
             indexes: async () => [{ name: '_id_' }],
             countDocuments: async () => 1,
@@ -419,6 +628,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
         const mockConn = {
             name: 'test_db',
+            host: '127.0.0.1',
             db: {
                 databaseName: 'test_db',
                 collection: () => mockColl
@@ -434,15 +644,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         });
     });
 
-    it('15. Exact Index Specification Verification: Confirms key, unique, and partialFilterExpression', async () => {
+    it('23. Exact Index Specification Verification: Confirms key, unique, and partialFilterExpression', async () => {
         const collection = conn.connection.collection('contacts');
         await collection.deleteMany({});
 
-        // Clean contacts
         await Contact.create({ name: 'Verified A', phones: [{ number: '9811100091' }], isDeleted: false, isMerged: false });
         await Contact.create({ name: 'Verified B', phones: [{ number: '9811100092' }], isDeleted: false, isMerged: false });
 
-        // Ensure index is dropped first
         try {
             await collection.dropIndex(TARGET_INDEX_NAME);
         } catch (_) {}

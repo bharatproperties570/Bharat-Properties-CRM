@@ -92,7 +92,13 @@ async function test() {
     console.log("SCENARIO 5 PASS: Associates object array rewritten perfectly");
 
     console.log("Rolling back...");
-    await rollbackMerge(audit.mergeOperationId);
+    await rollbackMerge(audit.mergeOperationId, {
+        systemCaller: {
+            systemId: 'TEST_RECOVERY_RUNNER',
+            actorProvenance: 'test_reference_rewires.js',
+            reason: 'manual reference rewires test execution'
+        }
+    });
 
     // Verify Rollback
     const r1 = await Inventory.findById(inv1._id).lean();

@@ -376,15 +376,23 @@ export async function verifyMergeRollbackAuthorization(audit, user, session = nu
     }
 
     let roleName = String(user.role?.name || user.role || '').toLowerCase().trim();
+    let populatedUser = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+
     if (mongoose.Types.ObjectId.isValid(roleName) && !['admin', 'super admin', 'manager'].includes(roleName)) {
         try {
             const Role = mongoose.model('Role');
             const roleDoc = await Role.findById(user.role).lean();
             if (roleDoc) {
                 roleName = String(roleDoc.name || '').toLowerCase().trim();
+                populatedUser.role = roleDoc;
             }
         } catch (_) {}
     }
+
+    if (!populatedUser.role || typeof populatedUser.role !== 'object' || !populatedUser.role.name) {
+        populatedUser.role = { name: roleName };
+    }
+
     const userEmail = String(user.email || '').toLowerCase().trim();
     const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
     const isAdmin = isSystemOwner || roleName === 'admin' || roleName === 'super admin' || user.dataScope === 'all';
@@ -402,7 +410,7 @@ export async function verifyMergeRollbackAuthorization(audit, user, session = nu
     }
 
     const { getVisibilityFilter } = await import('../utils/visibility.js');
-    const visibilityFilter = await getVisibilityFilter(user);
+    const visibilityFilter = await getVisibilityFilter(populatedUser);
 
     const masterQuery = Contact.findOne({ _id: audit.masterContactId, ...visibilityFilter });
     const duplicateQuery = Contact.findOne({ _id: audit.duplicateContactId, ...visibilityFilter }, null, { includeDeleted: true });
@@ -426,6 +434,12 @@ export async function verifyMergeRollbackAuthorization(audit, user, session = nu
     return { masterContact, duplicateContact };
 }
 
+export const TRUSTED_SYSTEM_CALLER_IDENTITIES = Object.freeze([
+    'CRM_SYSTEM_RECOVERY_RUNNER',
+    'AUTOMATED_DEDUPLICATION_ROLLBACK_SERVICE',
+    'TEST_RECOVERY_RUNNER'
+]);
+
 export const rollbackMerge = async (mergeOperationId, options = {}) => {
     return await withMongoTransaction(async (session) => {
         const audit = await MergeAudit.findOne({ mergeOperationId }).session(session);
@@ -440,9 +454,29 @@ export const rollbackMerge = async (mergeOperationId, options = {}) => {
             throw err;
         }
 
-        // Atomic In-Session Verification using canonical policy (prevents TOCTOU authorization gaps)
+        // Atomic In-Session Caller Authorization & Identity Verification
         if (options.user) {
             await verifyMergeRollbackAuthorization(audit, options.user, session);
+            audit.rolledBackBy = options.user._id || options.user.id;
+            audit.rolledBackAt = new Date();
+        } else if (options.systemCaller) {
+            const { systemId, actorProvenance, reason } = options.systemCaller;
+            if (!systemId || !TRUSTED_SYSTEM_CALLER_IDENTITIES.includes(systemId) || !actorProvenance || !reason) {
+                const err = new Error('Forbidden: Invalid or unverified system caller identity for rollback');
+                err.statusCode = 403;
+                throw err;
+            }
+            audit.rolledBackBySystem = {
+                systemId,
+                actorProvenance,
+                reason,
+                timestamp: new Date()
+            };
+            audit.rolledBackAt = new Date();
+        } else {
+            const err = new Error('Forbidden: Missing caller authorization context. rollbackMerge requires an authorized user or verified trusted-system context.');
+            err.statusCode = 403;
+            throw err;
         }
         
         // 1. Un-consolidate Master fields FIRST (removes duplicate's phone numbers from Master before Duplicate is restored)
