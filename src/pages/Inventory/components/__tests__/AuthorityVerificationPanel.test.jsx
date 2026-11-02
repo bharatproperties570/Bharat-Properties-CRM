@@ -349,4 +349,114 @@ describe('AuthorityVerificationPanel Frontend Component', () => {
             expect(screen.getByText(/\[LIVE RECORD - REVIEW REQUIRED\]/i)).toBeInTheDocument();
         });
     });
+
+    it('displays server blocker list when live source is blocked', async () => {
+        authorityAPI.getSettingByCode = vi.fn().mockResolvedValue({
+            success: true,
+            data: {
+                authorityCode: 'HSVP',
+                isEnabled: false,
+                effectivelyActive: false,
+                permissionStatus: 'NOT_OBTAINED',
+                reviewStatus: 'NOT_REVIEWED',
+                activationCheck: {
+                    canActivate: false,
+                    blockers: [
+                        'Permission status is NOT_OBTAINED, must be GRANTED',
+                        'No approval reference/evidence provided'
+                    ]
+                }
+            }
+        });
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+        const liveModeBtn = screen.getByRole('button', { name: /Live Government Portal Mode/i });
+        fireEvent.click(liveModeBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Permission status is NOT_OBTAINED, must be GRANTED/i)).toBeInTheDocument();
+            expect(screen.getByText(/No approval reference\/evidence provided/i)).toBeInTheDocument();
+        });
+    });
+
+    it('disables live verify button and shows blocker when approval is expired', async () => {
+        authorityAPI.getSettingByCode = vi.fn().mockResolvedValue({
+            success: true,
+            data: {
+                authorityCode: 'HSVP',
+                isEnabled: true,
+                effectivelyActive: false,
+                permissionStatus: 'EXPIRED',
+                reviewStatus: 'EXPIRED',
+                activationCheck: {
+                    canActivate: false,
+                    blockers: ['Approval has expired']
+                }
+            }
+        });
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+        const liveModeBtn = screen.getByRole('button', { name: /Live Government Portal Mode/i });
+        fireEvent.click(liveModeBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Approval has expired/i)).toBeInTheDocument();
+            const liveVerifyBtn = screen.getByRole('button', { name: /Verify Record \(Live\)/i });
+            expect(liveVerifyBtn).toBeDisabled();
+        });
+    });
+
+    it('disables live verify button and shows blocker when rate policy is missing', async () => {
+        authorityAPI.getSettingByCode = vi.fn().mockResolvedValue({
+            success: true,
+            data: {
+                authorityCode: 'HSVP',
+                isEnabled: true,
+                effectivelyActive: false,
+                permissionStatus: 'GRANTED',
+                reviewStatus: 'APPROVED',
+                activationCheck: {
+                    canActivate: false,
+                    blockers: ['Incomplete rate policy: requires maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, and policySource']
+                }
+            }
+        });
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+        const liveModeBtn = screen.getByRole('button', { name: /Live Government Portal Mode/i });
+        fireEvent.click(liveModeBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Incomplete rate policy/i)).toBeInTheDocument();
+            const liveVerifyBtn = screen.getByRole('button', { name: /Verify Record \(Live\)/i });
+            expect(liveVerifyBtn).toBeDisabled();
+        });
+    });
+
+    it('disables live verify button and shows blocker when commercial scope is missing', async () => {
+        authorityAPI.getSettingByCode = vi.fn().mockResolvedValue({
+            success: true,
+            data: {
+                authorityCode: 'HSVP',
+                isEnabled: true,
+                effectivelyActive: false,
+                permissionStatus: 'GRANTED',
+                reviewStatus: 'APPROVED',
+                activationCheck: {
+                    canActivate: false,
+                    blockers: ['Internal commercial CRM use must be explicitly authorized']
+                }
+            }
+        });
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+        const liveModeBtn = screen.getByRole('button', { name: /Live Government Portal Mode/i });
+        fireEvent.click(liveModeBtn);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Internal commercial CRM use must be explicitly authorized/i)).toBeInTheDocument();
+            const liveVerifyBtn = screen.getByRole('button', { name: /Verify Record \(Live\)/i });
+            expect(liveVerifyBtn).toBeDisabled();
+        });
+    });
 });

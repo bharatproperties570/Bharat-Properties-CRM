@@ -7,7 +7,7 @@
  */
 
 import mongoose from 'mongoose';
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { checkActivationEligibility } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem, {
@@ -137,18 +137,30 @@ export const updateSourceSettings = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Settings not found' });
         }
 
-        // Server-side allowlist of updatable fields
+        // Server-side allowlist of updatable fields for generic PATCH
         const ALLOWED_SETTINGS_FIELDS = new Set([
-            'permissionStatus', 'policyVersion', 'approvedAccessMethod',
-            'permittedFields', 'approvalReference', 'approvalDate',
-            'approvalExpiryDate', 'reviewStatus', 'ratePolicy',
-            'isEnabled', 'isPaused', 'schedulingEnabled', 'scheduleCron', 'scheduleTimezone',
-            'identityRequirements', 'permissionArtifactUri', 'secureEvidenceId',
+            'policyVersion', 'isEnabled', 'isPaused', 'schedulingEnabled',
+            'scheduleCron', 'scheduleTimezone', 'userReportedEvidence'
+        ]);
+
+        const EVIDENCE_FIELDS = new Set([
+            'permissionArtifactUri', 'secureEvidenceId', 'approvalReference',
             'issuedBy', 'authorityRole', 'authorizationScope',
             'commercialUseAuthorized', 'readOnlySearchAuthorized',
-            'termsReviewed', 'termsReference', 'retentionPolicy',
-            'userReportedEvidence'
+            'termsReviewed', 'termsReference', 'ratePolicy',
+            'contractEvidenceReference', 'contractVerificationStatus',
+            'permissionStatus', 'reviewStatus', 'permittedFields', 'identityRequirements'
         ]);
+
+        // Reject attempts to update formal authorization evidence via generic PATCH (P0.2)
+        const attemptedEvidenceFields = Object.keys(req.body).filter(k => EVIDENCE_FIELDS.has(k));
+        if (attemptedEvidenceFields.length > 0) {
+            return res.status(422).json({
+                success: false,
+                code: 'SUBMIT_WORKFLOW_REQUIRED',
+                message: `Formal authorization evidence fields (${attemptedEvidenceFields.join(', ')}) cannot be altered via generic PATCH. Submit formal authorization evidence via /submit-approval.`
+            });
+        }
 
         const changes = {};
         const before = {};
@@ -165,29 +177,33 @@ export const updateSourceSettings = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No valid fields to update' });
         }
 
-        // Phase 3 & 4 Server-Side Activation Lock:
-        // Ordinary settings updates cannot self-grant written permission or approve authorizations.
-        // Live authority activation, approvals, and scheduling require complete verified evidence
-        // and independent maker-checker review via the approval lifecycle.
+        // P0.1 Source activation deadlock fix:
+        // Build candidate settings state to evaluate checkActivationEligibility independently of isEnabled
         const activationBlockers = [];
-        if (changes.isEnabled === true && !setting.isEffectivelyActive()) {
-            activationBlockers.push('isEnabled cannot be set to true: source fails activation requirements or written permission has not been granted');
+        const candidateState = { ...setting.toObject(), ...changes };
+        const candidateEligibility = checkActivationEligibility(candidateState);
+
+        if (changes.isEnabled === true) {
+            if (!candidateEligibility.canActivate) {
+                activationBlockers.push(...candidateEligibility.blockers.map(b => typeof b === 'string' ? b : (b.message || b.code)));
+            }
         }
-        if (changes.schedulingEnabled === true && !setting.isEffectivelyActive()) {
-            activationBlockers.push('schedulingEnabled cannot be set to true: source fails activation requirements or background authority scheduling is not authorized');
-        }
-        if (changes.reviewStatus === 'APPROVED') {
-            activationBlockers.push('reviewStatus cannot be set to APPROVED via ordinary settings update: requires independent maker-checker review via /review-approval');
-        }
-        if (changes.permissionStatus === 'GRANTED') {
-            activationBlockers.push('permissionStatus cannot be set to GRANTED via ordinary settings update: requires formal written authorization and MoU from authority');
+
+        if (changes.schedulingEnabled === true) {
+            const willBeEnabled = changes.isEnabled !== undefined ? changes.isEnabled : setting.isEnabled;
+            if (!willBeEnabled) {
+                activationBlockers.push('schedulingEnabled cannot be set to true while source is disabled (isEnabled must be true)');
+            }
+            if (!candidateEligibility.canActivate) {
+                activationBlockers.push(...candidateEligibility.blockers.map(b => typeof b === 'string' ? b : (b.message || b.code)));
+            }
         }
 
         if (activationBlockers.length > 0) {
             return res.status(422).json({
                 success: false,
                 code: 'ACTIVATION_LOCKED_PHASE3',
-                message: 'Source activation is locked: Live authority integrations and approvals require independent maker-checker review.',
+                message: 'Source activation is locked: Live authority integrations and approvals require complete verified evidence and independent review.',
                 blockers: activationBlockers
             });
         }
@@ -285,6 +301,8 @@ export const submitSourceApproval = async (req, res) => {
             readOnlySearchAuthorized,
             termsReviewed,
             termsReference,
+            contractVerificationStatus,
+            contractEvidenceReference,
             identityRequirements
         } = req.body;
 
@@ -302,6 +320,7 @@ export const submitSourceApproval = async (req, res) => {
         setting.submittedBy = req.user._id;
         setting.submittedAt = new Date();
         setting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+        setting.evidenceVersion = (setting.evidenceVersion || 0) + 1;
 
         if (approvalReference) setting.approvalReference = String(approvalReference).trim();
         if (permissionArtifactUri) setting.permissionArtifactUri = String(permissionArtifactUri).trim();
@@ -316,9 +335,14 @@ export const submitSourceApproval = async (req, res) => {
             setting.permittedFields = permittedFields.map(f => String(f).trim());
         }
 
+        // Safe conversion of ratePolicy (P1.13)
+        const existingRate = (setting.ratePolicy && typeof setting.ratePolicy.toObject === 'function')
+            ? setting.ratePolicy.toObject()
+            : (setting.ratePolicy ? { ...setting.ratePolicy } : {});
+
         if (ratePolicy && typeof ratePolicy === 'object') {
             setting.ratePolicy = {
-                ...setting.ratePolicy.toObject(),
+                ...existingRate,
                 maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
                 maxRequestsPerHour: Number(ratePolicy.maxRequestsPerHour) || null,
                 maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
@@ -333,10 +357,17 @@ export const submitSourceApproval = async (req, res) => {
         setting.readOnlySearchAuthorized = Boolean(readOnlySearchAuthorized);
         setting.termsReviewed = Boolean(termsReviewed);
         if (termsReference) setting.termsReference = String(termsReference).trim();
+        if (contractVerificationStatus) setting.contractVerificationStatus = contractVerificationStatus;
+        if (contractEvidenceReference) setting.contractEvidenceReference = String(contractEvidenceReference).trim();
+
+        // Safe conversion of identityRequirements (P1.13)
+        const existingIdentity = (setting.identityRequirements && typeof setting.identityRequirements.toObject === 'function')
+            ? setting.identityRequirements.toObject()
+            : (setting.identityRequirements ? { ...setting.identityRequirements } : {});
 
         if (identityRequirements && typeof identityRequirements === 'object') {
             setting.identityRequirements = {
-                ...setting.identityRequirements.toObject(),
+                ...existingIdentity,
                 ...identityRequirements
             };
         }
@@ -348,18 +379,19 @@ export const submitSourceApproval = async (req, res) => {
             req.user._id,
             'authority_settings',
             setting._id,
-            `Authority source authorization submitted for ${authorityCode}`,
+            `Authority source authorization submitted for ${authorityCode} (v${setting.evidenceVersion})`,
             {
                 authorityCode,
                 submittedBy: req.user._id,
                 approvalReference: setting.approvalReference,
-                approvalExpiryDate: setting.approvalExpiryDate
+                approvalExpiryDate: setting.approvalExpiryDate,
+                evidenceVersion: setting.evidenceVersion
             }
         );
 
         res.json({
             success: true,
-            message: `Authorization evidence submitted for ${authorityCode}. Awaiting independent maker-checker review.`,
+            message: `Authorization evidence submitted for ${authorityCode} (v${setting.evidenceVersion}). Awaiting independent maker-checker review.`,
             data: {
                 ...setting.toObject(),
                 activationCheck: setting.checkActivationEligibility(),
@@ -393,34 +425,76 @@ export const reviewSourceApproval = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Settings not found' });
         }
 
-        const { decision, notes } = req.body;
+        const { decision, notes, expectedEvidenceVersion, identityContractAttestation } = req.body;
         if (!['APPROVED', 'REJECTED'].includes(decision)) {
             return res.status(400).json({ success: false, message: 'Decision must be either APPROVED or REJECTED' });
         }
 
-        // Strict independent maker-checker separation:
-        // The actor who submitted the approval cannot approve it.
-        const reviewerId = String(req.user._id);
-        const submitterId = setting.submittedBy ? String(setting.submittedBy) : null;
-        if (submitterId && submitterId === reviewerId) {
-            return res.status(403).json({
+        // P0.2 Close maker-checker loophole guard: Require current state permissionStatus=PENDING_REVIEW and reviewStatus=UNDER_REVIEW
+        if (setting.permissionStatus !== 'PENDING_REVIEW' || setting.reviewStatus !== 'UNDER_REVIEW') {
+            return res.status(422).json({
                 success: false,
-                code: 'MAKER_CHECKER_VIOLATION',
-                message: 'Independent maker-checker review violation: submitter cannot self-approve source authorization.'
+                code: 'INVALID_APPROVAL_STATE',
+                message: `Source cannot be reviewed in current state: permissionStatus=${setting.permissionStatus}, reviewStatus=${setting.reviewStatus}. Must be PENDING_REVIEW and UNDER_REVIEW.`
             });
         }
 
-        if (decision === 'APPROVED') {
-            setting.permissionStatus = 'GRANTED';
-            setting.reviewStatus = 'APPROVED';
-            setting.approvedBy = req.user._id;
-            setting.approvedAt = new Date();
-            setting.reviewedBy = req.user._id;
-            setting.reviewedAt = new Date();
-            setting.identityRequirements.verified = true;
+        const reviewerId = String(req.user._id);
 
-            // Check eligibility before persisting approved state
-            const check = setting.checkActivationEligibility();
+        if (decision === 'APPROVED') {
+            // P0.2: For APPROVED, require submittedBy to exist and be a valid authenticated user ID
+            if (!setting.submittedBy) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'SUBMITTER_REQUIRED',
+                    message: 'Cannot approve authorization: evidence has no authenticated submitter.'
+                });
+            }
+
+            const submitterId = String(setting.submittedBy);
+            // Strict independent maker-checker separation: reviewer ID != submitter ID
+            if (submitterId === reviewerId) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'MAKER_CHECKER_VIOLATION',
+                    message: 'Independent maker-checker review violation: submitter cannot self-approve source authorization.'
+                });
+            }
+
+            // P0.2: Bind review to the exact evidence version submitted; reject changed/stale evidence
+            if (expectedEvidenceVersion !== undefined && Number(expectedEvidenceVersion) !== Number(setting.evidenceVersion)) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'STALE_EVIDENCE_VERSION',
+                    message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
+                });
+            }
+
+            // P1.12: Do NOT auto-assert identityRequirements.verified = true!
+            // Only verify if reviewer explicitly submits a separate evidence-backed identity contract attestation
+            let updateIdentityVerified = setting.identityRequirements?.verified || false;
+            if (identityContractAttestation && identityContractAttestation.verified === true && identityContractAttestation.evidenceReference) {
+                updateIdentityVerified = true;
+            }
+
+            // Candidate evaluation before atomic update
+            const existingIdReq = (setting.identityRequirements && typeof setting.identityRequirements.toObject === 'function')
+                ? setting.identityRequirements.toObject()
+                : (setting.identityRequirements ? { ...setting.identityRequirements } : {});
+
+            const candidate = {
+                ...setting.toObject(),
+                permissionStatus: 'GRANTED',
+                reviewStatus: 'APPROVED',
+                approvedBy: req.user._id,
+                reviewedBy: req.user._id,
+                identityRequirements: {
+                    ...existingIdReq,
+                    verified: updateIdentityVerified
+                }
+            };
+
+            const check = checkActivationEligibility(candidate);
             if (!check.canActivate) {
                 return res.status(422).json({
                     success: false,
@@ -429,40 +503,120 @@ export const reviewSourceApproval = async (req, res) => {
                     blockers: check.blockers
                 });
             }
+
+            // P0.2: Use atomic update/version guard to prevent concurrent reviewers or evidence replacement races
+            const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                {
+                    _id: setting._id,
+                    tenantId,
+                    permissionStatus: 'PENDING_REVIEW',
+                    reviewStatus: 'UNDER_REVIEW',
+                    evidenceVersion: setting.evidenceVersion
+                },
+                {
+                    $set: {
+                        permissionStatus: 'GRANTED',
+                        reviewStatus: 'APPROVED',
+                        approvedBy: req.user._id,
+                        approvedAt: new Date(),
+                        reviewedBy: req.user._id,
+                        reviewedAt: new Date(),
+                        'identityRequirements.verified': updateIdentityVerified
+                    }
+                },
+                { new: true }
+            );
+
+            if (!updatedSetting) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'CONCURRENT_REVIEW_CONFLICT',
+                    message: 'Source settings were modified by another transaction or already reviewed.'
+                });
+            }
+
+            await auditEvent(
+                'authority_source_approval_reviewed',
+                req.user._id,
+                'authority_settings',
+                updatedSetting._id,
+                `Authority source authorization APPROVED for ${authorityCode}`,
+                {
+                    authorityCode,
+                    decision: 'APPROVED',
+                    submittedBy: setting.submittedBy,
+                    approvedBy: req.user._id,
+                    evidenceVersion: setting.evidenceVersion,
+                    identityVerified: updateIdentityVerified,
+                    notes: notes || null
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: `Authority authorization APPROVED for ${authorityCode}.`,
+                data: {
+                    ...updatedSetting.toObject(),
+                    activationCheck: updatedSetting.checkActivationEligibility(),
+                    effectivelyActive: updatedSetting.isEffectivelyActive()
+                }
+            });
         } else {
-            setting.permissionStatus = 'NOT_OBTAINED';
-            setting.reviewStatus = 'REJECTED';
-            setting.reviewedBy = req.user._id;
-            setting.reviewedAt = new Date();
-            setting.isEnabled = false;
-            setting.schedulingEnabled = false;
+            // REJECTED: atomic update
+            const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                {
+                    _id: setting._id,
+                    tenantId,
+                    permissionStatus: 'PENDING_REVIEW',
+                    reviewStatus: 'UNDER_REVIEW',
+                    evidenceVersion: setting.evidenceVersion
+                },
+                {
+                    $set: {
+                        permissionStatus: 'NOT_OBTAINED',
+                        reviewStatus: 'REJECTED',
+                        reviewedBy: req.user._id,
+                        reviewedAt: new Date(),
+                        isEnabled: false,
+                        schedulingEnabled: false
+                    }
+                },
+                { new: true }
+            );
+
+            if (!updatedSetting) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'CONCURRENT_REVIEW_CONFLICT',
+                    message: 'Source settings were modified by another transaction or already reviewed.'
+                });
+            }
+
+            await auditEvent(
+                'authority_source_approval_reviewed',
+                req.user._id,
+                'authority_settings',
+                updatedSetting._id,
+                `Authority source authorization REJECTED for ${authorityCode}`,
+                {
+                    authorityCode,
+                    decision: 'REJECTED',
+                    reviewedBy: req.user._id,
+                    evidenceVersion: setting.evidenceVersion,
+                    notes: notes || null
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: `Authority authorization REJECTED for ${authorityCode}.`,
+                data: {
+                    ...updatedSetting.toObject(),
+                    activationCheck: updatedSetting.checkActivationEligibility(),
+                    effectivelyActive: updatedSetting.isEffectivelyActive()
+                }
+            });
         }
-
-        await setting.save();
-
-        await auditEvent(
-            'authority_source_approval_reviewed',
-            req.user._id,
-            'authority_settings',
-            setting._id,
-            `Authority source authorization ${decision} for ${authorityCode}`,
-            {
-                authorityCode,
-                decision,
-                reviewedBy: req.user._id,
-                notes: notes || null
-            }
-        );
-
-        res.json({
-            success: true,
-            message: `Authorization ${decision} for ${authorityCode}`,
-            data: {
-                ...setting.toObject(),
-                activationCheck: setting.checkActivationEligibility(),
-                effectivelyActive: setting.isEffectivelyActive()
-            }
-        });
     } catch (error) {
         console.error('reviewSourceApproval error:', error);
         res.status(500).json({ success: false, message: 'Failed to review source approval' });
@@ -1608,7 +1762,13 @@ export const applyApprovedChanges = async (req, res) => {
         }
 
         const activationCheck = sourceSettings.checkActivationEligibility ? sourceSettings.checkActivationEligibility() : { canActivate: true, blockers: [] };
-        const nonFieldBlockers = (activationCheck.blockers || []).filter(b => !b.includes('permitted fields'));
+        const nonFieldBlockers = (activationCheck.blockers || []).filter(b => {
+            const msg = typeof b === 'string' ? b : (b.message || b.code || '');
+            return !msg.includes('permitted fields') &&
+                !msg.includes('rate policy') &&
+                !msg.includes('contract') &&
+                !msg.includes('terms');
+        });
         if (nonFieldBlockers.length > 0) {
             return res.status(422).json({
                 success: false,

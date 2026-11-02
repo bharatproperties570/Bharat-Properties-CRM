@@ -130,6 +130,63 @@ jobs:
           cd backend
           npm run test:phase4-authority
 
+      - name: Run Phase 4.4.4 Authority Portal Subsystem Tests
+        run: |
+          cd backend
+          npm run test:authority-portal
+
+      - name: Run Phase 4.4.4 PR #42 Authority Acceptance Gates & Residual Blockers
+        run: |
+          cd backend
+          npm run test:authority-portal-acceptance
+
+  integration-authority-portal:
+    name: Authority Portal Production Integration (Redis + Mongo)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MONGOMS_DISABLE_POSTINSTALL: '1'
+      NODE_ENV: test
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci --legacy-peer-deps
+
+      - name: Cache MongoDB binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: ${{ runner.os }}-mongodb-binaries-8.2.6
+          restore-keys: |
+            ${{ runner.os }}-mongodb-binaries-
+
+      - name: Run Real Redis Integration Tests
+        run: |
+          cd backend
+          npm run test:authority-portal-acceptance
+
   build-frontend:
     name: Frontend Build Check
     runs-on: ubuntu-latest

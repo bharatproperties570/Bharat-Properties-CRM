@@ -9,22 +9,36 @@
 import mongoose from 'mongoose';
 import AuditLog from '../../../../models/AuditLog.js';
 
-const SENSITIVE_KEY_PATTERN = /(?:cookie|token|csrf|viewstate|eventvalidation|eventtarget|eventargument|viewstategenerator|auth|authorization|bearer|password|secret|allottee|aadhaar|\bpan\b|mobile|email|phone|address)/i;
+const SENSITIVE_KEY_PATTERN = /(?:cookie|token|csrf|viewstate|eventvalidation|eventtarget|eventargument|viewstategenerator|auth|authorization|bearer|password|secret|owner|father|applicant|allottee|aadhaar|\bpan\b|mobile|email|phone|residentialaddress|address|rawhtml|html|body|rawrecord|records)/i;
 
-function sanitizeAuditMetadata(obj) {
-    if (!obj || typeof obj !== 'object') return {};
-    const sanitized = {};
-    for (const [key, value] of Object.entries(obj)) {
-        if (SENSITIVE_KEY_PATTERN.test(key)) {
-            continue; // Exclude sensitive keys entirely
-        }
-        if (value && typeof value === 'object' && !(value instanceof Date)) {
-            sanitized[key] = sanitizeAuditMetadata(value);
-        } else {
-            sanitized[key] = value;
-        }
+export function sanitizeAuditMetadata(val) {
+    if (val === null || val === undefined) return val;
+    if (val instanceof Date) return val;
+
+    if (Array.isArray(val)) {
+        return val
+            .map(item => sanitizeAuditMetadata(item))
+            .filter(item => item !== undefined);
     }
-    return sanitized;
+
+    if (typeof val === 'object') {
+        const sanitized = {};
+        for (const [key, value] of Object.entries(val)) {
+            if (SENSITIVE_KEY_PATTERN.test(key)) {
+                continue; // Redact sensitive keys entirely
+            }
+            if (typeof value === 'string' && (value.length > 5000 || /<(!doctype|html|head|body|form)/i.test(value))) {
+                continue; // Strip raw HTML or oversized dumps
+            }
+            const cleanVal = sanitizeAuditMetadata(value);
+            if (cleanVal !== undefined) {
+                sanitized[key] = cleanVal;
+            }
+        }
+        return sanitized;
+    }
+
+    return val;
 }
 
 export class PortalAuditSink {

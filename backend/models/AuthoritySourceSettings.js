@@ -111,6 +111,23 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         type: String,
         default: null  // Document reference or URL of reviewed terms
     },
+    contractVerificationStatus: {
+        type: String,
+        enum: ['NOT_VERIFIED', 'VERIFIED_CONTRACT', 'LIVE_VERIFIED'],
+        default: 'NOT_VERIFIED'
+    },
+    contractEvidenceReference: {
+        type: String,
+        default: null
+    },
+    evidenceVersion: {
+        type: Number,
+        default: 1
+    },
+    evidenceHash: {
+        type: String,
+        default: null
+    },
     retentionPolicy: {
         maxCacheHours: { type: Number, default: 24 },
         purgePersonalDataImmediately: { type: Boolean, default: true }
@@ -287,11 +304,18 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
         blockers.push(`Review status is ${this.reviewStatus}, must be APPROVED`);
     }
     const rate = this.ratePolicy || {};
-    if (!rate.maxRequestsPerDay && !rate.maxRequestsPerHour && !rate.maxRequestsPerMinute) {
-        blockers.push('No rate policy configured — cannot guess limits');
+    const hasPolicyRef = Boolean(rate.policySource || rate.policyReference);
+    if (!rate.maxRequestsPerMinute || !rate.maxRequestsPerDay || (!rate.minimumIntervalMs && !rate.minIntervalMs) || !hasPolicyRef) {
+        blockers.push('Incomplete rate policy: requires maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, and policySource');
     }
     if (!this.identityRequirements?.verified) {
         blockers.push('Source identity requirements are not verified with real data');
+    }
+    if (this.contractVerificationStatus !== 'VERIFIED_CONTRACT' && this.contractVerificationStatus !== 'LIVE_VERIFIED') {
+        blockers.push(`Source contract is not verified (status: ${this.contractVerificationStatus || 'NOT_VERIFIED'})`);
+    }
+    if (!this.contractEvidenceReference || !this.contractEvidenceReference.trim()) {
+        blockers.push('No source contract evidence reference provided');
     }
     if (!this.permittedFields || this.permittedFields.length === 0) {
         blockers.push('No permitted fields configured');
@@ -395,9 +419,19 @@ export function checkActivationEligibility(doc = {}) {
     if (!doc.termsReviewed) {
         blockers.push({ code: 'TERMS_NOT_REVIEWED', message: 'Terms not reviewed' });
     }
+    if (doc.identityRequirements && doc.identityRequirements.verified === false) {
+        blockers.push({ code: 'IDENTITY_NOT_VERIFIED', message: 'Source identity requirements are not verified with real data' });
+    }
     const rate = doc.ratePolicy || {};
-    if (!rate.maxRequestsPerDay && !rate.maxRequestsPerHour && !rate.maxRequestsPerMinute) {
-        blockers.push({ code: 'RATE_POLICY_MISSING', message: 'Rate policy missing' });
+    const hasPolicyRef = Boolean(rate.policySource || rate.policyReference);
+    if (!rate.maxRequestsPerMinute || !rate.maxRequestsPerDay || (!rate.minimumIntervalMs && !rate.minIntervalMs) || !hasPolicyRef) {
+        blockers.push({ code: 'RATE_POLICY_INCOMPLETE', message: 'Incomplete rate policy: requires maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, and policySource' });
+    }
+    if (doc.contractVerificationStatus && doc.contractVerificationStatus !== 'VERIFIED_CONTRACT' && doc.contractVerificationStatus !== 'LIVE_VERIFIED') {
+        blockers.push({ code: 'CONTRACT_NOT_VERIFIED', message: `Source contract is not verified (status: ${doc.contractVerificationStatus})` });
+    }
+    if (doc.contractVerificationStatus && (!doc.contractEvidenceReference || !String(doc.contractEvidenceReference).trim())) {
+        blockers.push({ code: 'CONTRACT_EVIDENCE_MISSING', message: 'No source contract evidence reference provided' });
     }
     return {
         eligible: blockers.length === 0,

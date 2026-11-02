@@ -54,9 +54,35 @@ export class RedisPortalDistributedLock {
                         });
                     }
 
+                    let fenceToken = Date.now();
                     return Object.freeze({
                         acquired: true,
                         token: lockToken,
+                        fenceToken,
+                        renew: async (additionalTtlMs = ttlMs) => {
+                            try {
+                                const renewScript = `
+                                    if redis.call("get", KEYS[1]) == ARGV[1] then
+                                        return redis.call("pexpire", KEYS[1], tonumber(ARGV[2]))
+                                    else
+                                        return 0
+                                    end
+                                `;
+                                if (typeof this.redisClient.eval === 'function') {
+                                    const res = await this.redisClient.eval(renewScript, 1, lockKey, lockToken, additionalTtlMs);
+                                    return Number(res) === 1;
+                                } else {
+                                    const current = await this.redisClient.get(lockKey);
+                                    if (current === lockToken) {
+                                        await this.redisClient.set(lockKey, lockToken, 'PX', additionalTtlMs);
+                                        return true;
+                                    }
+                                    return false;
+                                }
+                            } catch {
+                                return false;
+                            }
+                        },
                         release: async () => {
                             try {
                                 const script = `
@@ -117,6 +143,15 @@ export class RedisPortalDistributedLock {
         return Object.freeze({
             acquired: true,
             token: lockToken,
+            fenceToken: now,
+            renew: async (additionalTtlMs = ttlMs) => {
+                const current = this._localLocks.get(lockKey);
+                if (current && current.token === lockToken && current.expiresAt > Date.now()) {
+                    current.expiresAt = Date.now() + additionalTtlMs;
+                    return true;
+                }
+                return false;
+            },
             release: async () => {
                 const current = this._localLocks.get(lockKey);
                 if (current && current.token === lockToken) {

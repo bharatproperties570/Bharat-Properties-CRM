@@ -8,6 +8,7 @@
 
 import mongoose from 'mongoose';
 import AuthoritySourceSettings from '../../../../models/AuthoritySourceSettings.js';
+import AuthorityGlobalKillSwitch from '../../../../models/AuthorityGlobalKillSwitch.js';
 
 export class DurablePortalCircuitBreaker {
     constructor(options = {}) {
@@ -30,7 +31,7 @@ export class DurablePortalCircuitBreaker {
     async isPaused(authorityCode, tenantId = null) {
         const code = String(authorityCode || '').trim().toUpperCase();
 
-        // 1. Check global kill switch
+        // 1. Check local in-memory global kill switch
         if (this._globalKillSwitches.get(code)?.killed === true) {
             return true;
         }
@@ -44,9 +45,16 @@ export class DurablePortalCircuitBreaker {
             return true;
         }
 
-        // 3. Check durable database state
+        // 3. Check durable database state: both global kill switch and tenant pause
         if (mongoose.connection?.readyState === 1) {
             try {
+                // Check durable cross-instance global kill switch (P1.6)
+                if (AuthorityGlobalKillSwitch && typeof AuthorityGlobalKillSwitch.findOne === 'function') {
+                    const killed = await AuthorityGlobalKillSwitch.findOne({ authorityCode: code, isKilled: true });
+                    if (killed) return true;
+                }
+
+                // Check tenant-level source pause
                 if (tenantId) {
                     const settings = await AuthoritySourceSettings.findOne({ tenantId, authorityCode: code });
                     if (settings?.isPaused) return true;
@@ -56,7 +64,7 @@ export class DurablePortalCircuitBreaker {
                 }
             } catch (err) {
                 if (!this.allowInMemoryFallback) {
-                    // Fail closed on DB error in production
+                    // Fail closed on DB error in production: if unreadable, deny egress
                     return true;
                 }
             }
@@ -129,17 +137,44 @@ export class DurablePortalCircuitBreaker {
 
     /**
      * Explicit global authority kill switch (distinct from tenant-level pause).
+     * Persisted durably in shared database across instances (P1.6).
      * @param {string} authorityCode
      * @param {boolean} isKilled
      * @param {string} [reason]
      */
-    setGlobalKillSwitch(authorityCode, isKilled, reason = '') {
+    async setGlobalKillSwitch(authorityCode, isKilled, reason = '') {
         const code = String(authorityCode || '').trim().toUpperCase();
         this._globalKillSwitches.set(code, {
             killed: Boolean(isKilled),
             reason,
             updatedAt: new Date()
         });
+
+        if (mongoose.connection?.readyState === 1 && AuthorityGlobalKillSwitch && typeof AuthorityGlobalKillSwitch.findOneAndUpdate === 'function') {
+            try {
+                await AuthorityGlobalKillSwitch.findOneAndUpdate(
+                    { authorityCode: code },
+                    {
+                        $set: {
+                            isKilled: Boolean(isKilled),
+                            reason,
+                            killedAt: isKilled ? new Date() : null
+                        }
+                    },
+                    { upsert: true, new: true }
+                );
+            } catch (dbErr) {
+                if (!this.allowInMemoryFallback) {
+                    const err = new Error(`GLOBAL_KILL_SWITCH_PERSISTENCE_FAILED: Failed to record kill switch: ${dbErr.message}`);
+                    err.code = 'GLOBAL_KILL_SWITCH_PERSISTENCE_FAILED';
+                    throw err;
+                }
+            }
+        } else if (!this.allowInMemoryFallback) {
+            const err = new Error('GLOBAL_KILL_SWITCH_PERSISTENCE_FAILED: MongoDB disconnected; cannot record durable kill switch.');
+            err.code = 'GLOBAL_KILL_SWITCH_PERSISTENCE_FAILED';
+            throw err;
+        }
     }
 
     /**
@@ -147,8 +182,8 @@ export class DurablePortalCircuitBreaker {
      * @param {string} authorityCode
      * @param {string} [reason]
      */
-    tripGlobalKillSwitch(authorityCode, reason = '') {
-        return this.setGlobalKillSwitch(authorityCode, true, reason);
+    async tripGlobalKillSwitch(authorityCode, reason = '') {
+        return await this.setGlobalKillSwitch(authorityCode, true, reason);
     }
 
     /**

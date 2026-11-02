@@ -142,9 +142,34 @@ export const portalHttpTransport = Object.freeze({
                     signal: bootstrapController.signal
                 });
 
+                // P0.5 Fail-closed on bootstrap GET blocks
                 if (getResponse.status >= 300 && getResponse.status < 400) {
                     const err = new Error(`PORTAL_UNEXPECTED_REDIRECT: Initial GET redirected with status ${getResponse.status}`);
                     err.code = 'PORTAL_UNEXPECTED_REDIRECT';
+                    err.details = { pauseSource: true, status: getResponse.status };
+                    throw err;
+                }
+                if (getResponse.status === 403) {
+                    const err = new Error('PORTAL_ACCESS_DENIED: Initial session bootstrap returned 403 Forbidden.');
+                    err.code = 'PORTAL_ACCESS_DENIED';
+                    err.details = { pauseSource: true, status: 403 };
+                    throw err;
+                }
+                if (getResponse.status === 429) {
+                    const err = new Error('PORTAL_RATE_LIMITED: Initial session bootstrap returned 429 Too Many Requests.');
+                    err.code = 'PORTAL_RATE_LIMITED';
+                    err.details = { pauseSource: true, status: 429 };
+                    throw err;
+                }
+                if (getResponse.status >= 500) {
+                    const err = new Error(`PORTAL_UPSTREAM_ERROR: Initial session bootstrap returned HTTP ${getResponse.status}.`);
+                    err.code = 'PORTAL_UPSTREAM_ERROR';
+                    err.details = { pauseSource: true, status: getResponse.status };
+                    throw err;
+                }
+                if (getResponse.status < 200 || getResponse.status >= 300) {
+                    const err = new Error(`PORTAL_BOOTSTRAP_FAILED: Initial session bootstrap returned non-2xx status ${getResponse.status}.`);
+                    err.code = 'PORTAL_BOOTSTRAP_FAILED';
                     err.details = { pauseSource: true, status: getResponse.status };
                     throw err;
                 }
@@ -161,17 +186,68 @@ export const portalHttpTransport = Object.freeze({
                 }
 
                 const initialHtml = await readStreamWithByteCeiling(getResponse, MAX_BYTES, bootstrapController);
+                const lowerHtml = initialHtml.toLowerCase();
+
+                // Classify bootstrap HTML for blockers before any POST
+                if (lowerHtml.includes('g-recaptcha') || lowerHtml.includes('cf-turnstile') || lowerHtml.includes('hcaptcha') || lowerHtml.includes('captcha') || lowerHtml.includes('enter the characters')) {
+                    const err = new Error('PORTAL_CAPTCHA_REQUIRED: CAPTCHA challenge observed on bootstrap form.');
+                    err.code = 'PORTAL_CAPTCHA_REQUIRED';
+                    err.details = { pauseSource: true };
+                    throw err;
+                }
+                if (lowerHtml.includes('please log in') || lowerHtml.includes('login required') || lowerHtml.includes('member login') || lowerHtml.includes('citizen login')) {
+                    const err = new Error('PORTAL_LOGIN_WALL: Login wall encountered on bootstrap form.');
+                    err.code = 'PORTAL_LOGIN_WALL';
+                    err.details = { pauseSource: true };
+                    throw err;
+                }
+                if (lowerHtml.includes('access denied') || lowerHtml.includes('unusual traffic') || lowerHtml.includes('policy block') || lowerHtml.includes('request blocked')) {
+                    const err = new Error('PORTAL_ACCESS_DENIED: Access denied or security policy block encountered on bootstrap form.');
+                    err.code = 'PORTAL_ACCESS_DENIED';
+                    err.details = { pauseSource: true };
+                    throw err;
+                }
+
+                // Validate form action target is on allowed host
+                const formActionMatch = /<form[^>]+action=["']([^"']*)["']/i.exec(initialHtml);
+                if (formActionMatch && formActionMatch[1]) {
+                    const actionPath = formActionMatch[1].trim();
+                    if (actionPath.startsWith('http://') || actionPath.startsWith('https://')) {
+                        const parsedAction = new URL(actionPath);
+                        if (parsedAction.host.toLowerCase() !== expectedHost) {
+                            const err = new Error(`PORTAL_INVALID_FORM_ACTION: Form action host "${parsedAction.host}" does not match expected host "${expectedHost}".`);
+                            err.code = 'PORTAL_INVALID_FORM_ACTION';
+                            err.details = { pauseSource: true };
+                            throw err;
+                        }
+                    }
+                }
+
                 hiddenFields = extractHiddenFields(initialHtml);
+
+                // Require portal-specific anti-forgery / ViewState fields
+                if (code === 'HSVP') {
+                    if (!hiddenFields['__RequestVerificationToken'] && !hiddenFields['__CSRFTOKEN__']) {
+                        const err = new Error('PORTAL_MISSING_ANTIFORGERY: HSVP bootstrap form missing __RequestVerificationToken.');
+                        err.code = 'PORTAL_MISSING_ANTIFORGERY';
+                        err.details = { pauseSource: true };
+                        throw err;
+                    }
+                } else if (code === 'GMADA') {
+                    if (!hiddenFields['__VIEWSTATE'] || !hiddenFields['__EVENTVALIDATION']) {
+                        const err = new Error('PORTAL_MISSING_VIEWSTATE: GMADA bootstrap form missing __VIEWSTATE or __EVENTVALIDATION.');
+                        err.code = 'PORTAL_MISSING_VIEWSTATE';
+                        err.details = { pauseSource: true };
+                        throw err;
+                    }
+                }
             } catch (bootErr) {
                 if (bootErr.name === 'AbortError') {
                     const err = new Error(`PORTAL_REQUEST_TIMEOUT: Initial session bootstrap to ${expectedHost} timed out.`);
                     err.code = 'PORTAL_REQUEST_TIMEOUT';
                     throw err;
                 }
-                if (bootErr.code === 'PORTAL_UNEXPECTED_REDIRECT' || bootErr.code === 'PORTAL_RESPONSE_TOO_LARGE') {
-                    throw bootErr;
-                }
-                // If initial GET fails gracefully (e.g. mock test environment), continue without breaking
+                throw bootErr;
             } finally {
                 clearTimeout(bootstrapTimeout);
             }

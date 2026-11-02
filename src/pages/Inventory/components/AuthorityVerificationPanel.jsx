@@ -430,8 +430,9 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                 </div>
             ) : (
                 (() => {
-                    const isLiveActive = Boolean(sourceSetting?.effectivelyActive || (sourceSetting?.isEnabled && sourceSetting?.reviewStatus === 'APPROVED' && sourceSetting?.permissionStatus === 'GRANTED'));
+                    const isLiveActive = Boolean(sourceSetting?.effectivelyActive === true);
                     if (!isLiveActive) {
+                        const blockers = sourceSetting?.activationCheck?.blockers || [];
                         return (
                             <div style={{
                                 background: 'rgba(239, 68, 68, 0.08)',
@@ -448,7 +449,13 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                                     <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
                                         <li>Permission Status: <code>{sourceSetting?.permissionStatus || 'NOT_OBTAINED'}</code></li>
                                         <li>Review Status: <code>{sourceSetting?.reviewStatus || 'NOT_REQUESTED'}</code></li>
-                                        <li>Requirement: Official written authority agreement and administrative review required before live requests can be executed.</li>
+                                        {blockers.length > 0 ? (
+                                            blockers.map((b, idx) => (
+                                                <li key={idx}>Blocker: <code>{typeof b === 'string' ? b : (b.message || b.code)}</code></li>
+                                            ))
+                                        ) : (
+                                            <li>Requirement: Official written authority agreement and administrative review required before live requests can be executed.</li>
+                                        )}
                                     </ul>
                                 </div>
                             </div>
@@ -641,7 +648,7 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
 
                     {(() => {
                         const isLive = verificationMode === 'live';
-                        const isLiveActive = Boolean(sourceSetting?.effectivelyActive || (sourceSetting?.isEnabled && sourceSetting?.reviewStatus === 'APPROVED' && sourceSetting?.permissionStatus === 'GRANTED'));
+                        const isLiveActive = Boolean(sourceSetting?.effectivelyActive === true);
                         const isDisabled = isRunningVerification || !isIdentityComplete || (isLive && !isLiveActive);
                         let title = isLive ? 'Verify Record (Live)' : 'Verify Record (Demo)';
                         if (!isIdentityComplete) {

@@ -45,6 +45,7 @@ import {
     defaultPortalAuditSink,
     matchAuthorityInventory
 } from './portal/index.js';
+import { createConfiguredPortalRuntime } from './portal/portalRuntimeFactory.js';
 
 // Mandatory operational audit logging helper (Phase 4.4 - Finding F-03)
 // Critical business/security audit records must NOT be silently swallowed.
@@ -2142,6 +2143,30 @@ export class AuthorityBulkProcessor {
         } else {
             // Live Government Portal Verification Execution (Phase 4.4.4 - Finding P0.1)
             const setting = await AuthoritySourceSettings.getForTenant(tenantId, item.authorityCode);
+            
+            // P0.4: Remove invented rate-policy fallbacks. Source-specific approved rate values must flow
+            // unchanged from reviewed evidence. Missing any required rate field or source reference => hard fail.
+            const rawRate = setting?.ratePolicy || {};
+            const minInterval = rawRate.minimumIntervalMs || rawRate.minIntervalMs || null;
+            const maxMinute = rawRate.maxRequestsPerMinute || null;
+            const maxDay = rawRate.maxRequestsPerDay || null;
+            const maxConcurrent = rawRate.maxConcurrent || null;
+            const policySource = rawRate.policySource || null;
+
+            if (!maxMinute || !maxDay || !minInterval || !maxConcurrent || !policySource) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    claimToken,
+                    'FAILED',
+                    {
+                        errorCode: 'RATE_POLICY_INCOMPLETE',
+                        errorMessage: 'Missing approved rate policy: maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, maxConcurrent, and policySource are all mandatory without fallbacks.'
+                    }
+                );
+                return { success: false, reason: 'RATE_POLICY_INCOMPLETE' };
+            }
+
             const approval = {
                 authorityCode: item.authorityCode,
                 status: setting.permissionStatus,
@@ -2151,36 +2176,21 @@ export class AuthorityBulkProcessor {
                 readOnlySearchAuthorized: setting.readOnlySearchAuthorized,
                 termsReviewed: setting.termsReviewed,
                 termsReference: setting.termsReference,
-                approvedBy: setting.approvedBy ? String(setting.approvedBy) : 'system',
-                reviewedBy: setting.reviewedBy ? String(setting.reviewedBy) : 'system',
+                approvedBy: setting.approvedBy ? String(setting.approvedBy) : null,
+                reviewedBy: setting.reviewedBy ? String(setting.reviewedBy) : null,
                 expiresAt: setting.approvalExpiryDate,
                 permittedFields: setting.permittedFields,
                 ratePolicy: {
-                    maxRequestsPerMinute: setting.ratePolicy?.maxRequestsPerMinute,
-                    maxRequestsPerDay: setting.ratePolicy?.maxRequestsPerDay,
-                    minimumIntervalMs: setting.ratePolicy?.cooldownSeconds ? setting.ratePolicy.cooldownSeconds * 1000 : (setting.ratePolicy?.minimumIntervalMs || setting.ratePolicy?.minIntervalMs || 15000),
-                    maxConcurrentRequests: setting.ratePolicy?.maxConcurrent || 1,
-                    policyReference: setting.ratePolicy?.policySource || 'TERMS'
+                    maxRequestsPerMinute: maxMinute,
+                    maxRequestsPerDay: maxDay,
+                    minimumIntervalMs: minInterval,
+                    maxConcurrentRequests: maxConcurrent,
+                    policyReference: policySource
                 }
             };
 
-            const portalRuntime = createAuthorityPortalRuntime({
-                lockProvider: defaultPortalDistributedLock,
-                quotaProvider: defaultPortalQuotaProvider,
-                circuitBreakerStore: defaultPortalCircuitBreaker,
-                transport: portalHttpTransport,
-                parserRegistry: PORTAL_PARSERS,
-                auditSink: defaultPortalAuditSink,
-                gateConfig: {
-                    enabled: true,
-                    readOnly: true,
-                    requireWrittenPermission: true,
-                    requireCommercialUsePermission: true,
-                    requireApprovedFieldScope: true,
-                    requireApprovedRatePolicy: true,
-                    maxConcurrentRequests: 1
-                }
-            });
+            // P0.3: Wire runtime via portal runtime factory or explicit injection
+            const portalRuntime = options.portalRuntime || createConfiguredPortalRuntime(options.portalOptions || {});
 
             let portalResult;
             try {

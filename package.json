@@ -11,6 +11,8 @@
     "test": "npm test --prefix backend",
     "test:authority": "npm run test:authority --prefix backend",
     "test:phase4-authority": "npm run test:phase4-authority --prefix backend",
+    "test:authority-portal": "npm run test:authority-portal --prefix backend",
+    "test:authority-portal-acceptance": "npm run test:authority-portal-acceptance --prefix backend",
     "test:frontend": "vitest run",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives || true",
     "preview": "vite preview"
