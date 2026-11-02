@@ -44,150 +44,208 @@ export const consumedApprovalNonces = new Set();
 
 /**
  * Durable Approval Ledger for preventing replay across process invocations.
- * Persists consumed approval IDs to disk in an append-only audit ledger file.
+ * Guarantees cross-process concurrency safety and atomic single-use consumption
+ * via POSIX exclusive lockfiles (O_CREAT | O_EXCL), strict permission verification (0600),
+ * durable write flush (fsync), and fail-closed validation on malformed or corrupted records.
  */
 export class DurableApprovalLedger {
-    constructor(ledgerPath) {
-        if (!ledgerPath) {
-            throw new Error('Durable approval ledger path must be specified.');
+    constructor(ledgerPath, options = {}) {
+        if (!ledgerPath || typeof ledgerPath !== 'string') {
+            throw new Error('[MIGRATION-004] FATAL: Durable approval ledger path must be specified.');
         }
-        this.ledgerPath = ledgerPath;
-        this.consumedIds = new Set();
-        this._loadLedger();
+        this.ledgerPath = path.resolve(ledgerPath);
+        this.lockPath = `${this.ledgerPath}.lock`;
+        this.lockTimeoutMs = options.lockTimeoutMs || 5000;
+        this.staleTimeoutMs = options.staleTimeoutMs || 15000;
+        this.retryIntervalMs = options.retryIntervalMs || 25;
+
+        // Ensure parent directory exists with secure mode
+        const dir = path.dirname(this.ledgerPath);
+        if (!fs.existsSync(dir)) {
+            try {
+                fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+            } catch (err) {
+                throw new Error(`[MIGRATION-004] FATAL: Failed to create durable ledger directory at ${dir}: ${err.message}. Fail closed.`);
+            }
+        }
+
+        // Verify existing file permissions and integrity
+        if (fs.existsSync(this.ledgerPath)) {
+            this._verifyFilePermissions(this.ledgerPath);
+            this._validateLedgerIntegrity();
+        }
     }
 
-    _loadLedger() {
+    _verifyFilePermissions(filePath) {
+        if (!fs.existsSync(filePath)) return;
         try {
-            if (fs.existsSync(this.ledgerPath)) {
-                const data = fs.readFileSync(this.ledgerPath, 'utf8');
-                const lines = data.split('\n');
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-                    try {
-                        const parsed = JSON.parse(trimmed);
-                        if (parsed.approvalId) {
-                            this.consumedIds.add(parsed.approvalId);
-                        }
-                    } catch (_) {
-                        // ignore malformed lines
-                    }
+            const stat = fs.statSync(filePath);
+            if (process.platform !== 'win32') {
+                const mode = stat.mode & 0o777;
+                // Strict check: group or others must have NO access (mode must not have 0o077 set)
+                if ((mode & 0o077) !== 0) {
+                    throw new Error(`Insecure permissions (mode: 0${mode.toString(8)}). Expected strict mode 0600 (owner read/write only).`);
                 }
             }
         } catch (err) {
-            throw new Error(`Failed to read durable approval ledger at ${this.ledgerPath}: ${err.message}`);
+            throw new Error(`[MIGRATION-004] FATAL: Ledger file permission security check failed: ${err.message}. Fail closed.`);
+        }
+    }
+
+    _acquireLock() {
+        const start = Date.now();
+        while (Date.now() - start < this.lockTimeoutMs) {
+            try {
+                const fd = fs.openSync(this.lockPath, 'wx', 0o600);
+                const lockData = JSON.stringify({ pid: process.pid, createdAt: Date.now() });
+                fs.writeSync(fd, lockData);
+                fs.closeSync(fd);
+                return;
+            } catch (err) {
+                if (err.code === 'EEXIST') {
+                    this._cleanStaleLockIfApplicable();
+                    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.retryIntervalMs);
+                } else {
+                    throw new Error(`[MIGRATION-004] FATAL: Failed to acquire ledger lock on ${this.lockPath}: ${err.message}. Fail closed.`);
+                }
+            }
+        }
+        throw new Error(`[MIGRATION-004] FATAL: Durable approval ledger lock timeout. Could not acquire exclusive lock on ${this.lockPath} within ${this.lockTimeoutMs}ms. Fail closed.`);
+    }
+
+    _cleanStaleLockIfApplicable() {
+        try {
+            if (!fs.existsSync(this.lockPath)) return;
+            const content = fs.readFileSync(this.lockPath, 'utf8');
+            let lockData;
+            try {
+                lockData = JSON.parse(content);
+            } catch (_) {
+                lockData = { pid: null, createdAt: 0 };
+            }
+            const isStale = (Date.now() - (lockData.createdAt || 0)) > this.staleTimeoutMs;
+            let isProcessDead = false;
+            if (lockData.pid) {
+                try {
+                    process.kill(lockData.pid, 0);
+                } catch (killErr) {
+                    if (killErr.code === 'ESRCH') {
+                        isProcessDead = true;
+                    }
+                }
+            }
+            if (isStale || isProcessDead) {
+                try {
+                    fs.unlinkSync(this.lockPath);
+                } catch (_) {}
+            }
+        } catch (_) {}
+    }
+
+    _releaseLock() {
+        try {
+            if (fs.existsSync(this.lockPath)) {
+                fs.unlinkSync(this.lockPath);
+            }
+        } catch (_) {}
+    }
+
+    _validateLedgerIntegrity() {
+        if (!fs.existsSync(this.ledgerPath)) return;
+        this._verifyFilePermissions(this.ledgerPath);
+        let content;
+        try {
+            content = fs.readFileSync(this.ledgerPath, 'utf8');
+        } catch (err) {
+            throw new Error(`[MIGRATION-004] FATAL: Failed to read durable approval ledger: ${err.message}. Fail closed.`);
+        }
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            try {
+                const record = JSON.parse(line);
+                if (!record.approvalId || typeof record.approvalId !== 'string' || record.approvalId.trim().length < 16) {
+                    throw new Error(`Missing or invalid approvalId property`);
+                }
+            } catch (err) {
+                throw new Error(`[MIGRATION-004] FATAL: Corrupted or malformed record in durable approval ledger at line ${i + 1}: ${err.message}. Fail closed to prevent replay bypass.`);
+            }
         }
     }
 
     isApprovalConsumed(approvalId) {
-        if (!approvalId) return false;
-        if (this.consumedIds.has(approvalId)) return true;
-        // Double-check file in case written by concurrent process
+        if (!approvalId || typeof approvalId !== 'string') return false;
+        this._acquireLock();
         try {
-            if (fs.existsSync(this.ledgerPath)) {
-                const data = fs.readFileSync(this.ledgerPath, 'utf8');
-                const lines = data.split('\n');
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-                    try {
-                        const parsed = JSON.parse(trimmed);
-                        if (parsed.approvalId) {
-                            this.consumedIds.add(parsed.approvalId);
-                            if (parsed.approvalId === approvalId) return true;
-                        }
-                    } catch (_) {}
+            this._validateLedgerIntegrity();
+            if (!fs.existsSync(this.ledgerPath)) return false;
+            const content = fs.readFileSync(this.ledgerPath, 'utf8');
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const record = JSON.parse(line);
+                if (record.approvalId === approvalId) {
+                    return true;
                 }
             }
-        } catch (_) {}
-        return this.consumedIds.has(approvalId);
+            return false;
+        } finally {
+            this._releaseLock();
+        }
     }
 
     recordConsumedApproval(approvalId, metadata = {}) {
-        if (!approvalId) {
-            throw new Error('Cannot record approval without approvalId.');
+        if (!approvalId || typeof approvalId !== 'string' || approvalId.trim().length < 16) {
+            throw new Error('[MIGRATION-004] FATAL: Cannot record approval without a valid approvalId.');
         }
-        if (this.isApprovalConsumed(approvalId)) {
-            throw new Error(`Replay detected. Approval ID ${approvalId} has already been consumed.`);
-        }
-        const record = {
-            approvalId,
-            consumedAt: Date.now(),
-            ...metadata
-        };
+
+        this._acquireLock();
         try {
-            const dir = path.dirname(this.ledgerPath);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
+            this._validateLedgerIntegrity();
+
+            // Check if already consumed under the same exclusive lock
+            if (fs.existsSync(this.ledgerPath)) {
+                const content = fs.readFileSync(this.ledgerPath, 'utf8');
+                const lines = content.split('\n');
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+                    const record = JSON.parse(line);
+                    if (record.approvalId === approvalId) {
+                        throw new Error(`[MIGRATION-004] FATAL: Replay detected. Runtime approval ID "${approvalId}" has already been consumed. Approval tokens are strictly single-use across process restarts.`);
+                    }
+                }
             }
-            fs.appendFileSync(this.ledgerPath, JSON.stringify(record) + '\n', { mode: 0o600 });
-            this.consumedIds.add(approvalId);
-        } catch (err) {
-            throw new Error(`Failed to write to durable approval ledger at ${this.ledgerPath}: ${err.message}. Fail closed.`);
+
+            const record = {
+                approvalId,
+                consumedAt: Date.now(),
+                pid: process.pid,
+                ...metadata
+            };
+
+            const recordLine = JSON.stringify(record) + '\n';
+            let fd;
+            try {
+                fd = fs.openSync(this.ledgerPath, 'a', 0o600);
+                fs.writeSync(fd, recordLine);
+                fs.fsyncSync(fd);
+            } catch (err) {
+                throw new Error(`[MIGRATION-004] FATAL: Failed writing to durable approval ledger at ${this.ledgerPath}: ${err.message}. Fail closed.`);
+            } finally {
+                if (fd !== undefined) {
+                    try { fs.closeSync(fd); } catch (_) {}
+                }
+            }
+
+            this._verifyFilePermissions(this.ledgerPath);
+            return record;
+        } finally {
+            this._releaseLock();
         }
     }
-}
-
-/**
- * Cryptographically signs an authentic DBA approval token.
- * Used by authorized DBA authority / KMS signing workflow.
- *
- * @param {Object} params
- * @param {string} [params.approvalId] - Unique approval UUID
- * @param {string} [params.migration] - Target migration name
- * @param {string} params.operation - 'EXECUTE' | 'ROLLBACK'
- * @param {string} [params.clusterId] - Target production cluster ID
- * @param {string} params.approver - Authorized approver email from AUTHORIZED_DBA_APPROVERS
- * @param {number} [params.issuedAt] - Issue timestamp (ms)
- * @param {number} [params.expiresAt] - Expiration timestamp (ms)
- * @param {string} secret - Signing secret
- * @returns {string} - "<base64UrlPayload>.<hmacSignatureHex>"
- */
-export function signDbaApprovalToken(params = {}, secret) {
-    if (!secret || typeof secret !== 'string') {
-        throw new Error('Signing secret is required to sign DBA approval token');
-    }
-    const fullPayload = {
-        approvalId: params.approvalId || crypto.randomUUID(),
-        migration: params.migration || MIGRATION_NAME,
-        operation: (params.operation || '').toUpperCase(),
-        clusterId: params.clusterId || PRODUCTION_CLUSTER_ID,
-        approver: params.approver,
-        issuedAt: params.issuedAt !== undefined ? params.issuedAt : Date.now(),
-        expiresAt: params.expiresAt !== undefined ? params.expiresAt : (Date.now() + MAX_APPROVAL_TOKEN_AGE_MS)
-    };
-
-    const payloadJson = JSON.stringify(fullPayload);
-    const encodedPayload = Buffer.from(payloadJson, 'utf8').toString('base64url');
-    const signature = crypto.createHmac('sha256', secret).update(encodedPayload).digest('hex');
-
-    return `${encodedPayload}.${signature}`;
-}
-
-/**
- * Generates an unauthenticated local token (timestamp + nonce).
- *
- * NOTE: As per strict security audit, locally generated timestamp/nonce strings
- * do NOT prove authorized DBA approval. This function is maintained solely for
- * negative regression test assertions to verify that unsigned/local tokens are
- * strictly rejected in production.
- *
- * @param {Object} [params]
- * @param {string} [params.migration]
- * @param {string} params.operation - 'EXECUTE' | 'ROLLBACK'
- * @param {string} [params.clusterId]
- * @param {number} [params.issuedAt]
- * @param {string} [params.nonce]
- * @returns {string}
- */
-export function createRuntimeDbaApprovalToken({
-    migration = MIGRATION_NAME,
-    operation = 'EXECUTE',
-    clusterId = PRODUCTION_CLUSTER_ID,
-    issuedAt = Date.now(),
-    nonce = crypto.randomBytes(16).toString('hex')
-} = {}) {
-    return `${migration}:${operation.toUpperCase()}:${clusterId}:${issuedAt}:${nonce}`;
 }
 
 /**
@@ -361,14 +419,15 @@ export async function resolveClusterIdentity(conn) {
 /**
  * Validates operator approval.
  * Persistent .env values must NOT independently count as explicit DBA approval.
- * Requires genuine cryptographic authorization from an authorized DBA operator,
+ * Requires genuine asymmetric cryptographic authorization from an authorized DBA operator,
+ * verified via public key against an external signing authority (KMS/Vault),
  * bound to migration name, operation, verified target cluster, approver identity,
- * 5-minute expiry, and durable replay protection across process restarts.
+ * purpose, audit reference, 5-minute expiry, and durable replay protection across process restarts.
  *
  * @param {string} mode - 'dry-run' | 'execute' | 'rollback'
  * @param {Object} clusterInfo - Result from resolveClusterIdentity
  * @param {Object} opts - Migration options
- * @returns {{ approved: boolean, approvalSource: string, approver?: string, approvalId?: string }}
+ * @returns {{ approved: boolean, approvalSource: string, approver?: string, approvalId?: string, purpose?: string, auditRef?: string }}
  */
 export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
     if (mode === 'dry-run') {
@@ -381,6 +440,14 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
 
     // Production Cluster Guard: applies whenever connected to production Atlas, regardless of dbName
     if (clusterInfo.isProductionCluster) {
+        // Zero Secret Exposure Guard: reject any attempt to pass private or shared secrets to the runner
+        if (opts.dbaApprovalSecret || process.argv.some(arg => arg.startsWith('--dba-approval-secret') || arg.startsWith('--dba-signing-key') || arg.startsWith('--signing-key'))) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Secret parameter detected. The migration runner accepts ONLY public verification keys; ` +
+                `shared or private signing secrets are strictly prohibited from CLI arguments and runtime options.`
+            );
+        }
+
         const prodFlag = process.env.ALLOW_PRODUCTION_MIGRATION === 'true';
         const dbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION === 'true';
 
@@ -414,45 +481,20 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
             throw new Error(
                 `[MIGRATION-004] FATAL: Unauthenticated approval token rejected. ` +
                 `Locally generated timestamp/nonce strings do not prove authorized DBA approval. ` +
-                `A cryptographically authenticated DBA approval envelope (<payload>.<signature>) is required.`
+                `A cryptographically signed asymmetric DBA approval envelope (<payload>.<signature>) is required.`
             );
         }
 
-        // Split cryptographic envelope
+        // Split cryptographic envelope: <encodedPayload>.<encodedSignature>
         const envelopeParts = trimmedToken.split('.');
         if (envelopeParts.length !== 2) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Malformed DBA approval envelope. Expected format: "<encodedPayload>.<hmacSignature>". ` +
+                `[MIGRATION-004] FATAL: Malformed DBA approval envelope. Expected asymmetric envelope format: "<encodedPayload>.<encodedSignature>". ` +
                 `Static, unauthenticated, or malformed approval strings are strictly rejected.`
             );
         }
 
-        const [encodedPayload, signatureHex] = envelopeParts;
-
-        // Verification key/secret check: Must NOT be stored in or read from .env
-        const verificationSecret = opts.dbaApprovalSecret ||
-                                   (process.argv.find(arg => arg.startsWith('--dba-approval-secret='))?.split('=')[1]);
-
-        if (!verificationSecret || typeof verificationSecret !== 'string' || verificationSecret.trim() === '') {
-            throw new Error(
-                `[MIGRATION-004] FATAL: Production approval verification failed. ` +
-                `DBA approval verification authority/secret is not configured. Fail closed.`
-            );
-        }
-
-        // Cryptographic signature validation
-        const expectedSignature = crypto.createHmac('sha256', verificationSecret.trim())
-                                        .update(encodedPayload)
-                                        .digest('hex');
-
-        const sigBuf = Buffer.from(signatureHex, 'utf8');
-        const expBuf = Buffer.from(expectedSignature, 'utf8');
-
-        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-            throw new Error(
-                `[MIGRATION-004] FATAL: Cryptographic verification failed. DBA approval signature is invalid or forged.`
-            );
-        }
+        const [encodedPayload, encodedSignature] = envelopeParts;
 
         // Decode payload
         let payload;
@@ -535,7 +577,70 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
             );
         }
 
-        // 7. Durable Replay Prevention across process restarts
+        // 7. Purpose and audit reference validation
+        if (!payload.purpose || typeof payload.purpose !== 'string' || payload.purpose.trim() === '') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: DBA approval rejected. Missing approval purpose binding.`
+            );
+        }
+
+        if (!payload.auditRef || typeof payload.auditRef !== 'string' || payload.auditRef.trim() === '') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: DBA approval rejected. Missing audit reference binding.`
+            );
+        }
+
+        // 8. Public Verification Key Resolution
+        let publicKey = opts.dbaPublicKey ||
+                        (opts.trustedPublicKeys && opts.trustedPublicKeys[payload.approver]);
+
+        if (!publicKey) {
+            const pubKeyFile = (process.argv.find(arg => arg.startsWith('--dba-public-key-file='))?.split('=')[1]);
+            const pubKeyArg = (process.argv.find(arg => arg.startsWith('--dba-public-key='))?.split('=')[1]);
+            if (pubKeyFile && fs.existsSync(pubKeyFile)) {
+                publicKey = fs.readFileSync(pubKeyFile, 'utf8');
+            } else if (pubKeyArg) {
+                publicKey = pubKeyArg;
+            }
+        }
+
+        if (!publicKey || typeof publicKey !== 'string' || publicKey.trim() === '') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Production approval verification failed. ` +
+                `No trusted public verification key configured or available for approver "${payload.approver}". ` +
+                `The migration runner holds no signing keys. An external authorized DBA signing authority (KMS/Vault) ` +
+                `must issue the approval and supply the trusted public verification key. Fail closed.`
+            );
+        }
+
+        // 9. Asymmetric Digital Signature Verification
+        const payloadBytes = Buffer.from(encodedPayload, 'utf8');
+        let signatureBytes;
+        try {
+            signatureBytes = Buffer.from(encodedSignature, 'base64url');
+            if (signatureBytes.length === 0) {
+                signatureBytes = Buffer.from(encodedSignature, 'hex');
+            }
+        } catch (_) {
+            signatureBytes = Buffer.from(encodedSignature, 'hex');
+        }
+
+        let isVerified = false;
+        try {
+            isVerified = crypto.verify(null, payloadBytes, publicKey.trim(), signatureBytes);
+        } catch (verifyErr) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Asymmetric digital signature verification error: ${verifyErr.message}. Fail closed.`
+            );
+        }
+
+        if (!isVerified) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Cryptographic verification failed. Asymmetric DBA approval signature is invalid, corrupted, or forged.`
+            );
+        }
+
+        // 10. Durable Replay Prevention with Concurrency Protection
         let ledger = opts.ledger;
         if (!ledger) {
             const ledgerPath = opts.approvalLedgerPath ||
@@ -548,30 +653,30 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
             }
         }
 
-        if (ledger.isApprovalConsumed(payload.approvalId) || consumedApprovalNonces.has(payload.approvalId)) {
-            throw new Error(
-                `[MIGRATION-004] FATAL: Replay detected. Runtime approval ID has already been consumed. Approval tokens are strictly single-use across process restarts.`
-            );
-        }
-
-        // Record consumption into durable ledger and in-memory set
+        // Atomic Check-and-Consume under exclusive ledger lock
         ledger.recordConsumedApproval(payload.approvalId, {
             approver: payload.approver,
             migration: payload.migration,
             operation: payload.operation,
-            clusterId: payload.clusterId
+            clusterId: payload.clusterId,
+            purpose: payload.purpose,
+            auditRef: payload.auditRef
         });
+
+        // Also track in-memory for session consistency
         consumedApprovalNonces.add(payload.approvalId);
 
         return {
             approved: true,
-            approvalSource: 'AUTHENTICATED_DBA_SIGNATURE',
+            approvalSource: 'ASYMMETRIC_DBA_SIGNATURE',
             approver: payload.approver,
             approvalId: payload.approvalId,
             confirmedOperation: mode.toUpperCase(),
             clusterId: clusterInfo.clusterId,
             issuedAt: payload.issuedAt,
-            expiresAt: payload.expiresAt
+            expiresAt: payload.expiresAt,
+            purpose: payload.purpose,
+            auditRef: payload.auditRef
         };
     }
 

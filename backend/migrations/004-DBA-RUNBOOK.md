@@ -15,45 +15,53 @@
 ## 1. Safety Guarantees & Operating Invariants
 
 1. **Trusted Cluster Identity Validation (Host-Level Fingerprinting):**
-   - The migration validates the physical MongoDB topology and host fingerprint.
+   - The migration validates physical MongoDB topology and replica set host fingerprints.
    - **Database name alone is NOT sufficient:** A connection to the production Atlas cluster under an alternate database name (e.g. `dev`, `staging`) cannot bypass production protection.
    - Any connection matching the Atlas production fingerprint (`*.mongodb.net`, `7dehanz`, `atlas-145yac-shard-0`) is permanently classified as a **PRODUCTION CLUSTER**.
 
-2. **Cryptographic DBA Operator Authorization & Durable Replay Prevention:**
-   - **Persistent `.env` values or shell profile environment variables strictly DO NOT authorize production index operations.**
-   - In addition to baseline flags (`ALLOW_PRODUCTION_MIGRATION=true` and `DBA_APPROVED_INDEX_MIGRATION=true`), execution (`--execute`) and rollback (`--rollback`) strictly require an authentic cryptographic approval token passed via CLI argument (`--confirm-dba-approval=...`) or programmatic options (`runtimeDbaConfirmation`), verified against an authorized signing authority key (`--dba-approval-secret=...`).
-   - **Locally generated timestamp/nonce strings without cryptographic signature are strictly REJECTED.**
-   - Authentic tokens are cryptographically bound to:
-     1. Exact migration name: `004-contact-phone-unique-index-migration`
-     2. Exact operation: `EXECUTE` or `ROLLBACK`
-     3. Exact target cluster: `production-atlas-7dehanz`
-     4. Authenticated approver identity: Must belong to `AUTHORIZED_DBA_APPROVERS` allowlist (`dba.lead@bharatproperties.in`, `chief.architect@bharatproperties.in`, `security.admin@bharatproperties.in`)
-     5. Expiration timestamp (maximum validity window of 5 minutes, `MAX_APPROVAL_TOKEN_AGE_MS = 300000`)
-     6. Unique approval UUID (`approvalId`) ensuring single-use replay prevention
-   - **Durable Anti-Replay Ledger Across Process Restarts:** Consumed approval IDs are durably committed to an append-only file ledger (`DurableApprovalLedger`). Replay attempts across process restarts or multiple invocations fail closed immediately.
-   - A stale, expired, replayed, or mismatched token causes an immediate fatal abort. Tokens or secrets stored in `.env` are completely ignored and rejected.
+2. **Asymmetric Digital Signature Verification (Separation of Issuance & Verification):**
+   - **Zero Shared Secrets:** Symmetric HMAC secrets and shared signing keys are strictly forbidden. The migration runner holds ONLY trusted public verification keys (Ed25519 SPKI PEM).
+   - **Zero Signing Capability in Migration Runner:** The migration script contains no signing routines or token minting tools (`signDbaApprovalToken` removed from migration runner).
+   - **External Signing Authority:** Private signing keys reside strictly inside protected hardware/KMS/HashiCorp Vault security boundaries accessible only to authorized DBAs.
+   - **Zero Secret Exposure:** Passing private keys or `--dba-approval-secret` is strictly prohibited and immediately aborted by the runner. No secrets or tokens are read from `.env` or persistent shell configuration.
 
-3. **Safe Handling of Non-Production Clusters with Production Database Name:**
+3. **Nine-Parameter Cryptographic Binding:**
+   The asymmetric approval envelope (`<encodedPayload>.<encodedSignature>`) binds 9 mandatory parameters:
+   1. `migration`: Exact identifier (`004-contact-phone-unique-index-migration`).
+   2. `operation`: Exact operation (`EXECUTE` or `ROLLBACK`).
+   3. `clusterId`: Exact target cluster (`production-atlas-7dehanz`).
+   4. `approver`: Authenticated identity from `AUTHORIZED_DBA_APPROVERS` (`dba.lead@bharatproperties.in`, `chief.architect@bharatproperties.in`, `security.admin@bharatproperties.in`).
+   5. `approvalId`: Cryptographically random UUID v4 / unique token nonce ($\ge 16$ chars).
+   6. `issuedAt`: Issuance timestamp.
+   7. `expiresAt`: Expiration timestamp ($\le 5$ minutes TTL).
+   8. `purpose`: Operational rationale (e.g. `PRODUCTION_UNIQUE_PHONE_INDEX_CREATION`).
+   9. `auditRef`: Change-management RFC/ticket reference (e.g. `RFC-2026-004-EXECUTE`).
+
+4. **Durable Anti-Replay Ledger with Cross-Process Concurrency Protection:**
+   - **Atomic POSIX Exclusive Locking:** Single-use consumption is enforced across concurrent worker processes using POSIX exclusive lockfiles (`O_CREAT | O_EXCL` via `wx` flag).
+   - **Atomic Check-and-Consume:** Replay checks and persistent write operations execute within a single atomic critical section, eliminating race conditions.
+   - **Strict Permission Masking:** Ledger and lock files enforce owner-only read/write (`0o600`), failing closed if group/other permissions (`0o077`) are detected.
+   - **Durable Disk Flush:** Every consumed approval record is committed to disk using synchronous `fs.fsyncSync(fd)`.
+   - **Crash Recovery & Stale Lock Breaking:** Lockfiles record process PID and creation timestamp; locks older than 15s or owned by deceased PIDs (`process.kill(pid, 0)` throwing `ESRCH`) are safely pruned.
+   - **Fail-Closed on Corruption:** Any malformed or corrupted record in the ledger file causes immediate fatal termination to prevent replay bypass.
+
+5. **Safe Handling of Non-Production Clusters with Production Database Name:**
    - When connected to a local test host (`127.0.0.1`, `localhost`, `::1`) with database name `bharatproperties1`, the migration classifies the target as `NON_PROD_CLUSTER_WITH_PROD_DB_NAME`.
-   - Execution is halted unless explicitly authorized for local simulation via `ALLOW_NON_PROD_SIMULATED_PROD=true` or `--allow-non-prod-simulated-prod`, preventing accidental confusion.
+   - Execution is halted unless explicitly authorized for local simulation via `ALLOW_NON_PROD_SIMULATED_PROD=true` or `--allow-non-prod-simulated-prod`.
 
-4. **Fail-Closed on Unknown / Unverified Clusters:**
-   - Any remote host not matching the verified production allowlist or local test fingerprints fails closed immediately with `isValid: false`.
-
-5. **Credential Masking in Logs & Errors:**
+6. **Credential Masking in Logs & Errors:**
    - All connection URIs, hosts, and error messages are sanitized with `sanitizeMongoUri()`.
-   - Passwords and connection secrets are NEVER logged.
+   - Credentials and tokens are NEVER printed in logs.
 
-6. **Zero Mutation on Preflight & Dry-Run:**
-   - Preflight analysis is strictly read-only.
-   - The migration NEVER alters, normalizes, truncates, or deletes stored phone numbers or contact records.
+7. **Zero Mutation on Preflight & Dry-Run:**
+   - Preflight duplicate scans are read-only.
+   - Stored contact phones are NEVER mutated, normalized, or deleted by this migration.
 
-7. **Legacy Index Protection:**
+8. **Legacy Index Protection:**
    - The existing non-unique index `phones.number_1` is preserved during execution and rollback to ensure zero query regressions.
 
-8. **Race-Condition & Controlled Abort Handling:**
-   - Preflight duplicate scans do not guarantee build success if concurrent writes insert duplicates during index creation.
-   - If a concurrent collision occurs, MongoDB raises `E11000`. The migration catches this error cleanly and logs a controlled abort (`E11000_CONCURRENT_INSERT`), leaving database state uncorrupted.
+9. **Concurrent Collision & Controlled Abort:**
+   - If a concurrent insert creates a duplicate during `collection.createIndex()`, MongoDB returns `E11000`. The migration catches this cleanly and logs a controlled abort (`E11000_CONCURRENT_INSERT`), leaving database state uncorrupted.
 
 ---
 
@@ -68,21 +76,19 @@ MongoDB unique indexes enforce **byte-for-byte exact string equality**.
 
 ### Intra-Contact Duplicates (Permitted by MongoDB)
 - Example: Single contact document has `phones: [{ number: "9811122233" }, { number: "9811122233" }]`.
-- Impact: MongoDB multikey unique indexes allow a document to refer to itself multiple times with the same value. This does **not** fail the index build.
-- Recommendation: Clean up duplicate phone entries within the same contact for data hygiene.
+- Impact: MongoDB multikey unique indexes allow a document to refer to itself multiple times with the same value without violating uniqueness.
 
 ### Normalized Business Duplicates (Non-Blocking)
 - Examples:
   - Whitespace: `" 9811122233 "` vs `"9811122233"`
   - Country code prefix: `"+919811122233"` vs `"9811122233"`
   - Trunk zero prefix: `"09811122233"` vs `"9811122233"`
-- Impact: MongoDB exact-string unique index does **NOT** block these. They will coexist in the database.
-- Reporting: The preflight scan detects and reports all normalized variants under `normalizedVariantsAcrossContacts` so DBAs and Operations can queue them for Contact Merge review. The script will never silently mutate or rewrite production phone strings.
+- Impact: MongoDB exact-string unique index does **NOT** block these. They coexist in the database.
+- Reporting: Reported in preflight scans for separate Contact Merge review. The script NEVER modifies data.
 
 ### Missing or Null Lifecycle Flags
-- MongoDB partial filter `{ isDeleted: false, isMerged: false }` requires fields to explicitly match boolean `false`.
-- Documents where `isDeleted` or `isMerged` is missing (`$exists: false`) or `null` are **excluded** from the partial index.
-- The preflight scan reports `totalLifecycleFlagGaps` so DBAs can verify if legacy records need lifecycle flag normalization.
+- Partial filter `{ isDeleted: false, isMerged: false }` requires fields to explicitly match boolean `false`.
+- Documents missing these flags are reported under `totalLifecycleFlagGaps` and excluded from the index.
 
 ---
 
@@ -99,12 +105,11 @@ NODE_ENV=production node backend/migrations/004-contact-phone-unique-index-migra
 **Examine Output:**
 - `buildFeasible`: Must be `true`.
 - `crossContactExactDuplicates`: Must be `0`.
-- Review `normalizedVariantsAcrossContacts` for business duplicate candidates.
-- Review `totalLifecycleFlagGaps` for unindexed legacy contacts.
+- Review `normalizedVariantsAcrossContacts` and `totalLifecycleFlagGaps`.
 
 ---
 
-### Step 2: Remediating Conflicts Prior to Index Build
+## Step 2: Remediating Conflicts Prior to Index Build
 If `crossContactExactDuplicates > 0`:
 1. Use the Contact Merge API to reconcile duplicates:
    ```http
@@ -124,30 +129,30 @@ If `crossContactExactDuplicates > 0`:
 
 ---
 
-### Step 3: Production Index Build Execution
-Once preflight is clean, an authorized DBA from `AUTHORIZED_DBA_APPROVERS` signs a single-use approval token (valid for 5 minutes) using the authorized DBA signing key (retrieved securely from KMS or secret vault):
+## Step 3: Production Index Build Execution
+Once preflight is clean, an authorized DBA requests a signed approval token from the external signing authority (KMS/Vault) using their personal credentials:
 
-```bash
-# Generate cryptographically signed single-use approval token
-OP_TOKEN=$(node -e '
-  import("./backend/migrations/004-contact-phone-unique-index-migration.js").then(m => {
-    const token = m.signDbaApprovalToken({
-      operation: "EXECUTE",
-      approver: "dba.lead@bharatproperties.in"
-    }, process.env.DBA_SIGNING_KEY);
-    console.log(token);
-  });
-')
+1. **Obtain Signed Approval Token from External Authority:**
+   ```bash
+   # External KMS/Vault CLI produces the asymmetric Ed25519 envelope:
+   # <base64url(payload)>.<base64url(signature)>
+   OP_TOKEN="<SIGNED_ENVELOPE_FROM_KMS>"
+   ```
 
-# Execute with explicit runtime token and verification key
-NODE_ENV=production \
-ALLOW_PRODUCTION_MIGRATION=true \
-DBA_APPROVED_INDEX_MIGRATION=true \
-node backend/migrations/004-contact-phone-unique-index-migration.js \
-  --execute \
-  --confirm-dba-approval="$OP_TOKEN" \
-  --dba-approval-secret="$DBA_SIGNING_KEY"
-```
+2. **Supply Trusted Public Verification Key:**
+   Store the DBA authority public key (Ed25519 SPKI PEM) in a protected location (e.g. `/etc/ssl/dba_keys/dba_lead.pub` with mode `0644`).
+
+3. **Execute Production Migration:**
+   ```bash
+   NODE_ENV=production \
+   ALLOW_PRODUCTION_MIGRATION=true \
+   DBA_APPROVED_INDEX_MIGRATION=true \
+   node backend/migrations/004-contact-phone-unique-index-migration.js \
+     --execute \
+     --confirm-dba-approval="$OP_TOKEN" \
+     --dba-public-key-file="/etc/ssl/dba_keys/dba_lead.pub" \
+     --approval-ledger-path="/var/log/bharat-crm/.dba_approval_ledger.jsonl"
+   ```
 
 **Automated Post-Build Verification Performed:**
 1. Confirms `contacts_phones_number_active_unique` exists in `collection.indexes()`.
@@ -158,32 +163,31 @@ node backend/migrations/004-contact-phone-unique-index-migration.js \
 
 ---
 
-### Step 4: Emergency Rollback Procedure
-If production issues arise or index requires removal, generate a cryptographically signed rollback token and execute:
+## Step 4: Emergency Rollback Procedure
+If production issues arise or index requires removal, request a cryptographically signed rollback token from the external authority and execute:
 
 ```bash
-# Generate cryptographically signed rollback token
-RB_TOKEN=$(node -e '
-  import("./backend/migrations/004-contact-phone-unique-index-migration.js").then(m => {
-    const token = m.signDbaApprovalToken({
-      operation: "ROLLBACK",
-      approver: "chief.architect@bharatproperties.in"
-    }, process.env.DBA_SIGNING_KEY);
-    console.log(token);
-  });
-')
-
 NODE_ENV=production \
 ALLOW_PRODUCTION_MIGRATION=true \
 DBA_APPROVED_INDEX_MIGRATION=true \
 node backend/migrations/004-contact-phone-unique-index-migration.js \
   --rollback \
   --confirm-dba-approval="$RB_TOKEN" \
-  --dba-approval-secret="$DBA_SIGNING_KEY"
+  --dba-public-key-file="/etc/ssl/dba_keys/chief_architect.pub" \
+  --approval-ledger-path="/var/log/bharat-crm/.dba_approval_ledger.jsonl"
 ```
 
 **Verification:**
 - Script drops `contacts_phones_number_active_unique`.
 - Script verifies `phones.number_1` is preserved.
-- Durable anti-replay ledger marks the rollback approval ID as consumed.
+- Durable anti-replay ledger records the rollback approval ID as consumed.
 - Output confirms `status: 'ROLLED_BACK'`.
+
+---
+
+## 4. Replay Ledger Retention & Backup Architecture
+- **Location:** Dedicated persistent volume `/var/log/bharat-crm/.dba_approval_ledger.jsonl`.
+- **Permissions:** Strictly `0o600` (owned by service runtime user).
+- **Retention:** Permanent append-only audit trail. Records are immutable and never deleted.
+- **Backup:** Backed up alongside application audit logs during standard backup intervals.
+- **Disaster Recovery:** In event of host migration, the ledger file must be synced to the standby host before migration execution to prevent token replay across host failovers.
