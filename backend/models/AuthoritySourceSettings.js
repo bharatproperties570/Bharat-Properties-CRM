@@ -96,6 +96,20 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         default: null
     },
 
+    // ========== User-Reported Evidence Metadata ==========
+    // Captures verbal / preliminary confirmation claims without treating them as formal approvals
+    userReportedEvidence: {
+        reportedBy: { type: String, default: null },
+        reportedAt: { type: Date, default: null },
+        claimedAuthorityRole: { type: String, default: null },
+        notes: { type: String, default: null },
+        verificationStatus: {
+            type: String,
+            enum: ['UNVERIFIED', 'PENDING_WRITTEN_REFERENCE', 'VALIDATED', 'REJECTED'],
+            default: 'UNVERIFIED'
+        }
+    },
+
     // ========== Rate & Concurrency Policy ==========
     // These are NOT guessed — they must come from the authority's terms
     ratePolicy: {
