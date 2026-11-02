@@ -1,4 +1,4 @@
-import { previewMerge, executeMerge, rollbackMerge } from '../services/contactMerge.service.js';
+import { previewMerge, executeMerge, rollbackMerge, verifyMergeRollbackAuthorization } from '../services/contactMerge.service.js';
 import mongoose from "mongoose";
 import OutboxEvent from "../models/OutboxEvent.js";
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
@@ -1897,46 +1897,10 @@ export const rollbackContactMerge = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Rollback not available for this merge operation' });
         }
 
-        // 2. Authorize caller: Admin, Manager, or original creator with visibility
-        const user = req.user;
-        if (!user) {
-            return res.status(401).json({ success: false, message: 'Not authenticated' });
-        }
+        // 2. Authorize caller and verify visibility using canonical policy
+        await verifyMergeRollbackAuthorization(audit, req.user);
 
-        const roleName = String(user.role?.name || user.role || '').toLowerCase().trim();
-        const userEmail = String(user.email || '').toLowerCase().trim();
-        const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
-        const isAdmin = isSystemOwner || roleName === 'admin' || roleName === 'super admin' || user.dataScope === 'all';
-        const isManager = roleName === 'manager';
-        const isCreator = Boolean(
-            audit.createdBy &&
-            (user._id || user.id) &&
-            audit.createdBy.toString() === (user._id || user.id).toString()
-        );
-
-        if (!isAdmin && !isManager && !isCreator) {
-            return res.status(403).json({
-                success: false,
-                message: 'Forbidden: Insufficient privileges to roll back contact merge'
-            });
-        }
-
-        // 3. Verify visibility for BOTH master and duplicate contacts using canonical visibility engine
-        const visibilityFilter = await getVisibilityFilter(user);
-
-        const [masterContact, duplicateContact] = await Promise.all([
-            Contact.findOne({ _id: audit.masterContactId, ...visibilityFilter }),
-            Contact.findOne({ _id: audit.duplicateContactId, ...visibilityFilter }, null, { includeDeleted: true })
-        ]);
-
-        if (!masterContact || !duplicateContact) {
-            return res.status(403).json({
-                success: false,
-                message: 'Forbidden: Caller does not have visibility access to the merged contacts'
-            });
-        }
-
-        // 4. Execute atomic rollback with verified user context
+        // 3. Execute atomic rollback with verified user context
         const rolledBackAudit = await rollbackMerge(mergeOperationId, { user: req.user });
         res.status(200).json({
             success: true,
@@ -1945,6 +1909,9 @@ export const rollbackContactMerge = async (req, res, next) => {
         });
     } catch (error) {
         console.error('[RollbackContactMerge] Error:', error);
+        if (error.statusCode === 401 || error.message?.includes('Not authenticated')) {
+            return res.status(401).json({ success: false, message: error.message });
+        }
         if (error.statusCode === 403 || error.message?.includes('Forbidden') || error.message?.includes('Insufficient privileges') || error.message?.includes('visibility access')) {
             return res.status(403).json({ success: false, message: error.message });
         }

@@ -356,6 +356,76 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
     });
 };
 
+/**
+ * Canonical Rollback Authorization & Visibility Policy
+ *
+ * Verifies that the caller has sufficient privileges and active visibility
+ * over both master and duplicate contacts for a given MergeAudit record.
+ *
+ * @param {Object} audit - The MergeAudit document
+ * @param {Object} user - The authenticated User object (req.user)
+ * @param {mongoose.ClientSession|null} [session=null] - Optional transaction session
+ * @returns {Promise<{ masterContact: Object, duplicateContact: Object }>}
+ * @throws {Error} with statusCode 401 (unauthenticated) or 403 (unauthorized/visibility denied)
+ */
+export async function verifyMergeRollbackAuthorization(audit, user, session = null) {
+    if (!user) {
+        const err = new Error('Not authenticated');
+        err.statusCode = 401;
+        throw err;
+    }
+
+    let roleName = String(user.role?.name || user.role || '').toLowerCase().trim();
+    if (mongoose.Types.ObjectId.isValid(roleName) && !['admin', 'super admin', 'manager'].includes(roleName)) {
+        try {
+            const Role = mongoose.model('Role');
+            const roleDoc = await Role.findById(user.role).lean();
+            if (roleDoc) {
+                roleName = String(roleDoc.name || '').toLowerCase().trim();
+            }
+        } catch (_) {}
+    }
+    const userEmail = String(user.email || '').toLowerCase().trim();
+    const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
+    const isAdmin = isSystemOwner || roleName === 'admin' || roleName === 'super admin' || user.dataScope === 'all';
+    const isManager = roleName === 'manager';
+    const isCreator = Boolean(
+        audit.createdBy &&
+        (user._id || user.id) &&
+        audit.createdBy.toString() === (user._id || user.id).toString()
+    );
+
+    if (!isAdmin && !isManager && !isCreator) {
+        const err = new Error('Forbidden: Insufficient privileges to roll back contact merge');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    const { getVisibilityFilter } = await import('../utils/visibility.js');
+    const visibilityFilter = await getVisibilityFilter(user);
+
+    const masterQuery = Contact.findOne({ _id: audit.masterContactId, ...visibilityFilter });
+    const duplicateQuery = Contact.findOne({ _id: audit.duplicateContactId, ...visibilityFilter }, null, { includeDeleted: true });
+
+    if (session) {
+        masterQuery.session(session);
+        duplicateQuery.session(session);
+    }
+
+    const [masterContact, duplicateContact] = await Promise.all([
+        masterQuery,
+        duplicateQuery
+    ]);
+
+    if (!masterContact || !duplicateContact) {
+        const err = new Error('Forbidden: Caller does not have visibility access to the merged contacts');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    return { masterContact, duplicateContact };
+}
+
 export const rollbackMerge = async (mergeOperationId, options = {}) => {
     return await withMongoTransaction(async (session) => {
         const audit = await MergeAudit.findOne({ mergeOperationId }).session(session);
@@ -370,39 +440,9 @@ export const rollbackMerge = async (mergeOperationId, options = {}) => {
             throw err;
         }
 
-        // Atomic In-Session Verification (prevents TOCTOU authorization gaps)
+        // Atomic In-Session Verification using canonical policy (prevents TOCTOU authorization gaps)
         if (options.user) {
-            const user = options.user;
-            const roleName = String(user.role?.name || user.role || '').toLowerCase().trim();
-            const userEmail = String(user.email || '').toLowerCase().trim();
-            const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
-            const isAdmin = isSystemOwner || roleName === 'admin' || roleName === 'super admin' || user.dataScope === 'all';
-            const isManager = roleName === 'manager';
-            const isCreator = Boolean(
-                audit.createdBy &&
-                (user._id || user.id) &&
-                audit.createdBy.toString() === (user._id || user.id).toString()
-            );
-
-            if (!isAdmin && !isManager && !isCreator) {
-                const err = new Error('Forbidden: Insufficient privileges to roll back contact merge');
-                err.statusCode = 403;
-                throw err;
-            }
-
-            const { getVisibilityFilter } = await import('../utils/visibility.js');
-            const visibilityFilter = await getVisibilityFilter(user);
-
-            const [masterContact, duplicateContact] = await Promise.all([
-                Contact.findOne({ _id: audit.masterContactId, ...visibilityFilter }).session(session),
-                Contact.findOne({ _id: audit.duplicateContactId, ...visibilityFilter }, null, { includeDeleted: true }).session(session)
-            ]);
-
-            if (!masterContact || !duplicateContact) {
-                const err = new Error('Forbidden: Caller does not have visibility access to the merged contacts');
-                err.statusCode = 403;
-                throw err;
-            }
+            await verifyMergeRollbackAuthorization(audit, options.user, session);
         }
         
         // 1. Un-consolidate Master fields FIRST (removes duplicate's phone numbers from Master before Duplicate is restored)

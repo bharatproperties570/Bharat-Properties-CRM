@@ -4,8 +4,11 @@ import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import {
     detectActivePhoneDuplicates,
+    normalizePhoneForDeduplication,
     runMigration,
-    TARGET_INDEX_NAME
+    TARGET_INDEX_NAME,
+    TARGET_INDEX_SPEC,
+    TARGET_INDEX_OPTIONS
 } from '../../migrations/004-contact-phone-unique-index-migration.js';
 import Lookup from '../../models/Lookup.js';
 import Contact from '../../models/Contact.js';
@@ -62,11 +65,11 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
         const scan = await detectActivePhoneDuplicates(conn.connection);
         assert.equal(scan.totalActiveContacts, 3);
-        assert.equal(scan.crossContactDuplicates.length, 1);
-        assert.equal(scan.crossContactDuplicates[0]._id, '9988776655');
-        assert.equal(scan.crossContactDuplicates[0].count, 2);
+        assert.equal(scan.crossContactExactDuplicates.length, 1);
+        assert.equal(scan.crossContactExactDuplicates[0]._id, '9988776655');
+        assert.equal(scan.crossContactExactDuplicates[0].count, 2);
 
-        const reportedIds = scan.crossContactDuplicates[0].contacts.map(c => c.contactId.toString());
+        const reportedIds = scan.crossContactExactDuplicates[0].contacts.map(c => c.contactId.toString());
         assert.ok(reportedIds.includes(c1._id.toString()));
         assert.ok(reportedIds.includes(c2._id.toString()));
     });
@@ -103,7 +106,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
         const scan = await detectActivePhoneDuplicates(conn.connection);
         assert.equal(scan.totalActiveContacts, 1);
-        assert.equal(scan.crossContactDuplicates.length, 0, 'Merged and deleted contacts must not be counted as duplicate groups');
+        assert.equal(scan.crossContactExactDuplicates.length, 0, 'Merged and deleted contacts must not be counted as duplicate groups');
     });
 
     it('3. Dry-Run Mode: Correctly predicts feasibility and never touches indexes', async () => {
@@ -230,7 +233,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.ok(currentIndexes.some(i => i.name === 'phones.number_1'), 'Legacy non-unique index must remain intact');
     });
 
-    it('7. Production Safety: Aborts if targeting production DB without both production flags', async () => {
+    it('7. Production Safety (Execute): Aborts if targeting production DB without both production flags', async () => {
         const mockProdConn = {
             name: 'bharatproperties1',
             db: {
@@ -250,10 +253,208 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             await assert.rejects(async () => {
                 await runMigration({ mode: 'execute', connection: mockProdConn });
-            }, /FATAL: Production index creation blocked/);
+            }, /FATAL: Production EXECUTE blocked/);
         } finally {
             if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
             if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
         }
+    });
+
+    it('8. Production Safety (Rollback): Aborts if targeting production DB without both production flags', async () => {
+        const mockProdConn = {
+            name: 'bharatproperties1',
+            db: {
+                databaseName: 'bharatproperties1',
+                collection: () => ({
+                    indexes: async () => [{ name: '_id_' }, { name: TARGET_INDEX_NAME }]
+                })
+            }
+        };
+
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+            await assert.rejects(async () => {
+                await runMigration({ mode: 'rollback', connection: mockProdConn });
+            }, /FATAL: Production ROLLBACK blocked/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+        }
+    });
+
+    it('9. Unknown Migration Mode: Rejects unknown mode with fatal error', async () => {
+        await assert.rejects(async () => {
+            await runMigration({ mode: 'destroy-all', connection: conn.connection });
+        }, /FATAL: Unknown migration mode/);
+    });
+
+    it('10. Missing Database Identity: Fails closed when connection or dbName is missing', async () => {
+        const invalidConn = { name: '', db: { databaseName: '' } };
+        await assert.rejects(async () => {
+            await runMigration({ mode: 'dry-run', connection: invalidConn });
+        }, /Database identity cannot be established/);
+    });
+
+    it('11. Exact-String vs Normalized Phone Duplicates: Distinguishes byte collisions from business variants without mutating data', async () => {
+        const collection = conn.connection.collection('contacts');
+        await collection.deleteMany({});
+
+        // Contact A has "+91 9811122233"
+        // Contact B has "9811122233"
+        // Contact C has " 9811122233 "
+        // Insert directly via MongoDB collection to simulate unnormalized legacy database records
+        // bypassing Mongoose pre-save normalization
+        await collection.insertOne({
+            name: 'Contact Format A',
+            phones: [{ number: '+91 9811122233' }],
+            isDeleted: false,
+            isMerged: false
+        });
+        await collection.insertOne({
+            name: 'Contact Format B',
+            phones: [{ number: '9811122233' }],
+            isDeleted: false,
+            isMerged: false
+        });
+        await collection.insertOne({
+            name: 'Contact Format C',
+            phones: [{ number: ' 9811122233 ' }],
+            isDeleted: false,
+            isMerged: false
+        });
+
+        const scan = await detectActivePhoneDuplicates(conn.connection);
+
+        // Exact string collisions: 0 (all raw strings are unique)
+        assert.equal(scan.crossContactExactDuplicates.length, 0, 'Exact strings differ, so 0 index collisions');
+
+        // Business normalized duplicates: 1 group containing 3 distinct contacts
+        assert.equal(scan.normalizedVariantsAcrossContacts.length, 1);
+        const variantGroup = scan.normalizedVariantsAcrossContacts[0];
+        assert.equal(variantGroup.normalizedNumber, '9811122233');
+        assert.equal(variantGroup.distinctContactsCount, 3);
+        assert.equal(variantGroup.rawNumbers.length, 3);
+
+        // Verify stored data was NOT altered
+        const recheckA = await Contact.findOne({ name: 'Contact Format A' });
+        assert.equal(recheckA.phones[0].number, '+91 9811122233', 'Raw phone string must not be normalized in database');
+    });
+
+    it('12. Missing/Null Lifecycle Flags: Accurately reports active-intent contacts with missing flags', async () => {
+        const collection = conn.connection.collection('contacts');
+        await collection.deleteMany({});
+
+        // Active contact with explicit flags
+        await Contact.create({
+            name: 'Properly Flagged Active',
+            phones: [{ number: '9811100001' }],
+            isDeleted: false,
+            isMerged: false
+        });
+
+        // Contact missing isDeleted
+        await collection.insertOne({
+            name: 'Legacy Contact Missing isDeleted',
+            phones: [{ number: '9811100002' }],
+            isMerged: false
+            // isDeleted omitted
+        });
+
+        // Contact with isMerged: null
+        await collection.insertOne({
+            name: 'Legacy Contact Null isMerged',
+            phones: [{ number: '9811100003' }],
+            isDeleted: false,
+            isMerged: null
+        });
+
+        const scan = await detectActivePhoneDuplicates(conn.connection);
+        assert.equal(scan.totalActiveContacts, 1, 'Only explicitly boolean false flags count as active in partial filter');
+        assert.equal(scan.totalLifecycleFlagGaps, 2, 'Must report 2 documents with missing/null lifecycle flags');
+        assert.equal(scan.lifecycleFlagGaps.length, 2);
+    });
+
+    it('13. Intra-Contact vs Cross-Contact Duplicates: Intra-contact duplicate does not block index build', async () => {
+        const collection = conn.connection.collection('contacts');
+        await collection.deleteMany({});
+
+        // Single contact containing the same phone twice in its phones array
+        await Contact.create({
+            name: 'Multi-Phone Contact',
+            phones: [
+                { number: '9811188899', type: 'Personal' },
+                { number: '9811188899', type: 'Work' }
+            ],
+            isDeleted: false,
+            isMerged: false
+        });
+
+        const scan = await detectActivePhoneDuplicates(conn.connection);
+        assert.equal(scan.crossContactExactDuplicates.length, 0, 'No cross-contact duplicate');
+        assert.equal(scan.intraContactExactDuplicates.length, 1, 'Must detect intra-contact duplicate');
+        assert.equal(scan.intraContactExactDuplicates[0]._id, '9811188899');
+
+        // Dry run should still be feasible because MongoDB multikey allows duplicate values within single doc
+        const dryRun = await runMigration({ mode: 'dry-run', connection: conn.connection });
+        assert.equal(dryRun.buildFeasible, true, 'Intra-contact duplicate must not block index build');
+    });
+
+    it('14. Concurrent Insert Collision: Cleanly aborts with E11000_CONCURRENT_INSERT if collision happens during createIndex', async () => {
+        const mockColl = {
+            indexes: async () => [{ name: '_id_' }],
+            countDocuments: async () => 1,
+            find: () => ({ limit: () => ({ toArray: async () => [] }) }),
+            aggregate: () => ({ toArray: async () => [] }),
+            createIndex: async () => {
+                const err = new Error('E11000 duplicate key error collection: bharatproperties1.contacts index: contacts_phones_number_active_unique dup key: { phones.number: "9811199999" }');
+                err.code = 11000;
+                throw err;
+            }
+        };
+
+        const mockConn = {
+            name: 'test_db',
+            db: {
+                databaseName: 'test_db',
+                collection: () => mockColl
+            }
+        };
+
+        await assert.rejects(async () => {
+            await runMigration({ mode: 'execute', connection: mockConn });
+        }, (err) => {
+            assert.equal(err.code, 'E11000_CONCURRENT_INSERT');
+            assert.ok(err.message.includes('CONTROLLED ABORT'));
+            return true;
+        });
+    });
+
+    it('15. Exact Index Specification Verification: Confirms key, unique, and partialFilterExpression', async () => {
+        const collection = conn.connection.collection('contacts');
+        await collection.deleteMany({});
+
+        // Clean contacts
+        await Contact.create({ name: 'Verified A', phones: [{ number: '9811100091' }], isDeleted: false, isMerged: false });
+        await Contact.create({ name: 'Verified B', phones: [{ number: '9811100092' }], isDeleted: false, isMerged: false });
+
+        // Ensure index is dropped first
+        try {
+            await collection.dropIndex(TARGET_INDEX_NAME);
+        } catch (_) {}
+
+        const execResult = await runMigration({ mode: 'execute', connection: conn.connection });
+        assert.equal(execResult.status, 'EXECUTED_AND_VERIFIED');
+
+        const index = execResult.createdIndex;
+        assert.equal(index.name, TARGET_INDEX_NAME);
+        assert.equal(index.unique, true);
+        assert.deepEqual(index.key, { 'phones.number': 1 });
+        assert.equal(index.partialFilterExpression.isDeleted, false);
+        assert.equal(index.partialFilterExpression.isMerged, false);
     });
 });
