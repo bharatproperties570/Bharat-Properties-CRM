@@ -597,4 +597,202 @@ describe('Phase 4.6 — Contact Identity Deduplication & Reversible Merge Engine
         const outboxTenant = await OutboxEvent.findOne({ aggregateId: c3._id, eventType: 'ContactMerged' });
         assert.equal(outboxTenant.tenantId.toString(), tenantId.toString());
     });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 9: P4-DEF-02 Security: Strict Authorization & Visibility Enforcement on Rollback
+    // ─────────────────────────────────────────────────────────────
+    it('9. P4-DEF-02 Security: Strict Authorization & Visibility Enforcement on Rollback', async () => {
+        // Setup a merge operation created by a specific agent (creator)
+        const creatorId = new mongoose.Types.ObjectId();
+        const creatorUser = {
+            _id: creatorId,
+            id: creatorId.toString(),
+            name: 'Creator Agent',
+            email: 'creator.agent@bharatproperties.co',
+            role: { name: 'agent' },
+            dataScope: 'all',
+            tenantId: null
+        };
+
+        const masterAuth = await Contact.create({
+            name: 'P4 Rohit Sharma',
+            phones: [{ number: '9899110001', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false,
+            owner: creatorId,
+            visibleTo: 'Everyone'
+        });
+
+        const dupAuth = await Contact.create({
+            name: 'P4 Rohit Sharma',
+            phones: [{ number: '9899110002', type: 'Personal' }],
+            designation: 'Architect',
+            isDeleted: false,
+            isMerged: false,
+            owner: creatorId,
+            visibleTo: 'Everyone'
+        });
+
+        const mergeReq = {
+            params: {},
+            body: {
+                masterContactId: masterAuth._id.toString(),
+                duplicateContactIds: [dupAuth._id.toString()],
+                resolvedData: {}
+            },
+            query: {},
+            headers: {},
+            user: creatorUser
+        };
+        const mergeRes = createMockRes();
+        await mergeContacts(mergeReq, mergeRes, err => { if (err) throw err; });
+        assert.equal(mergeRes.statusCode, 200);
+        assert.equal(mergeRes.data.success, true);
+        const opId = mergeRes.data.audits[0];
+
+        // 9a. Standard Agent (Not Creator) Denied with HTTP 403
+        const otherAgentId = new mongoose.Types.ObjectId();
+        const standardAgentUser = {
+            _id: otherAgentId,
+            id: otherAgentId.toString(),
+            name: 'Other Agent',
+            email: 'other.agent@bharatproperties.co',
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            tenantId: null
+        };
+        const reqStandardAgent = { params: { mergeOperationId: opId }, body: {}, query: {}, headers: {}, user: standardAgentUser };
+        const resStandardAgent = createMockRes();
+        await rollbackContactMerge(reqStandardAgent, resStandardAgent, () => {});
+        assert.equal(resStandardAgent.statusCode, 403, 'Standard agent who is not creator must receive HTTP 403');
+        assert.ok(resStandardAgent.data.message.includes('Forbidden') || resStandardAgent.data.message.includes('Insufficient privileges'));
+
+        // 9b. Unrelated User Denied with HTTP 403
+        const unrelatedUser = {
+            _id: new mongoose.Types.ObjectId(),
+            id: new mongoose.Types.ObjectId().toString(),
+            name: 'Stranger',
+            email: 'stranger@example.com',
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            tenantId: null
+        };
+        const reqUnrelated = { params: { mergeOperationId: opId }, body: {}, query: {}, headers: {}, user: unrelatedUser };
+        const resUnrelated = createMockRes();
+        await rollbackContactMerge(reqUnrelated, resUnrelated, () => {});
+        assert.equal(resUnrelated.statusCode, 403, 'Unrelated user must receive HTTP 403');
+
+        // 9c. Cross-Boundary / Different Tenant User Denied with HTTP 403
+        const crossTenantAdmin = {
+            _id: new mongoose.Types.ObjectId(),
+            id: new mongoose.Types.ObjectId().toString(),
+            name: 'Tenant B Admin',
+            email: 'tenant_b_admin@bharatproperties.co',
+            role: { name: 'admin' },
+            dataScope: 'all',
+            tenantId: new mongoose.Types.ObjectId()
+        };
+        const reqCrossTenant = { params: { mergeOperationId: opId }, body: {}, query: {}, headers: {}, user: crossTenantAdmin };
+        const resCrossTenant = createMockRes();
+        await rollbackContactMerge(reqCrossTenant, resCrossTenant, () => {});
+        assert.equal(resCrossTenant.statusCode, 403, 'Cross-boundary tenant user must receive HTTP 403');
+        assert.ok(resCrossTenant.data.message.includes('visibility access') || resCrossTenant.data.message.includes('Forbidden'));
+
+        // 9d. Missing Merge ID Returns HTTP 404 Safe Response
+        const nonExistentOpId = new mongoose.Types.ObjectId().toString();
+        const reqMissing = { params: { mergeOperationId: nonExistentOpId }, body: {}, query: {}, headers: {}, user: testAdminUser };
+        const resMissing = createMockRes();
+        await rollbackContactMerge(reqMissing, resMissing, () => {});
+        assert.equal(resMissing.statusCode, 404, 'Non-existent mergeOperationId must return HTTP 404');
+        assert.ok(resMissing.data.message.includes('Invalid or uncompleted'));
+
+        // 9e. Creator Denied if Visibility Lost (HTTP 403)
+        // Reassign masterContact away from creator and make it private so creator loses visibility
+        const otherOwnerId = new mongoose.Types.ObjectId();
+        await Contact.updateOne(
+            { _id: masterAuth._id },
+            {
+                $set: {
+                    owner: otherOwnerId,
+                    assignedTo: otherOwnerId,
+                    'assignment.assignedTo': otherOwnerId,
+                    visibleTo: 'Private',
+                    'assignment.visibleTo': 'Private'
+                }
+            }
+        );
+        const restrictedCreator = {
+            _id: creatorId,
+            id: creatorId.toString(),
+            name: 'Creator Agent',
+            email: 'creator.agent@bharatproperties.co',
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            tenantId: null
+        };
+        const reqLostVis = { params: { mergeOperationId: opId }, body: {}, query: {}, headers: {}, user: restrictedCreator };
+        const resLostVis = createMockRes();
+        await rollbackContactMerge(reqLostVis, resLostVis, () => {});
+        assert.equal(resLostVis.statusCode, 403, 'Creator who lost contact visibility must receive HTTP 403');
+        assert.ok(resLostVis.data.message.includes('visibility access'));
+
+        // Restore visibility to creator
+        await Contact.updateOne(
+            { _id: masterAuth._id },
+            {
+                $set: {
+                    owner: creatorId,
+                    assignedTo: creatorId,
+                    'assignment.assignedTo': creatorId,
+                    visibleTo: 'Everyone',
+                    'assignment.visibleTo': 'Everyone'
+                }
+            }
+        );
+
+        // 9f. Manager Allowed (HTTP 200)
+        // Create a distinct merge operation to test manager rollback
+        const mMaster = await Contact.create({ name: 'Manager Contact Master', phones: [{ number: '9822211100' }], isDeleted: false, isMerged: false, visibleTo: 'Everyone' });
+        const mDup = await Contact.create({ name: 'Manager Contact Dup', phones: [{ number: '9822211101' }], isDeleted: false, isMerged: false, visibleTo: 'Everyone' });
+        const mMergeReq = { params: {}, body: { masterContactId: mMaster._id.toString(), duplicateContactIds: [mDup._id.toString()] }, query: {}, headers: {}, user: testAdminUser };
+        const mMergeRes = createMockRes();
+        await mergeContacts(mMergeReq, mMergeRes, err => { if (err) throw err; });
+        const mOpId = mMergeRes.data.audits[0];
+
+        const managerUser = {
+            _id: new mongoose.Types.ObjectId(),
+            id: new mongoose.Types.ObjectId().toString(),
+            name: 'Test Manager',
+            email: 'manager@bharatproperties.co',
+            role: { name: 'manager' },
+            dataScope: 'all',
+            tenantId: null
+        };
+        const reqMgr = { params: { mergeOperationId: mOpId }, body: {}, query: {}, headers: {}, user: managerUser };
+        const resMgr = createMockRes();
+        await rollbackContactMerge(reqMgr, resMgr, err => { if (err) throw err; });
+        assert.equal(resMgr.statusCode, 200, 'Manager must be permitted to rollback');
+        assert.equal(resMgr.data.success, true);
+        assert.equal(resMgr.data.audit.status, 'ROLLED_BACK');
+
+        // 9g. Original Creator Allowed When Visibility Permits (HTTP 200)
+        const reqCreatorAllowed = { params: { mergeOperationId: opId }, body: {}, query: {}, headers: {}, user: creatorUser };
+        const resCreatorAllowed = createMockRes();
+        await rollbackContactMerge(reqCreatorAllowed, resCreatorAllowed, err => { if (err) throw err; });
+        assert.equal(resCreatorAllowed.statusCode, 200, 'Original creator with visibility must be permitted to rollback');
+        assert.equal(resCreatorAllowed.data.success, true);
+        assert.equal(resCreatorAllowed.data.audit.status, 'ROLLED_BACK');
+
+        // Confirm duplicate contact is active again
+        const restoredDup = await Contact.findById(dupAuth._id);
+        assert.equal(restoredDup.isMerged, false);
+        assert.equal(restoredDup.isDeleted, false);
+
+        // 9h. Already Rolled-Back Operation Cannot Be Rolled Back Again (HTTP 400)
+        const reqReRollback = { params: { mergeOperationId: opId }, body: {}, query: {}, headers: {}, user: testAdminUser };
+        const resReRollback = createMockRes();
+        await rollbackContactMerge(reqReRollback, resReRollback, () => {});
+        assert.equal(resReRollback.statusCode, 400, 'Already rolled-back operation must return HTTP 400');
+        assert.ok(resReRollback.data.message.includes('Rollback not available'));
+    });
 });
