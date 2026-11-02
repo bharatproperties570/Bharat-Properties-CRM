@@ -191,10 +191,14 @@ const SendMessageModal = ({
 
     // Real Data for References (Passed from parent or fetched)
     const [propertyRefs, setPropertyRefs] = useState([]);
+    const prevIsOpenRef = useRef(false);
     
     useEffect(() => {
-        if (isOpen) {
-            setChannel(initialChannel);
+        const wasOpen = prevIsOpenRef.current;
+        prevIsOpenRef.current = isOpen;
+
+        if (!wasOpen && isOpen) {
+            setChannel(initialChannel || 'SMS');
             let effectiveRecipients = (initialRecipients && initialRecipients.length > 0) ? initialRecipients : [];
             if (effectiveRecipients.length === 0 && phoneNumber) {
                 effectiveRecipients = [{
@@ -206,7 +210,7 @@ const SendMessageModal = ({
             setRecipients(effectiveRecipients);
             setProperties(initialProperties && initialProperties.length > 0 ? initialProperties : (initialProperty ? [initialProperty] : []));
             setMessageBody('');
-            setTemplateId(initialTemplateId);
+            setTemplateId(initialTemplateId || (initialChannel === 'WHATSAPP' && isCurrentAccountBaileys ? 'free_text' : ''));
             setRcsTitle('');
             setRcsActions([]);
             setShowSchedule(false);
@@ -218,10 +222,11 @@ const SendMessageModal = ({
             setWhatsappComponents([]);
             setIsTemplateModified(false);
         }
-    }, [isOpen, initialChannel, initialTemplateId, initialRecipients, initialProperty, initialProperties, phoneNumber]);
+    }, [isOpen]);
 
+    const initialPropId = initialProperty?._id || initialProperty?.id;
     useEffect(() => {
-        if (initialProperty) {
+        if (initialProperty && isOpen) {
             setPropertyRefs([{
                 id: initialProperty._id || initialProperty.id,
                 name: initialProperty.unitNo || initialProperty.projectName || 'Current Property',
@@ -242,7 +247,7 @@ const SendMessageModal = ({
                 });
             }
         }
-    }, [initialProperty]);
+    }, [initialPropId, isOpen]);
 
     const dynamicReferences = {
         property: propertyRefs,
@@ -287,13 +292,34 @@ const SendMessageModal = ({
     const loadWhatsAppTemplates = async () => {
         setIsLoadingWhatsApp(true);
         try {
-            const [metaRes, localRes] = await Promise.all([
-                whatsappService.getTemplates(),
-                systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null)
+            const [metaRes, localRes, accRes] = await Promise.all([
+                whatsappService.getTemplates().catch(err => {
+                    console.warn('Failed to load Meta templates', err);
+                    return [];
+                }),
+                systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null),
+                whatsappService.getAccounts().catch(err => {
+                    console.warn('Failed to load WhatsApp accounts', err);
+                    return null;
+                })
             ]);
+
+            // 1. Process WhatsApp Accounts
+            if (accRes && accRes.success && Array.isArray(accRes.data) && accRes.data.length > 0) {
+                const normalizedAccounts = accRes.data.map(a => ({
+                    ...a,
+                    id: a.id || a._id
+                }));
+                setWhatsappAccounts(normalizedAccounts);
+                const defaultAcc = normalizedAccounts.find(a => a.isDefault) || normalizedAccounts[0];
+                if (defaultAcc && !selectedWhatsAppAccount) {
+                    setSelectedWhatsAppAccount(defaultAcc.id);
+                }
+            }
             
+            // 2. Process WhatsApp Templates
             const metaTemplates = Array.isArray(metaRes) ? metaRes : (metaRes && Array.isArray(metaRes.templates) ? metaRes.templates : []);
-            const localTemplates = localRes?.data?.value || [];
+            const localTemplates = Array.isArray(localRes?.data?.value) ? localRes.data.value : [];
             
             // Merge meta templates with local templates to preserve systemContext and local overrides
             const templates = [...metaTemplates];
@@ -313,8 +339,8 @@ const SendMessageModal = ({
                 }
                 setWhatsappTemplates(validTemplates);
                 
-                if (triggerContext && !initialTemplateId && isOpen) {
-                    if (validTemplates.length > 0 && channel === 'WHATSAPP') {
+                if (triggerContext && !initialTemplateId && isOpen && channel === 'WHATSAPP') {
+                    if (validTemplates.length > 0) {
                         setTemplateId(validTemplates[0].name || validTemplates[0].id);
                     } else {
                         setTemplateId('free_text');
@@ -322,20 +348,6 @@ const SendMessageModal = ({
                 }
             } else {
                 setWhatsappTemplates(whatsappTemplatesConst);
-            }
-
-            // Also load available WhatsApp accounts for multi-account selection
-            try {
-                const accRes = await whatsappService.getAccounts();
-                if (accRes && accRes.success && Array.isArray(accRes.data) && accRes.data.length > 0) {
-                    setWhatsappAccounts(accRes.data);
-                    const defaultAcc = accRes.data.find(a => a.isDefault) || accRes.data[0];
-                    if (defaultAcc && !selectedWhatsAppAccount) {
-                        setSelectedWhatsAppAccount(defaultAcc.id);
-                    }
-                }
-            } catch (accErr) {
-                console.warn('Failed to load accounts', accErr);
             }
         } catch (err) {
             console.error('Failed to load WhatsApp templates', err);
@@ -346,7 +358,7 @@ const SendMessageModal = ({
     };
 
     const isCurrentAccountBaileys = useMemo(() => {
-        const acc = whatsappAccounts.find(a => a.id === selectedWhatsAppAccount);
+        const acc = whatsappAccounts.find(a => (a.id || a._id) === selectedWhatsAppAccount);
         return acc?.provider === 'BAILEYS' || acc?.connectionType === 'QR_SCANNER';
     }, [selectedWhatsAppAccount, whatsappAccounts]);
 
@@ -364,13 +376,36 @@ const SendMessageModal = ({
     }, [isCurrentAccountBaileys, whatsappTemplates]);
 
     useEffect(() => {
-        if (templateId && templateId !== 'free_text') {
+        if (channel === 'WHATSAPP' && templateId && templateId !== 'free_text') {
             const exists = filteredWhatsAppTemplates.some(t => t.name === templateId || String(t.id) === String(templateId));
             if (!exists) {
                 setTemplateId('free_text');
             }
         }
-    }, [isCurrentAccountBaileys, filteredWhatsAppTemplates]);
+    }, [channel, isCurrentAccountBaileys, filteredWhatsAppTemplates]);
+
+    const handleChannelChange = (newChannel) => {
+        if (newChannel === channel) return;
+        setChannel(newChannel);
+        setMessageBody('');
+        setIsTemplateModified(false);
+
+        if (newChannel === 'WHATSAPP') {
+            setTemplateId(isCurrentAccountBaileys ? 'free_text' : '');
+            if (whatsappTemplates.length === 0) {
+                loadWhatsAppTemplates();
+            }
+        } else if (newChannel === 'SMS') {
+            setTemplateId('');
+            if (smsTemplates.length === 0) {
+                loadSmsTemplates();
+            }
+        } else if (newChannel === 'RCS') {
+            setTemplateId('');
+            setRcsTitle('');
+            setRcsActions([]);
+        }
+    };
 
     const handleAddRecipient = (e) => {
         if (e.key === 'Enter' && recipientInput.trim()) {
@@ -658,15 +693,18 @@ const SendMessageModal = ({
         color: '#64748b', cursor: 'pointer', fontSize: '0.9rem', transition: 'all 0.2s'
     };
 
-    const channelBtnStyle = (active) => ({
-        flex: 1, padding: '14px', border: 'none',
-        backgroundColor: active ? '#fff' : 'transparent',
-        color: active ? (channel === 'RCS' ? '#4285F4' : channel === 'WHATSAPP' ? '#059669' : '#2563eb') : '#64748b',
-        boxShadow: active ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none',
-        borderRadius: '12px', fontWeight: 700, fontSize: '0.95rem',
-        cursor: 'pointer', transition: 'all 0.2s',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-    });
+    const channelBtnStyle = (targetChannel) => {
+        const active = channel === targetChannel;
+        return {
+            flex: 1, padding: '14px', border: 'none',
+            backgroundColor: active ? '#fff' : 'transparent',
+            color: active ? (targetChannel === 'RCS' ? '#4285F4' : targetChannel === 'WHATSAPP' ? '#059669' : '#2563eb') : '#64748b',
+            boxShadow: active ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none',
+            borderRadius: '12px', fontWeight: 700, fontSize: '0.95rem',
+            cursor: 'pointer', transition: 'all 0.2s',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+        };
+    };
 
     return (
         <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -707,30 +745,38 @@ const SendMessageModal = ({
                     <div style={{ marginBottom: '32px' }}>
                         <label style={labelStyle}>Select Channel</label>
                         <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '6px', borderRadius: '16px', gap: '6px' }}>
-                            <button type="button" onClick={() => setChannel('SMS')} style={channelBtnStyle(channel === 'SMS')}>
+                            <button
+                                type="button"
+                                id="channel-select-sms-btn"
+                                onClick={() => handleChannelChange('SMS')}
+                                style={channelBtnStyle('SMS')}
+                            >
                                 <i className="fas fa-comment-alt"></i> SMS
                             </button>
-                            <button type="button" onClick={() => { setChannel('WHATSAPP'); loadWhatsAppTemplates(); }} style={{ ...channelBtnStyle(channel === 'WHATSAPP'), position: 'relative' }}>
+                            <button
+                                type="button"
+                                id="channel-select-whatsapp-btn"
+                                onClick={() => handleChannelChange('WHATSAPP')}
+                                style={{ ...channelBtnStyle('WHATSAPP'), position: 'relative' }}
+                            >
                                 <i className="fab fa-whatsapp"></i> WhatsApp
-                                {/* Highlighted Green Dot with Pulse Animation */}
-                                <div style={{ 
-                                    position: 'absolute', top: '8px', right: '12px', width: '10px', height: '10px', 
-                                    background: '#22c55e', borderRadius: '50%', border: '2px solid #fff',
-                                    boxShadow: '0 0 0 0 rgba(34, 197, 94, 0.7)',
-                                    animation: 'pulse-green 2s infinite'
-                                }} title="WhatsApp Active">
-                                    <style>
-                                        {`
-                                            @keyframes pulse-green {
-                                                0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
-                                                70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
-                                                100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-                                            }
-                                        `}
-                                    </style>
-                                </div>
+                                {/* Highlighted Green Dot */}
+                                <div
+                                    style={{ 
+                                        position: 'absolute', top: '8px', right: '12px', width: '10px', height: '10px', 
+                                        background: '#22c55e', borderRadius: '50%', border: '2px solid #fff',
+                                        boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.4)',
+                                        pointerEvents: 'none'
+                                    }}
+                                    title="WhatsApp Active"
+                                />
                             </button>
-                            <button type="button" onClick={() => setChannel('RCS')} style={channelBtnStyle(channel === 'RCS')}>
+                            <button
+                                type="button"
+                                id="channel-select-rcs-btn"
+                                onClick={() => handleChannelChange('RCS')}
+                                style={channelBtnStyle('RCS')}
+                            >
                                 <i className="fas fa-comment-dots"></i> RCS
                             </button>
                         </div>
