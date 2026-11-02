@@ -2207,6 +2207,7 @@ class WhatsAppService {
                 const isAmbiguousTimeout = sendResult?.category === 'NETWORK_ERROR' ||
                     sendResult?.isDeliveryUnknown === true ||
                     sendResult?.deliveryStatus === 'DELIVERY_UNKNOWN' ||
+                    sendResult?.isAmbiguous === true ||
                     ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(sendResult?.code) ||
                     String(sendResult?.error || '').toLowerCase().includes('timeout');
 
@@ -2257,21 +2258,23 @@ class WhatsAppService {
             return await BaileysConnectionManager.serializeSend(config.integrationId, async (lockContext) => {
                 return await this._executeSendViaBaileys(mobile, message, config, {
                     ...options,
-                    onSocketWriteInitiated: () => { socketWriteInitiated = true; }
+                    onSocketWriteInitiated: () => {
+                        socketWriteInitiated = true;
+                        if (typeof options.onSocketWriteInitiated === 'function') {
+                            options.onSocketWriteInitiated();
+                        }
+                    }
                 }, lockContext);
             }, options.lockOptions || {});
         } catch (err) {
-            if (err?.message?.includes('DISTRIBUTED_LOCK_LOST') || err?.code === 'DISTRIBUTED_LOCK_LOST') {
-                return {
-                    success: false,
-                    deliveryStatus: socketWriteInitiated ? 'DELIVERY_UNKNOWN' : 'FAILED',
-                    isDeliveryUnknown: socketWriteInitiated,
-                    isAmbiguous: socketWriteInitiated,
-                    error: err.message,
-                    provider: 'baileys'
-                };
-            }
-            throw err;
+            return {
+                success: false,
+                deliveryStatus: socketWriteInitiated ? 'DELIVERY_UNKNOWN' : 'FAILED',
+                isDeliveryUnknown: socketWriteInitiated,
+                isAmbiguous: socketWriteInitiated,
+                error: err?.message || String(err),
+                provider: 'baileys'
+            };
         }
     }
 
@@ -2279,6 +2282,7 @@ class WhatsAppService {
         const sendStartTime = Date.now();
         const { type = 'text', mediaUrl } = options;
         let socketWriteInitiated = false;
+        let cbStatus = null;
 
         if (lockContext?.isLockLost?.()) {
             return {
@@ -2379,7 +2383,7 @@ class WhatsAppService {
             }
 
             // 🛡️ Enterprise Circuit Breaker Check (Fail-Closed)
-            let cbStatus = null;
+            cbStatus = null;
             try {
                 const { default: WhatsAppCircuitBreaker } = await import('./WhatsAppCircuitBreaker.js');
                 cbStatus = await WhatsAppCircuitBreaker.isTripped(config.integrationId);
@@ -2457,8 +2461,8 @@ class WhatsAppService {
             // 🚀 Enterprise Dynamic Timeout:
             // Large groups (up to 1,024 members) require Signal protocol sender-key creation & distribution
             // across hundreds of participants. Allow generous headroom (120s for groups, 30s for 1-on-1).
-            const sendTimeoutMs = isGroupTarget ? 120000 : 30000;
-            const retryTimeoutMs = isGroupTarget ? 80000 : 20000;
+            const sendTimeoutMs = options.sendTimeoutMs || (isGroupTarget ? 120000 : 30000);
+            const retryTimeoutMs = options.retryTimeoutMs || (isGroupTarget ? 80000 : 20000);
 
             // P0-C: Verify distributed lock ownership immediately prior to socket transmission
             if (lockContext?.isLockLost?.()) {
@@ -2499,18 +2503,17 @@ class WhatsAppService {
             });
 
             try {
-                // P0-C: In Node.js / Baileys, Promise.race does NOT cancel or abort the underlying
-                // socket transmission once sock.sendMessage has been invoked.
-                // We track socketWriteInitiated = true to guarantee that in-flight ambiguous outcomes
-                // are preserved as DELIVERY_UNKNOWN and cannot trigger duplicate automated retries.
+                if (options.hooks?.beforeSocketSend) {
+                    await options.hooks.beforeSocketSend({ sock, jid, content, lockContext });
+                }
+
+                // P1 Duplicate-Send Prevention:
+                // Move socket-write initiation callback and flag assignment to immediately before
+                // the actual sock.sendMessage() invocation, strictly after all pre-send hooks and validation.
                 if (typeof options.onSocketWriteInitiated === 'function') {
                     options.onSocketWriteInitiated();
                 }
                 socketWriteInitiated = true;
-
-                if (options.hooks?.beforeSocketSend) {
-                    await options.hooks.beforeSocketSend({ sock, jid, content, lockContext });
-                }
 
                 const sendPromise = sock.sendMessage(jid, content);
                 const timeoutPromise = new Promise((_, reject) => 
@@ -2518,56 +2521,76 @@ class WhatsAppService {
                 );
                 sentMsg = await Promise.race([sendPromise, timeoutPromise, lockAbortPromise]);
             } catch (firstAttemptErr) {
-                if (firstAttemptErr?.message?.includes('DISTRIBUTED_LOCK_LOST') || firstAttemptErr?.code === 'DISTRIBUTED_LOCK_LOST' || lockContext?.isLockLost?.()) {
-                    return {
-                        success: false,
-                        deliveryStatus: 'DELIVERY_UNKNOWN',
-                        isDeliveryUnknown: true,
-                        isAmbiguous: true,
-                        error: `WhatsApp Web send in-flight lock lost: ${firstAttemptErr.message}. Socket write was initiated, but lock ownership was lost or expired. Suppressing retry to prevent duplicate sends.`,
-                        provider: 'baileys',
-                        latencyMs: Date.now() - sendStartTime
-                    };
-                }
-
                 const errMsg = String(firstAttemptErr?.message || firstAttemptErr);
-                const isTimeout = errMsg.toLowerCase().includes('timed out');
-                const isSocketDead = !sock.ws || !sock.ws.isOpen || errMsg.includes('1006') || errMsg.includes('Connection Terminated') || errMsg.includes('closed');
-                console.warn('[WhatsAppService/Baileys] First send attempt failed:', errMsg, '| Socket dead:', isSocketDead, '| Timeout:', isTimeout);
+                const isTimeout = errMsg.toLowerCase().includes('timed out') || firstAttemptErr?.code === 'ETIMEDOUT' || firstAttemptErr?.code === 'ESOCKETTIMEDOUT';
+                const isSocketDead = !sock.ws || !sock.ws.isOpen || errMsg.includes('1006') || errMsg.includes('Connection Terminated') || errMsg.includes('closed') || errMsg.includes('ECONNRESET') || firstAttemptErr?.code === 'ECONNRESET' || firstAttemptErr?.code === 'EPIPE';
+                const isLockLost = firstAttemptErr?.message?.includes('DISTRIBUTED_LOCK_LOST') || firstAttemptErr?.code === 'DISTRIBUTED_LOCK_LOST' || lockContext?.isLockLost?.();
 
-                if (isTimeout && !isSocketDead) {
-                    // WhatsApp ACK timed out while socket remains alive.
-                    // Enterprise rule: Do NOT blindly retry; mark as DELIVERY_UNKNOWN to prevent duplicate messages in groups.
+                console.warn('[WhatsAppService/Baileys] First send attempt failed:', errMsg, '| Socket write initiated:', socketWriteInitiated, '| Socket dead:', isSocketDead, '| Timeout:', isTimeout, '| Lock lost:', isLockLost);
+
+                // P1 Duplicate-Send Prevention:
+                // If socket write was already initiated, any subsequent failure (timeout, socket closure,
+                // ECONNRESET, 1006, connection termination, or lost lock) MUST be treated as an ambiguous
+                // outcome. Suppress automatic reconnect-and-retry to guarantee zero duplicate transmissions.
+                if (socketWriteInitiated) {
                     import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
                         if (cbStatus?.isProbe && cbStatus?.probeToken) {
-                            WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, 'ACK timeout')
+                            WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, errMsg)
                                 .catch(cbErr => {
                                     console.error(`[WhatsAppService/Baileys] Circuit breaker probe failure recording error for ${config.integrationId}:`, cbErr.message);
                                 });
-                        } else {
+                        } else if (isTimeout) {
                             WhatsAppCircuitBreaker.recordAckTimeout(config.integrationId, { jid })
                                 .catch(cbErr => {
                                     console.error(`[WhatsAppService/Baileys] Circuit breaker ACK timeout recording error for ${config.integrationId}:`, cbErr.message);
                                 });
+                        } else if (isSocketDead) {
+                            WhatsAppCircuitBreaker.recordDisconnect(config.integrationId, errMsg)
+                                .catch(cbErr => {
+                                    console.error(`[WhatsAppService/Baileys] Circuit breaker disconnect recording error for ${config.integrationId}:`, cbErr.message);
+                                });
                         }
                     }).catch(impErr => {
-                        console.error(`[WhatsAppService/Baileys] Failed to import WhatsAppCircuitBreaker on timeout for ${config.integrationId}:`, impErr.message);
+                        console.error(`[WhatsAppService/Baileys] Failed to import WhatsAppCircuitBreaker on error for ${config.integrationId}:`, impErr.message);
                     });
+
+                    let errorDescription;
+                    if (isLockLost) {
+                        errorDescription = `WhatsApp Web send in-flight lock lost: ${errMsg}. Socket write was initiated, but lock ownership was lost or expired. Suppressing retry to prevent duplicate sends.`;
+                    } else if (isTimeout) {
+                        errorDescription = `WhatsApp Web ACK timed out after ${Math.round(sendTimeoutMs / 1000)}s while connection remained alive. Suppressing duplicate retry to protect recipient from double messages.`;
+                    } else {
+                        errorDescription = `WhatsApp Web send outcome ambiguous (${errMsg}). Socket write was initiated before socket disconnect/error. Suppressing automatic retry to prevent duplicate sends.`;
+                    }
 
                     return {
                         success: false,
                         deliveryStatus: 'DELIVERY_UNKNOWN',
                         isDeliveryUnknown: true,
                         isAmbiguous: true,
-                        error: `WhatsApp Web ACK timed out after ${Math.round(sendTimeoutMs / 1000)}s while connection remained alive. Suppressing duplicate retry to protect recipient from double messages.`,
+                        error: errorDescription,
                         provider: 'baileys',
                         latencyMs: Date.now() - sendStartTime
                     };
                 }
 
+                // If socket write was NEVER initiated (socketWriteInitiated === false):
+                if (isLockLost) {
+                    return {
+                        success: false,
+                        deliveryStatus: 'FAILED',
+                        isDeliveryUnknown: false,
+                        isAmbiguous: false,
+                        error: `DISTRIBUTED_LOCK_LOST: ${errMsg}. Outbound lock lost before socket write could be initiated.`,
+                        provider: 'baileys',
+                        latencyMs: Date.now() - sendStartTime
+                    };
+                }
+
+                // Pre-write reconnect-and-retry: permitted ONLY when socket write was never invoked
                 if (isSocketDead) {
                     try {
-                        console.log('[WhatsAppService/Baileys] Socket disconnected, attempting instant re-acquisition...');
+                        console.log('[WhatsAppService/Baileys] Socket disconnected before write was initiated, attempting instant re-acquisition...');
                         sock = await BaileysConnectionManager.connect(config.integrationId.toString());
                         if (sock && sock.waitForSocketOpen) {
                             await Promise.race([
@@ -2576,46 +2599,51 @@ class WhatsAppService {
                             ]);
                         }
                     } catch (recErr) {
-                        console.warn('[WhatsAppService/Baileys] Reconnect during retry failed:', recErr.message);
+                        console.warn('[WhatsAppService/Baileys] Pre-write reconnect failed:', recErr.message);
                     }
-                }
 
-                if (sock && sock.ws && sock.ws.isOpen && isSocketDead) {
-                    if (lockContext?.isLockLost?.()) {
-                        return {
-                            success: false,
-                            deliveryStatus: 'DELIVERY_UNKNOWN',
-                            isDeliveryUnknown: true,
-                            isAmbiguous: true,
-                            error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost before socket retry transmission',
-                            provider: 'baileys',
-                            latencyMs: Date.now() - sendStartTime
-                        };
-                    }
-                    if (lockContext?.validateOwnership) {
-                        const isOwner = await lockContext.validateOwnership();
-                        if (!isOwner) {
+                    if (sock && sock.ws && sock.ws.isOpen) {
+                        if (lockContext?.isLockLost?.()) {
                             return {
                                 success: false,
-                                deliveryStatus: 'DELIVERY_UNKNOWN',
-                                isDeliveryUnknown: true,
-                                isAmbiguous: true,
-                                error: 'DISTRIBUTED_LOCK_LOST: Outbound lock ownership expired before socket retry transmission',
+                                deliveryStatus: 'FAILED',
+                                isDeliveryUnknown: false,
+                                isAmbiguous: false,
+                                error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost before pre-write socket retry transmission',
                                 provider: 'baileys',
                                 latencyMs: Date.now() - sendStartTime
                             };
                         }
+                        if (lockContext?.validateOwnership) {
+                            const isOwner = await lockContext.validateOwnership();
+                            if (!isOwner) {
+                                return {
+                                    success: false,
+                                    deliveryStatus: 'FAILED',
+                                    isDeliveryUnknown: false,
+                                    isAmbiguous: false,
+                                    error: 'DISTRIBUTED_LOCK_LOST: Outbound lock ownership expired before pre-write socket retry transmission',
+                                    provider: 'baileys',
+                                    latencyMs: Date.now() - sendStartTime
+                                };
+                            }
+                        }
+
+                        console.log('[WhatsAppService/Baileys] Initiating send after pre-write socket re-acquisition...');
+                        if (typeof options.onSocketWriteInitiated === 'function') {
+                            options.onSocketWriteInitiated();
+                        }
+                        socketWriteInitiated = true;
+
+                        const retryPromise = sock.sendMessage(jid, content);
+                        const retryTimeout = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error(`WhatsApp Web send timed out on retry after ${Math.round(retryTimeoutMs / 1000)} seconds.`)), retryTimeoutMs)
+                        );
+                        sentMsg = await Promise.race([retryPromise, retryTimeout, lockAbortPromise]);
+                    } else {
+                        throw firstAttemptErr;
                     }
-                    console.log('[WhatsAppService/Baileys] Retrying send after socket re-acquisition...');
-                    const retryPromise = sock.sendMessage(jid, content);
-                    const retryTimeout = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error(`WhatsApp Web send timed out on retry after ${Math.round(retryTimeoutMs / 1000)} seconds.`)), retryTimeoutMs)
-                    );
-                    sentMsg = await Promise.race([retryPromise, retryTimeout, lockAbortPromise]);
                 } else {
-                    if (!isSocketDead) {
-                        console.warn('[WhatsAppService/Baileys] Send ACK timed out, but socket is alive. Suppressing duplicate re-send to protect group from double messages.');
-                    }
                     throw firstAttemptErr;
                 }
             }
@@ -2667,7 +2695,9 @@ class WhatsAppService {
             console.error(`[WhatsAppService/Baileys] Send error:`, errText);
             return { 
                 success: false, 
-                deliveryStatus: 'FAILED',
+                deliveryStatus: socketWriteInitiated ? 'DELIVERY_UNKNOWN' : 'FAILED',
+                isDeliveryUnknown: socketWriteInitiated,
+                isAmbiguous: socketWriteInitiated,
                 error: errText, 
                 provider: 'baileys',
                 latencyMs: Date.now() - sendStartTime
@@ -3186,6 +3216,7 @@ class WhatsAppService {
                 const isAmbiguousTimeout = sendResult?.category === 'NETWORK_ERROR' ||
                     sendResult?.isDeliveryUnknown === true ||
                     sendResult?.deliveryStatus === 'DELIVERY_UNKNOWN' ||
+                    sendResult?.isAmbiguous === true ||
                     ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(sendResult?.code) ||
                     String(sendResult?.error || '').toLowerCase().includes('timeout');
 

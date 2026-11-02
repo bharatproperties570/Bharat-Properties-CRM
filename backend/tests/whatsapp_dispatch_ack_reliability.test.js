@@ -8,6 +8,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import WhatsAppDispatch from '../models/WhatsAppDispatch.js';
 import MarketingDelivery from '../models/MarketingDelivery.js';
+import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
+import WhatsAppService from '../services/WhatsAppService.js';
 import WhatsAppCircuitBreaker, { TRIP_THRESHOLDS, LUA_SCRIPTS } from '../services/WhatsAppCircuitBreaker.js';
 import BaileysConnectionManager, {
     handleMessagesUpdate,
@@ -44,6 +46,7 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
     beforeEach(async () => {
         await WhatsAppDispatch.deleteMany({});
         await MarketingDelivery.deleteMany({});
+        await WhatsAppIntegration.deleteMany({});
         await WhatsAppCircuitBreaker.reset(testIntegrationId.toString(), 'TEST_RUNNER', 'Reset before test');
         await WhatsAppCircuitBreaker.reset(testIntegrationId2.toString(), 'TEST_RUNNER', 'Reset before test');
     });
@@ -1079,5 +1082,316 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
         } else {
             console.log('ℹ️ Local environment without real Redis: Real Redis CI assertions deferred to CI runner.');
         }
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PART 6: P1 DUPLICATE-SEND PREVENTION: SOCKET DISCONNECT AFTER WRITE (SCENARIOS A - F)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    it('27. Scenario A: Socket closes after first send invocation — suppresses retry and returns DELIVERY_UNKNOWN', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+        let reconnectCallCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100001:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async (jid, content) => {
+                sendInvocationCount++;
+                // Simulate remote server acceptance followed immediately by socket termination before ACK frame
+                mockWs.isOpen = false;
+                const err = new Error('Connection Terminated (1006)');
+                err.code = 1006;
+                throw err;
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        const origConnect = BaileysConnectionManager.connect;
+
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+        BaileysConnectionManager.connect = async (id) => {
+            reconnectCallCount++;
+            return mockSocket;
+        };
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100001',
+                'Scenario A: socket drop after send',
+                { integrationId: testIntegrationId }
+            );
+
+            // Assert exactly one sendMessage invocation (zero duplicate retries)
+            assert.strictEqual(sendInvocationCount, 1, 'Exactly one sendMessage invocation; zero duplicate retries');
+            assert.strictEqual(reconnectCallCount, 0, 'No automatic reconnect triggered after write initiated');
+            assert.strictEqual(result.success, false, 'Dispatch result success must be false');
+            assert.strictEqual(result.deliveryStatus, 'DELIVERY_UNKNOWN', 'deliveryStatus must be DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, true, 'isDeliveryUnknown must be true');
+            assert.strictEqual(result.isAmbiguous, true, 'isAmbiguous must be true');
+            assert.ok(result.error.includes('ambiguous'), 'Error must note ambiguous delivery');
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+            BaileysConnectionManager.connect = origConnect;
+        }
+    });
+
+    it('28. Scenario B: ECONNRESET after first send invocation — suppresses retry and persists ambiguous state', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100002:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async (jid, content) => {
+                sendInvocationCount++;
+                mockWs.isOpen = false;
+                const err = new Error('read ECONNRESET');
+                err.code = 'ECONNRESET';
+                throw err;
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        await WhatsAppIntegration.create({
+            _id: testIntegrationId,
+            phoneNumberId: 'phone_test_scenario_b',
+            connectionType: 'QR_SCANNER',
+            name: 'Baileys Scenario B Line',
+            provider: 'BAILEYS',
+            status: 'ACTIVE',
+            isDefault: true,
+            phoneNumber: '+919876543210'
+        });
+
+        const idKey = 'idemp_econnreset_scenario_b';
+
+        try {
+            const result = await WhatsAppService.sendMessage(
+                '919811100002',
+                'Scenario B: ECONNRESET test',
+                { provider: 'BAILEYS', integrationId: testIntegrationId, idempotencyKey: idKey }
+            );
+
+            assert.strictEqual(sendInvocationCount, 1, 'Exactly one sendMessage invocation; zero retries on ECONNRESET');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, true);
+            assert.strictEqual(result.isAmbiguous, true);
+
+            // Assert ambiguous state is authoritatively persisted in the durable ledger
+            const savedRecord = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.ok(savedRecord, 'Durable dispatch record must exist in MongoDB');
+            assert.strictEqual(savedRecord.status, 'AMBIGUOUS_TIMEOUT', 'Durable status must be AMBIGUOUS_TIMEOUT');
+            assert.strictEqual(savedRecord.isAmbiguous, true, 'Durable isAmbiguous flag must be true');
+            assert.ok(savedRecord.errorDetails?.message?.includes('ECONNRESET') || savedRecord.errorDetails?.message?.includes('ambiguous'));
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('29. Scenario C: Timeout after first send invocation — suppresses retry and returns DELIVERY_UNKNOWN', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100003:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async (jid, content) => {
+                sendInvocationCount++;
+                // Hang without resolving to trigger sendTimeout
+                return new Promise((resolve) => setTimeout(resolve, 5000));
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100003',
+                'Scenario C: ACK timeout',
+                { integrationId: testIntegrationId },
+                { sendTimeoutMs: 50 }
+            );
+
+            assert.strictEqual(sendInvocationCount, 1, 'Exactly one sendMessage invocation; zero retries on timeout');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, true);
+            assert.strictEqual(result.isAmbiguous, true);
+            assert.ok(result.error.includes('timed out'));
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('30. Scenario D: Failure before first send invocation — verifies failure is not misclassified as ambiguous', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100004:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async (jid, content) => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_not_happen' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            // Pre-send hook throws before socket write is initiated
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100004',
+                'Scenario D: pre-write failure',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            throw new Error('PRE_FLIGHT_VALIDATION_ERROR: Token signature invalid');
+                        }
+                    }
+                }
+            );
+
+            // Assert socket write was NEVER invoked
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write was never invoked');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('PRE_FLIGHT_VALIDATION_ERROR'));
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('31. Scenario E: Lock loss after first write — treats as ambiguous and prevents duplicate send', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+
+        const abortController = new AbortController();
+        const lockContext = {
+            signal: abortController.signal,
+            isLockLost: () => false,
+            validateOwnership: async () => true
+        };
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100005:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async (jid, content) => {
+                sendInvocationCount++;
+                // Lock ownership lost after write was initiated
+                lockContext.isLockLost = () => true;
+                abortController.abort();
+                return new Promise(() => {}); // Wait so lockAbortPromise triggers
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100005',
+                'Scenario E: lock loss after write',
+                { integrationId: testIntegrationId },
+                {},
+                lockContext
+            );
+
+            assert.strictEqual(sendInvocationCount, 1, 'Exactly one sendMessage invocation; no duplicate send');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, true);
+            assert.strictEqual(result.isAmbiguous, true);
+            assert.ok(result.error.includes('DISTRIBUTED_LOCK_LOST'));
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('32. Scenario F: Durable idempotency — ambiguous dispatch cannot be automatically reclaimed without explicit authorized override', async () => {
+        const intId = testIntegrationId.toString();
+        const idKey = 'idemp_f_durable_ambiguity_gate';
+
+        // 1. Seed existing dispatch record in AMBIGUOUS_TIMEOUT
+        await WhatsAppDispatch.create({
+            idempotencyKey: idKey,
+            recipient: '919811100006',
+            messageType: 'text',
+            provider: 'BAILEYS',
+            status: 'AMBIGUOUS_TIMEOUT',
+            claimGeneration: 1,
+            isAmbiguous: true,
+            errorDetails: {
+                message: 'Socket disconnected after write',
+                isAmbiguous: true,
+                failedAt: new Date()
+            }
+        });
+
+        await WhatsAppIntegration.create({
+            _id: testIntegrationId,
+            phoneNumberId: 'phone_test_scenario_f',
+            connectionType: 'QR_SCANNER',
+            name: 'Baileys Scenario F Line',
+            provider: 'BAILEYS',
+            status: 'ACTIVE',
+            isDefault: true,
+            phoneNumber: '+919876543210'
+        });
+
+        // 2. Normal / automatic re-dispatch attempt MUST be blocked
+        const autoRetryResult = await WhatsAppService.sendMessage(
+            '919811100006',
+            'Automatic retry message',
+            { provider: 'BAILEYS', integrationId: testIntegrationId, idempotencyKey: idKey }
+        );
+
+        assert.strictEqual(autoRetryResult.success, false, 'Automatic retry must be blocked');
+        assert.strictEqual(autoRetryResult.code, 'AMBIGUOUS_TIMEOUT_BLOCKED', 'Error code must be AMBIGUOUS_TIMEOUT_BLOCKED');
+        assert.strictEqual(autoRetryResult.isAmbiguous, true, 'isAmbiguous must remain true');
+        assert.ok(autoRetryResult.error.includes('Automatic retry blocked'), 'Error message must explain automatic retry suppression');
+
+        // Verify database record remains in AMBIGUOUS_TIMEOUT
+        const unmutated = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+        assert.strictEqual(unmutated.status, 'AMBIGUOUS_TIMEOUT');
+        assert.strictEqual(unmutated.claimGeneration, 1);
+
+        // 3. Explicit authorized override (forceRetryAmbiguous: true) permits administrative reclaim
+        const overrideClaim = await WhatsAppService._claimOrGetDurableDispatch({
+            idempotencyKey: idKey,
+            mobile: '919811100006',
+            options: { forceRetryAmbiguous: true }
+        });
+
+        assert.strictEqual(overrideClaim.canDispatch, true, 'Authorized override must permit dispatch');
+        assert.strictEqual(overrideClaim.claimGeneration, 2, 'claimGeneration must increment to fence stale workers');
+
+        const reclaimed = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+        assert.strictEqual(reclaimed.status, 'CLAIMED', 'Status must transition to CLAIMED upon authorized override');
+        assert.strictEqual(reclaimed.claimGeneration, 2);
     });
 });
