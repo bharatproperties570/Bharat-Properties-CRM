@@ -21,7 +21,12 @@ import Inventory from '../models/Inventory.js';
 import Activity from '../models/Activity.js';
 import Conversation from '../models/Conversation.js';
 import Company from '../models/Company.js';
-import { previewMerge, executeMerge, rollbackMerge, verifyMergeRollbackAuthorization } from '../services/contactMerge.service.js';
+import {
+    previewMerge,
+    executeMerge,
+    rollbackMerge,
+    verifyMergeRollbackAuthorization
+} from '../services/contactMerge.service.js';
 
 describe('Phase 4 — Contact Merge Rollback HTTP Router Integration Suite', () => {
     let replset;
@@ -446,60 +451,113 @@ describe('Phase 4 — Contact Merge Rollback HTTP Router Integration Suite', () 
         });
     });
 
-    it('13. Untrusted System Caller: rollbackMerge rejects unauthorized or unprovenanced system callers', async () => {
+    it('13. Forged systemId: rollbackMerge rejects caller-supplied systemId string or unverified object', async () => {
         const { audit } = await setupTestMerge(creatorUser, creatorUser);
 
-        // Unknown systemId
+        // Caller attempts to supply systemId in options.systemCaller
         await assert.rejects(async () => {
             await rollbackMerge(audit.mergeOperationId, {
                 systemCaller: {
-                    systemId: 'MALICIOUS_BOT',
+                    systemId: 'CRM_SYSTEM_RECOVERY_RUNNER',
                     actorProvenance: 'bot@evil.com',
                     reason: 'bypass'
                 }
             });
         }, (err) => {
             assert.equal(err.statusCode, 403);
-            assert.ok(err.message.includes('Invalid or unverified system caller identity'));
+            assert.ok(err.message.includes('Caller-supplied systemId or arbitrary capabilities cannot authorize rollback'));
             return true;
         });
 
-        // Missing actorProvenance
+        // Caller attempts to supply systemId directly
         await assert.rejects(async () => {
             await rollbackMerge(audit.mergeOperationId, {
-                systemCaller: {
-                    systemId: 'CRM_SYSTEM_RECOVERY_RUNNER',
-                    actorProvenance: '',
-                    reason: 'recovery'
-                }
+                systemId: 'CRM_SYSTEM_RECOVERY_RUNNER'
             });
         }, (err) => {
             assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Caller-supplied systemId or arbitrary capabilities cannot authorize rollback'));
             return true;
         });
     });
 
-    it('14. Trusted System Caller: rollbackMerge succeeds with valid system identity & provenance and records audit trail', async () => {
+    it('14. Forged actorProvenance: rollbackMerge rejects forged actorProvenance without user context', async () => {
+        const { audit } = await setupTestMerge(creatorUser, creatorUser);
+
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId, {
+                systemCaller: {
+                    actorProvenance: 'lead-recovery-worker-inst-01',
+                    reason: 'reconciliation'
+                }
+            });
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Caller-supplied systemId or arbitrary capabilities cannot authorize rollback'));
+            return true;
+        });
+    });
+
+    it('15. Arbitrary object pretending to be a trusted capability: rollbackMerge rejects fake capabilities', async () => {
+        const { audit } = await setupTestMerge(creatorUser, creatorUser);
+
+        // Plain object pretending to be a capability
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId, {
+                trustedCapability: {
+                    isTrusted: true,
+                    systemId: 'TEST_RECOVERY_RUNNER',
+                    actorProvenance: 'forge-inst-01',
+                    reason: 'test'
+                }
+            });
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Caller-supplied systemId or arbitrary capabilities cannot authorize rollback'));
+            return true;
+        });
+
+        // Class instance pretending to be a capability
+        class FakeCapability {
+            constructor() {
+                this.systemId = 'CRM_SYSTEM_RECOVERY_RUNNER';
+                this.actorProvenance = 'hacker-script';
+                this.reason = 'exploit';
+            }
+        }
+
+        await assert.rejects(async () => {
+            await rollbackMerge(audit.mergeOperationId, {
+                trustedCapability: new FakeCapability()
+            });
+        }, (err) => {
+            assert.equal(err.statusCode, 403);
+            assert.ok(err.message.includes('Caller-supplied systemId or arbitrary capabilities cannot authorize rollback'));
+            return true;
+        });
+    });
+
+    it('16. Audit Provenance: Verified rollback audit records identify the actual authorized actor', async () => {
         const { duplicate, audit } = await setupTestMerge(creatorUser, creatorUser);
 
         const rolledBack = await rollbackMerge(audit.mergeOperationId, {
-            systemCaller: {
-                systemId: 'CRM_SYSTEM_RECOVERY_RUNNER',
-                actorProvenance: 'lead-recovery-worker-inst-01',
-                reason: 'Disaster recovery automated reconciliation'
-            }
+            user: adminUser
         });
 
         assert.equal(rolledBack.status, 'ROLLED_BACK');
         assert.equal(rolledBack.rollbackAvailable, false);
-        assert.ok(rolledBack.rolledBackBySystem);
-        assert.equal(rolledBack.rolledBackBySystem.systemId, 'CRM_SYSTEM_RECOVERY_RUNNER');
-        assert.equal(rolledBack.rolledBackBySystem.actorProvenance, 'lead-recovery-worker-inst-01');
-        assert.equal(rolledBack.rolledBackBySystem.reason, 'Disaster recovery automated reconciliation');
-        assert.ok(rolledBack.rolledBackBySystem.timestamp instanceof Date);
+        assert.ok(rolledBack.rolledBackBy);
+        assert.equal(rolledBack.rolledBackBy.toString(), adminUser._id.toString());
+        assert.ok(rolledBack.rolledBackAt instanceof Date);
 
         const restoredDup = await Contact.findById(duplicate._id);
         assert.equal(restoredDup.isMerged, false);
         assert.equal(restoredDup.isDeleted, false);
+
+        // Verify persisted audit in database
+        const persistedAudit = await MergeAudit.findById(audit._id);
+        assert.equal(persistedAudit.status, 'ROLLED_BACK');
+        assert.equal(persistedAudit.rolledBackBy.toString(), adminUser._id.toString());
+        assert.ok(persistedAudit.rolledBackAt instanceof Date);
     });
 });

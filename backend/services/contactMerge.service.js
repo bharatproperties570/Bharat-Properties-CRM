@@ -434,12 +434,6 @@ export async function verifyMergeRollbackAuthorization(audit, user, session = nu
     return { masterContact, duplicateContact };
 }
 
-export const TRUSTED_SYSTEM_CALLER_IDENTITIES = Object.freeze([
-    'CRM_SYSTEM_RECOVERY_RUNNER',
-    'AUTOMATED_DEDUPLICATION_ROLLBACK_SERVICE',
-    'TEST_RECOVERY_RUNNER'
-]);
-
 export const rollbackMerge = async (mergeOperationId, options = {}) => {
     return await withMongoTransaction(async (session) => {
         const audit = await MergeAudit.findOne({ mergeOperationId }).session(session);
@@ -455,26 +449,20 @@ export const rollbackMerge = async (mergeOperationId, options = {}) => {
         }
 
         // Atomic In-Session Caller Authorization & Identity Verification
+        // No untrusted caller may invoke rollback without authorization.
+        // As no production system caller exists, system-level bypass is disabled;
+        // authenticated user context with verified role and visibility is strictly mandatory.
         if (options.user) {
             await verifyMergeRollbackAuthorization(audit, options.user, session);
             audit.rolledBackBy = options.user._id || options.user.id;
             audit.rolledBackAt = new Date();
-        } else if (options.systemCaller) {
-            const { systemId, actorProvenance, reason } = options.systemCaller;
-            if (!systemId || !TRUSTED_SYSTEM_CALLER_IDENTITIES.includes(systemId) || !actorProvenance || !reason) {
-                const err = new Error('Forbidden: Invalid or unverified system caller identity for rollback');
-                err.statusCode = 403;
-                throw err;
-            }
-            audit.rolledBackBySystem = {
-                systemId,
-                actorProvenance,
-                reason,
-                timestamp: new Date()
-            };
-            audit.rolledBackAt = new Date();
+        } else if (options.trustedCapability || options.systemCaller || options.systemId) {
+            // Caller-supplied systemId strings, forged provenance, or arbitrary capability objects
+            const err = new Error('Forbidden: Caller-supplied systemId or arbitrary capabilities cannot authorize rollback. Authenticated user context is strictly required.');
+            err.statusCode = 403;
+            throw err;
         } else {
-            const err = new Error('Forbidden: Missing caller authorization context. rollbackMerge requires an authorized user or verified trusted-system context.');
+            const err = new Error('Forbidden: Missing caller authorization context. rollbackMerge requires an authorized user context.');
             err.statusCode = 403;
             throw err;
         }

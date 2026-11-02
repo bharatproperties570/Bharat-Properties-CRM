@@ -82,13 +82,13 @@ async function runTests() {
     console.log("Execute merge, MergeAudit creation, and reference rewiring PASSED");
     
     console.log("--- TEST 4: Rollback Merge ---");
-    const rolledBackAudit = await rollbackMerge(audit.mergeOperationId, {
-        systemCaller: {
-            systemId: 'TEST_RECOVERY_RUNNER',
-            actorProvenance: 'test_deduplication.js',
-            reason: 'manual test execution'
-        }
-    });
+    const testAdminUser = {
+        _id: new mongoose.Types.ObjectId(),
+        email: 'bharatproperties570@gmail.com',
+        dataScope: 'all',
+        role: { name: 'super admin' }
+    };
+    const rolledBackAudit = await rollbackMerge(audit.mergeOperationId, { user: testAdminUser });
     if (rolledBackAudit.status !== 'ROLLED_BACK') throw new Error('Test 4a failed');
     
     const rbMaster = await Contact.findById(c1._id);

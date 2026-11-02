@@ -20,13 +20,15 @@
    - Any connection matching the Atlas production fingerprint (`*.mongodb.net`, `7dehanz`, `atlas-145yac-shard-0`) is permanently classified as a **PRODUCTION CLUSTER**.
 
 2. **Controlled Runtime Operator Approval (No Static `.env` Bypass):**
-   - **Persistent `.env` values independently DO NOT authorize production index operations.**
-   - In addition to baseline flags (`ALLOW_PRODUCTION_MIGRATION=true` and `DBA_APPROVED_INDEX_MIGRATION=true`), execution (`--execute`) and rollback (`--rollback`) strictly require an explicit runtime confirmation token bound to:
+   - **Persistent `.env` values or shell profile environment variables strictly DO NOT authorize production index operations.**
+   - In addition to baseline flags (`ALLOW_PRODUCTION_MIGRATION=true` and `DBA_APPROVED_INDEX_MIGRATION=true`), execution (`--execute`) and rollback (`--rollback`) strictly require an explicit runtime confirmation token passed via CLI argument (`--confirm-dba-approval=...`) or programmatic options (`runtimeDbaConfirmation`), bound to:
      1. Exact migration name: `004-contact-phone-unique-index-migration`
      2. Exact operation: `EXECUTE` or `ROLLBACK`
      3. Exact target cluster: `production-atlas-7dehanz`
-   - Token format: `<migrationName>:<OPERATION>:<clusterId>`
-   - A stale or mismatched token (e.g. `EXECUTE` token provided on rollback, or approval for a different migration/cluster) causes an immediate fatal abort.
+     4. Current timestamp (epoch ms) with a maximum validity window of 5 minutes (`MAX_APPROVAL_TOKEN_AGE_MS = 300000`)
+     5. Cryptographic nonce (minimum 16 characters) ensuring single-use replay protection
+   - Token format: `<migrationName>:<OPERATION>:<clusterId>:<issuedAtEpochMs>:<nonce>`
+   - A stale, expired, replayed, or mismatched token causes an immediate fatal abort. Tokens stored in `.env` are completely ignored and rejected.
 
 3. **Safe Handling of Non-Production Clusters with Production Database Name:**
    - When connected to a local test host (`127.0.0.1`, `localhost`, `::1`) with database name `bharatproperties1`, the migration classifies the target as `NON_PROD_CLUSTER_WITH_PROD_DB_NAME`.
@@ -120,16 +122,18 @@ If `crossContactExactDuplicates > 0`:
 ---
 
 ### Step 3: Production Index Build Execution
-Once preflight is clean, execute with explicit runtime operator confirmation binding:
+Once preflight is clean, generate a single-use runtime approval token (valid for 5 minutes):
 
 ```bash
+# Generate single-use approval token
+OP_TOKEN=$(node -e 'console.log(`004-contact-phone-unique-index-migration:EXECUTE:production-atlas-7dehanz:${Date.now()}:${require("crypto").randomBytes(16).toString("hex")}`)')
+
+# Execute with explicit runtime token argument
 NODE_ENV=production \
 ALLOW_PRODUCTION_MIGRATION=true \
 DBA_APPROVED_INDEX_MIGRATION=true \
-DBA_CONFIRM_MIGRATION="004-contact-phone-unique-index-migration:EXECUTE:production-atlas-7dehanz" \
-node backend/migrations/004-contact-phone-unique-index-migration.js --execute
+node backend/migrations/004-contact-phone-unique-index-migration.js --execute --confirm-dba-approval="$OP_TOKEN"
 ```
-*(Alternatively pass `--confirm-dba-approval="004-contact-phone-unique-index-migration:EXECUTE:production-atlas-7dehanz"`)*
 
 **Automated Post-Build Verification Performed:**
 1. Confirms `contacts_phones_number_active_unique` exists in `collection.indexes()`.
@@ -141,14 +145,16 @@ node backend/migrations/004-contact-phone-unique-index-migration.js --execute
 ---
 
 ### Step 4: Emergency Rollback Procedure
-If production issues arise or index requires removal, execute with explicit rollback confirmation:
+If production issues arise or index requires removal, generate a rollback token and execute:
 
 ```bash
+# Generate single-use rollback token
+RB_TOKEN=$(node -e 'console.log(`004-contact-phone-unique-index-migration:ROLLBACK:production-atlas-7dehanz:${Date.now()}:${require("crypto").randomBytes(16).toString("hex")}`)')
+
 NODE_ENV=production \
 ALLOW_PRODUCTION_MIGRATION=true \
 DBA_APPROVED_INDEX_MIGRATION=true \
-DBA_CONFIRM_MIGRATION="004-contact-phone-unique-index-migration:ROLLBACK:production-atlas-7dehanz" \
-node backend/migrations/004-contact-phone-unique-index-migration.js --rollback
+node backend/migrations/004-contact-phone-unique-index-migration.js --rollback --confirm-dba-approval="$RB_TOKEN"
 ```
 
 **Verification:**

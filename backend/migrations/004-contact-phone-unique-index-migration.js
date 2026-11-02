@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,6 +29,35 @@ export const PRODUCTION_CLUSTER_FINGERPRINTS = Object.freeze([
 ]);
 
 export const PRODUCTION_CLUSTER_ID = 'production-atlas-7dehanz';
+
+// Runtime Approval Configuration & Anti-Replay Nonce Store
+export const MAX_APPROVAL_TOKEN_AGE_MS = 5 * 60 * 1000; // 5 minutes maximum token validity
+export const consumedApprovalNonces = new Set();
+
+/**
+ * Creates an explicit, bound runtime operator approval token.
+ * Contains migration name, target operation, cluster ID, issue timestamp, and a cryptographic nonce.
+ *
+ * @param {Object} [params]
+ * @param {string} [params.migration]
+ * @param {string} params.operation - 'EXECUTE' | 'ROLLBACK'
+ * @param {string} [params.clusterId]
+ * @param {number} [params.issuedAt]
+ * @param {string} [params.nonce]
+ * @returns {string}
+ */
+export function createRuntimeDbaApprovalToken({
+    migration = MIGRATION_NAME,
+    operation,
+    clusterId = PRODUCTION_CLUSTER_ID,
+    issuedAt = Date.now(),
+    nonce = crypto.randomBytes(16).toString('hex')
+} = {}) {
+    if (!operation || typeof operation !== 'string') {
+        throw new Error('Operation is required for approval token (EXECUTE or ROLLBACK)');
+    }
+    return `${migration}:${operation.toUpperCase()}:${clusterId}:${issuedAt}:${nonce}`;
+}
 
 /**
  * Sanitizes MongoDB URIs and host strings by removing credentials.
@@ -229,52 +259,91 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
         }
 
         // 2. Controlled Runtime Approval Token Check
-        // Persistent .env values cannot independently authorize a production migration
+        // Production approval must originate from an explicit operator interaction at execution time,
+        // strictly NOT from persistent .env or environment variables.
+        // process.env.DBA_CONFIRM_MIGRATION is intentionally REMOVED as an approval source.
         const runtimeToken = opts.runtimeDbaConfirmation ||
-                             (process.argv.find(arg => arg.startsWith('--confirm-dba-approval='))?.split('=')[1]) ||
-                             process.env.DBA_CONFIRM_MIGRATION;
+                             (process.argv.find(arg => arg.startsWith('--confirm-dba-approval='))?.split('=')[1]);
 
         if (!runtimeToken || typeof runtimeToken !== 'string' || runtimeToken.trim() === '') {
             throw new Error(
-                `[MIGRATION-004] FATAL: Persistent .env values cannot independently authorize a production migration. ` +
-                `Explicit runtime operator confirmation (DBA_CONFIRM_MIGRATION or --confirm-dba-approval) ` +
-                `binding migration name, operation, and cluster identity is strictly required.`
+                `[MIGRATION-004] FATAL: Production ${mode.toUpperCase()} requires explicit runtime operator approval ` +
+                `(--confirm-dba-approval or runtimeDbaConfirmation). ` +
+                `Persistent .env variables or shell environments cannot authorize production execution.`
             );
         }
 
-        const expectedToken = `${MIGRATION_NAME}:${mode.toUpperCase()}:${clusterInfo.clusterId}`;
         const parts = runtimeToken.trim().split(':');
 
-        if (parts.length !== 3) {
+        if (parts.length !== 5) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Malformed runtime approval token. Expected format: "<migrationName>:<OPERATION>:<clusterId>". Received: "${runtimeToken}".`
+                `[MIGRATION-004] FATAL: Malformed runtime approval token. Expected format: "<migrationName>:<OPERATION>:<clusterId>:<issuedAtEpochMs>:<nonce>". ` +
+                `Static or unversioned approval strings are strictly rejected.`
             );
         }
 
-        const [tokenMigration, tokenOp, tokenCluster] = parts;
+        const [tokenMigration, tokenOp, tokenCluster, tokenIssuedAtStr, tokenNonce] = parts;
 
         if (tokenMigration !== MIGRATION_NAME) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Mismatched migration approval. Expected approval for "${MIGRATION_NAME}", received approval for "${tokenMigration}".`
+                `[MIGRATION-004] FATAL: Mismatched migration approval. Expected approval for "${MIGRATION_NAME}".`
             );
         }
 
         if (tokenOp.toUpperCase() !== mode.toUpperCase()) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Stale or mismatched operation approval. Expected operation "${mode.toUpperCase()}", received approval for "${tokenOp.toUpperCase()}".`
+                `[MIGRATION-004] FATAL: Stale or mismatched operation approval. Expected operation "${mode.toUpperCase()}".`
             );
         }
 
         if (tokenCluster !== clusterInfo.clusterId) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Mismatched target cluster approval. Expected cluster "${clusterInfo.clusterId}", received approval for "${tokenCluster}".`
+                `[MIGRATION-004] FATAL: Mismatched target cluster approval. Expected cluster "${clusterInfo.clusterId}".`
             );
         }
+
+        // Expiry verification
+        const tokenIssuedAt = parseInt(tokenIssuedAtStr, 10);
+        if (isNaN(tokenIssuedAt)) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Malformed runtime approval token. Issued timestamp is invalid.`
+            );
+        }
+
+        const now = Date.now();
+        if (now - tokenIssuedAt > MAX_APPROVAL_TOKEN_AGE_MS) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Runtime approval token has expired. Tokens are valid for at most 5 minutes. Re-issue fresh approval.`
+            );
+        }
+
+        if (tokenIssuedAt - now > 60000) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Runtime approval token has invalid future timestamp.`
+            );
+        }
+
+        // Nonce entropy verification
+        if (!tokenNonce || tokenNonce.length < 16) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Runtime approval token nonce has insufficient entropy (minimum 16 characters required).`
+            );
+        }
+
+        // Replay prevention / Single-use consumption
+        if (consumedApprovalNonces.has(tokenNonce)) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Replay detected. Runtime approval token nonce has already been consumed. Approval tokens are strictly single-use.`
+            );
+        }
+        consumedApprovalNonces.add(tokenNonce);
 
         return {
             approved: true,
             approvalSource: 'RUNTIME_OPERATOR_TOKEN',
-            confirmedToken: expectedToken
+            confirmedOperation: mode.toUpperCase(),
+            clusterId: clusterInfo.clusterId,
+            issuedAt: tokenIssuedAt
         };
     }
 

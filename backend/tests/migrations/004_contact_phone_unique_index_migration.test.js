@@ -7,6 +7,9 @@ import {
     normalizePhoneForDeduplication,
     resolveClusterIdentity,
     verifyOperatorApproval,
+    createRuntimeDbaApprovalToken,
+    consumedApprovalNonces,
+    MAX_APPROVAL_TOKEN_AGE_MS,
     sanitizeMongoUri,
     runMigration,
     MIGRATION_NAME,
@@ -289,13 +292,37 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             await assert.rejects(async () => {
                 await runMigration({ mode: 'execute', connection: mockAtlasConn });
-            }, /Persistent \.env values cannot independently authorize a production migration/);
+            }, /Production EXECUTE requires explicit runtime operator approval/);
         } finally {
             if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
             if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
             else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
             if (prevConfirm) process.env.DBA_CONFIRM_MIGRATION = prevConfirm;
+        }
+    });
+
+    it('8b. Production Safety: Environment variable DBA_CONFIRM_MIGRATION cannot authorize production execution', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const prevConfirm = process.env.DBA_CONFIRM_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+            // Token set in process.env MUST be rejected/ignored
+            process.env.DBA_CONFIRM_MIGRATION = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
+
+            await assert.rejects(async () => {
+                await runMigration({ mode: 'execute', connection: mockAtlasConn });
+            }, /Production EXECUTE requires explicit runtime operator approval/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            if (prevConfirm) process.env.DBA_CONFIRM_MIGRATION = prevConfirm;
+            else delete process.env.DBA_CONFIRM_MIGRATION;
         }
     });
 
@@ -307,11 +334,16 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
+            const wrongMigrationToken = createRuntimeDbaApprovalToken({
+                migration: '003-leads-scoring-migration',
+                operation: 'EXECUTE'
+            });
+
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'execute',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: '003-leads-scoring-migration:EXECUTE:production-atlas-7dehanz'
+                    runtimeDbaConfirmation: wrongMigrationToken
                 });
             }, /Mismatched migration approval/);
         } finally {
@@ -331,20 +363,22 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
             // Passing ROLLBACK token when executing EXECUTE
+            const rollbackToken = createRuntimeDbaApprovalToken({ operation: 'ROLLBACK' });
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'execute',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: `${MIGRATION_NAME}:ROLLBACK:production-atlas-7dehanz`
+                    runtimeDbaConfirmation: rollbackToken
                 });
             }, /Stale or mismatched operation approval/);
 
             // Passing EXECUTE token when executing ROLLBACK
+            const executeToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'rollback',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: `${MIGRATION_NAME}:EXECUTE:production-atlas-7dehanz`
+                    runtimeDbaConfirmation: executeToken
                 });
             }, /Stale or mismatched operation approval/);
         } finally {
@@ -363,17 +397,119 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
+            const wrongClusterToken = createRuntimeDbaApprovalToken({
+                operation: 'EXECUTE',
+                clusterId: 'wrong-cluster-id'
+            });
+
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'execute',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: `${MIGRATION_NAME}:EXECUTE:wrong-cluster-id`
+                    runtimeDbaConfirmation: wrongClusterToken
                 });
             }, /Mismatched target cluster approval/);
         } finally {
             if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
             if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('11b. Production Safety: Rejects expired runtime approval token (> 5 minutes old)', () => {
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const expiredToken = createRuntimeDbaApprovalToken({
+                operation: 'EXECUTE',
+                issuedAt: Date.now() - (MAX_APPROVAL_TOKEN_AGE_MS + 10000)
+            });
+
+            assert.throws(() => {
+                verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: expiredToken });
+            }, /Runtime approval token has expired/);
+        } finally {
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('11c. Production Safety: Rejects replayed runtime approval token (single-use consumption enforcement)', () => {
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const singleUseToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
+
+            // First consumption: passes
+            const firstPass = verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: singleUseToken });
+            assert.equal(firstPass.approved, true);
+
+            // Replay with identical nonce: strictly rejected
+            assert.throws(() => {
+                verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: singleUseToken });
+            }, /Replay detected\. Runtime approval token nonce has already been consumed/);
+        } finally {
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('11d. Production Safety: Rejects legacy static 3-part strings as runtime approval', () => {
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const staticString = `${MIGRATION_NAME}:EXECUTE:${PRODUCTION_CLUSTER_ID}`;
+            assert.throws(() => {
+                verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: staticString });
+            }, /Malformed runtime approval token.*Static or unversioned approval strings are strictly rejected/);
+        } finally {
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
             else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
         }
     });
@@ -480,19 +616,21 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
-            const executeToken = `${MIGRATION_NAME}:EXECUTE:${PRODUCTION_CLUSTER_ID}`;
+            const executeToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
             const approvalExecute = verifyOperatorApproval('execute', clusterInfo, {
                 runtimeDbaConfirmation: executeToken
             });
             assert.equal(approvalExecute.approved, true);
-            assert.equal(approvalExecute.confirmedToken, executeToken);
+            assert.equal(approvalExecute.confirmedOperation, 'EXECUTE');
+            assert.equal(approvalExecute.clusterId, PRODUCTION_CLUSTER_ID);
 
-            const rollbackToken = `${MIGRATION_NAME}:ROLLBACK:${PRODUCTION_CLUSTER_ID}`;
+            const rollbackToken = createRuntimeDbaApprovalToken({ operation: 'ROLLBACK' });
             const approvalRollback = verifyOperatorApproval('rollback', clusterInfo, {
                 runtimeDbaConfirmation: rollbackToken
             });
             assert.equal(approvalRollback.approved, true);
-            assert.equal(approvalRollback.confirmedToken, rollbackToken);
+            assert.equal(approvalRollback.confirmedOperation, 'ROLLBACK');
+            assert.equal(approvalRollback.clusterId, PRODUCTION_CLUSTER_ID);
         } finally {
             if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
