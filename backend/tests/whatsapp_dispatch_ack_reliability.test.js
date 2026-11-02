@@ -1604,4 +1604,289 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
             BaileysConnectionManager.getSocket = origGetSocket;
         }
     });
+
+    it('37. Boundary Lock Hardening: Lock is lost while asynchronous pre-send hook is awaiting — zero socket writes, returns FAILED', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+        let lockLost = false;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100011:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_not_send' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const lockContext = {
+            isLockLost: () => lockLost,
+            validateOwnership: async () => !lockLost
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100011',
+                'Lock lost during pre-send hook test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            await new Promise((r) => setTimeout(r, 15));
+                            // Lock lost during asynchronous hook execution
+                            lockLost = true;
+                        }
+                    }
+                },
+                lockContext
+            );
+
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked when lock is lost during hook');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('DISTRIBUTED_LOCK_LOST'), `Error must indicate lock loss, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('38. Boundary Lock Hardening: AbortSignal becomes aborted during the pre-send hook — zero socket writes, returns FAILED', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+        const abortController = new AbortController();
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100012:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_not_send' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const lockContext = {
+            signal: abortController.signal,
+            isLockLost: () => false,
+            validateOwnership: async () => true
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100012',
+                'AbortSignal aborted during hook test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            await new Promise((r) => setTimeout(r, 15));
+                            // Abort triggered during hook execution
+                            abortController.abort();
+                        }
+                    }
+                },
+                lockContext
+            );
+
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked when AbortSignal aborts during hook');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('DISTRIBUTED_LOCK_LOST'), `Error must indicate lock lost/aborted, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('39. Boundary Lock Hardening: Ownership validation returns true initially but false after hook completion — zero socket writes', async () => {
+        const intId = testIntegrationId.toString();
+        let sendInvocationCount = 0;
+        let ownershipValid = true;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100013:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_should_not_send' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const lockContext = {
+            isLockLost: () => false,
+            validateOwnership: async () => ownershipValid
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100013',
+                'Ownership expired after hook test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            await new Promise((r) => setTimeout(r, 15));
+                            // Lease expires while hook runs
+                            ownershipValid = false;
+                        }
+                    }
+                },
+                lockContext
+            );
+
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked when ownership expires during hook');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('DISTRIBUTED_LOCK_LOST'), `Error must indicate lock ownership expiration, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
+
+    it('40. Boundary Lock Hardening: Pre-write reconnect succeeds but ownership is lost during the second hook — zero socket writes', async () => {
+        const intId = testIntegrationId.toString();
+        let hookCallCount = 0;
+        let sendInvocationCount = 0;
+        let connectInvocationCount = 0;
+        let ownershipValid = true;
+
+        const initialMockSocket = {
+            user: { id: '919811100014:1@s.whatsapp.net' },
+            ws: { isOpen: false, isConnecting: false },
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_initial' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const reconnectedMockSocket = {
+            user: { id: '919811100014:1@s.whatsapp.net' },
+            ws: { isOpen: true, isConnecting: false },
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_reconnect' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const lockContext = {
+            isLockLost: () => !ownershipValid,
+            validateOwnership: async () => ownershipValid
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        const origConnect = BaileysConnectionManager.connect;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? initialMockSocket : null);
+        BaileysConnectionManager.connect = async (id) => {
+            connectInvocationCount++;
+            return reconnectedMockSocket;
+        };
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100014',
+                'Ownership lost during second hook test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            hookCallCount++;
+                            if (hookCallCount === 2) {
+                                // Ownership lost during second hook execution on reconnected socket
+                                ownershipValid = false;
+                            }
+                        }
+                    }
+                },
+                lockContext
+            );
+
+            assert.strictEqual(connectInvocationCount, 1, 'Reconnect must be attempted for dead socket');
+            assert.strictEqual(hookCallCount, 2, 'Hook must run twice: initial validation + revalidation after reconnect');
+            assert.strictEqual(sendInvocationCount, 0, 'Socket write must never be invoked when ownership is lost on reconnected hook');
+            assert.strictEqual(result.success, false);
+            assert.strictEqual(result.deliveryStatus, 'FAILED', 'Must be classified as FAILED, not DELIVERY_UNKNOWN');
+            assert.strictEqual(result.isDeliveryUnknown, false, 'isDeliveryUnknown must be false');
+            assert.strictEqual(result.isAmbiguous, false, 'isAmbiguous must be false');
+            assert.ok(result.error.includes('DISTRIBUTED_LOCK_LOST'), `Error must indicate lock ownership expiration on retry, got: ${result.error}`);
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+            BaileysConnectionManager.connect = origConnect;
+        }
+    });
+
+    it('41. Boundary Lock Hardening: Normal successful hook and ownership validation permit exactly one socket write', async () => {
+        const intId = testIntegrationId.toString();
+        let hookCallCount = 0;
+        let sendInvocationCount = 0;
+
+        const mockWs = { isOpen: true, isConnecting: false };
+        const mockSocket = {
+            user: { id: '919811100015:1@s.whatsapp.net' },
+            ws: mockWs,
+            sendMessage: async () => {
+                sendInvocationCount++;
+                return { key: { id: 'msg_success_test_41' } };
+            },
+            sendPresenceUpdate: async () => {},
+            waitForSocketOpen: async () => {}
+        };
+
+        const lockContext = {
+            isLockLost: () => false,
+            validateOwnership: async () => true
+        };
+
+        const origGetSocket = BaileysConnectionManager.getSocket;
+        BaileysConnectionManager.getSocket = (id) => (String(id) === intId ? mockSocket : null);
+
+        try {
+            const result = await WhatsAppService._executeSendViaBaileys(
+                '919811100015',
+                'Happy path hook and ownership validation test',
+                { integrationId: testIntegrationId },
+                {
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            hookCallCount++;
+                        }
+                    }
+                },
+                lockContext
+            );
+
+            assert.strictEqual(hookCallCount, 1, 'Hook must be executed exactly once');
+            assert.strictEqual(sendInvocationCount, 1, 'Socket write must be executed exactly once');
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.deliveryStatus, 'ACCEPTED');
+            assert.strictEqual(result.messageId, 'msg_success_test_41');
+        } finally {
+            BaileysConnectionManager.getSocket = origGetSocket;
+        }
+    });
 });

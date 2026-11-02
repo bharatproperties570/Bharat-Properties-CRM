@@ -2453,13 +2453,22 @@ class WhatsAppService {
                     }, { once: true });
                 }
             });
+            // Prevent unhandledRejection if dispatch returns before lockAbortPromise is raced
+            lockAbortPromise.catch(() => {});
 
             // 🛡️ Enterprise Pre-Send Validation (Isolated from socket reconnect/retry error handling)
             const validatePreSendConditions = async (targetSock) => {
+                // 1. Initial lock and ownership validation
                 if (lockContext?.isLockLost?.()) {
                     return {
                         allowed: false,
                         error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost immediately prior to socket write'
+                    };
+                }
+                if (lockContext?.signal?.aborted) {
+                    return {
+                        allowed: false,
+                        error: 'DISTRIBUTED_LOCK_LOST: Outbound lock aborted immediately prior to socket write'
                     };
                 }
 
@@ -2480,6 +2489,7 @@ class WhatsAppService {
                     }
                 }
 
+                // 2. Pre-send hook execution
                 if (options.hooks?.beforeSocketSend) {
                     try {
                         await options.hooks.beforeSocketSend({ sock: targetSock, jid, content, lockContext });
@@ -2488,6 +2498,37 @@ class WhatsAppService {
                         return {
                             allowed: false,
                             error: hookErr?.message || String(hookErr)
+                        };
+                    }
+                }
+
+                // 3. Authoritative post-hook lock and ownership revalidation
+                if (lockContext?.isLockLost?.()) {
+                    return {
+                        allowed: false,
+                        error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost during pre-send hook execution'
+                    };
+                }
+                if (lockContext?.signal?.aborted) {
+                    return {
+                        allowed: false,
+                        error: 'DISTRIBUTED_LOCK_LOST: Outbound lock aborted during pre-send hook execution'
+                    };
+                }
+
+                if (lockContext?.validateOwnership) {
+                    try {
+                        const isOwnerPostHook = await lockContext.validateOwnership();
+                        if (!isOwnerPostHook) {
+                            return {
+                                allowed: false,
+                                error: 'DISTRIBUTED_LOCK_LOST: Outbound lock ownership expired during pre-send hook execution'
+                            };
+                        }
+                    } catch (lockErr) {
+                        return {
+                            allowed: false,
+                            error: `DISTRIBUTED_LOCK_LOST: Lock ownership revalidation failed after hook: ${lockErr.message}`
                         };
                     }
                 }
@@ -2562,7 +2603,46 @@ class WhatsAppService {
                 }
             }
 
-            // 3. Isolated socket-write initiation callback
+            // 3. Immediate lock checks prior to socket write initiation
+            if (lockContext?.isLockLost?.() || lockContext?.signal?.aborted) {
+                return {
+                    success: false,
+                    deliveryStatus: 'FAILED',
+                    isDeliveryUnknown: false,
+                    isAmbiguous: false,
+                    error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost or aborted immediately prior to socket write initiation',
+                    provider: 'baileys',
+                    latencyMs: Date.now() - sendStartTime
+                };
+            }
+            if (lockContext?.validateOwnership) {
+                try {
+                    const isOwner = await lockContext.validateOwnership();
+                    if (!isOwner) {
+                        return {
+                            success: false,
+                            deliveryStatus: 'FAILED',
+                            isDeliveryUnknown: false,
+                            isAmbiguous: false,
+                            error: 'DISTRIBUTED_LOCK_LOST: Outbound lock ownership expired immediately prior to socket write initiation',
+                            provider: 'baileys',
+                            latencyMs: Date.now() - sendStartTime
+                        };
+                    }
+                } catch (lockErr) {
+                    return {
+                        success: false,
+                        deliveryStatus: 'FAILED',
+                        isDeliveryUnknown: false,
+                        isAmbiguous: false,
+                        error: `DISTRIBUTED_LOCK_LOST: Lock ownership verification failed immediately prior to socket write: ${lockErr.message}`,
+                        provider: 'baileys',
+                        latencyMs: Date.now() - sendStartTime
+                    };
+                }
+            }
+
+            // 4. Isolated socket-write initiation callback
             if (typeof options.onSocketWriteInitiated === 'function') {
                 try {
                     options.onSocketWriteInitiated();
@@ -2580,7 +2660,20 @@ class WhatsAppService {
                 }
             }
 
-            // 4. Explicit socket write boundary: flag write initiation and execute sock.sendMessage
+            // Final lock verification immediately prior to actual socket write invocation
+            if (lockContext?.isLockLost?.() || lockContext?.signal?.aborted) {
+                return {
+                    success: false,
+                    deliveryStatus: 'FAILED',
+                    isDeliveryUnknown: false,
+                    isAmbiguous: false,
+                    error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost or aborted immediately prior to socket write',
+                    provider: 'baileys',
+                    latencyMs: Date.now() - sendStartTime
+                };
+            }
+
+            // 5. Explicit socket write boundary: flag write initiation and execute sock.sendMessage
             socketWriteInitiated = true;
 
             try {
