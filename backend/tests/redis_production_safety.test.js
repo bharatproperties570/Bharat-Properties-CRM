@@ -356,6 +356,7 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
                     workerResolve = resolve;
                     workerReject = reject;
                 });
+                workerCompletedPromise.catch(() => {});
 
                 let queue;
                 let worker;
@@ -385,11 +386,26 @@ describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Produ
                     const job = await queue.add('testJob', testPayload, { jobId: uniqueJobId });
                     assert.strictEqual(job.id, uniqueJobId);
 
-                    // Await actual Worker 'completed' event with bounded timeout
-                    const completedData = await Promise.race([
-                        workerCompletedPromise,
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for BullMQ Worker completed event')), 10000))
-                    ]);
+                    // Await actual Worker 'completed' event with named bounded timeout wrapped in try/finally
+                    let completionTimer = null;
+                    let completedData;
+                    try {
+                        const timeoutPromise = new Promise((_, reject) => {
+                            completionTimer = setTimeout(() => {
+                                reject(new Error('Timed out waiting for BullMQ Worker completed event'));
+                            }, 10000);
+                        });
+
+                        completedData = await Promise.race([
+                            workerCompletedPromise,
+                            timeoutPromise
+                        ]);
+                    } finally {
+                        if (completionTimer !== null) {
+                            clearTimeout(completionTimer);
+                            completionTimer = null;
+                        }
+                    }
 
                     // Verify completed event attributes
                     assert.strictEqual(completedData.job.id, uniqueJobId, 'Completed event must contain unique test job ID');
