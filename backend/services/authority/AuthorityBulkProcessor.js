@@ -35,6 +35,16 @@ import User from '../../models/User.js';
 import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
 import { executeFixturePipeline } from './adapterRegistry.js';
 import { HSVP_SYNTHETIC, CHD_SYNTHETIC, GMADA_SYNTHETIC } from './fixtures/syntheticPhase3AFixtures.js';
+import {
+    createAuthorityPortalRuntime,
+    defaultPortalDistributedLock,
+    defaultPortalQuotaProvider,
+    defaultPortalCircuitBreaker,
+    portalHttpTransport,
+    PORTAL_PARSERS,
+    defaultPortalAuditSink,
+    matchAuthorityInventory
+} from './portal/index.js';
 
 // Mandatory operational audit logging helper (Phase 4.4 - Finding F-03)
 // Critical business/security audit records must NOT be silently swallowed.
@@ -1425,22 +1435,27 @@ export class AuthorityBulkProcessor {
 
         // 3. Execution boundary: Live vs Fixture
         if (!isFixtureMode) {
-            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                item._id,
-                tenantId,
-                effectiveWorkerId,
-                {
-                    status: 'FAILED',
-                    errorMessage: 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.',
-                    processedAt: new Date(),
-                    isSynthetic: false,
-                    provenance: 'LIVE'
+            const setting = await AuthoritySourceSettings.getForTenant(tenantId, item.authorityCode);
+            if (!setting || !setting.isEffectivelyActive()) {
+                const blockers = setting ? setting.checkActivationEligibility().blockers : ['Settings not configured for this authority'];
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: `Live authority verification is not authorized. Blockers: ${blockers.join('; ')}`,
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
                 }
-            );
-            if (!finalized) {
-                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                return { success: false, reason: 'SOURCE_NOT_AUTHORIZED', blockers };
             }
-            return { success: false, reason: 'LIVE_DISABLED' };
         }
 
         // 4. Concurrency Protection & Orphan Recovery:
@@ -2078,48 +2093,221 @@ export class AuthorityBulkProcessor {
             }
         }
 
-        // 5. Fixture pipeline execution
-        const rawFixture = getSyntheticFixtureForLink(auth, link, inventory);
-        if (!rawFixture) {
-            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                item._id,
-                tenantId,
-                effectiveWorkerId,
-                {
-                    status: 'NO_MATCH',
-                    matchStatus: 'NO_MATCH',
-                    errorMessage: `No fixture available for authority ${item.authorityCode} with current identity`,
-                    processedAt: new Date(),
-                    isSynthetic: Boolean(isFixtureMode),
-                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
-                }
-            );
-            if (!finalized) {
-                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
-            }
-            return { success: false, reason: 'NO_FIXTURE' };
-        }
+        // 5. Verification pipeline execution (Fixture vs Live)
+        let candidate = null;
 
-        const candidate = executeFixturePipeline(item.authorityCode, rawFixture, inventory);
-
-        if (candidate.status === 'REJECTED_QUALITY') {
-            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                item._id,
-                tenantId,
-                effectiveWorkerId,
-                {
-                    status: 'FAILED',
-                    matchStatus: 'NOT_ATTEMPTED',
-                    errorMessage: `Quality rejection: ${(candidate.errors || []).join('; ')}`,
-                    processedAt: new Date(),
-                    isSynthetic: Boolean(isFixtureMode),
-                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
+        if (isFixtureMode) {
+            const rawFixture = getSyntheticFixtureForLink(auth, link, inventory);
+            if (!rawFixture) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'NO_MATCH',
+                        matchStatus: 'NO_MATCH',
+                        errorMessage: `No fixture available for authority ${item.authorityCode} with current identity`,
+                        processedAt: new Date(),
+                        isSynthetic: true,
+                        provenance: 'SYNTHETIC_FIXTURE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
                 }
-            );
-            if (!finalized) {
-                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                return { success: false, reason: 'NO_FIXTURE' };
             }
-            return { success: false, reason: 'QUALITY_REJECTED' };
+
+            candidate = executeFixturePipeline(item.authorityCode, rawFixture, inventory);
+
+            if (candidate.status === 'REJECTED_QUALITY') {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: `Quality rejection: ${(candidate.errors || []).join('; ')}`,
+                        processedAt: new Date(),
+                        isSynthetic: true,
+                        provenance: 'SYNTHETIC_FIXTURE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'QUALITY_REJECTED' };
+            }
+        } else {
+            // Live Government Portal Verification Execution (Phase 4.4.4 - Finding P0.1)
+            const setting = await AuthoritySourceSettings.getForTenant(tenantId, item.authorityCode);
+            const approval = {
+                authorityCode: item.authorityCode,
+                status: setting.permissionStatus,
+                accessMethod: setting.approvedAccessMethod,
+                writtenPermissionReference: setting.approvalReference || setting.permissionArtifactUri || setting.secureEvidenceId,
+                commercialUseAuthorized: setting.commercialUseAuthorized,
+                readOnlySearchAuthorized: setting.readOnlySearchAuthorized,
+                termsReviewed: setting.termsReviewed,
+                termsReference: setting.termsReference,
+                approvedBy: setting.approvedBy ? String(setting.approvedBy) : 'system',
+                reviewedBy: setting.reviewedBy ? String(setting.reviewedBy) : 'system',
+                expiresAt: setting.approvalExpiryDate,
+                permittedFields: setting.permittedFields,
+                ratePolicy: {
+                    maxRequestsPerMinute: setting.ratePolicy?.maxRequestsPerMinute,
+                    maxRequestsPerDay: setting.ratePolicy?.maxRequestsPerDay,
+                    minimumIntervalMs: setting.ratePolicy?.cooldownSeconds ? setting.ratePolicy.cooldownSeconds * 1000 : (setting.ratePolicy?.minimumIntervalMs || setting.ratePolicy?.minIntervalMs || 15000),
+                    maxConcurrentRequests: setting.ratePolicy?.maxConcurrent || 1,
+                    policyReference: setting.ratePolicy?.policySource || 'TERMS'
+                }
+            };
+
+            const portalRuntime = createAuthorityPortalRuntime({
+                lockProvider: defaultPortalDistributedLock,
+                quotaProvider: defaultPortalQuotaProvider,
+                circuitBreakerStore: defaultPortalCircuitBreaker,
+                transport: portalHttpTransport,
+                parserRegistry: PORTAL_PARSERS,
+                auditSink: defaultPortalAuditSink,
+                gateConfig: {
+                    enabled: true,
+                    readOnly: true,
+                    requireWrittenPermission: true,
+                    requireCommercialUsePermission: true,
+                    requireApprovedFieldScope: true,
+                    requireApprovedRatePolicy: true,
+                    maxConcurrentRequests: 1
+                }
+            });
+
+            let portalResult;
+            try {
+                portalResult = await portalRuntime.search({
+                    authorityCode: item.authorityCode,
+                    inventory,
+                    authorityLink: link,
+                    approval,
+                    tenantId,
+                    actorId: item.requestedBy,
+                    runId: item.runId,
+                    runItemId: item._id
+                });
+            } catch (runtimeErr) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: `Portal search error: ${runtimeErr.message}`,
+                        errorDetails: { code: runtimeErr.code, details: runtimeErr.details },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: runtimeErr.code || 'PORTAL_RUNTIME_ERROR', error: runtimeErr.message };
+            }
+
+            if (!portalResult || portalResult.recordCount === 0 || !portalResult.records || portalResult.records.length === 0) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'NO_MATCH',
+                        matchStatus: 'NO_MATCH',
+                        errorMessage: `No matching authority record returned by ${item.authorityCode} portal.`,
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'NO_RECORDS_FOUND' };
+            }
+
+            const matchingRecords = [];
+            for (const rec of portalResult.records) {
+                const matchRes = matchAuthorityInventory(item.authorityCode, inventory, link, rec);
+                if (matchRes.matches) {
+                    matchingRecords.push(rec);
+                }
+            }
+
+            if (matchingRecords.length === 0) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'NO_MATCH',
+                        matchStatus: 'REJECTED_IDENTITY_MISMATCH',
+                        errorMessage: 'Authority record returned but identity coordinates did not match.',
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'IDENTITY_MISMATCH' };
+            }
+
+            if (matchingRecords.length > 1) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'AMBIGUOUS',
+                        errorMessage: `Ambiguous match: multiple authority records (${matchingRecords.length}) matched coordinates.`,
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'AMBIGUOUS_MATCH' };
+            }
+
+            const matchedRecord = matchingRecords[0];
+            const liveProposedChanges = [];
+            for (const [field, newVal] of Object.entries(matchedRecord)) {
+                if (BLOCKED_UPDATE_FIELDS.has(field)) continue;
+                if (!ALLOWED_UPDATE_FIELDS.has(field)) continue;
+                const currentVal = inventory.authorityVerification ? inventory.authorityVerification[field] : undefined;
+                if (newVal !== undefined && newVal !== null && newVal !== currentVal) {
+                    liveProposedChanges.push({
+                        field,
+                        currentValue: currentVal !== undefined ? currentVal : null,
+                        proposedValue: newVal,
+                        changeType: currentVal !== undefined ? 'UPDATE' : 'CREATE'
+                    });
+                }
+            }
+
+            candidate = {
+                status: 'READY_FOR_REVIEW',
+                normalizedRecord: matchedRecord,
+                contentHash: portalResult.contentHash,
+                sourceReferenceUrl: `https://${portalResult.sourceHost}`,
+                proposedChanges: liveProposedChanges,
+                matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' },
+                compositeKey: link.compositeKey ? { key: link.compositeKey } : null
+            };
         }
 
         // In-flight hook prior to snapshot persistence for testing deterministic races
@@ -2148,7 +2336,9 @@ export class AuthorityBulkProcessor {
             linkId: link._id,
             runItemId: item._id,
             createdByWorkerId: effectiveWorkerId || null,
-            sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
+            sourceReferenceUrl: isFixtureMode
+                ? `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`
+                : (candidate.sourceReferenceUrl || `https://${item.authorityCode.toLowerCase()}.authority.internal`),
             observedAt: new Date(),
             isSynthetic: Boolean(isFixtureMode),
             provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',

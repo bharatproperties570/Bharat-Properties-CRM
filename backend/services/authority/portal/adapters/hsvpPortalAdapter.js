@@ -47,8 +47,9 @@ export const HSVP_URBAN_ESTATE_MAP = Object.freeze({
 export function resolveHsvpUrbanEstateCode(value) {
     if (!value) return '';
     const trimmed = String(value).trim();
-    if (/^UE\d{3}$/i.test(trimmed)) {
-        return trimmed.toUpperCase();
+    const uePrefixMatch = trimmed.match(/^(UE\d{3})/i);
+    if (uePrefixMatch) {
+        return uePrefixMatch[1].toUpperCase();
     }
     const normalized = trimmed.toLowerCase();
     return HSVP_URBAN_ESTATE_MAP[normalized] || '';

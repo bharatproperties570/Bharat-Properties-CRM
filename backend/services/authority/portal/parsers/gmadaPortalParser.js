@@ -59,6 +59,8 @@ const FIELD_MAPPINGS = Object.freeze({
     'sector': 'sectorNumber',
     'sectors': 'sectorNumber',
     'sector name': 'sectorNumber',
+    'sector/scheme': 'sectorNumber',
+    'sector / scheme': 'sectorNumber',
     'property no': 'propertyId',
     'property number': 'propertyId',
     'plot no': 'propertyId',

@@ -5,6 +5,8 @@ import {
     getSourceSettings,
     getSourceSettingByCode,
     updateSourceSettings,
+    submitSourceApproval,
+    reviewSourceApproval,
     getLinksForInventory,
     createOrUpdateLink,
     createVerificationRun,
@@ -43,6 +45,18 @@ router.patch('/settings/:authorityCode',
     checkPermission('authorityVerification', 'edit'),
     checkApprovalRight('manageAuthoritySettings'),
     updateSourceSettings
+);
+// Submit authority-specific authorization evidence for review
+router.post('/settings/:authorityCode/submit-approval',
+    checkPermission('authorityVerification', 'edit'),
+    checkApprovalRight('manageAuthoritySettings'),
+    submitSourceApproval
+);
+// Review authority authorization (independent maker-checker)
+router.post('/settings/:authorityCode/review-approval',
+    checkPermission('authorityVerification', 'edit'),
+    checkApprovalRight('manageAuthoritySettings'),
+    reviewSourceApproval
 );
 
 // ============================================================

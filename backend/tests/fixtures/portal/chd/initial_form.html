@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>Chandigarh Administration - Know Your Property</title></head>
+<body>
+    <form action="/KnowYourProperty/Search" method="post">
+        <input type="hidden" name="__RequestVerificationToken" value="chd_token_abc123xyz789" />
+        <input type="text" id="PropertyNumber" name="PropertyNumber" placeholder="Property Number" />
+        <select id="Sector" name="Sector">
+            <option value="">--Select Sector--</option>
+            <option value="Sector 9">Sector 9</option>
+            <option value="Sector 17">Sector 17</option>
+        </select>
+        <select id="FileType1" name="FileType1">
+            <option value="">--Select File Type--</option>
+            <option value="Commercial">Commercial</option>
+            <option value="Residential">Residential</option>
+        </select>
+        <input type="text" id="FileNumber1" name="FileNumber1" placeholder="File Number" />
+        <button type="submit" name="btnShow" value="Show">Show Details</button>
+    </form>
+</body>
+</html>

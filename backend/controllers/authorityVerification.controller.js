@@ -142,8 +142,12 @@ export const updateSourceSettings = async (req, res) => {
             'permissionStatus', 'policyVersion', 'approvedAccessMethod',
             'permittedFields', 'approvalReference', 'approvalDate',
             'approvalExpiryDate', 'reviewStatus', 'ratePolicy',
-            'isEnabled', 'isPaused', 'schedulingEnabled', 'scheduleCron',
-            'identityRequirements'
+            'isEnabled', 'isPaused', 'schedulingEnabled', 'scheduleCron', 'scheduleTimezone',
+            'identityRequirements', 'permissionArtifactUri', 'secureEvidenceId',
+            'issuedBy', 'authorityRole', 'authorizationScope',
+            'commercialUseAuthorized', 'readOnlySearchAuthorized',
+            'termsReviewed', 'termsReference', 'retentionPolicy',
+            'userReportedEvidence'
         ]);
 
         const changes = {};
@@ -161,40 +165,52 @@ export const updateSourceSettings = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No valid fields to update' });
         }
 
-        // Phase 3 Server-Side Activation Lock:
-        // Sources remain strictly offline and fixture-only. Live authority activation,
-        // approval granting, and scheduling are prohibited until a future phase authorizes live integration.
+        // Phase 3 & 4 Server-Side Activation Lock:
+        // Ordinary settings updates cannot self-grant written permission or approve authorizations.
+        // Live authority activation, approvals, and scheduling require complete verified evidence
+        // and independent maker-checker review via the approval lifecycle.
         const activationBlockers = [];
-        if (changes.isEnabled === true) {
-            activationBlockers.push('isEnabled cannot be set to true: live authority fetching is prohibited in Phase 3');
+        if (changes.isEnabled === true && !setting.isEffectivelyActive()) {
+            activationBlockers.push('isEnabled cannot be set to true: source fails activation requirements or written permission has not been granted');
         }
-        if (changes.schedulingEnabled === true) {
-            activationBlockers.push('schedulingEnabled cannot be set to true: background authority scheduling is prohibited in Phase 3');
+        if (changes.schedulingEnabled === true && !setting.isEffectivelyActive()) {
+            activationBlockers.push('schedulingEnabled cannot be set to true: source fails activation requirements or background authority scheduling is not authorized');
         }
         if (changes.reviewStatus === 'APPROVED') {
-            activationBlockers.push('reviewStatus cannot be set to APPROVED via settings update: requires independent maker-checker review');
+            activationBlockers.push('reviewStatus cannot be set to APPROVED via ordinary settings update: requires independent maker-checker review via /review-approval');
         }
         if (changes.permissionStatus === 'GRANTED') {
-            activationBlockers.push('permissionStatus cannot be set to GRANTED: requires formal written authorization and MoU from authority');
+            activationBlockers.push('permissionStatus cannot be set to GRANTED via ordinary settings update: requires formal written authorization and MoU from authority');
         }
 
         if (activationBlockers.length > 0) {
             return res.status(422).json({
                 success: false,
                 code: 'ACTIVATION_LOCKED_PHASE3',
-                message: 'Source activation is locked: Live authority integrations and approvals are prohibited during Phase 3.',
+                message: 'Source activation is locked: Live authority integrations and approvals require independent maker-checker review.',
                 blockers: activationBlockers
             });
         }
 
+        // If userReportedEvidence is submitted, ensure it remains UNVERIFIED/PENDING_WRITTEN_REFERENCE
+        if (changes.userReportedEvidence) {
+            changes.userReportedEvidence = {
+                ...changes.userReportedEvidence,
+                reportedAt: new Date(),
+                verificationStatus: changes.userReportedEvidence.verificationStatus === 'VALIDATED'
+                    ? 'PENDING_WRITTEN_REFERENCE'
+                    : (changes.userReportedEvidence.verificationStatus || 'UNVERIFIED')
+            };
+        }
+
         // If enabling, enforce activation gate
         if (changes.isEnabled === true) {
-            // Apply other changes first to check eligibility
             Object.assign(setting, changes);
             const check = setting.checkActivationEligibility();
             if (!check.canActivate) {
                 return res.status(422).json({
                     success: false,
+                    code: 'ACTIVATION_LOCKED_PHASE3',
                     message: 'Cannot enable source — activation requirements not met',
                     blockers: check.blockers
                 });
@@ -231,6 +247,225 @@ export const updateSourceSettings = async (req, res) => {
     } catch (error) {
         console.error('updateSourceSettings error:', error);
         res.status(500).json({ success: false, message: 'Failed to update source settings' });
+    }
+};
+
+/**
+ * POST /api/authority/settings/:authorityCode/submit-approval
+ * Submits an authority-specific authorization record for independent review.
+ * Permission: authorityVerification admin (approvalRights.manageAuthoritySettings)
+ */
+export const submitSourceApproval = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { authorityCode } = req.params;
+        if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const setting = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!setting) {
+            return res.status(404).json({ success: false, message: 'Settings not found' });
+        }
+
+        const {
+            approvalReference,
+            permissionArtifactUri,
+            secureEvidenceId,
+            issuedBy,
+            authorityRole,
+            authorizationScope,
+            approvalDate,
+            approvalExpiryDate,
+            permittedFields,
+            ratePolicy,
+            commercialUseAuthorized,
+            readOnlySearchAuthorized,
+            termsReviewed,
+            termsReference,
+            identityRequirements
+        } = req.body;
+
+        if (!approvalReference && !permissionArtifactUri && !secureEvidenceId) {
+            return res.status(400).json({
+                success: false,
+                code: 'APPROVAL_EVIDENCE_MISSING',
+                message: 'Approval reference, artifact URI, or secure evidence ID is required.'
+            });
+        }
+
+        // Apply proposed authorization evidence
+        setting.permissionStatus = 'PENDING_REVIEW';
+        setting.reviewStatus = 'UNDER_REVIEW';
+        setting.submittedBy = req.user._id;
+        setting.submittedAt = new Date();
+        setting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+
+        if (approvalReference) setting.approvalReference = String(approvalReference).trim();
+        if (permissionArtifactUri) setting.permissionArtifactUri = String(permissionArtifactUri).trim();
+        if (secureEvidenceId) setting.secureEvidenceId = String(secureEvidenceId).trim();
+        if (issuedBy) setting.issuedBy = String(issuedBy).trim();
+        if (authorityRole) setting.authorityRole = String(authorityRole).trim();
+        if (authorizationScope) setting.authorizationScope = String(authorizationScope).trim();
+        if (approvalDate) setting.approvalDate = new Date(approvalDate);
+        if (approvalExpiryDate) setting.approvalExpiryDate = new Date(approvalExpiryDate);
+
+        if (Array.isArray(permittedFields)) {
+            setting.permittedFields = permittedFields.map(f => String(f).trim());
+        }
+
+        if (ratePolicy && typeof ratePolicy === 'object') {
+            setting.ratePolicy = {
+                ...setting.ratePolicy.toObject(),
+                maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
+                maxRequestsPerHour: Number(ratePolicy.maxRequestsPerHour) || null,
+                maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
+                minIntervalMs: Number(ratePolicy.minIntervalMs || ratePolicy.minimumIntervalMs) || null,
+                minimumIntervalMs: Number(ratePolicy.minimumIntervalMs || ratePolicy.minIntervalMs) || null,
+                maxConcurrent: Number(ratePolicy.maxConcurrent) || 1,
+                policySource: ratePolicy.policySource || ratePolicy.policyReference || null
+            };
+        }
+
+        setting.commercialUseAuthorized = Boolean(commercialUseAuthorized);
+        setting.readOnlySearchAuthorized = Boolean(readOnlySearchAuthorized);
+        setting.termsReviewed = Boolean(termsReviewed);
+        if (termsReference) setting.termsReference = String(termsReference).trim();
+
+        if (identityRequirements && typeof identityRequirements === 'object') {
+            setting.identityRequirements = {
+                ...setting.identityRequirements.toObject(),
+                ...identityRequirements
+            };
+        }
+
+        await setting.save();
+
+        await auditEvent(
+            'authority_source_approval_submitted',
+            req.user._id,
+            'authority_settings',
+            setting._id,
+            `Authority source authorization submitted for ${authorityCode}`,
+            {
+                authorityCode,
+                submittedBy: req.user._id,
+                approvalReference: setting.approvalReference,
+                approvalExpiryDate: setting.approvalExpiryDate
+            }
+        );
+
+        res.json({
+            success: true,
+            message: `Authorization evidence submitted for ${authorityCode}. Awaiting independent maker-checker review.`,
+            data: {
+                ...setting.toObject(),
+                activationCheck: setting.checkActivationEligibility(),
+                effectivelyActive: setting.isEffectivelyActive()
+            }
+        });
+    } catch (error) {
+        console.error('submitSourceApproval error:', error);
+        res.status(500).json({ success: false, message: 'Failed to submit source approval' });
+    }
+};
+
+/**
+ * POST /api/authority/settings/:authorityCode/review-approval
+ * Reviews and approves or rejects an authority-specific authorization record.
+ * Permission: authorityVerification admin (approvalRights.manageAuthoritySettings)
+ * Enforces strict independent maker-checker: submitter cannot self-approve.
+ */
+export const reviewSourceApproval = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { authorityCode } = req.params;
+        if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const setting = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!setting) {
+            return res.status(404).json({ success: false, message: 'Settings not found' });
+        }
+
+        const { decision, notes } = req.body;
+        if (!['APPROVED', 'REJECTED'].includes(decision)) {
+            return res.status(400).json({ success: false, message: 'Decision must be either APPROVED or REJECTED' });
+        }
+
+        // Strict independent maker-checker separation:
+        // The actor who submitted the approval cannot approve it.
+        const reviewerId = String(req.user._id);
+        const submitterId = setting.submittedBy ? String(setting.submittedBy) : null;
+        if (submitterId && submitterId === reviewerId) {
+            return res.status(403).json({
+                success: false,
+                code: 'MAKER_CHECKER_VIOLATION',
+                message: 'Independent maker-checker review violation: submitter cannot self-approve source authorization.'
+            });
+        }
+
+        if (decision === 'APPROVED') {
+            setting.permissionStatus = 'GRANTED';
+            setting.reviewStatus = 'APPROVED';
+            setting.approvedBy = req.user._id;
+            setting.approvedAt = new Date();
+            setting.reviewedBy = req.user._id;
+            setting.reviewedAt = new Date();
+            setting.identityRequirements.verified = true;
+
+            // Check eligibility before persisting approved state
+            const check = setting.checkActivationEligibility();
+            if (!check.canActivate) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'APPROVAL_CRITERIA_UNMET',
+                    message: 'Cannot approve authorization: approval criteria unmet',
+                    blockers: check.blockers
+                });
+            }
+        } else {
+            setting.permissionStatus = 'NOT_OBTAINED';
+            setting.reviewStatus = 'REJECTED';
+            setting.reviewedBy = req.user._id;
+            setting.reviewedAt = new Date();
+            setting.isEnabled = false;
+            setting.schedulingEnabled = false;
+        }
+
+        await setting.save();
+
+        await auditEvent(
+            'authority_source_approval_reviewed',
+            req.user._id,
+            'authority_settings',
+            setting._id,
+            `Authority source authorization ${decision} for ${authorityCode}`,
+            {
+                authorityCode,
+                decision,
+                reviewedBy: req.user._id,
+                notes: notes || null
+            }
+        );
+
+        res.json({
+            success: true,
+            message: `Authorization ${decision} for ${authorityCode}`,
+            data: {
+                ...setting.toObject(),
+                activationCheck: setting.checkActivationEligibility(),
+                effectivelyActive: setting.isEffectivelyActive()
+            }
+        });
+    } catch (error) {
+        console.error('reviewSourceApproval error:', error);
+        res.status(500).json({ success: false, message: 'Failed to review source approval' });
     }
 };
 

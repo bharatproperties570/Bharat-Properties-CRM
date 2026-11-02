@@ -258,4 +258,95 @@ describe('AuthorityVerificationPanel Frontend Component', () => {
             expect(screen.getByText(/SHA-256: c3d4e5f6a1b27890/i)).toBeInTheDocument();
         });
     });
+
+    it('supports mode switching and disables live verification with warning banner when authority is unapproved', async () => {
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+
+        // Mode buttons exist
+        const demoModeBtn = screen.getByRole('button', { name: /Demonstration Fixture Mode/i });
+        const liveModeBtn = screen.getByRole('button', { name: /Live Government Portal Mode/i });
+        expect(demoModeBtn).toBeInTheDocument();
+        expect(liveModeBtn).toBeInTheDocument();
+
+        // Switch to Live Mode
+        fireEvent.click(liveModeBtn);
+
+        // Warning banner appears indicating live access is blocked
+        await waitFor(() => {
+            expect(screen.getByText(/LIVE PORTAL ACCESS INACTIVE:/i)).toBeInTheDocument();
+            expect(screen.getByText(/Permission Status:/i)).toBeInTheDocument();
+            expect(screen.getByText(/NOT_OBTAINED/i)).toBeInTheDocument();
+        });
+
+        // Live button is rendered but disabled
+        const liveVerifyBtn = screen.getByRole('button', { name: /Verify Record \(Live\)/i });
+        expect(liveVerifyBtn).toBeInTheDocument();
+        expect(liveVerifyBtn).toBeDisabled();
+    });
+
+    it('displays live review badge and executes live run with isFixtureMode=false when authorized', async () => {
+        authorityAPI.getSettingByCode = vi.fn().mockResolvedValue({
+            success: true,
+            data: {
+                authorityCode: 'HSVP',
+                isEnabled: true,
+                effectivelyActive: true,
+                permissionStatus: 'GRANTED',
+                reviewStatus: 'APPROVED'
+            }
+        });
+
+        authorityAPI.createRun.mockResolvedValue({
+            success: true,
+            data: { _id: 'run-live-1', authorityCode: 'HSVP', status: 'CREATED', isFixtureMode: false }
+        });
+
+        authorityAPI.processRun.mockResolvedValue({
+            success: true,
+            data: { status: 'COMPLETED' }
+        });
+
+        authorityAPI.getRunById.mockResolvedValue({
+            success: true,
+            data: {
+                run: { _id: 'run-live-1', status: 'COMPLETED' },
+                items: [{
+                    _id: 'item-live-1',
+                    status: 'SUCCEEDED',
+                    matchStatus: 'EXACT_MATCH',
+                    reviewerDecision: 'PENDING',
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    proposedChanges: [
+                        { field: 'authorityVerification.allotmentStatus', currentValue: 'PENDING', proposedValue: 'ALLOTTED', changeType: 'UPDATE' }
+                    ]
+                }]
+            }
+        });
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+
+        // Switch to Live Mode
+        const liveModeBtn = screen.getByRole('button', { name: /Live Government Portal Mode/i });
+        fireEvent.click(liveModeBtn);
+
+        await waitFor(() => {
+            const liveVerifyBtn = screen.getByRole('button', { name: /Verify Record \(Live\)/i });
+            expect(liveVerifyBtn).not.toBeDisabled();
+        });
+
+        const liveVerifyBtn = screen.getByRole('button', { name: /Verify Record \(Live\)/i });
+        fireEvent.click(liveVerifyBtn);
+
+        await waitFor(() => {
+            expect(authorityAPI.createRun).toHaveBeenCalledWith(expect.objectContaining({
+                isFixtureMode: false,
+                authorityCode: 'HSVP'
+            }));
+            expect(authorityAPI.processRun).toHaveBeenCalledWith('run-live-1', expect.objectContaining({
+                isFixtureMode: false
+            }));
+            expect(screen.getByText(/\[LIVE RECORD - REVIEW REQUIRED\]/i)).toBeInTheDocument();
+        });
+    });
 });

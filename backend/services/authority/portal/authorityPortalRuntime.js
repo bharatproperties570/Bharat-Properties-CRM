@@ -95,24 +95,44 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
 
     assertRequiredPorts({ lockProvider, quotaProvider, circuitBreakerStore, transport, parserRegistry, auditSink });
 
-    async function writeAudit(eventType, authorityCode, searchKey, metadata = {}) {
+    async function writeAudit(eventType, authorityCode, searchKey, metadata = {}, correlation = {}) {
         // Audit persistence is mandatory; failure blocks the operation.
         await auditSink.write({
             eventType,
             authorityCode,
             searchKey,
+            tenantId: correlation.tenantId || null,
+            actorId: correlation.actorId || null,
+            runId: correlation.runId || null,
+            runItemId: correlation.runItemId || null,
             metadata: Object.freeze({ ...metadata }),
             occurredAt: clock()
         });
     }
 
-    async function pauseSource(authorityCode, reason, searchKey) {
-        await circuitBreakerStore.pause({ authorityCode, reason, at: clock() });
-        await writeAudit('AUTHORITY_PORTAL_SOURCE_PAUSED', authorityCode, searchKey, { reason });
+    async function pauseSource(authorityCode, reason, searchKey, correlation = {}) {
+        await circuitBreakerStore.pause({
+            authorityCode,
+            tenantId: correlation.tenantId || null,
+            reason,
+            at: clock()
+        });
+        await writeAudit('AUTHORITY_PORTAL_SOURCE_PAUSED', authorityCode, searchKey, { reason }, correlation);
     }
 
     return Object.freeze({
-        async search({ authorityCode, inventory = {}, authorityLink = {}, overrides = {}, approval } = {}) {
+        async search({
+            authorityCode,
+            inventory = {},
+            authorityLink = {},
+            overrides = {},
+            approval,
+            tenantId = null,
+            actorId = null,
+            runId = null,
+            runItemId = null
+        } = {}) {
+            const correlation = { tenantId, actorId, runId, runItemId };
             const code = String(authorityCode || '').trim().toUpperCase();
             const definition = getAuthorityPortalDefinition(code);
             const host = getTrustedHost(code, definition);
@@ -130,7 +150,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
             }
 
             const searchKey = createAuthorityPortalSearchKey({ authorityCode: code, criteria: mapped.criteria });
-            const sourcePaused = await circuitBreakerStore.isPaused(code);
+            const sourcePaused = await circuitBreakerStore.isPaused(code, tenantId);
 
             // Both gates execute before lock/quota/transport; public visibility is not enough.
             assertAuthorityPortalAutomationAllowed({
@@ -158,7 +178,8 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
 
             const lease = await lockProvider.acquire({
                 key: `authority-portal:${code}`,
-                searchKey
+                searchKey,
+                tenantId: correlation.tenantId
             });
             if (!lease || lease.acquired !== true || typeof lease.release !== 'function') {
                 throw makeError('PORTAL_SOURCE_BUSY', 'Another worker owns this source or a distributed lock could not be acquired.', {
@@ -170,6 +191,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 const reservation = await quotaProvider.reserve({
                     authorityCode: code,
                     searchKey,
+                    tenantId: correlation.tenantId,
                     policy: approval.ratePolicy,
                     at: clock()
                 });
@@ -183,7 +205,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     searchMode: mapped.searchMode,
                     host,
                     quotaReservationId: reservation.reservationId || null
-                });
+                }, correlation);
 
                 let response;
                 try {
@@ -197,7 +219,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 } catch (transportError) {
                     await writeAudit('AUTHORITY_PORTAL_TRANSPORT_FAILED', code, searchKey, {
                         errorCode: transportError?.code || 'TRANSPORT_ERROR'
-                    });
+                    }, correlation);
                     throw transportError;
                 }
 
@@ -210,12 +232,12 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     });
                 } catch (guardError) {
                     if (guardError.details?.pauseSource === true) {
-                        await pauseSource(code, guardError.details.reason || guardError.code, searchKey);
+                        await pauseSource(code, guardError.details.reason || guardError.code, searchKey, correlation);
                     }
                     await writeAudit('AUTHORITY_PORTAL_RESPONSE_REJECTED', code, searchKey, {
                         errorCode: guardError.code || 'RESPONSE_REJECTED',
                         status: guardError.details?.status || null
-                    });
+                    }, correlation);
                     throw guardError;
                 }
 
@@ -230,7 +252,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 } catch (parseError) {
                     await writeAudit('AUTHORITY_PORTAL_PARSE_FAILED', code, searchKey, {
                         errorCode: parseError?.code || 'PARSER_ERROR'
-                    });
+                    }, correlation);
                     throw makeError('PORTAL_PARSE_FAILED', 'Verified portal parser failed; no record was persisted.', {
                         authorityCode: code
                     });
@@ -265,7 +287,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     recordCount: records.length,
                     contentHash,
                     parserVersion: parser.version || null
-                });
+                }, correlation);
 
                 return result;
             } catch (error) {

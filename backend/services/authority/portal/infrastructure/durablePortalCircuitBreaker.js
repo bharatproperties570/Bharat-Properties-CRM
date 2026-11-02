@@ -1,16 +1,24 @@
 /**
  * Durable Portal Circuit Breaker Store
  *
- * Persists and checks pause states for authority sources.
+ * Persists and checks pause states for authority sources with explicit tenant scoping.
  * Pauses automatically upon 403, 429, CAPTCHA, login walls, or manual kill switch.
+ * Fails closed in production if MongoDB is unavailable.
  */
 
 import mongoose from 'mongoose';
 import AuthoritySourceSettings from '../../../../models/AuthoritySourceSettings.js';
 
 export class DurablePortalCircuitBreaker {
-    constructor() {
+    constructor(options = {}) {
+        const isRunningInTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST) || process.argv.some(arg => String(arg).includes('test'));
+        this.testMode = options.testMode ?? isRunningInTest;
+        this.allowInMemoryFallback = Boolean(options.allowInMemoryFallback ?? this.testMode);
+        if (process.env.NODE_ENV === 'production') {
+            this.allowInMemoryFallback = false;
+        }
         this._localPauseState = new Map();
+        this._globalKillSwitches = new Map();
     }
 
     /**
@@ -22,12 +30,21 @@ export class DurablePortalCircuitBreaker {
     async isPaused(authorityCode, tenantId = null) {
         const code = String(authorityCode || '').trim().toUpperCase();
 
-        // 1. Check local in-memory pause state first
+        // 1. Check global kill switch
+        if (this._globalKillSwitches.get(code)?.killed === true) {
+            return true;
+        }
+
+        // 2. Check local in-memory pause state
+        const scopeKey = tenantId ? `${code}:${tenantId}` : code;
+        if (this._localPauseState.get(scopeKey)?.paused === true) {
+            return true;
+        }
         if (this._localPauseState.get(code)?.paused === true) {
             return true;
         }
 
-        // 2. Check database settings only if MongoDB connection is active
+        // 3. Check durable database state
         if (mongoose.connection?.readyState === 1) {
             try {
                 if (tenantId) {
@@ -37,9 +54,15 @@ export class DurablePortalCircuitBreaker {
                     const settings = await AuthoritySourceSettings.findOne({ authorityCode: code, isPaused: true });
                     if (settings) return true;
                 }
-            } catch {
-                // DB check error falls back to local state
+            } catch (err) {
+                if (!this.allowInMemoryFallback) {
+                    // Fail closed on DB error in production
+                    return true;
+                }
             }
+        } else if (!this.allowInMemoryFallback) {
+            // Fail closed in production when MongoDB disconnected
+            return true;
         }
 
         return false;
@@ -47,7 +70,7 @@ export class DurablePortalCircuitBreaker {
 
     /**
      * Pauses an authority source durably.
-     * Supports both pause(code, reason, metadata) and pause({ authorityCode, reason, at })
+     * Scoped to { authorityCode, tenantId } unless global kill switch is explicitly intended.
      * @param {string|object} firstArg
      * @param {string} [reasonArg]
      * @param {object} [metadataArg]
@@ -56,20 +79,25 @@ export class DurablePortalCircuitBreaker {
     async pause(firstArg, reasonArg, metadataArg = {}) {
         let code = '';
         let reason = '';
+        let tenantId = null;
         let metadata = {};
 
         if (firstArg && typeof firstArg === 'object') {
             code = String(firstArg.authorityCode || '').trim().toUpperCase();
+            tenantId = firstArg.tenantId || null;
             reason = firstArg.reason || '';
             metadata = firstArg.metadata || firstArg;
         } else {
             code = String(firstArg || '').trim().toUpperCase();
             reason = reasonArg || '';
             metadata = metadataArg || {};
+            tenantId = metadata.tenantId || null;
         }
 
-        this._localPauseState.set(code, {
+        const scopeKey = tenantId ? `${code}:${tenantId}` : code;
+        this._localPauseState.set(scopeKey, {
             paused: true,
+            tenantId,
             reason,
             metadata,
             pausedAt: new Date()
@@ -77,33 +105,91 @@ export class DurablePortalCircuitBreaker {
 
         if (mongoose.connection?.readyState === 1) {
             try {
+                const filter = { authorityCode: code };
+                if (tenantId) filter.tenantId = tenantId;
+
                 await AuthoritySourceSettings.updateMany(
-                    { authorityCode: code },
+                    filter,
                     { $set: { isPaused: true } }
                 );
-            } catch {
-                // Database update error should not block circuit breaker trip
+            } catch (dbErr) {
+                if (!this.allowInMemoryFallback) {
+                    const err = new Error(`CIRCUIT_BREAKER_PERSISTENCE_FAILED: Failed to record pause: ${dbErr.message}`);
+                    err.code = 'CIRCUIT_BREAKER_PERSISTENCE_FAILED';
+                    err.cause = dbErr;
+                    throw err;
+                }
             }
+        } else if (!this.allowInMemoryFallback) {
+            const err = new Error('CIRCUIT_BREAKER_PERSISTENCE_FAILED: MongoDB is disconnected; cannot persist durable pause.');
+            err.code = 'CIRCUIT_BREAKER_PERSISTENCE_FAILED';
+            throw err;
         }
     }
 
     /**
-     * Resumes an authority source.
+     * Explicit global authority kill switch (distinct from tenant-level pause).
      * @param {string} authorityCode
+     * @param {boolean} isKilled
+     * @param {string} [reason]
+     */
+    setGlobalKillSwitch(authorityCode, isKilled, reason = '') {
+        const code = String(authorityCode || '').trim().toUpperCase();
+        this._globalKillSwitches.set(code, {
+            killed: Boolean(isKilled),
+            reason,
+            updatedAt: new Date()
+        });
+    }
+
+    /**
+     * Convenience helper to trip the global kill switch for an authority.
+     * @param {string} authorityCode
+     * @param {string} [reason]
+     */
+    tripGlobalKillSwitch(authorityCode, reason = '') {
+        return this.setGlobalKillSwitch(authorityCode, true, reason);
+    }
+
+    /**
+     * Resumes an authority source for a specific tenant or globally.
+     * @param {string|object} firstArg
+     * @param {string} [tenantIdArg]
      * @returns {Promise<void>}
      */
-    async resume(authorityCode) {
-        const code = String(authorityCode || '').trim().toUpperCase();
-        this._localPauseState.set(code, { paused: false });
+    async resume(firstArg, tenantIdArg = null) {
+        let code = '';
+        let tenantId = tenantIdArg;
+
+        if (firstArg && typeof firstArg === 'object') {
+            code = String(firstArg.authorityCode || '').trim().toUpperCase();
+            tenantId = firstArg.tenantId || tenantId;
+        } else {
+            code = String(firstArg || '').trim().toUpperCase();
+        }
+
+        const scopeKey = tenantId ? `${code}:${tenantId}` : code;
+        this._localPauseState.set(scopeKey, { paused: false });
+        if (!tenantId) {
+            this._localPauseState.set(code, { paused: false });
+            this._globalKillSwitches.set(code, { killed: false });
+        }
 
         if (mongoose.connection?.readyState === 1) {
             try {
+                const filter = { authorityCode: code };
+                if (tenantId) filter.tenantId = tenantId;
+
                 await AuthoritySourceSettings.updateMany(
-                    { authorityCode: code },
+                    filter,
                     { $set: { isPaused: false } }
                 );
-            } catch {
-                // Ignore DB error
+            } catch (dbErr) {
+                if (!this.allowInMemoryFallback) {
+                    const err = new Error(`CIRCUIT_BREAKER_RESUME_FAILED: Failed to resume source in DB: ${dbErr.message}`);
+                    err.code = 'CIRCUIT_BREAKER_RESUME_FAILED';
+                    throw err;
+                }
             }
         }
     }
@@ -111,6 +197,7 @@ export class DurablePortalCircuitBreaker {
     /** Reset state (for tests) */
     reset() {
         this._localPauseState.clear();
+        this._globalKillSwitches.clear();
     }
 }
 

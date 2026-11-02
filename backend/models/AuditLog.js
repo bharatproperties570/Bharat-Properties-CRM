@@ -161,6 +161,8 @@ const AuditLogSchema = new mongoose.Schema({
 
             // Authority Verification Events
             'authority_settings_updated',
+            'authority_source_approval_submitted',
+            'authority_source_approval_reviewed',
             'authority_link_created',
             'authority_run_created',
             'authority_run_policy_rejected',
@@ -173,7 +175,13 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_changes_applied',
             'authority_changes_apply_compensated',
             'authority_orphan_snapshot_purged',
-            'authority_orphan_cleanup_failed'
+            'authority_orphan_cleanup_failed',
+            'authority_portal_search_requested',
+            'authority_portal_search_completed',
+            'authority_portal_transport_failed',
+            'authority_portal_response_rejected',
+            'authority_portal_parse_failed',
+            'authority_portal_source_paused'
         ],
         index: true
     },
@@ -199,7 +207,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId

@@ -6,7 +6,7 @@
 
 import { createHash } from 'node:crypto';
 
-export const FORBIDDEN_AUTHORITY_PERSONAL_FIELD = /(?:owner|allottee|applicant|father|husband|aadhaar|\bpan\b|pan_?no|pan_?card|phone|mobile|email|postal.?address|correspondence.?address|contact|date.?of.?birth)/i;
+export const FORBIDDEN_AUTHORITY_PERSONAL_FIELD = /(?:owner|allottee|applicant|father|husband|aadhaar|\bpan\b|pan_?no|pan_?card|phone|mobile|email|postal.?address|correspondence.?address|residential.?address|\baddress\b|contact|date.?of.?birth)/i;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/;
 const MAX_FIELD_TEXT_LENGTH = 1000;
 

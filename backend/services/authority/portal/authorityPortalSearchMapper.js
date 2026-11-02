@@ -105,8 +105,8 @@ export function buildAuthorityPortalSearchInput({
     overrides = {}
 } = {}) {
     const definition = getAuthorityPortalDefinition(authorityCode);
-    const sector = firstText(authorityLink.sectorNumber, inventory.sector);
-    const propertyNumber = firstText(authorityLink.propertyId, inventory.unitNo, inventory.unitNumber);
+    const sector = firstText(authorityLink.sectorNumber, inventory.sector, inventory.sectorNumber);
+    const propertyNumber = firstText(authorityLink.propertyId, inventory.propertyId, inventory.unitNo, inventory.unitNumber);
 
     if (definition.authorityCode === 'HSVP') {
         return result('HSVP', 'URBAN_ESTATE_SECTOR_PLOT', {

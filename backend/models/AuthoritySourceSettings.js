@@ -16,6 +16,7 @@ const AUTHORITY_CODES = ['HSVP', 'CHD', 'GMADA'];
 const PERMISSION_STATUSES = [
     'NOT_OBTAINED',      // No permission requested or granted
     'REQUESTED',         // Formal request submitted
+    'PENDING_REVIEW',    // User evidence or request submitted, awaiting review
     'GRANTED',           // Written permission obtained
     'EXPIRED',           // Previously granted but expired
     'REVOKED',           // Previously granted but revoked
@@ -23,11 +24,12 @@ const PERMISSION_STATUSES = [
 ];
 
 const ACCESS_METHODS = [
-    'NONE',              // No approved method
-    'PUBLIC_API',        // Official public API
-    'AUTHORIZED_PORTAL', // Authorized portal access with credentials
-    'DATA_SHARING_MOU',  // Formal data-sharing agreement
-    'RTI_RESPONSE'       // Information obtained via RTI
+    'NONE',                                 // No approved method
+    'PUBLIC_API',                           // Official public API
+    'AUTHORIZED_PORTAL',                    // Authorized portal access with credentials
+    'DATA_SHARING_MOU',                     // Formal data-sharing agreement
+    'RTI_RESPONSE',                         // Information obtained via RTI
+    'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION'   // Phase 4.4.4 verified public portal automation
 ];
 
 const AuthoritySourceSettingsSchema = new mongoose.Schema({
@@ -68,10 +70,50 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         default: []  // Which canonical fields this source is authorized to provide
     },
 
-    // ========== Approval Evidence ==========
+    // ========== Approval Evidence & Phase 4.4.4 Authorization Lifecycle ==========
     approvalReference: {
         type: String,
         default: null  // e.g. 'Letter ref: HSVP/IT/2024/1234'
+    },
+    permissionArtifactUri: {
+        type: String,
+        default: null  // URI or reference to official written authorization document
+    },
+    secureEvidenceId: {
+        type: String,
+        default: null  // SHA-256 or secure evidence vault identifier
+    },
+    issuedBy: {
+        type: String,
+        default: null  // Official department or authority signatory name
+    },
+    authorityRole: {
+        type: String,
+        default: null  // Official role/designation of the authority signatory
+    },
+    authorizationScope: {
+        type: String,
+        default: null  // Explicit scope of authorized use
+    },
+    commercialUseAuthorized: {
+        type: Boolean,
+        default: false // Whether commercial CRM processing is authorized
+    },
+    readOnlySearchAuthorized: {
+        type: Boolean,
+        default: false // Whether automated read-only lookup is explicitly authorized
+    },
+    termsReviewed: {
+        type: Boolean,
+        default: false // Whether current terms and conditions have been formally reviewed
+    },
+    termsReference: {
+        type: String,
+        default: null  // Document reference or URL of reviewed terms
+    },
+    retentionPolicy: {
+        maxCacheHours: { type: Number, default: 24 },
+        purgePersonalDataImmediately: { type: Boolean, default: true }
     },
     approvalDate: {
         type: Date,
@@ -85,6 +127,24 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         type: String,
         enum: ['NOT_REVIEWED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'EXPIRED'],
         default: 'NOT_REVIEWED'
+    },
+    submittedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    submittedAt: {
+        type: Date,
+        default: null
+    },
+    approvedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    approvedAt: {
+        type: Date,
+        default: null
     },
     reviewedBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -116,6 +176,8 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         maxRequestsPerMinute: { type: Number, default: null },
         maxRequestsPerHour: { type: Number, default: null },
         maxRequestsPerDay: { type: Number, default: null },
+        minIntervalMs: { type: Number, default: null },
+        minimumIntervalMs: { type: Number, default: null },
         maxConcurrent: { type: Number, default: null },
         cooldownSeconds: { type: Number, default: null },
         policySource: { type: String, default: null }  // Reference to authority's rate policy document
@@ -181,13 +243,17 @@ AuthoritySourceSettingsSchema.index(
     { unique: true }  // One settings doc per authority per tenant
 );
 
-// ========== Phase 3 Server-Side Activation Lock ==========
-// Sources remain strictly offline and fixture-only. Prevent persisting approved or active state in this phase.
+// ========== Server-Side Activation Lock & Gate (Phase 4.4.4 Lifecycle) ==========
+// Sources remain strictly offline and fixture-only until complete, independently verified Phase 4.4.4 approval records exist.
 AuthoritySourceSettingsSchema.pre('save', function (next) {
     if (this.isEnabled || this.schedulingEnabled || this.reviewStatus === 'APPROVED' || this.permissionStatus === 'GRANTED') {
-        const err = new Error('SOURCE_ACTIVATION_LOCKED: Live authority activation, approvals, and scheduling are prohibited in Phase 3.');
-        err.code = 'ACTIVATION_LOCKED_PHASE3';
-        return next(err);
+        const check = this.checkActivationEligibility();
+        if (!check.canActivate) {
+            const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation, approvals, and scheduling are prohibited without complete, independently verified Phase 4.4.4 approval record. Blockers: ${check.blockers.join('; ')}`);
+            err.code = 'ACTIVATION_LOCKED_PHASE3';
+            err.blockers = check.blockers;
+            return next(err);
+        }
     }
     next();
 });
@@ -206,7 +272,12 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
     if (this.approvedAccessMethod === 'NONE') {
         blockers.push('No approved access method configured');
     }
-    if (!this.approvalReference) {
+    const hasEvidence = Boolean(
+        (this.approvalReference && this.approvalReference.trim()) ||
+        (this.permissionArtifactUri && this.permissionArtifactUri.trim()) ||
+        (this.secureEvidenceId && this.secureEvidenceId.trim())
+    );
+    if (!hasEvidence) {
         blockers.push('No approval reference/evidence provided');
     }
     if (this.approvalExpiryDate && this.approvalExpiryDate < new Date()) {
@@ -215,14 +286,36 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
     if (this.reviewStatus !== 'APPROVED') {
         blockers.push(`Review status is ${this.reviewStatus}, must be APPROVED`);
     }
-    if (!this.ratePolicy.maxRequestsPerDay && !this.ratePolicy.maxRequestsPerHour) {
+    const rate = this.ratePolicy || {};
+    if (!rate.maxRequestsPerDay && !rate.maxRequestsPerHour && !rate.maxRequestsPerMinute) {
         blockers.push('No rate policy configured — cannot guess limits');
     }
-    if (!this.identityRequirements.verified) {
+    if (!this.identityRequirements?.verified) {
         blockers.push('Source identity requirements are not verified with real data');
     }
-    if (this.permittedFields.length === 0) {
+    if (!this.permittedFields || this.permittedFields.length === 0) {
         blockers.push('No permitted fields configured');
+    }
+    if (this.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION') {
+        if (!this.commercialUseAuthorized) {
+            blockers.push('Internal commercial CRM use must be explicitly authorized');
+        }
+        if (!this.readOnlySearchAuthorized) {
+            blockers.push('Read-only search activity must be explicitly authorized');
+        }
+        if (!this.termsReviewed || !this.termsReference) {
+            blockers.push('Portal terms must be reviewed with termsReference');
+        }
+    }
+    // Independent maker-checker verification:
+    const submitter = this.submittedBy ? String(this.submittedBy) : null;
+    const approver = this.approvedBy ? String(this.approvedBy) : null;
+    const reviewer = this.reviewedBy ? String(this.reviewedBy) : null;
+    if (submitter && approver && submitter === approver) {
+        blockers.push('Independent maker-checker review required: submitter and approver must be distinct authenticated users');
+    }
+    if (submitter && reviewer && submitter === reviewer && this.reviewStatus === 'APPROVED') {
+        blockers.push('Independent maker-checker review required: submitter and reviewer must be distinct authenticated users');
     }
 
     return {
@@ -273,6 +366,45 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
     }));
     return this.bulkWrite(ops);
 };
+
+export function checkActivationEligibility(doc = {}) {
+    if (typeof doc?.checkActivationEligibility === 'function') {
+        const res = doc.checkActivationEligibility();
+        return {
+            eligible: res.canActivate,
+            canActivate: res.canActivate,
+            blockers: res.blockers.map(b => ({
+                code: b.includes('maker-checker') ? 'SELF_APPROVAL_PROHIBITED' : (b.includes('terms') ? 'TERMS_NOT_REVIEWED' : 'BLOCKER'),
+                message: b
+            }))
+        };
+    }
+    const blockers = [];
+    if (doc.permissionStatus !== 'GRANTED') {
+        blockers.push({ code: 'PERMISSION_NOT_GRANTED', message: `Permission status is ${doc.permissionStatus}` });
+    }
+    if (doc.reviewStatus !== 'APPROVED') {
+        blockers.push({ code: 'REVIEW_NOT_APPROVED', message: `Review status is ${doc.reviewStatus}` });
+    }
+    if (doc.submittedBy && doc.approvedBy && String(doc.submittedBy) === String(doc.approvedBy)) {
+        blockers.push({ code: 'SELF_APPROVAL_PROHIBITED', message: 'Self-approval is prohibited' });
+    }
+    if (doc.submittedBy && doc.reviewedBy && String(doc.submittedBy) === String(doc.reviewedBy) && doc.reviewStatus === 'APPROVED') {
+        blockers.push({ code: 'SELF_APPROVAL_PROHIBITED', message: 'Self-review is prohibited' });
+    }
+    if (!doc.termsReviewed) {
+        blockers.push({ code: 'TERMS_NOT_REVIEWED', message: 'Terms not reviewed' });
+    }
+    const rate = doc.ratePolicy || {};
+    if (!rate.maxRequestsPerDay && !rate.maxRequestsPerHour && !rate.maxRequestsPerMinute) {
+        blockers.push({ code: 'RATE_POLICY_MISSING', message: 'Rate policy missing' });
+    }
+    return {
+        eligible: blockers.length === 0,
+        canActivate: blockers.length === 0,
+        blockers
+    };
+}
 
 export { AUTHORITY_CODES, PERMISSION_STATUSES, ACCESS_METHODS };
 export default mongoose.model('AuthoritySourceSettings', AuthoritySourceSettingsSchema);

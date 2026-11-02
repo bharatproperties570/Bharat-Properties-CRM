@@ -29,14 +29,20 @@ function normalizeText(val) {
         .toLowerCase();
 }
 
+function normalizeSector(val) {
+    return normalizeText(val)
+        .replace(/^(?:sector|sec)[\s.-]*/i, '')
+        .trim();
+}
+
 export function matchHsvpRecord(inventory = {}, link = {}, record = {}) {
-    const invUe = resolveHsvpUrbanEstateCode(link.urbanEstate || inventory.city || inventory.address?.city);
+    const invUe = resolveHsvpUrbanEstateCode(link.urbanEstate || inventory.urbanEstate || inventory.city || inventory.address?.city);
     const recUe = resolveHsvpUrbanEstateCode(record.urbanEstate);
 
-    const invSector = normalizeText(link.sectorNumber || inventory.sector);
-    const recSector = normalizeText(record.sectorNumber);
+    const invSector = normalizeSector(link.sectorNumber || inventory.sector);
+    const recSector = normalizeSector(record.sectorNumber);
 
-    const invPlot = normalizeText(link.propertyId || inventory.unitNo || inventory.unitNumber);
+    const invPlot = normalizeText(link.propertyId || inventory.propertyId || inventory.unitNo || inventory.unitNumber);
     const recPlot = normalizeText(record.propertyId);
 
     const mismatches = [];
@@ -58,11 +64,12 @@ export function matchHsvpRecord(inventory = {}, link = {}, record = {}) {
 }
 
 export function matchGmadaRecord(inventory = {}, link = {}, record = {}) {
-    const invLocation = resolveGmadaLocation(inventory.city || inventory.address?.city || link.urbanEstate);
+    const invLocation = resolveGmadaLocation(link.urbanEstate || inventory.urbanEstate || inventory.city || inventory.address?.city);
     const recLocation = resolveGmadaLocation(record.urbanEstate);
 
-    const invSector = normalizeText(link.sectorNumber || inventory.sector);
-    const recSector = normalizeText(record.sectorNumber || record.schemeName);
+    const invSector = normalizeSector(link.sectorNumber || inventory.sector);
+    // P1.7: Strictly use sectorNumber; do NOT fall back to schemeName as sector
+    const recSector = normalizeSector(record.sectorNumber);
 
     const invPropertyNo = normalizeText(link.propertyId || inventory.unitNo || inventory.unitNumber);
     const recPropertyNo = normalizeText(record.propertyId);
@@ -93,21 +100,25 @@ export function matchGmadaRecord(inventory = {}, link = {}, record = {}) {
 }
 
 export function matchChdRecord(inventory = {}, link = {}, record = {}) {
-    const invPlot = normalizeText(link.propertyId || inventory.unitNo || inventory.unitNumber);
+    const invPlot = normalizeText(link.propertyId || inventory.propertyId || inventory.unitNo || inventory.unitNumber);
     const recPlot = normalizeText(record.propertyId);
 
-    const invSector = normalizeText(link.sectorNumber || inventory.sector);
-    const recSector = normalizeText(record.sectorNumber);
+    const invSector = normalizeSector(link.sectorNumber || inventory.sector);
+    const recSector = normalizeSector(record.sectorNumber);
 
     const invFile = normalizeText(link.fileNumber || inventory.fileNumber);
     const recFile = normalizeText(record.fileNumber);
 
+    const invFileType = normalizeText(link.fileType || inventory.fileType);
+    const recFileType = normalizeText(record.fileType);
+
     const plotSectorMatched = Boolean(invPlot && recPlot && invPlot === recPlot && invSector && recSector && invSector === recSector);
-    const fileMatched = Boolean(invFile && recFile && invFile === recFile);
+    // P1.6: File mode requires exact match on BOTH File Type AND File Number
+    const fileMatched = Boolean(invFile && recFile && invFile === recFile && invFileType && recFileType && invFileType === recFileType);
 
     const mismatches = [];
     if (!plotSectorMatched && !fileMatched) {
-        mismatches.push(`Chandigarh match failed: neither (Plot+Sector) nor File Number matched exactly.`);
+        mismatches.push(`Chandigarh match failed: neither (Plot+Sector) nor exact (File Type + File Number) matched.`);
     }
 
     return Object.freeze({
