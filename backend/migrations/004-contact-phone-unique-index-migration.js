@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
@@ -30,13 +31,146 @@ export const PRODUCTION_CLUSTER_FINGERPRINTS = Object.freeze([
 
 export const PRODUCTION_CLUSTER_ID = 'production-atlas-7dehanz';
 
-// Runtime Approval Configuration & Anti-Replay Nonce Store
+// Authorized DBA Approvers Allowlist
+export const AUTHORIZED_DBA_APPROVERS = Object.freeze([
+    'dba.lead@bharatproperties.in',
+    'chief.architect@bharatproperties.in',
+    'security.admin@bharatproperties.in'
+]);
+
+// Runtime Approval Configuration & Anti-Replay Store
 export const MAX_APPROVAL_TOKEN_AGE_MS = 5 * 60 * 1000; // 5 minutes maximum token validity
 export const consumedApprovalNonces = new Set();
 
 /**
- * Creates an explicit, bound runtime operator approval token.
- * Contains migration name, target operation, cluster ID, issue timestamp, and a cryptographic nonce.
+ * Durable Approval Ledger for preventing replay across process invocations.
+ * Persists consumed approval IDs to disk in an append-only audit ledger file.
+ */
+export class DurableApprovalLedger {
+    constructor(ledgerPath) {
+        if (!ledgerPath) {
+            throw new Error('Durable approval ledger path must be specified.');
+        }
+        this.ledgerPath = ledgerPath;
+        this.consumedIds = new Set();
+        this._loadLedger();
+    }
+
+    _loadLedger() {
+        try {
+            if (fs.existsSync(this.ledgerPath)) {
+                const data = fs.readFileSync(this.ledgerPath, 'utf8');
+                const lines = data.split('\n');
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const parsed = JSON.parse(trimmed);
+                        if (parsed.approvalId) {
+                            this.consumedIds.add(parsed.approvalId);
+                        }
+                    } catch (_) {
+                        // ignore malformed lines
+                    }
+                }
+            }
+        } catch (err) {
+            throw new Error(`Failed to read durable approval ledger at ${this.ledgerPath}: ${err.message}`);
+        }
+    }
+
+    isApprovalConsumed(approvalId) {
+        if (!approvalId) return false;
+        if (this.consumedIds.has(approvalId)) return true;
+        // Double-check file in case written by concurrent process
+        try {
+            if (fs.existsSync(this.ledgerPath)) {
+                const data = fs.readFileSync(this.ledgerPath, 'utf8');
+                const lines = data.split('\n');
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const parsed = JSON.parse(trimmed);
+                        if (parsed.approvalId) {
+                            this.consumedIds.add(parsed.approvalId);
+                            if (parsed.approvalId === approvalId) return true;
+                        }
+                    } catch (_) {}
+                }
+            }
+        } catch (_) {}
+        return this.consumedIds.has(approvalId);
+    }
+
+    recordConsumedApproval(approvalId, metadata = {}) {
+        if (!approvalId) {
+            throw new Error('Cannot record approval without approvalId.');
+        }
+        if (this.isApprovalConsumed(approvalId)) {
+            throw new Error(`Replay detected. Approval ID ${approvalId} has already been consumed.`);
+        }
+        const record = {
+            approvalId,
+            consumedAt: Date.now(),
+            ...metadata
+        };
+        try {
+            const dir = path.dirname(this.ledgerPath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.appendFileSync(this.ledgerPath, JSON.stringify(record) + '\n', { mode: 0o600 });
+            this.consumedIds.add(approvalId);
+        } catch (err) {
+            throw new Error(`Failed to write to durable approval ledger at ${this.ledgerPath}: ${err.message}. Fail closed.`);
+        }
+    }
+}
+
+/**
+ * Cryptographically signs an authentic DBA approval token.
+ * Used by authorized DBA authority / KMS signing workflow.
+ *
+ * @param {Object} params
+ * @param {string} [params.approvalId] - Unique approval UUID
+ * @param {string} [params.migration] - Target migration name
+ * @param {string} params.operation - 'EXECUTE' | 'ROLLBACK'
+ * @param {string} [params.clusterId] - Target production cluster ID
+ * @param {string} params.approver - Authorized approver email from AUTHORIZED_DBA_APPROVERS
+ * @param {number} [params.issuedAt] - Issue timestamp (ms)
+ * @param {number} [params.expiresAt] - Expiration timestamp (ms)
+ * @param {string} secret - Signing secret
+ * @returns {string} - "<base64UrlPayload>.<hmacSignatureHex>"
+ */
+export function signDbaApprovalToken(params = {}, secret) {
+    if (!secret || typeof secret !== 'string') {
+        throw new Error('Signing secret is required to sign DBA approval token');
+    }
+    const fullPayload = {
+        approvalId: params.approvalId || crypto.randomUUID(),
+        migration: params.migration || MIGRATION_NAME,
+        operation: (params.operation || '').toUpperCase(),
+        clusterId: params.clusterId || PRODUCTION_CLUSTER_ID,
+        approver: params.approver,
+        issuedAt: params.issuedAt !== undefined ? params.issuedAt : Date.now(),
+        expiresAt: params.expiresAt !== undefined ? params.expiresAt : (Date.now() + MAX_APPROVAL_TOKEN_AGE_MS)
+    };
+
+    const payloadJson = JSON.stringify(fullPayload);
+    const encodedPayload = Buffer.from(payloadJson, 'utf8').toString('base64url');
+    const signature = crypto.createHmac('sha256', secret).update(encodedPayload).digest('hex');
+
+    return `${encodedPayload}.${signature}`;
+}
+
+/**
+ * Generates an unauthenticated local token (timestamp + nonce).
+ *
+ * NOTE: As per strict security audit, locally generated timestamp/nonce strings
+ * do NOT prove authorized DBA approval. This function is maintained solely for
+ * negative regression test assertions to verify that unsigned/local tokens are
+ * strictly rejected in production.
  *
  * @param {Object} [params]
  * @param {string} [params.migration]
@@ -48,14 +182,11 @@ export const consumedApprovalNonces = new Set();
  */
 export function createRuntimeDbaApprovalToken({
     migration = MIGRATION_NAME,
-    operation,
+    operation = 'EXECUTE',
     clusterId = PRODUCTION_CLUSTER_ID,
     issuedAt = Date.now(),
     nonce = crypto.randomBytes(16).toString('hex')
 } = {}) {
-    if (!operation || typeof operation !== 'string') {
-        throw new Error('Operation is required for approval token (EXECUTE or ROLLBACK)');
-    }
     return `${migration}:${operation.toUpperCase()}:${clusterId}:${issuedAt}:${nonce}`;
 }
 
@@ -230,12 +361,14 @@ export async function resolveClusterIdentity(conn) {
 /**
  * Validates operator approval.
  * Persistent .env values must NOT independently count as explicit DBA approval.
- * Requires controlled runtime confirmation token bound to migration name, operation and target cluster.
+ * Requires genuine cryptographic authorization from an authorized DBA operator,
+ * bound to migration name, operation, verified target cluster, approver identity,
+ * 5-minute expiry, and durable replay protection across process restarts.
  *
  * @param {string} mode - 'dry-run' | 'execute' | 'rollback'
  * @param {Object} clusterInfo - Result from resolveClusterIdentity
  * @param {Object} opts - Migration options
- * @returns {{ approved: boolean, approvalSource: string, confirmedToken?: string }}
+ * @returns {{ approved: boolean, approvalSource: string, approver?: string, approvalId?: string }}
  */
 export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
     if (mode === 'dry-run') {
@@ -262,88 +395,183 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
         // Production approval must originate from an explicit operator interaction at execution time,
         // strictly NOT from persistent .env or environment variables.
         // process.env.DBA_CONFIRM_MIGRATION is intentionally REMOVED as an approval source.
-        const runtimeToken = opts.runtimeDbaConfirmation ||
+        const runtimeToken = opts.runtimeDbaApproval ||
+                             opts.runtimeDbaConfirmation ||
                              (process.argv.find(arg => arg.startsWith('--confirm-dba-approval='))?.split('=')[1]);
 
         if (!runtimeToken || typeof runtimeToken !== 'string' || runtimeToken.trim() === '') {
             throw new Error(
                 `[MIGRATION-004] FATAL: Production ${mode.toUpperCase()} requires explicit runtime operator approval ` +
-                `(--confirm-dba-approval or runtimeDbaConfirmation). ` +
+                `(--confirm-dba-approval or runtimeDbaApproval). ` +
                 `Persistent .env variables or shell environments cannot authorize production execution.`
             );
         }
 
-        const parts = runtimeToken.trim().split(':');
+        const trimmedToken = runtimeToken.trim();
 
-        if (parts.length !== 5) {
+        // Reject locally generated unauthenticated colon-separated tokens
+        if (trimmedToken.includes(':') && !trimmedToken.includes('.')) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Malformed runtime approval token. Expected format: "<migrationName>:<OPERATION>:<clusterId>:<issuedAtEpochMs>:<nonce>". ` +
-                `Static or unversioned approval strings are strictly rejected.`
+                `[MIGRATION-004] FATAL: Unauthenticated approval token rejected. ` +
+                `Locally generated timestamp/nonce strings do not prove authorized DBA approval. ` +
+                `A cryptographically authenticated DBA approval envelope (<payload>.<signature>) is required.`
             );
         }
 
-        const [tokenMigration, tokenOp, tokenCluster, tokenIssuedAtStr, tokenNonce] = parts;
+        // Split cryptographic envelope
+        const envelopeParts = trimmedToken.split('.');
+        if (envelopeParts.length !== 2) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Malformed DBA approval envelope. Expected format: "<encodedPayload>.<hmacSignature>". ` +
+                `Static, unauthenticated, or malformed approval strings are strictly rejected.`
+            );
+        }
 
-        if (tokenMigration !== MIGRATION_NAME) {
+        const [encodedPayload, signatureHex] = envelopeParts;
+
+        // Verification key/secret check: Must NOT be stored in or read from .env
+        const verificationSecret = opts.dbaApprovalSecret ||
+                                   (process.argv.find(arg => arg.startsWith('--dba-approval-secret='))?.split('=')[1]);
+
+        if (!verificationSecret || typeof verificationSecret !== 'string' || verificationSecret.trim() === '') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Production approval verification failed. ` +
+                `DBA approval verification authority/secret is not configured. Fail closed.`
+            );
+        }
+
+        // Cryptographic signature validation
+        const expectedSignature = crypto.createHmac('sha256', verificationSecret.trim())
+                                        .update(encodedPayload)
+                                        .digest('hex');
+
+        const sigBuf = Buffer.from(signatureHex, 'utf8');
+        const expBuf = Buffer.from(expectedSignature, 'utf8');
+
+        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Cryptographic verification failed. DBA approval signature is invalid or forged.`
+            );
+        }
+
+        // Decode payload
+        let payload;
+        try {
+            const payloadJson = Buffer.from(encodedPayload, 'base64url').toString('utf8');
+            payload = JSON.parse(payloadJson);
+        } catch (_) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Malformed DBA approval payload. Unable to decode payload JSON.`
+            );
+        }
+
+        // 1. Approver identity validation
+        if (!payload.approver || typeof payload.approver !== 'string' || payload.approver.trim() === '') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: DBA approval rejected. Missing approver identity.`
+            );
+        }
+
+        if (!AUTHORIZED_DBA_APPROVERS.includes(payload.approver.trim())) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Unauthorized approver "${payload.approver}". Approver is not in the authorized DBA allowlist.`
+            );
+        }
+
+        // 2. Migration binding
+        if (payload.migration !== MIGRATION_NAME) {
             throw new Error(
                 `[MIGRATION-004] FATAL: Mismatched migration approval. Expected approval for "${MIGRATION_NAME}".`
             );
         }
 
-        if (tokenOp.toUpperCase() !== mode.toUpperCase()) {
+        // 3. Operation binding
+        if (!payload.operation || payload.operation.toUpperCase() !== mode.toUpperCase()) {
             throw new Error(
                 `[MIGRATION-004] FATAL: Stale or mismatched operation approval. Expected operation "${mode.toUpperCase()}".`
             );
         }
 
-        if (tokenCluster !== clusterInfo.clusterId) {
+        // 4. Cluster binding
+        if (payload.clusterId !== clusterInfo.clusterId) {
             throw new Error(
                 `[MIGRATION-004] FATAL: Mismatched target cluster approval. Expected cluster "${clusterInfo.clusterId}".`
             );
         }
 
-        // Expiry verification
-        const tokenIssuedAt = parseInt(tokenIssuedAtStr, 10);
-        if (isNaN(tokenIssuedAt)) {
+        // 5. Expiry and timestamp validation
+        const now = Date.now();
+        const expiresAt = parseInt(payload.expiresAt, 10);
+        const issuedAt = parseInt(payload.issuedAt, 10);
+
+        if (isNaN(expiresAt) || isNaN(issuedAt)) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Malformed runtime approval token. Issued timestamp is invalid.`
+                `[MIGRATION-004] FATAL: Malformed DBA approval token. Expiry or issued timestamp is invalid.`
             );
         }
 
-        const now = Date.now();
-        if (now - tokenIssuedAt > MAX_APPROVAL_TOKEN_AGE_MS) {
+        if (now > expiresAt) {
             throw new Error(
                 `[MIGRATION-004] FATAL: Runtime approval token has expired. Tokens are valid for at most 5 minutes. Re-issue fresh approval.`
             );
         }
 
-        if (tokenIssuedAt - now > 60000) {
+        if (issuedAt - now > 60000) {
             throw new Error(
                 `[MIGRATION-004] FATAL: Runtime approval token has invalid future timestamp.`
             );
         }
 
-        // Nonce entropy verification
-        if (!tokenNonce || tokenNonce.length < 16) {
+        if (expiresAt - issuedAt > MAX_APPROVAL_TOKEN_AGE_MS) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Runtime approval token nonce has insufficient entropy (minimum 16 characters required).`
+                `[MIGRATION-004] FATAL: DBA approval token validity window exceeds maximum allowable threshold (5 minutes).`
             );
         }
 
-        // Replay prevention / Single-use consumption
-        if (consumedApprovalNonces.has(tokenNonce)) {
+        // 6. Unique approval ID validation
+        if (!payload.approvalId || typeof payload.approvalId !== 'string' || payload.approvalId.trim().length < 16) {
             throw new Error(
-                `[MIGRATION-004] FATAL: Replay detected. Runtime approval token nonce has already been consumed. Approval tokens are strictly single-use.`
+                `[MIGRATION-004] FATAL: DBA approval rejected. Missing or invalid unique approval ID.`
             );
         }
-        consumedApprovalNonces.add(tokenNonce);
+
+        // 7. Durable Replay Prevention across process restarts
+        let ledger = opts.ledger;
+        if (!ledger) {
+            const ledgerPath = opts.approvalLedgerPath ||
+                               (process.argv.find(arg => arg.startsWith('--approval-ledger-path='))?.split('=')[1]) ||
+                               path.join(__dirname, '..', '.dba_approval_ledger.jsonl');
+            try {
+                ledger = new DurableApprovalLedger(ledgerPath);
+            } catch (ledgerErr) {
+                throw new Error(`[MIGRATION-004] FATAL: Durable anti-replay ledger error: ${ledgerErr.message}. Fail closed.`);
+            }
+        }
+
+        if (ledger.isApprovalConsumed(payload.approvalId) || consumedApprovalNonces.has(payload.approvalId)) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Replay detected. Runtime approval ID has already been consumed. Approval tokens are strictly single-use across process restarts.`
+            );
+        }
+
+        // Record consumption into durable ledger and in-memory set
+        ledger.recordConsumedApproval(payload.approvalId, {
+            approver: payload.approver,
+            migration: payload.migration,
+            operation: payload.operation,
+            clusterId: payload.clusterId
+        });
+        consumedApprovalNonces.add(payload.approvalId);
 
         return {
             approved: true,
-            approvalSource: 'RUNTIME_OPERATOR_TOKEN',
+            approvalSource: 'AUTHENTICATED_DBA_SIGNATURE',
+            approver: payload.approver,
+            approvalId: payload.approvalId,
             confirmedOperation: mode.toUpperCase(),
             clusterId: clusterInfo.clusterId,
-            issuedAt: tokenIssuedAt
+            issuedAt: payload.issuedAt,
+            expiresAt: payload.expiresAt
         };
     }
 

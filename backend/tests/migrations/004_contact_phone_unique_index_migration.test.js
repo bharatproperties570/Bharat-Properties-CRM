@@ -1,6 +1,10 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import mongoose from 'mongoose';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import {
     detectActivePhoneDuplicates,
@@ -8,6 +12,9 @@ import {
     resolveClusterIdentity,
     verifyOperatorApproval,
     createRuntimeDbaApprovalToken,
+    signDbaApprovalToken,
+    DurableApprovalLedger,
+    AUTHORIZED_DBA_APPROVERS,
     consumedApprovalNonces,
     MAX_APPROVAL_TOKEN_AGE_MS,
     sanitizeMongoUri,
@@ -260,6 +267,8 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         }
     };
 
+    const TEST_DBA_SECRET = 'dba-super-secure-hmac-secret-key-32chars!';
+
     it('7. Production Safety: Rejects execution if baseline environment flags are missing', async () => {
         const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
@@ -311,7 +320,10 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
             // Token set in process.env MUST be rejected/ignored
-            process.env.DBA_CONFIRM_MIGRATION = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
+            process.env.DBA_CONFIRM_MIGRATION = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, TEST_DBA_SECRET);
 
             await assert.rejects(async () => {
                 await runMigration({ mode: 'execute', connection: mockAtlasConn });
@@ -326,7 +338,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         }
     });
 
-    it('9. Production Safety: Rejects mismatched migration name in runtime approval token', async () => {
+    it('9. Production Safety: Random locally generated token without authenticated approval is strictly rejected', async () => {
         const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
 
@@ -334,79 +346,218 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
-            const wrongMigrationToken = createRuntimeDbaApprovalToken({
-                migration: '003-leads-scoring-migration',
-                operation: 'EXECUTE'
-            });
+            // Locally generated token (colon-delimited timestamp + random nonce)
+            const localToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
 
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'execute',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: wrongMigrationToken
+                    runtimeDbaConfirmation: localToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
+            }, /Unauthenticated approval token rejected\. Locally generated timestamp\/nonce strings do not prove authorized DBA approval/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('9b. Production Safety: Rejects malformed or corrupted envelope format', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: 'not.a.valid.envelope.with.too.many.dots',
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
+            }, /Malformed DBA approval envelope/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('9c. Production Safety: Fails closed when DBA verification secret is missing', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const validToken = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, TEST_DBA_SECRET);
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: validToken
+                    // dbaApprovalSecret intentionally omitted!
+                });
+            }, /DBA approval verification authority\/secret is not configured\. Fail closed\./);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('10. Production Safety: Rejects approval when approver identity is missing', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const missingApproverToken = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: '' // missing approver!
+            }, TEST_DBA_SECRET);
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: missingApproverToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
+            }, /DBA approval rejected\. Missing approver identity\./);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('10b. Production Safety: Rejects unauthorized approver not in AUTHORIZED_DBA_APPROVERS allowlist', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const unauthorizedToken = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'unauthorized.intern@bharatproperties.in'
+            }, TEST_DBA_SECRET);
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: unauthorizedToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
+            }, /Unauthorized approver "unauthorized\.intern@bharatproperties\.in"\. Approver is not in the authorized DBA allowlist\./);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('10c. Production Safety: Rejects forged or invalid cryptographic HMAC signature', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            // Signed with wrong secret (forged)
+            const forgedToken = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, 'wrong-attacker-secret-key-1234567890');
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: forgedToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
+            }, /Cryptographic verification failed\. DBA approval signature is invalid or forged\./);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('11. Production Safety: Rejects mismatched migration name, operation or target cluster', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            // Mismatched migration name
+            const wrongMigrationToken = signDbaApprovalToken({
+                migration: '003-leads-scoring-migration',
+                operation: 'EXECUTE',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, TEST_DBA_SECRET);
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: wrongMigrationToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
                 });
             }, /Mismatched migration approval/);
-        } finally {
-            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
-            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
-            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
-            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
-        }
-    });
 
-    it('10. Production Safety: Rejects mismatched or stale operation in runtime approval token', async () => {
-        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
-        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+            // Mismatched operation (ROLLBACK token for EXECUTE mode)
+            const rollbackToken = signDbaApprovalToken({
+                operation: 'ROLLBACK',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, TEST_DBA_SECRET);
 
-        try {
-            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
-            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
-
-            // Passing ROLLBACK token when executing EXECUTE
-            const rollbackToken = createRuntimeDbaApprovalToken({ operation: 'ROLLBACK' });
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'execute',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: rollbackToken
+                    runtimeDbaConfirmation: rollbackToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
                 });
             }, /Stale or mismatched operation approval/);
 
-            // Passing EXECUTE token when executing ROLLBACK
-            const executeToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
-            await assert.rejects(async () => {
-                await runMigration({
-                    mode: 'rollback',
-                    connection: mockAtlasConn,
-                    runtimeDbaConfirmation: executeToken
-                });
-            }, /Stale or mismatched operation approval/);
-        } finally {
-            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
-            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
-            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
-            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
-        }
-    });
-
-    it('11. Production Safety: Rejects mismatched target cluster in runtime approval token', async () => {
-        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
-        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
-
-        try {
-            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
-            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
-
-            const wrongClusterToken = createRuntimeDbaApprovalToken({
+            // Mismatched cluster
+            const wrongClusterToken = signDbaApprovalToken({
                 operation: 'EXECUTE',
-                clusterId: 'wrong-cluster-id'
-            });
+                clusterId: 'wrong-unverified-cluster',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, TEST_DBA_SECRET);
 
             await assert.rejects(async () => {
                 await runMigration({
                     mode: 'execute',
                     connection: mockAtlasConn,
-                    runtimeDbaConfirmation: wrongClusterToken
+                    runtimeDbaConfirmation: wrongClusterToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
                 });
             }, /Mismatched target cluster approval/);
         } finally {
@@ -434,13 +585,18 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
-            const expiredToken = createRuntimeDbaApprovalToken({
+            const expiredToken = signDbaApprovalToken({
                 operation: 'EXECUTE',
-                issuedAt: Date.now() - (MAX_APPROVAL_TOKEN_AGE_MS + 10000)
-            });
+                approver: AUTHORIZED_DBA_APPROVERS[0],
+                issuedAt: Date.now() - (MAX_APPROVAL_TOKEN_AGE_MS + 10000),
+                expiresAt: Date.now() - 5000
+            }, TEST_DBA_SECRET);
 
             assert.throws(() => {
-                verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: expiredToken });
+                verifyOperatorApproval('execute', clusterInfo, {
+                    runtimeDbaConfirmation: expiredToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
             }, /Runtime approval token has expired/);
         } finally {
             if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
@@ -450,7 +606,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         }
     });
 
-    it('11c. Production Safety: Rejects replayed runtime approval token (single-use consumption enforcement)', () => {
+    it('11c. Production Safety: Durable Replay Prevention: Rejects replayed approval token across process restarts', () => {
         const clusterInfo = {
             isValid: true,
             isProductionCluster: true,
@@ -463,25 +619,53 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
 
+        const tempLedgerPath = path.join(os.tmpdir(), `test-ledger-${Date.now()}-${Math.random().toString(36).substring(7)}.jsonl`);
+
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
-            const singleUseToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
+            const durableLedger1 = new DurableApprovalLedger(tempLedgerPath);
+
+            const singleUseToken = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: AUTHORIZED_DBA_APPROVERS[0]
+            }, TEST_DBA_SECRET);
 
             // First consumption: passes
-            const firstPass = verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: singleUseToken });
+            const firstPass = verifyOperatorApproval('execute', clusterInfo, {
+                runtimeDbaConfirmation: singleUseToken,
+                dbaApprovalSecret: TEST_DBA_SECRET,
+                ledger: durableLedger1
+            });
             assert.equal(firstPass.approved, true);
+            assert.equal(firstPass.approver, AUTHORIZED_DBA_APPROVERS[0]);
 
-            // Replay with identical nonce: strictly rejected
+            // In-process replay: strictly rejected
             assert.throws(() => {
-                verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: singleUseToken });
-            }, /Replay detected\. Runtime approval token nonce has already been consumed/);
+                verifyOperatorApproval('execute', clusterInfo, {
+                    runtimeDbaConfirmation: singleUseToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET,
+                    ledger: durableLedger1
+                });
+            }, /Replay detected\. Runtime approval ID has already been consumed/);
+
+            // Simulated Process Restart: instantiate fresh DurableApprovalLedger reading from the persisted file
+            const durableLedgerAfterRestart = new DurableApprovalLedger(tempLedgerPath);
+
+            assert.throws(() => {
+                verifyOperatorApproval('execute', clusterInfo, {
+                    runtimeDbaConfirmation: singleUseToken,
+                    dbaApprovalSecret: TEST_DBA_SECRET,
+                    ledger: durableLedgerAfterRestart
+                });
+            }, /Replay detected\. Runtime approval ID has already been consumed.*strictly single-use across process restarts/);
         } finally {
             if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
             if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
             else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
         }
     });
 
@@ -504,8 +688,11 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             const staticString = `${MIGRATION_NAME}:EXECUTE:${PRODUCTION_CLUSTER_ID}`;
             assert.throws(() => {
-                verifyOperatorApproval('execute', clusterInfo, { runtimeDbaConfirmation: staticString });
-            }, /Malformed runtime approval token.*Static or unversioned approval strings are strictly rejected/);
+                verifyOperatorApproval('execute', clusterInfo, {
+                    runtimeDbaConfirmation: staticString,
+                    dbaApprovalSecret: TEST_DBA_SECRET
+                });
+            }, /Unauthenticated approval token rejected/);
         } finally {
             if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
@@ -591,7 +778,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         }, /Connected host\(s\).*do not match verified production allowlist or local test fingerprints\. Fail closed\./);
     });
 
-    it('15. Credential Sanitization: Connection strings and passwords are never exposed in logs or errors', () => {
+    it('15. Credential Sanitization: Connection strings, passwords, and secrets are never exposed in logs or errors', () => {
         const rawUri = 'mongodb+srv://adminUser:SuperSecretPassword123@cluster0.7dehanz.mongodb.net/bharatproperties1';
         const sanitized = sanitizeMongoUri(rawUri);
 
@@ -599,7 +786,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.ok(sanitized.includes('adminUser:***@'), 'Credentials must be masked');
     });
 
-    it('16. Valid Operator Approval: Passes verification when exact token binding migration, op and cluster is supplied', () => {
+    it('16. Valid Operator Approval: Passes verification when cryptographically signed by authorized DBA with bound parameters', () => {
         const clusterInfo = {
             isValid: true,
             isProductionCluster: true,
@@ -611,24 +798,45 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const tempLedgerPath = path.join(os.tmpdir(), `test-ledger-16-${Date.now()}-${Math.random().toString(36).substring(7)}.jsonl`);
 
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
-            const executeToken = createRuntimeDbaApprovalToken({ operation: 'EXECUTE' });
+            const testLedger = new DurableApprovalLedger(tempLedgerPath);
+
+            // Valid EXECUTE signed by authorized Lead DBA
+            const executeToken = signDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in'
+            }, TEST_DBA_SECRET);
+
             const approvalExecute = verifyOperatorApproval('execute', clusterInfo, {
-                runtimeDbaConfirmation: executeToken
+                runtimeDbaConfirmation: executeToken,
+                dbaApprovalSecret: TEST_DBA_SECRET,
+                ledger: testLedger
             });
             assert.equal(approvalExecute.approved, true);
+            assert.equal(approvalExecute.approvalSource, 'AUTHENTICATED_DBA_SIGNATURE');
+            assert.equal(approvalExecute.approver, 'dba.lead@bharatproperties.in');
             assert.equal(approvalExecute.confirmedOperation, 'EXECUTE');
             assert.equal(approvalExecute.clusterId, PRODUCTION_CLUSTER_ID);
 
-            const rollbackToken = createRuntimeDbaApprovalToken({ operation: 'ROLLBACK' });
+            // Valid ROLLBACK signed by authorized Chief Architect
+            const rollbackToken = signDbaApprovalToken({
+                operation: 'ROLLBACK',
+                approver: 'chief.architect@bharatproperties.in'
+            }, TEST_DBA_SECRET);
+
             const approvalRollback = verifyOperatorApproval('rollback', clusterInfo, {
-                runtimeDbaConfirmation: rollbackToken
+                runtimeDbaConfirmation: rollbackToken,
+                dbaApprovalSecret: TEST_DBA_SECRET,
+                ledger: testLedger
             });
             assert.equal(approvalRollback.approved, true);
+            assert.equal(approvalRollback.approvalSource, 'AUTHENTICATED_DBA_SIGNATURE');
+            assert.equal(approvalRollback.approver, 'chief.architect@bharatproperties.in');
             assert.equal(approvalRollback.confirmedOperation, 'ROLLBACK');
             assert.equal(approvalRollback.clusterId, PRODUCTION_CLUSTER_ID);
         } finally {
@@ -636,6 +844,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
             if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
             else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
         }
     });
 

@@ -19,16 +19,19 @@
    - **Database name alone is NOT sufficient:** A connection to the production Atlas cluster under an alternate database name (e.g. `dev`, `staging`) cannot bypass production protection.
    - Any connection matching the Atlas production fingerprint (`*.mongodb.net`, `7dehanz`, `atlas-145yac-shard-0`) is permanently classified as a **PRODUCTION CLUSTER**.
 
-2. **Controlled Runtime Operator Approval (No Static `.env` Bypass):**
+2. **Cryptographic DBA Operator Authorization & Durable Replay Prevention:**
    - **Persistent `.env` values or shell profile environment variables strictly DO NOT authorize production index operations.**
-   - In addition to baseline flags (`ALLOW_PRODUCTION_MIGRATION=true` and `DBA_APPROVED_INDEX_MIGRATION=true`), execution (`--execute`) and rollback (`--rollback`) strictly require an explicit runtime confirmation token passed via CLI argument (`--confirm-dba-approval=...`) or programmatic options (`runtimeDbaConfirmation`), bound to:
+   - In addition to baseline flags (`ALLOW_PRODUCTION_MIGRATION=true` and `DBA_APPROVED_INDEX_MIGRATION=true`), execution (`--execute`) and rollback (`--rollback`) strictly require an authentic cryptographic approval token passed via CLI argument (`--confirm-dba-approval=...`) or programmatic options (`runtimeDbaConfirmation`), verified against an authorized signing authority key (`--dba-approval-secret=...`).
+   - **Locally generated timestamp/nonce strings without cryptographic signature are strictly REJECTED.**
+   - Authentic tokens are cryptographically bound to:
      1. Exact migration name: `004-contact-phone-unique-index-migration`
      2. Exact operation: `EXECUTE` or `ROLLBACK`
      3. Exact target cluster: `production-atlas-7dehanz`
-     4. Current timestamp (epoch ms) with a maximum validity window of 5 minutes (`MAX_APPROVAL_TOKEN_AGE_MS = 300000`)
-     5. Cryptographic nonce (minimum 16 characters) ensuring single-use replay protection
-   - Token format: `<migrationName>:<OPERATION>:<clusterId>:<issuedAtEpochMs>:<nonce>`
-   - A stale, expired, replayed, or mismatched token causes an immediate fatal abort. Tokens stored in `.env` are completely ignored and rejected.
+     4. Authenticated approver identity: Must belong to `AUTHORIZED_DBA_APPROVERS` allowlist (`dba.lead@bharatproperties.in`, `chief.architect@bharatproperties.in`, `security.admin@bharatproperties.in`)
+     5. Expiration timestamp (maximum validity window of 5 minutes, `MAX_APPROVAL_TOKEN_AGE_MS = 300000`)
+     6. Unique approval UUID (`approvalId`) ensuring single-use replay prevention
+   - **Durable Anti-Replay Ledger Across Process Restarts:** Consumed approval IDs are durably committed to an append-only file ledger (`DurableApprovalLedger`). Replay attempts across process restarts or multiple invocations fail closed immediately.
+   - A stale, expired, replayed, or mismatched token causes an immediate fatal abort. Tokens or secrets stored in `.env` are completely ignored and rejected.
 
 3. **Safe Handling of Non-Production Clusters with Production Database Name:**
    - When connected to a local test host (`127.0.0.1`, `localhost`, `::1`) with database name `bharatproperties1`, the migration classifies the target as `NON_PROD_CLUSTER_WITH_PROD_DB_NAME`.
@@ -122,17 +125,28 @@ If `crossContactExactDuplicates > 0`:
 ---
 
 ### Step 3: Production Index Build Execution
-Once preflight is clean, generate a single-use runtime approval token (valid for 5 minutes):
+Once preflight is clean, an authorized DBA from `AUTHORIZED_DBA_APPROVERS` signs a single-use approval token (valid for 5 minutes) using the authorized DBA signing key (retrieved securely from KMS or secret vault):
 
 ```bash
-# Generate single-use approval token
-OP_TOKEN=$(node -e 'console.log(`004-contact-phone-unique-index-migration:EXECUTE:production-atlas-7dehanz:${Date.now()}:${require("crypto").randomBytes(16).toString("hex")}`)')
+# Generate cryptographically signed single-use approval token
+OP_TOKEN=$(node -e '
+  import("./backend/migrations/004-contact-phone-unique-index-migration.js").then(m => {
+    const token = m.signDbaApprovalToken({
+      operation: "EXECUTE",
+      approver: "dba.lead@bharatproperties.in"
+    }, process.env.DBA_SIGNING_KEY);
+    console.log(token);
+  });
+')
 
-# Execute with explicit runtime token argument
+# Execute with explicit runtime token and verification key
 NODE_ENV=production \
 ALLOW_PRODUCTION_MIGRATION=true \
 DBA_APPROVED_INDEX_MIGRATION=true \
-node backend/migrations/004-contact-phone-unique-index-migration.js --execute --confirm-dba-approval="$OP_TOKEN"
+node backend/migrations/004-contact-phone-unique-index-migration.js \
+  --execute \
+  --confirm-dba-approval="$OP_TOKEN" \
+  --dba-approval-secret="$DBA_SIGNING_KEY"
 ```
 
 **Automated Post-Build Verification Performed:**
@@ -145,19 +159,31 @@ node backend/migrations/004-contact-phone-unique-index-migration.js --execute --
 ---
 
 ### Step 4: Emergency Rollback Procedure
-If production issues arise or index requires removal, generate a rollback token and execute:
+If production issues arise or index requires removal, generate a cryptographically signed rollback token and execute:
 
 ```bash
-# Generate single-use rollback token
-RB_TOKEN=$(node -e 'console.log(`004-contact-phone-unique-index-migration:ROLLBACK:production-atlas-7dehanz:${Date.now()}:${require("crypto").randomBytes(16).toString("hex")}`)')
+# Generate cryptographically signed rollback token
+RB_TOKEN=$(node -e '
+  import("./backend/migrations/004-contact-phone-unique-index-migration.js").then(m => {
+    const token = m.signDbaApprovalToken({
+      operation: "ROLLBACK",
+      approver: "chief.architect@bharatproperties.in"
+    }, process.env.DBA_SIGNING_KEY);
+    console.log(token);
+  });
+')
 
 NODE_ENV=production \
 ALLOW_PRODUCTION_MIGRATION=true \
 DBA_APPROVED_INDEX_MIGRATION=true \
-node backend/migrations/004-contact-phone-unique-index-migration.js --rollback --confirm-dba-approval="$RB_TOKEN"
+node backend/migrations/004-contact-phone-unique-index-migration.js \
+  --rollback \
+  --confirm-dba-approval="$RB_TOKEN" \
+  --dba-approval-secret="$DBA_SIGNING_KEY"
 ```
 
 **Verification:**
 - Script drops `contacts_phones_number_active_unique`.
 - Script verifies `phones.number_1` is preserved.
+- Durable anti-replay ledger marks the rollback approval ID as consumed.
 - Output confirms `status: 'ROLLED_BACK'`.
