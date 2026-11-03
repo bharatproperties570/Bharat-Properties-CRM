@@ -122,6 +122,7 @@ export class SiteVisitService {
                 rescheduleHistory: [],
                 journeyTokenHash: journeyInfo?.tokenHash || null,
                 journeyTokenJti: journeyInfo?.jti || null,
+                journeyTokenIat: journeyInfo?.iat || null,
                 journeyExpiresAt: journeyInfo?.expiresAt || null,
                 journeyRevoked: false
             }
@@ -683,8 +684,10 @@ export class SiteVisitService {
     /**
      * Scoped Internal Delivery Path: Deliver signed customer journey link on demand
      * to authorized CRM user. Does NOT persist raw token in database.
+     * Enforces a stable lifecycle: Repeated retrieval returns the active unexpired link
+     * without invalidating existing customer URLs. Explicit rotation requires rotate: true.
      */
-    static async getJourneyLink(activityId, user = null) {
+    static async getJourneyLink(activityId, user = null, options = {}) {
         if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
             const err = new Error('Invalid or missing Site Visit ID');
             err.statusCode = 400;
@@ -711,32 +714,140 @@ export class SiteVisitService {
         }
 
         const { SiteVisitJourneyService } = await import('./siteVisitJourney.service.js');
-        const journeyInfo = SiteVisitJourneyService.generateJourneyToken(activity);
+        const shouldRotate = Boolean(options.rotate === true || options.forceRotate === true);
 
-        // Update stored hash and JTI to maintain revocation/superseding capability
+        // 1. Stable Lifecycle: Return active unexpired token if not rotating (zero database writes)
+        if (!shouldRotate) {
+            const active = SiteVisitJourneyService.reconstructActiveToken(activity);
+            if (active) {
+                return {
+                    journeyUrl: active.journeyUrl,
+                    safeToken: active.safeToken,
+                    expiresAt: active.expiresAt,
+                    isRotated: false
+                };
+            }
+        }
+
+        // 2. Token Generation / Atomic Rotation with CAS
+        const journeyInfo = SiteVisitJourneyService.generateJourneyToken(activity);
         const ActivityModel = mongoose.models.Activity || Activity;
-        if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-            await ActivityModel.findByIdAndUpdate(activity._id, {
-                $set: {
-                    'details.journeyTokenHash': journeyInfo.tokenHash,
-                    'details.journeyTokenJti': journeyInfo.jti,
-                    'details.journeyExpiresAt': journeyInfo.expiresAt,
-                    'details.journeyRevoked': false
+        const oldHash = activity.details?.journeyTokenHash;
+
+        const updateSet = {
+            'details.journeyTokenHash': journeyInfo.tokenHash,
+            'details.journeyTokenJti': journeyInfo.jti,
+            'details.journeyTokenIat': journeyInfo.iat,
+            'details.journeyExpiresAt': journeyInfo.expiresAt,
+            'details.journeyRevoked': false
+        };
+
+        if (shouldRotate) {
+            updateSet['details.journeyRotatedAt'] = new Date();
+            updateSet['details.journeyRotatedBy'] = user?._id || user?.id || null;
+            if (options.rotationReason) {
+                updateSet['details.journeyRotationReason'] = String(options.rotationReason).trim();
+            }
+        }
+
+        // Compare-And-Set filter to protect against concurrent rotation races
+        const casFilter = {
+            _id: activity._id,
+            status: { $ne: 'Cancelled' }
+        };
+        if (shouldRotate && oldHash) {
+            casFilter['details.journeyTokenHash'] = oldHash;
+        }
+
+        if (typeof ActivityModel.findOneAndUpdate === 'function') {
+            const updated = await ActivityModel.findOneAndUpdate(
+                casFilter,
+                { $set: updateSet },
+                { new: true, ...(options.session ? { session: options.session } : {}) }
+            );
+
+            // If CAS matched nothing because of concurrent rotation, return the newly rotated token
+            if (!updated && shouldRotate) {
+                const latest = await ActivityModel.findById(activity._id, null, options.session ? { session: options.session } : undefined);
+                const latestActive = SiteVisitJourneyService.reconstructActiveToken(latest);
+                if (latestActive) {
+                    return {
+                        journeyUrl: latestActive.journeyUrl,
+                        safeToken: latestActive.safeToken,
+                        expiresAt: latestActive.expiresAt,
+                        isRotated: true
+                    };
                 }
-            });
+            }
         } else if (activity.save) {
             if (!activity.details) activity.details = {};
             activity.details.journeyTokenHash = journeyInfo.tokenHash;
             activity.details.journeyTokenJti = journeyInfo.jti;
+            activity.details.journeyTokenIat = journeyInfo.iat;
             activity.details.journeyExpiresAt = journeyInfo.expiresAt;
             activity.details.journeyRevoked = false;
-            await activity.save();
+            if (shouldRotate) {
+                activity.details.journeyRotatedAt = new Date();
+                activity.details.journeyRotatedBy = user?._id || user?.id || null;
+            }
+            await activity.save(options.session ? { session: options.session } : undefined);
         }
 
         return {
             journeyUrl: journeyInfo.journeyUrl,
             safeToken: journeyInfo.safeToken,
-            expiresAt: journeyInfo.expiresAt
+            expiresAt: journeyInfo.expiresAt,
+            isRotated: shouldRotate
+        };
+    }
+
+    /**
+     * Explicitly revoke an active customer journey link without cancelling the entire site visit.
+     */
+    static async revokeJourneyLink(activityId, reason = '', user = null, options = {}) {
+        if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
+            const err = new Error('Invalid or missing Site Visit ID');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const activity = await this.getById(activityId, user);
+        if (!activity) {
+            const err = new Error('Site visit not found');
+            err.statusCode = 404;
+            throw err;
+        }
+
+        const trimmedReason = typeof reason === 'string' && reason.trim() ? reason.trim() : 'Revoked by CRM administrator';
+        const userId = user?._id || user?.id || null;
+        const ActivityModel = mongoose.models.Activity || Activity;
+
+        if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+            await ActivityModel.findByIdAndUpdate(
+                activity._id,
+                {
+                    $set: {
+                        'details.journeyRevoked': true,
+                        'details.journeyRevokedAt': new Date(),
+                        'details.journeyRevokedBy': userId,
+                        'details.journeyRevokedReason': trimmedReason
+                    }
+                },
+                options.session ? { session: options.session } : undefined
+            );
+        } else if (activity.save) {
+            if (!activity.details) activity.details = {};
+            activity.details.journeyRevoked = true;
+            activity.details.journeyRevokedAt = new Date();
+            activity.details.journeyRevokedBy = userId;
+            activity.details.journeyRevokedReason = trimmedReason;
+            await activity.save(options.session ? { session: options.session } : undefined);
+        }
+
+        return {
+            success: true,
+            revoked: true,
+            reason: trimmedReason
         };
     }
 }

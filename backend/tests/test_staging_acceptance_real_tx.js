@@ -402,13 +402,24 @@ async function runAcceptanceJourneyTests() {
     const journeyLinkRes = await SiteVisitService.getJourneyLink(activityId, agent);
     assert(Boolean(journeyLinkRes.journeyUrl), '5a. Authorized agent retrieved customer journey URL via scoped path');
     assert(Boolean(journeyLinkRes.safeToken), '5b. Authorized agent retrieved customer safe token via scoped path');
+    assert(journeyLinkRes.isRotated === false, '5c. Initial retrieval of active token reports isRotated: false');
     const journeyToken = journeyLinkRes.safeToken;
 
+    // Stable Lifecycle: Repeated retrieval must return identical token and not invalidate active link
+    const journeyLinkRes2 = await SiteVisitService.getJourneyLink(activityId, agent);
+    assert(journeyLinkRes2.safeToken === journeyToken, '5d. Repeated retrieval returns exact same token without generating new JTI or modifying DB');
+    assert(journeyLinkRes2.journeyUrl === journeyLinkRes.journeyUrl, '5e. Repeated retrieval returns exact same customer URL');
+
+    // Concurrency Safety: 5 concurrent retrievals must all return the exact same token
+    const concurrentResults = await Promise.all([1, 2, 3, 4, 5].map(() => SiteVisitService.getJourneyLink(activityId, agent)));
+    const allMatch = concurrentResults.every(r => r.safeToken === journeyToken && r.journeyUrl === journeyLinkRes.journeyUrl);
+    assert(allMatch === true, '5f. Concurrent retrievals return consistent, identical token and URL with zero race conditions');
+
     const verifiedData = await SiteVisitJourneyService.verifyJourneyToken(journeyToken);
-    assert(String(verifiedData.activity._id) === String(activityId), '5c. Valid token resolves correct activity');
+    assert(String(verifiedData.activity._id) === String(activityId), '5g. Valid token resolves correct activity');
     const itinerary = await SiteVisitJourneyService.getSanitizedItinerary(verifiedData.activity);
-    assert(itinerary.properties.length === 2, '5d. Sanitized itinerary returned');
-    assert(itinerary.properties[1].isLocked === true, '5e. Property 2 unit details strictly masked/locked');
+    assert(itinerary.properties.length === 2, '5h. Sanitized itinerary returned');
+    assert(itinerary.properties[1].isLocked === true, '5i. Property 2 unit details strictly masked/locked');
 
     // Tampered token check
     let tamperedRejected = false;
@@ -417,7 +428,7 @@ async function runAcceptanceJourneyTests() {
     } catch (err) {
         tamperedRejected = true;
     }
-    assert(tamperedRejected === true, '5f. Tampered token rejected');
+    assert(tamperedRejected === true, '5j. Tampered token rejected');
 
     // 6. Feedback submission persists and is visible to CRM user
     console.log('\n--- 2.6 Feedback Submission & CRM Visibility ---');
@@ -548,11 +559,11 @@ async function runAcceptanceJourneyTests() {
         department: 'sales'
     });
     const fiveProperties = [
-        { project: 'M3M Golfestate', block: 'Tower 1', property: 'Unit 101', city: 'Gurugram' },
-        { project: 'DLF Magnolias', block: 'Tower 4', property: 'Unit 402', city: 'Gurugram' },
-        { project: 'Puri The Aravallis', block: 'Tower A', property: 'Unit 503', city: 'Gurugram' },
-        { project: 'Central Park Resorts', block: 'Tower B', property: 'Unit 604', city: 'Gurugram' },
-        { project: 'Tata Primanti', block: 'Villa 7', property: 'Villa 7', city: 'Gurugram' }
+        { project: 'M3M Golfestate', block: 'Tower 1', property: 'Unit 101', city: 'Gurugram', lat: 28.4121, lng: 77.0654 },
+        { project: 'DLF Magnolias', block: 'Tower 4', property: 'Unit 402', city: 'Gurugram', lat: 28.4682, lng: 77.0984 },
+        { project: 'Puri The Aravallis', block: 'Tower A', property: 'Unit 503', city: 'Gurugram', lat: 28.4215, lng: 77.0423 },
+        { project: 'Central Park Resorts', block: 'Tower B', property: 'Unit 604', city: 'Gurugram', lat: 28.4325, lng: 77.0512 },
+        { project: 'Tata Primanti', block: 'Villa 7', property: 'Villa 7', city: 'Gurugram', lat: 28.4011, lng: 77.0321 }
     ];
 
     const fiveSched = await SiteVisitService.schedule({
@@ -601,8 +612,28 @@ async function runAcceptanceJourneyTests() {
     console.log('\n--- 2.12 Route Optimization Abstraction & Travel Time Integrity ---');
     const routeOptResult = await SiteVisitJourneyService.optimizeRoute(fiveProperties);
     assert(routeOptResult.optimized === false, '12a. Fallback to scheduled order when provider not configured');
-    assert(routeOptResult.estimatedTravelTimes === null, '12b. Travel times strictly null (never fabricated)');
-    assert(routeOptResult.claimedOptimal === false, '12c. Claimed optimal is false without provider routing matrix');
+    assert(routeOptResult.status === 'CREDENTIAL_BLOCKED', '12b. Optimization status explicitly reports CREDENTIAL_BLOCKED');
+    assert(routeOptResult.estimatedTravelTimes === null, '12c. Travel times strictly null (never fabricated)');
+    assert(routeOptResult.claimedOptimal === false, '12d. Claimed optimal is false without provider routing matrix');
+
+    // Provider mock execution (verifies full Routes API response parsing & waypoint reordering)
+    const mockTransport = async (payload) => ({
+        routes: [{
+            optimizedIntermediateWaypointIndex: [2, 0, 1], // Puri (2), DLF (0), Central Park (1)
+            duration: '3200s',
+            distanceMeters: 24500
+        }]
+    });
+    const providerOptResult = await SiteVisitJourneyService.optimizeRoute(fiveProperties, {
+        apiKey: 'test_key',
+        mockTransport
+    });
+    assert(providerOptResult.optimized === true, '12e. Provider Routes API optimizes waypoint order');
+    assert(providerOptResult.isProviderOptimized === true, '12f. isProviderOptimized is true for Routes API');
+    assert(providerOptResult.optimizationSource === 'GOOGLE_ROUTES_API', '12g. Source is GOOGLE_ROUTES_API');
+    assert(providerOptResult.claimedOptimal === true, '12h. Provider-optimized route is marked optimal');
+    assert(providerOptResult.estimatedTravelTimes.totalDuration === '3200s', '12i. Real provider duration recorded');
+    assert(providerOptResult.properties[1].project === 'Central Park Resorts', '12j. Waypoints reordered based on provider indices');
 
     // Geometric coordinate proximity test
     const geoProps = [
@@ -611,9 +642,9 @@ async function runAcceptanceJourneyTests() {
         { project: 'Near Property', lat: 28.4600, lng: 77.0270 }
     ];
     const geoOptResult = await SiteVisitJourneyService.optimizeRoute(geoProps, { heuristicProximity: true });
-    assert(geoOptResult.optimized === true, '12d. Heuristic proximity sorts nearest-neighbor coordinates');
-    assert(geoOptResult.properties[1].project === 'Near Property', '12e. Nearest property placed second in sequence');
-    assert(geoOptResult.estimatedTravelTimes === null, '12f. Geometric sort preserves estimatedTravelTimes as null');
+    assert(geoOptResult.optimized === true, '12k. Heuristic proximity sorts nearest-neighbor coordinates');
+    assert(geoOptResult.properties[1].project === 'Near Property', '12l. Nearest property placed second in sequence');
+    assert(geoOptResult.estimatedTravelTimes === null, '12m. Geometric sort preserves estimatedTravelTimes as null');
 
     // 13. Scoped Journey Link RBAC Fail-Closed Enforcement
     console.log('\n--- 2.13 Scoped Journey Link RBAC / Tenant Isolation ---');
@@ -634,6 +665,108 @@ async function runAcceptanceJourneyTests() {
     };
     await SiteVisitController.getSiteVisitJourneyLink(mockLinkReq, mockLinkRes);
     assert(linkDenied === true || mockLinkRes.statusCode === 403 || mockLinkRes.statusCode === 404, '13. Unauthorized user cannot retrieve journey link for other department\'s visit');
+
+    // 14. Token Lifecycle: Explicit Rotation, Revocation, and Expiry
+    console.log('\n--- 2.14 Token Lifecycle: Explicit Rotation, Revocation, and Expiry ---');
+    const lifecycleLead = await createTestLead({
+        firstName: 'Lifecycle',
+        lastName: 'Token Lead',
+        mobile: '9888112233',
+        assignedTo: agent._id,
+        department: 'sales'
+    });
+
+    const lifecycleSched = await SiteVisitService.schedule({
+        leadId: lifecycleLead._id,
+        date: '2026-11-29',
+        time: '12:00',
+        properties: [{ project: 'The Camellias' }]
+    }, agent);
+    const lifecycleActId = lifecycleSched.activity._id;
+
+    // Initial Token
+    const initialLink = await SiteVisitService.getJourneyLink(lifecycleActId, agent);
+    const initialToken = initialLink.safeToken;
+    assert(initialLink.isRotated === false, '14a. Initial link isRotated is false');
+
+    const verifyInitial = await SiteVisitJourneyService.verifyJourneyToken(initialToken);
+    assert(String(verifyInitial.activity._id) === String(lifecycleActId), '14b. Initial token verifies successfully');
+
+    // Repeated retrieval returns exact same token
+    const repeatLink = await SiteVisitService.getJourneyLink(lifecycleActId, agent);
+    assert(repeatLink.safeToken === initialToken, '14c. Repeated retrieval does NOT change or invalidate token');
+
+    // Explicit Rotation
+    const rotatedLink = await SiteVisitService.getJourneyLink(lifecycleActId, agent, {
+        rotate: true,
+        rotationReason: 'Agent requested URL refresh'
+    });
+    assert(rotatedLink.isRotated === true, '14d. Explicit rotation returns isRotated: true');
+    assert(rotatedLink.safeToken !== initialToken, '14e. Rotated token is distinct from initial token');
+
+    // Old token is now superseded (HTTP 403)
+    let oldTokenBlocked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(initialToken);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('superseded') || err.message.includes('refreshed')) {
+            oldTokenBlocked = true;
+        }
+    }
+    assert(oldTokenBlocked === true, '14f. Old token is immediately superseded and rejected (HTTP 403)');
+
+    // New token works
+    const verifyRotated = await SiteVisitJourneyService.verifyJourneyToken(rotatedLink.safeToken);
+    assert(String(verifyRotated.activity._id) === String(lifecycleActId), '14g. Newly rotated token verifies successfully');
+
+    // Explicit Revocation (without cancelling visit)
+    const revokeRes = await SiteVisitService.revokeJourneyLink(lifecycleActId, 'Security pause requested', agent);
+    assert(revokeRes.revoked === true, '14h. Explicit revocation marks link revoked');
+
+    // Verified public access blocked with HTTP 403
+    let revokedBlocked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(rotatedLink.safeToken);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('revoked')) {
+            revokedBlocked = true;
+        }
+    }
+    assert(revokedBlocked === true, '14i. Public access with revoked token is blocked (HTTP 403 / Revoked)');
+
+    // Scoped retrieval on revoked activity fails closed
+    let retrievalOnRevokedBlocked = false;
+    try {
+        await SiteVisitService.getJourneyLink(lifecycleActId, agent);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('revoked')) {
+            retrievalOnRevokedBlocked = true;
+        }
+    }
+    assert(retrievalOnRevokedBlocked === true, '14j. Internal retrieval on revoked activity fails closed (HTTP 403)');
+
+    // Token Expiry check
+    const expiredToken = jwt.sign(
+        {
+            iss: 'bharat-properties-crm',
+            leadId: String(lifecycleLead._id),
+            activityId: String(lifecycleActId),
+            purpose: 'client_site_visit_journey',
+            jti: 'expired-jti',
+            iat: Math.floor(Date.now() / 1000) - 100000,
+            exp: Math.floor(Date.now() / 1000) - 50000
+        },
+        SiteVisitJourneyService.getSecret()
+    );
+    let expiredBlocked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(expiredToken);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('expired')) {
+            expiredBlocked = true;
+        }
+    }
+    assert(expiredBlocked === true, '14k. Expired token is rejected (HTTP 403 / Expired)');
 }
 
 async function main() {

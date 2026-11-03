@@ -111,10 +111,55 @@ export const listSiteVisits = async (req, res) => {
 export const getSiteVisitJourneyLink = async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await SiteVisitService.getJourneyLink(id, req.user);
+        const options = {
+            rotate: req.query.rotate === 'true' || req.body?.rotate === true,
+            rotationReason: req.query.reason || req.body?.reason
+        };
+        const result = await SiteVisitService.getJourneyLink(id, req.user, options);
         return res.status(200).json({
             success: true,
             data: result
+        });
+    } catch (err) {
+        const status = err.statusCode || (err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400));
+        return res.status(status).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+export const rotateSiteVisitJourneyLink = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const options = {
+            rotate: true,
+            rotationReason: req.body?.reason || 'Explicit rotation requested by CRM user'
+        };
+        const result = await SiteVisitService.getJourneyLink(id, req.user, options);
+        return res.status(200).json({
+            success: true,
+            data: result,
+            message: 'Journey link rotated successfully. Old link has been invalidated.'
+        });
+    } catch (err) {
+        const status = err.statusCode || (err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400));
+        return res.status(status).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+export const revokeSiteVisitJourneyLink = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reason = req.body?.reason || 'Revoked by CRM administrator';
+        const result = await SiteVisitService.revokeJourneyLink(id, reason, req.user);
+        return res.status(200).json({
+            success: true,
+            data: result,
+            message: 'Journey link revoked successfully.'
         });
     } catch (err) {
         const status = err.statusCode || (err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400));

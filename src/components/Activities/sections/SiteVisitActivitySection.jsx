@@ -3,11 +3,11 @@ import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
 import toast from 'react-hot-toast';
 
-const JourneyProgressTracker = ({ formData, isDark }) => {
-    const [fetchedJourneyUrl, setFetchedJourneyUrl] = useState(null);
+const JourneyProgressTracker = ({ formData, isDark, initialJourneyUrl = null }) => {
+    const [fetchedJourneyUrl, setFetchedJourneyUrl] = useState(initialJourneyUrl);
     const [loadingLink, setLoadingLink] = useState(false);
 
-    const journeyUrl = fetchedJourneyUrl || formData.details?.journeyUrl || (formData.details?.journeyToken ? `${window.location.origin}/journey/${formData.details.journeyToken}` : null);
+    const journeyUrl = fetchedJourneyUrl;
     const visited = Array.isArray(formData.visitedProperties) ? formData.visitedProperties : (Array.isArray(formData.details?.visitedProperties) ? formData.details.visitedProperties : []);
 
     const fetchJourneyLink = async () => {

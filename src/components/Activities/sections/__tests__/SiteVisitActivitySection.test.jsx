@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import SiteVisitActivitySection from '../SiteVisitActivitySection';
 import toast from 'react-hot-toast';
@@ -23,13 +23,11 @@ vi.mock('../../ActivityCommon', () => ({
 }));
 
 const mockFormData = {
+    _id: 'mock_activity_123',
     type: 'Site Visit',
     status: 'Scheduled',
     purpose: 'Initial Visit',
-    details: {
-        journeyUrl: 'https://bharatproperties.co/journey/mock~token~123',
-        journeyToken: 'mock~token~123'
-    },
+    details: {}, // Zero raw journeyToken or journeyUrl stored in activity details
     visitedProperties: [
         {
             order: 0,
@@ -63,6 +61,15 @@ describe('SiteVisitActivitySection & JourneyProgressTracker', () => {
         });
         // Mock window.open
         window.open = vi.fn();
+
+        // Mock global.fetch for scoped journey link endpoint
+        global.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                success: true,
+                data: { journeyUrl: 'https://bharatproperties.co/journey/mock~token~123' }
+            })
+        });
     });
 
     it('1. Renders Journey Tracker with link actions and property badges', () => {
@@ -85,7 +92,7 @@ describe('SiteVisitActivitySection & JourneyProgressTracker', () => {
         expect(screen.getByText(/locked/i)).toBeInTheDocument();
     });
 
-    it('2. Copies journey link to clipboard when "Copy Link" is clicked', () => {
+    it('2. Copies journey link to clipboard when "Copy Link" is clicked via scoped endpoint', async () => {
         render(
             <SiteVisitActivitySection
                 formData={mockFormData}
@@ -99,13 +106,19 @@ describe('SiteVisitActivitySection & JourneyProgressTracker', () => {
         const copyBtn = screen.getByRole('button', { name: /copy link/i });
         fireEvent.click(copyBtn);
 
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-            'https://bharatproperties.co/journey/mock~token~123'
-        );
-        expect(toast.success).toHaveBeenCalledWith('Client Journey link copied to clipboard!');
+        await waitFor(() => {
+            expect(global.fetch).toHaveBeenCalledWith(
+                '/api/site-visits/mock_activity_123/journey-link',
+                expect.any(Object)
+            );
+            expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+                'https://bharatproperties.co/journey/mock~token~123'
+            );
+            expect(toast.success).toHaveBeenCalledWith('Client Journey link copied to clipboard!');
+        });
     });
 
-    it('3. Opens WhatsApp share URL with pre-filled message when "Share WhatsApp" is clicked', () => {
+    it('3. Opens WhatsApp share URL with pre-filled message when "Share WhatsApp" is clicked via scoped endpoint', async () => {
         render(
             <SiteVisitActivitySection
                 formData={mockFormData}
@@ -119,10 +132,12 @@ describe('SiteVisitActivitySection & JourneyProgressTracker', () => {
         const waBtn = screen.getByRole('button', { name: /whatsapp/i });
         fireEvent.click(waBtn);
 
-        expect(window.open).toHaveBeenCalledWith(
-            expect.stringContaining('https://wa.me/?text='),
-            '_blank'
-        );
+        await waitFor(() => {
+            expect(window.open).toHaveBeenCalledWith(
+                expect.stringContaining('https://wa.me/?text='),
+                '_blank'
+            );
+        });
     });
 
     it('4. Omits Journey Tracker when journey URL and properties are absent', () => {
