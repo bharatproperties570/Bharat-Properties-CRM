@@ -179,6 +179,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
             const lease = await lockProvider.acquire({
                 key: `authority-portal:${code}`,
                 searchKey,
+                authorityCode: code,
                 tenantId: correlation.tenantId
             });
             if (!lease || lease.acquired !== true || typeof lease.release !== 'function') {
@@ -187,7 +188,38 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 });
             }
 
+            let renewalInterval = null;
+            let lockLost = false;
+            let lockLostError = null;
+
+            if (typeof lease.renew === 'function') {
+                const renewPeriodMs = Math.max(50, Math.floor((lease.ttlMs || 30000) / 3));
+                renewalInterval = setInterval(async () => {
+                    try {
+                        const renewed = await lease.renew();
+                        if (!renewed) {
+                            lockLost = true;
+                            lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during processing.', {
+                                authorityCode: code
+                            });
+                        }
+                    } catch (err) {
+                        lockLost = true;
+                        lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', `Distributed portal lock renewal failed: ${err.message}`, {
+                            authorityCode: code
+                        });
+                    }
+                }, renewPeriodMs);
+                if (renewalInterval && typeof renewalInterval.unref === 'function') {
+                    renewalInterval.unref();
+                }
+            }
+
             try {
+                if (lockLost) {
+                    throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost.', { authorityCode: code });
+                }
+
                 const reservation = await quotaProvider.reserve({
                     authorityCode: code,
                     searchKey,
@@ -207,6 +239,20 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     quotaReservationId: reservation.reservationId || null
                 }, correlation);
 
+                // Actively verify lease ownership before network request
+                if (typeof lease.renew === 'function') {
+                    const stillOwned = await lease.renew();
+                    if (!stillOwned) {
+                        lockLost = true;
+                        lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost before transport request.', {
+                            authorityCode: code
+                        });
+                    }
+                }
+                if (lockLost) {
+                    throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost before transport search.', { authorityCode: code });
+                }
+
                 let response;
                 try {
                     response = await transport.search({
@@ -217,10 +263,27 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                         followRedirects: false
                     });
                 } catch (transportError) {
+                    if (transportError.details?.pauseSource === true) {
+                        await pauseSource(code, transportError.details.reason || transportError.code, searchKey, correlation);
+                    }
                     await writeAudit('AUTHORITY_PORTAL_TRANSPORT_FAILED', code, searchKey, {
                         errorCode: transportError?.code || 'TRANSPORT_ERROR'
                     }, correlation);
                     throw transportError;
+                }
+
+                // Actively verify lease ownership before parsing response
+                if (typeof lease.renew === 'function') {
+                    const stillOwned = await lease.renew();
+                    if (!stillOwned) {
+                        lockLost = true;
+                        lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost before parsing response.', {
+                            authorityCode: code
+                        });
+                    }
+                }
+                if (lockLost) {
+                    throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost before response parsing.', { authorityCode: code });
                 }
 
                 let guarded;
@@ -276,6 +339,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     recordCount: records.length,
                     records: Object.freeze(records),
                     contentHash,
+                    fenceToken: lease.fenceToken ?? null,
                     provenance: 'LIVE',
                     isSynthetic: false,
                     requiresHumanReview: true,
@@ -295,6 +359,9 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 // No automatic retry for quota denial, 403, 429, challenge, login or parser errors.
                 throw error;
             } finally {
+                if (renewalInterval) {
+                    clearInterval(renewalInterval);
+                }
                 await lease.release();
             }
         }

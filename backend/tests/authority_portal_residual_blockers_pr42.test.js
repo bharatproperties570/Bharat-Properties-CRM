@@ -34,6 +34,10 @@ import { portalHttpTransport } from '../services/authority/portal/infrastructure
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
 import { DurablePortalCircuitBreaker } from '../services/authority/portal/infrastructure/durablePortalCircuitBreaker.js';
 import { sanitizeAuditMetadata, PortalAuditSink } from '../services/authority/portal/infrastructure/portalAuditSink.js';
+import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
+import { chdPortalAdapter } from '../services/authority/portal/adapters/chdPortalAdapter.js';
+import { createAuthorityPortalRuntime } from '../services/authority/portal/authorityPortalRuntime.js';
+import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -701,7 +705,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         const { req, res } = createMockReqRes({
             user: reviewerUser,
             params: { authorityCode: 'HSVP' },
-            body: { decision: 'APPROVED' }
+            body: { decision: 'APPROVED', expectedEvidenceVersion: 1 }
         });
 
         await reviewSourceApproval(req, res);
@@ -802,5 +806,476 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         assert.equal(sanitized.nestedResults[0].phone, undefined);
         assert.equal(sanitized.nestedResults[1].plotNo, '457');
         assert.equal(sanitized.nestedResults[1].status, 'Allotted');
+    });
+
+    // =========================================================================
+    // Finding 15: Mandatory maxConcurrent Concurrency Policy (Fix 1)
+    // =========================================================================
+    await t.test('15. Mandatory maxConcurrent Concurrency Policy (PR42 Fix 1)', async (t15) => {
+        await t15.test('15.1 submitSourceApproval rejects missing or invalid maxConcurrent with 422', async () => {
+            const { req, res } = createMockReqRes({
+                user: submitterUser,
+                params: { authorityCode: 'HSVP' },
+                body: {
+                    approvalReference: 'HSVP/2026/POL1',
+                    termsReviewed: true,
+                    termsReference: 'https://hsvphry.org.in/Terms',
+                    contractVerificationStatus: 'VERIFIED_CONTRACT',
+                    contractEvidenceReference: 'EVID-HSVP-01',
+                    ratePolicy: {
+                        maxRequestsPerMinute: 5,
+                        maxRequestsPerDay: 500,
+                        minimumIntervalMs: 12000,
+                        maxConcurrent: 0, // Invalid!
+                        policySource: 'GOV_TERMS'
+                    }
+                }
+            });
+
+            await submitSourceApproval(req, res);
+            assert.equal(res.getStatusCode(), 422);
+            assert.equal(res.getData().code, 'INVALID_RATE_POLICY');
+        });
+
+        await t15.test('15.2 checkActivationEligibility rejects missing maxConcurrent', () => {
+            const doc = {
+                isEnabled: true,
+                permissionStatus: 'GRANTED',
+                reviewStatus: 'APPROVED',
+                submittedBy: 'u1',
+                approvedBy: 'u2',
+                writtenPermissionReference: 'REF',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://terms',
+                contractVerificationStatus: 'VERIFIED_CONTRACT',
+                identityRequirements: { verified: true },
+                ratePolicy: {
+                    maxRequestsPerMinute: 5,
+                    maxRequestsPerDay: 500,
+                    minimumIntervalMs: 12000,
+                    policySource: 'POLICY_DOC'
+                    // maxConcurrent omitted!
+                }
+            };
+            const eligibility = checkActivationEligibility(doc);
+            assert.equal(eligibility.eligible, false);
+            assert.ok(eligibility.blockers.some(b => {
+                const msg = typeof b === 'string' ? b : (b.message || b.code || '');
+                return msg.toLowerCase().includes('concurrency') || msg.toLowerCase().includes('maxconcurrent');
+            }));
+        });
+    });
+
+    // =========================================================================
+    // Finding 16: Submitter Self-Attestation Closure & Attestation Lifecycle (Fix 2)
+    // =========================================================================
+    await t.test('16. Submitter Identity Self-Attestation Closure (PR42 Fix 2)', async (t16) => {
+        await t16.test('16.1 submitSourceApproval strictly forces verified: false even if caller sends true', async () => {
+            const { req, res } = createMockReqRes({
+                user: submitterUser,
+                params: { authorityCode: 'GMADA' },
+                body: {
+                    approvalReference: 'GMADA/2026/PERM',
+                    commercialUseAuthorized: true,
+                    readOnlySearchAuthorized: true,
+                    termsReviewed: true,
+                    termsReference: 'https://gmadaipms.in/Terms',
+                    contractVerificationStatus: 'VERIFIED_CONTRACT',
+                    contractEvidenceReference: 'EVID-GMADA-01',
+                    permittedFields: ['propertyNo', 'sectors', 'location'],
+                    identityRequirements: {
+                        required: ['sectorNumber', 'propertyId'],
+                        verified: true // Caller attempt to self-verify!
+                    },
+                    ratePolicy: {
+                        maxRequestsPerMinute: 2,
+                        maxRequestsPerDay: 200,
+                        minimumIntervalMs: 30000,
+                        maxConcurrent: 1,
+                        policySource: 'GMADA_POLICY'
+                    }
+                }
+            });
+
+            await submitSourceApproval(req, res);
+            assert.equal(res.getStatusCode(), 200);
+
+            const updated = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'GMADA' });
+            assert.equal(updated.identityRequirements.verified, false, 'identityRequirements.verified must be strictly forced to false on submit');
+            assert.ok(!updated.identityRequirements.attestation?.evidenceReference);
+            assert.ok(!updated.identityRequirements.attestation?.attestedBy);
+        });
+
+        await t16.test('16.2 reviewSourceApproval with valid reviewer attestation sets verified: true', async () => {
+            // First transition to UNDER_REVIEW
+            const setting = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'GMADA' });
+            setting.reviewStatus = 'UNDER_REVIEW';
+            await setting.save();
+
+            const { req, res } = createMockReqRes({
+                user: reviewerUser,
+                params: { authorityCode: 'GMADA' },
+                body: {
+                    decision: 'APPROVED',
+                    expectedEvidenceVersion: setting.evidenceVersion,
+                    identityContractAttestation: {
+                        evidenceReference: 'OFFICIAL_PORTAL_DOC_V2',
+                        evidenceVersion: setting.evidenceVersion,
+                        evidenceHash: 'sha256:abc123identity'
+                    }
+                }
+            });
+
+            await reviewSourceApproval(req, res);
+            assert.equal(res.getStatusCode(), 200);
+
+            const approved = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'GMADA' });
+            assert.equal(approved.permissionStatus, 'GRANTED');
+            assert.equal(approved.reviewStatus, 'APPROVED');
+            assert.equal(approved.identityRequirements.verified, true);
+            assert.equal(approved.identityRequirements.attestation.evidenceReference, 'OFFICIAL_PORTAL_DOC_V2');
+            assert.equal(String(approved.identityRequirements.attestation.attestedBy), String(reviewerUser._id));
+        });
+    });
+
+    // =========================================================================
+    // Finding 17: Mandatory Expected Evidence Version on All Review Outcomes (Fix 3)
+    // =========================================================================
+    await t.test('17. Mandatory expectedEvidenceVersion on Both Review Outcomes (PR42 Fix 3)', async (t17) => {
+        await t17.test('17.1 reviewSourceApproval with decision REJECTED requires expectedEvidenceVersion', async () => {
+            // Put CHD in PENDING_REVIEW and UNDER_REVIEW
+            await AuthoritySourceSettings.updateOne(
+                { tenantId: testTenantId, authorityCode: 'CHD' },
+                {
+                    $set: {
+                        permissionStatus: 'PENDING_REVIEW',
+                        reviewStatus: 'UNDER_REVIEW',
+                        submittedBy: submitterUser._id,
+                        evidenceVersion: 2
+                    }
+                }
+            );
+
+            // REJECTED without expectedEvidenceVersion -> 422
+            const { req: req1, res: res1 } = createMockReqRes({
+                user: reviewerUser,
+                params: { authorityCode: 'CHD' },
+                body: { decision: 'REJECTED' }
+            });
+            await reviewSourceApproval(req1, res1);
+            assert.equal(res1.getStatusCode(), 422);
+            assert.equal(res1.getData().code, 'EVIDENCE_VERSION_REQUIRED');
+
+            // REJECTED with stale version -> 409
+            const { req: req2, res: res2 } = createMockReqRes({
+                user: reviewerUser,
+                params: { authorityCode: 'CHD' },
+                body: { decision: 'REJECTED', expectedEvidenceVersion: 1 }
+            });
+            await reviewSourceApproval(req2, res2);
+            assert.equal(res2.getStatusCode(), 409);
+            assert.equal(res2.getData().code, 'STALE_EVIDENCE_VERSION');
+
+            // REJECTED with matching version -> 200
+            const { req: req3, res: res3 } = createMockReqRes({
+                user: reviewerUser,
+                params: { authorityCode: 'CHD' },
+                body: { decision: 'REJECTED', expectedEvidenceVersion: 2, notes: 'Insufficient terms proof' }
+            });
+            await reviewSourceApproval(req3, res3);
+            assert.equal(res3.getStatusCode(), 200);
+
+            const rejected = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'CHD' });
+            assert.equal(rejected.permissionStatus, 'NOT_OBTAINED');
+            assert.equal(rejected.reviewStatus, 'REJECTED');
+        });
+    });
+
+    // =========================================================================
+    // Finding 18: Monotonic Fence Token & Lease Renewal Heartbeat (Fix 4)
+    // =========================================================================
+    await t.test('18. Monotonic Fence Token & Lease Renewal (PR42 Fix 4)', async (t18) => {
+        await t18.test('18.1 Redis distributed lock generates monotonic sequence tokens', async () => {
+            const lock = new RedisPortalDistributedLock(null, { testMode: true });
+            const lease1 = await lock.acquire({ key: 'authority-portal:HSVP' });
+            assert.ok(lease1.acquired);
+            assert.equal(typeof lease1.fenceToken, 'number');
+            const token1 = lease1.fenceToken;
+            await lease1.release();
+
+            const lease2 = await lock.acquire({ key: 'authority-portal:HSVP' });
+            assert.ok(lease2.acquired);
+            const token2 = lease2.fenceToken;
+            assert.ok(token2 > token1, `Fence token must be monotonic: ${token2} > ${token1}`);
+            await lease2.release();
+        });
+
+        await t18.test('18.2 runtime aborts with PORTAL_LOCK_OWNERSHIP_LOST when lease is lost', async () => {
+            let leaseRenewCalled = false;
+            let releaseCalled = false;
+
+            const fakeQuota = {
+                reserve: async () => ({ allowed: true, reservationId: 'r1' })
+            };
+
+            const fakeCircuit = {
+                isPaused: async () => false,
+                pause: async () => {}
+            };
+
+            let transportCalled = false;
+            const fakeTransport = {
+                search: async () => {
+                    transportCalled = true;
+                    return { status: 200, headers: {}, body: '<html></html>' };
+                }
+            };
+
+            const fakeAudit = { write: async () => {} };
+            const fakeParser = { parse: async () => [] };
+
+            let thrownError = null;
+            try {
+                // To trigger loss-of-lease detection before transport:
+                const lockWithImmediateLoss = {
+                    acquire: async () => ({
+                        acquired: true,
+                        token: 'tok-loss',
+                        fenceToken: 10,
+                        ttlMs: 3000,
+                        renew: async () => {
+                            leaseRenewCalled = true;
+                            return false;
+                        },
+                        release: async () => { releaseCalled = true; }
+                    })
+                };
+
+                const testRuntime = createAuthorityPortalRuntime({
+                    lockProvider: lockWithImmediateLoss,
+                    quotaProvider: fakeQuota,
+                    circuitBreakerStore: fakeCircuit,
+                    transport: fakeTransport,
+                    parserRegistry: { HSVP: fakeParser },
+                    auditSink: fakeAudit,
+                    gateConfig: { enabled: true, readOnly: true }
+                });
+
+                await testRuntime.search({
+                    authorityCode: 'HSVP',
+                    inventory: { propertyId: '123', sector: '14', city: 'Gurugram', urbanEstate: 'Gurugram' },
+                    authorityLink: { _id: new mongoose.Types.ObjectId() },
+                    approval: {
+                        authorityCode: 'HSVP',
+                        status: 'GRANTED',
+                        accessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                        writtenPermissionReference: 'HSVP/IT/2026/001',
+                        commercialUseAuthorized: true,
+                        readOnlySearchAuthorized: true,
+                        termsReviewed: true,
+                        termsReference: 'https://hsvphry.org.in/Terms#review',
+                        approvedBy: 'approver-1',
+                        reviewedBy: 'reviewer-2',
+                        expiresAt: '2028-01-01T00:00:00.000Z',
+                        permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+                        ratePolicy: {
+                            maxRequestsPerMinute: 2,
+                            maxRequestsPerDay: 500,
+                            minimumIntervalMs: 30000,
+                            maxConcurrentRequests: 1,
+                            policyReference: 'HSVP/RATE/01'
+                        }
+                    }
+                });
+            } catch (err) {
+                thrownError = err;
+            }
+
+            assert.equal(thrownError?.code, 'PORTAL_LOCK_OWNERSHIP_LOST');
+            assert.ok(releaseCalled, 'Lease release() must be called in finally');
+        });
+    });
+
+    // =========================================================================
+    // Finding 19: Authority-Wide Quota Contention & IST Rollover (Fix 5)
+    // =========================================================================
+    await t.test('19. Authority-Wide Quota Contention Across Multiple Tenants (PR42 Fix 5)', async (t19) => {
+        await t19.test('19.1 Tenant A and Tenant B share authority quota globally', async () => {
+            const quota = new RedisPortalQuotaProvider(null, { testMode: true });
+            const policy = {
+                maxRequestsPerMinute: 1, // Limit: 1 per minute authority-wide
+                maxRequestsPerDay: 100,
+                minimumIntervalMs: 1000
+            };
+
+            const at = new Date();
+            // Tenant A reserves 1 request
+            const resTenantA = await quota.reserve({
+                authorityCode: 'HSVP',
+                tenantId: 'tenant-alpha',
+                policy,
+                at
+            });
+            assert.equal(resTenantA.allowed, true);
+
+            // Tenant B attempts to reserve immediately: must be blocked by minimum interval or per-minute limit!
+            const resTenantB = await quota.reserve({
+                authorityCode: 'HSVP',
+                tenantId: 'tenant-beta', // Different tenant!
+                policy,
+                at: new Date(at.getTime() + 100) // 100ms later (violates 1000ms interval)
+            });
+            assert.equal(resTenantB.allowed, false);
+            assert.equal(resTenantB.reason, 'MINIMUM_INTERVAL_VIOLATED');
+
+            // Even after minimum interval, Tenant B is blocked by authority-wide per-minute limit
+            const resTenantBMinute = await quota.reserve({
+                authorityCode: 'HSVP',
+                tenantId: 'tenant-beta',
+                policy,
+                at: new Date(at.getTime() + 1500) // 1500ms later (respects minInterval, but 1 req/min limit reached)
+            });
+            assert.equal(resTenantBMinute.allowed, false);
+            assert.equal(resTenantBMinute.reason, 'PER_MINUTE_LIMIT_EXCEEDED');
+        });
+    });
+
+    // =========================================================================
+    // Finding 20: Durable Circuit Breaker Tripped on Bootstrap Failures (Fix 6)
+    // =========================================================================
+    await t.test('20. Bootstrap Failures Trip Durable Circuit Breaker (PR42 Fix 6)', async (t20) => {
+        await t20.test('20.1 bootstrap 403 trips durable breaker and blocks subsequent search without transport', async () => {
+            let breakerPaused = false;
+            let pauseReason = null;
+
+            const fakeCircuit = {
+                isPaused: async () => breakerPaused,
+                pause: async (args) => {
+                    breakerPaused = true;
+                    pauseReason = args.reason;
+                }
+            };
+
+            let transportCallCount = 0;
+            const fakeTransport = {
+                search: async () => {
+                    transportCallCount++;
+                    const err = new Error('PORTAL_ACCESS_DENIED: Initial session bootstrap returned 403 Forbidden.');
+                    err.code = 'PORTAL_ACCESS_DENIED';
+                    err.details = { pauseSource: true, status: 403 };
+                    throw err;
+                }
+            };
+
+            const fakeLock = {
+                acquire: async () => ({
+                    acquired: true,
+                    token: 'tok',
+                    fenceToken: 1,
+                    ttlMs: 30000,
+                    release: async () => {}
+                })
+            };
+
+            const fakeQuota = {
+                reserve: async () => ({ allowed: true, reservationId: 'r1' })
+            };
+
+            const fakeAudit = { write: async () => {} };
+            const fakeParser = { parse: async () => [] };
+
+            const validApproval = {
+                authorityCode: 'HSVP',
+                status: 'GRANTED',
+                accessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                writtenPermissionReference: 'HSVP/IT/2026/001',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://hsvphry.org.in/Terms#review',
+                approvedBy: 'approver-1',
+                reviewedBy: 'reviewer-2',
+                expiresAt: '2028-01-01T00:00:00.000Z',
+                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 500,
+                    minimumIntervalMs: 30000,
+                    maxConcurrentRequests: 1,
+                    policyReference: 'HSVP/RATE/01'
+                }
+            };
+
+            const runtime = createAuthorityPortalRuntime({
+                lockProvider: fakeLock,
+                quotaProvider: fakeQuota,
+                circuitBreakerStore: fakeCircuit,
+                transport: fakeTransport,
+                parserRegistry: { HSVP: fakeParser },
+                auditSink: fakeAudit,
+                gateConfig: { enabled: true, readOnly: true }
+            });
+
+            // First search encounters 403 on transport bootstrap
+            let firstErr = null;
+            try {
+                await runtime.search({
+                    authorityCode: 'HSVP',
+                    inventory: { propertyId: '123', sector: '14', city: 'Gurugram', urbanEstate: 'Gurugram' },
+                    authorityLink: { _id: new mongoose.Types.ObjectId() },
+                    approval: validApproval
+                });
+            } catch (err) {
+                firstErr = err;
+            }
+
+            assert.equal(firstErr?.code, 'PORTAL_ACCESS_DENIED');
+            assert.equal(transportCallCount, 1);
+            assert.equal(breakerPaused, true, 'Circuit breaker must be paused after bootstrap 403');
+
+            // Second search must be blocked immediately by circuit breaker without any network transport call!
+            let secondErr = null;
+            try {
+                await runtime.search({
+                    authorityCode: 'HSVP',
+                    inventory: { propertyId: '123', sector: '14', city: 'Gurugram', urbanEstate: 'Gurugram' },
+                    authorityLink: { _id: new mongoose.Types.ObjectId() },
+                    approval: validApproval
+                });
+            } catch (err) {
+                secondErr = err;
+            }
+
+            assert.ok(secondErr?.code === 'AUTHORITY_PORTAL_PAUSED' || secondErr?.code === 'PORTAL_SOURCE_PAUSED');
+            assert.equal(transportCallCount, 1, 'Zero subsequent transport calls allowed when source is paused');
+        });
+    });
+
+    // =========================================================================
+    // Finding 21: Chandigarh Anti-Forgery Enforcement (Fix 7)
+    // =========================================================================
+    await t.test('21. Chandigarh Anti-Forgery Enforcement (PR42 Fix 7)', async (t21) => {
+        await t21.test('21.1 chdPortalAdapter throws CHD_MISSING_ANTIFORGERY if verification token missing', () => {
+            assert.throws(() => {
+                chdPortalAdapter.buildSearchRequest(
+                    { plotNo: '100', sectorNo: '17' },
+                    { verificationToken: '' } // Missing/empty!
+                );
+            }, {
+                name: 'Error',
+                message: /CHD_MISSING_ANTIFORGERY/
+            });
+        });
+
+        await t21.test('21.2 chdPortalAdapter succeeds when verification token is provided', () => {
+            const req = chdPortalAdapter.buildSearchRequest(
+                { plotNo: '100', sectorNo: '17' },
+                { verificationToken: 'ValidChdToken123' }
+            );
+            assert.equal(req.method, 'POST');
+            assert.ok(req.body.includes('__RequestVerificationToken=ValidChdToken123'));
+        });
     });
 });

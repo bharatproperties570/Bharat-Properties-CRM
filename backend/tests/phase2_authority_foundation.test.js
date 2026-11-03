@@ -449,6 +449,7 @@ describe('S4: Sources default-disabled', () => {
                 maxRequestsPerHour: 10,
                 maxRequestsPerMinute: 5,
                 minimumIntervalMs: 12000,
+                maxConcurrent: 1,
                 policySource: 'AUTHORITY_DIRECT_AGREEMENT'
             },
             contractVerificationStatus: 'VERIFIED_CONTRACT',

@@ -185,6 +185,7 @@ jobs:
       - name: Run Real Redis Integration Tests
         run: |
           cd backend
+          npm run test:authority-portal-redis
           npm run test:authority-portal-acceptance
 
   build-frontend:

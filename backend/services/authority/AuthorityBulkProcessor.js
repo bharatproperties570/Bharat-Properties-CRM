@@ -2225,6 +2225,28 @@ export class AuthorityBulkProcessor {
                 return { success: false, reason: runtimeErr.code || 'PORTAL_RUNTIME_ERROR', error: runtimeErr.message };
             }
 
+            // Validate monotonic fence token from portal distributed lock (Fix 4)
+            if (portalResult.fenceToken === undefined || portalResult.fenceToken === null || !Number.isInteger(Number(portalResult.fenceToken)) || Number(portalResult.fenceToken) < 1) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: 'Portal lock fence token missing or invalid; snapshot persistence aborted.',
+                        errorDetails: { code: 'PORTAL_FENCE_TOKEN_INVALID' },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'PORTAL_FENCE_TOKEN_INVALID' };
+            }
+
             if (!portalResult || portalResult.recordCount === 0 || !portalResult.records || portalResult.records.length === 0) {
                 const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
                     item._id,
@@ -2314,6 +2336,7 @@ export class AuthorityBulkProcessor {
                 normalizedRecord: matchedRecord,
                 contentHash: portalResult.contentHash,
                 sourceReferenceUrl: `https://${portalResult.sourceHost}`,
+                fenceToken: Number(portalResult.fenceToken),
                 proposedChanges: liveProposedChanges,
                 matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' },
                 compositeKey: link.compositeKey ? { key: link.compositeKey } : null
@@ -2346,6 +2369,7 @@ export class AuthorityBulkProcessor {
             linkId: link._id,
             runItemId: item._id,
             createdByWorkerId: effectiveWorkerId || null,
+            fenceToken: candidate.fenceToken || null,
             sourceReferenceUrl: isFixtureMode
                 ? `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`
                 : (candidate.sourceReferenceUrl || `https://${item.authorityCode.toLowerCase()}.authority.internal`),

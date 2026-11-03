@@ -240,6 +240,13 @@ export const portalHttpTransport = Object.freeze({
                         err.details = { pauseSource: true };
                         throw err;
                     }
+                } else if (code === 'CHD') {
+                    if (!hiddenFields['__RequestVerificationToken'] && !hiddenFields['__CSRFTOKEN__']) {
+                        const err = new Error('PORTAL_MISSING_ANTIFORGERY: Chandigarh bootstrap form missing __RequestVerificationToken.');
+                        err.code = 'PORTAL_MISSING_ANTIFORGERY';
+                        err.details = { pauseSource: true };
+                        throw err;
+                    }
                 }
             } catch (bootErr) {
                 if (bootErr.name === 'AbortError') {

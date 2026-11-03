@@ -247,7 +247,14 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
     identityRequirements: {
         required: { type: [String], default: [] },   // e.g. ['sectorNumber', 'propertyId']
         optional: { type: [String], default: [] },   // e.g. ['phaseCode', 'urbanEstate']
-        verified: { type: Boolean, default: false }   // Are these requirements confirmed with real data?
+        verified: { type: Boolean, default: false },   // Are these requirements confirmed with real data?
+        attestation: {
+            evidenceReference: { type: String, default: null },
+            evidenceVersion: { type: Number, default: null },
+            evidenceHash: { type: String, default: null },
+            attestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+            attestedAt: { type: Date, default: null }
+        }
     }
 }, {
     timestamps: true,
@@ -307,6 +314,9 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
     const hasPolicyRef = Boolean(rate.policySource || rate.policyReference);
     if (!rate.maxRequestsPerMinute || !rate.maxRequestsPerDay || (!rate.minimumIntervalMs && !rate.minIntervalMs) || !hasPolicyRef) {
         blockers.push('Incomplete rate policy: requires maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, and policySource');
+    }
+    if (!rate.maxConcurrent || !Number.isInteger(Number(rate.maxConcurrent)) || Number(rate.maxConcurrent) < 1) {
+        blockers.push('Incomplete concurrency policy: requires positive integer maxConcurrent');
     }
     if (!this.identityRequirements?.verified) {
         blockers.push('Source identity requirements are not verified with real data');
@@ -426,6 +436,9 @@ export function checkActivationEligibility(doc = {}) {
     const hasPolicyRef = Boolean(rate.policySource || rate.policyReference);
     if (!rate.maxRequestsPerMinute || !rate.maxRequestsPerDay || (!rate.minimumIntervalMs && !rate.minIntervalMs) || !hasPolicyRef) {
         blockers.push({ code: 'RATE_POLICY_INCOMPLETE', message: 'Incomplete rate policy: requires maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, and policySource' });
+    }
+    if (!rate.maxConcurrent || !Number.isInteger(Number(rate.maxConcurrent)) || Number(rate.maxConcurrent) < 1) {
+        blockers.push({ code: 'RATE_POLICY_INCOMPLETE', message: 'Incomplete concurrency policy: requires positive integer maxConcurrent' });
     }
     if (doc.contractVerificationStatus && doc.contractVerificationStatus !== 'VERIFIED_CONTRACT' && doc.contractVerificationStatus !== 'LIVE_VERIFIED') {
         blockers.push({ code: 'CONTRACT_NOT_VERIFIED', message: `Source contract is not verified (status: ${doc.contractVerificationStatus})` });

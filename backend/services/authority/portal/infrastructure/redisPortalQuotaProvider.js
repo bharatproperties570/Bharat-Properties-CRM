@@ -19,11 +19,13 @@ export class RedisPortalQuotaProvider {
         }
         this._lastRequestAt = new Map();
         this._minuteCounts = new Map();
+        this._hourCounts = new Map();
         this._dailyCounts = new Map();
     }
 
     /**
      * Reserves quota for a single physical request.
+     * Enforces rate policy authority-wide across all tenants, with IST day/hour rollover.
      * @param {object} args
      * @param {string} args.authorityCode
      * @param {string} [args.searchKey]
@@ -40,10 +42,11 @@ export class RedisPortalQuotaProvider {
         const pol = (policy && typeof policy === 'object') ? policy : {};
         const minIntervalMs = Number(pol.minimumIntervalMs || pol.minIntervalMs);
         const maxPerMin = Number(pol.maxRequestsPerMinute);
+        const maxPerHour = Number(pol.maxRequestsPerHour);
         const maxPerDay = Number(pol.maxRequestsPerDay);
 
         const hasValidPolicy = (Number.isFinite(minIntervalMs) && minIntervalMs > 0) &&
-            ((Number.isFinite(maxPerMin) && maxPerMin > 0) || (Number.isFinite(maxPerDay) && maxPerDay > 0));
+            ((Number.isFinite(maxPerMin) && maxPerMin > 0) || (Number.isFinite(maxPerHour) && maxPerHour > 0) || (Number.isFinite(maxPerDay) && maxPerDay > 0));
 
         if (!hasValidPolicy) {
             return Object.freeze({
@@ -52,8 +55,15 @@ export class RedisPortalQuotaProvider {
             });
         }
 
-        const scopeKey = tenantId ? `${code}:${tenantId}` : code;
+        // Authority-wide quota reservation: shared globally across all tenants for this authority code
+        const scopeKey = code;
         const reservationId = `res_${code.toLowerCase()}_${crypto.randomUUID()}`;
+
+        // Compute Indian Standard Time (Asia/Kolkata) day and hour windows
+        const istString = new Date(nowMs).toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' });
+        const dayKey = istString.slice(0, 10); // 'YYYY-MM-DD'
+        const hourKey = istString.slice(0, 13).replace(' ', 'T'); // 'YYYY-MM-DDTHH'
+        const minuteKey = Math.floor(nowMs / 60000);
 
         // Production path: Redis atomic reservation with Lua script
         if (this.redisClient) {
@@ -61,15 +71,17 @@ export class RedisPortalQuotaProvider {
             if (isReady && typeof this.redisClient.eval === 'function') {
                 try {
                     const lastKey = `quota:last:${scopeKey}`;
-                    const minKey = `quota:min:${scopeKey}:${Math.floor(nowMs / 60000)}`;
-                    const dayKey = `quota:day:${scopeKey}:${new Date(nowMs).toISOString().slice(0, 10)}`;
+                    const minKey = `quota:min:${scopeKey}:${minuteKey}`;
+                    const hrKey = `quota:hour:${scopeKey}:${hourKey}`;
+                    const dyKey = `quota:day:${scopeKey}:${dayKey}`;
 
                     const luaScript = `
                         local lastReq = redis.call('get', KEYS[1])
                         local nowMs = tonumber(ARGV[1])
                         local minIntervalMs = tonumber(ARGV[2])
                         local maxPerMin = tonumber(ARGV[3])
-                        local maxPerDay = tonumber(ARGV[4])
+                        local maxPerHour = tonumber(ARGV[4])
+                        local maxPerDay = tonumber(ARGV[5])
 
                         if lastReq then
                             local diff = nowMs - tonumber(lastReq)
@@ -85,8 +97,15 @@ export class RedisPortalQuotaProvider {
                             end
                         end
 
+                        if maxPerHour > 0 then
+                            local curHour = tonumber(redis.call('get', KEYS[3]) or '0')
+                            if curHour >= maxPerHour then
+                                return {0, 'PER_HOUR_LIMIT_EXCEEDED', '0'}
+                            end
+                        end
+
                         if maxPerDay > 0 then
-                            local curDay = tonumber(redis.call('get', KEYS[3]) or '0')
+                            local curDay = tonumber(redis.call('get', KEYS[4]) or '0')
                             if curDay >= maxPerDay then
                                 return {0, 'DAILY_LIMIT_EXCEEDED', '0'}
                             end
@@ -97,9 +116,13 @@ export class RedisPortalQuotaProvider {
                             redis.call('incr', KEYS[2])
                             redis.call('expire', KEYS[2], 90)
                         end
-                        if maxPerDay > 0 then
+                        if maxPerHour > 0 then
                             redis.call('incr', KEYS[3])
-                            redis.call('expire', KEYS[3], 90000)
+                            redis.call('expire', KEYS[3], 7200)
+                        end
+                        if maxPerDay > 0 then
+                            redis.call('incr', KEYS[4])
+                            redis.call('expire', KEYS[4], 90000)
                         end
 
                         return {1, 'OK', '0'}
@@ -107,13 +130,15 @@ export class RedisPortalQuotaProvider {
 
                     const res = await this.redisClient.eval(
                         luaScript,
-                        3,
+                        4,
                         lastKey,
                         minKey,
-                        dayKey,
+                        hrKey,
+                        dyKey,
                         String(nowMs),
                         String(minIntervalMs),
                         String(maxPerMin || 0),
+                        String(maxPerHour || 0),
                         String(maxPerDay || 0)
                     );
 
@@ -160,8 +185,8 @@ export class RedisPortalQuotaProvider {
             });
         }
 
-        const minuteKey = `${scopeKey}:${Math.floor(nowMs / 60000)}`;
-        const currentMinuteCount = this._minuteCounts.get(minuteKey) || 0;
+        const memMinKey = `${scopeKey}:${minuteKey}`;
+        const currentMinuteCount = this._minuteCounts.get(memMinKey) || 0;
         if (Number.isFinite(maxPerMin) && maxPerMin > 0 && currentMinuteCount >= maxPerMin) {
             return Object.freeze({
                 allowed: false,
@@ -169,8 +194,17 @@ export class RedisPortalQuotaProvider {
             });
         }
 
-        const dayKey = `${scopeKey}:${new Date(nowMs).toISOString().slice(0, 10)}`;
-        const currentDayCount = this._dailyCounts.get(dayKey) || 0;
+        const memHourKey = `${scopeKey}:${hourKey}`;
+        const currentHourCount = this._hourCounts.get(memHourKey) || 0;
+        if (Number.isFinite(maxPerHour) && maxPerHour > 0 && currentHourCount >= maxPerHour) {
+            return Object.freeze({
+                allowed: false,
+                reason: 'PER_HOUR_LIMIT_EXCEEDED'
+            });
+        }
+
+        const memDayKey = `${scopeKey}:${dayKey}`;
+        const currentDayCount = this._dailyCounts.get(memDayKey) || 0;
         if (Number.isFinite(maxPerDay) && maxPerDay > 0 && currentDayCount >= maxPerDay) {
             return Object.freeze({
                 allowed: false,
@@ -179,8 +213,9 @@ export class RedisPortalQuotaProvider {
         }
 
         this._lastRequestAt.set(scopeKey, nowMs);
-        this._minuteCounts.set(minuteKey, currentMinuteCount + 1);
-        this._dailyCounts.set(dayKey, currentDayCount + 1);
+        this._minuteCounts.set(memMinKey, currentMinuteCount + 1);
+        this._hourCounts.set(memHourKey, currentHourCount + 1);
+        this._dailyCounts.set(memDayKey, currentDayCount + 1);
 
         return Object.freeze({
             allowed: true,
@@ -192,6 +227,7 @@ export class RedisPortalQuotaProvider {
     reset() {
         this._lastRequestAt.clear();
         this._minuteCounts.clear();
+        this._hourCounts.clear();
         this._dailyCounts.clear();
     }
 }

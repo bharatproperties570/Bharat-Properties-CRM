@@ -732,7 +732,7 @@ test('Gate 10: Source Approval Independent Maker-Checker Lifecycle', async (t) =
             readOnlySearchAuthorized: true,
             termsReviewed: true,
             termsReference: 'https://hsvphry.org.in/Terms#review',
-            ratePolicy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, policyReference: 'POL-1' }
+            ratePolicy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, maxConcurrent: 1, policyReference: 'POL-1' }
         };
 
         const result = checkActivationEligibility(selfApprovalDoc);
@@ -752,7 +752,7 @@ test('Gate 10: Source Approval Independent Maker-Checker Lifecycle', async (t) =
             readOnlySearchAuthorized: true,
             termsReviewed: true,
             termsReference: 'https://hsvphry.org.in/Terms#review',
-            ratePolicy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, policyReference: 'POL-1' }
+            ratePolicy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, maxConcurrent: 1, policyReference: 'POL-1' }
         };
 
         const result = checkActivationEligibility(independentApprovalDoc);
@@ -771,7 +771,7 @@ test('Gate 10: Source Approval Independent Maker-Checker Lifecycle', async (t) =
             commercialUseAuthorized: true,
             readOnlySearchAuthorized: true,
             termsReviewed: false, // Not reviewed
-            ratePolicy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, policyReference: 'POL-1' }
+            ratePolicy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, maxConcurrent: 1, policyReference: 'POL-1' }
         };
 
         const result = checkActivationEligibility(missingTermsDoc);

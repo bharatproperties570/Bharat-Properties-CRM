@@ -335,12 +335,23 @@ export const submitSourceApproval = async (req, res) => {
             setting.permittedFields = permittedFields.map(f => String(f).trim());
         }
 
-        // Safe conversion of ratePolicy (P1.13)
+        // Safe conversion of ratePolicy (P1.13 & PR42 Fix 1)
         const existingRate = (setting.ratePolicy && typeof setting.ratePolicy.toObject === 'function')
             ? setting.ratePolicy.toObject()
             : (setting.ratePolicy ? { ...setting.ratePolicy } : {});
 
         if (ratePolicy && typeof ratePolicy === 'object') {
+            if (ratePolicy.maxConcurrent !== undefined && ratePolicy.maxConcurrent !== null) {
+                const mc = Number(ratePolicy.maxConcurrent);
+                if (!Number.isInteger(mc) || mc < 1) {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'INVALID_RATE_POLICY',
+                        message: 'ratePolicy.maxConcurrent must be a positive integer greater than or equal to 1'
+                    });
+                }
+            }
+
             setting.ratePolicy = {
                 ...existingRate,
                 maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
@@ -348,7 +359,9 @@ export const submitSourceApproval = async (req, res) => {
                 maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
                 minIntervalMs: Number(ratePolicy.minIntervalMs || ratePolicy.minimumIntervalMs) || null,
                 minimumIntervalMs: Number(ratePolicy.minimumIntervalMs || ratePolicy.minIntervalMs) || null,
-                maxConcurrent: Number(ratePolicy.maxConcurrent) || 1,
+                maxConcurrent: (ratePolicy.maxConcurrent !== undefined && ratePolicy.maxConcurrent !== null)
+                    ? (Number.isInteger(Number(ratePolicy.maxConcurrent)) && Number(ratePolicy.maxConcurrent) >= 1 ? Number(ratePolicy.maxConcurrent) : null)
+                    : (existingRate.maxConcurrent || null),
                 policySource: ratePolicy.policySource || ratePolicy.policyReference || null
             };
         }
@@ -360,15 +373,17 @@ export const submitSourceApproval = async (req, res) => {
         if (contractVerificationStatus) setting.contractVerificationStatus = contractVerificationStatus;
         if (contractEvidenceReference) setting.contractEvidenceReference = String(contractEvidenceReference).trim();
 
-        // Safe conversion of identityRequirements (P1.13)
+        // Safe conversion of identityRequirements (P1.13 & PR42 Fix 2: Submitter cannot self-attest verified=true)
         const existingIdentity = (setting.identityRequirements && typeof setting.identityRequirements.toObject === 'function')
             ? setting.identityRequirements.toObject()
             : (setting.identityRequirements ? { ...setting.identityRequirements } : {});
 
         if (identityRequirements && typeof identityRequirements === 'object') {
             setting.identityRequirements = {
-                ...existingIdentity,
-                ...identityRequirements
+                required: Array.isArray(identityRequirements.required) ? identityRequirements.required.map(String) : (existingIdentity.required || []),
+                optional: Array.isArray(identityRequirements.optional) ? identityRequirements.optional.map(String) : (existingIdentity.optional || []),
+                verified: false, // Strictly forced to false for submitter; caller-supplied verified is rejected/ignored
+                attestation: null
             };
         }
 
@@ -460,21 +475,46 @@ export const reviewSourceApproval = async (req, res) => {
                     message: 'Independent maker-checker review violation: submitter cannot self-approve source authorization.'
                 });
             }
+        }
 
-            // P0.2: Bind review to the exact evidence version submitted; reject changed/stale evidence
-            if (expectedEvidenceVersion !== undefined && Number(expectedEvidenceVersion) !== Number(setting.evidenceVersion)) {
-                return res.status(409).json({
-                    success: false,
-                    code: 'STALE_EVIDENCE_VERSION',
-                    message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
-                });
-            }
+        // PR42 Mandatory Fix 3: Evidence version is mandatory on BOTH review outcomes
+        if (expectedEvidenceVersion === undefined || expectedEvidenceVersion === null || !Number.isInteger(Number(expectedEvidenceVersion)) || Number(expectedEvidenceVersion) < 1) {
+            return res.status(422).json({
+                success: false,
+                code: 'EVIDENCE_VERSION_REQUIRED',
+                message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
+            });
+        }
 
-            // P1.12: Do NOT auto-assert identityRequirements.verified = true!
-            // Only verify if reviewer explicitly submits a separate evidence-backed identity contract attestation
-            let updateIdentityVerified = setting.identityRequirements?.verified || false;
-            if (identityContractAttestation && identityContractAttestation.verified === true && identityContractAttestation.evidenceReference) {
-                updateIdentityVerified = true;
+        const expectedVer = Number(expectedEvidenceVersion);
+        if (expectedVer !== Number(setting.evidenceVersion)) {
+            return res.status(409).json({
+                success: false,
+                code: 'STALE_EVIDENCE_VERSION',
+                message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
+            });
+        }
+
+        if (decision === 'APPROVED') {
+            // PR42 Mandatory Fix 2: Require reviewer explicit, evidence-backed identity contract attestation
+            let updateIdentityVerified = false;
+            let attestationData = null;
+            if (identityContractAttestation && typeof identityContractAttestation === 'object') {
+                const ref = String(identityContractAttestation.evidenceReference || '').trim();
+                const ver = (identityContractAttestation.evidenceVersion !== undefined && identityContractAttestation.evidenceVersion !== null)
+                    ? Number(identityContractAttestation.evidenceVersion)
+                    : null;
+                const hash = identityContractAttestation.evidenceHash ? String(identityContractAttestation.evidenceHash).trim() : null;
+                if (ref && (ver !== null || hash)) {
+                    updateIdentityVerified = true;
+                    attestationData = {
+                        evidenceReference: ref,
+                        evidenceVersion: ver,
+                        evidenceHash: hash,
+                        attestedBy: req.user._id,
+                        attestedAt: new Date()
+                    };
+                }
             }
 
             // Candidate evaluation before atomic update
@@ -490,7 +530,8 @@ export const reviewSourceApproval = async (req, res) => {
                 reviewedBy: req.user._id,
                 identityRequirements: {
                     ...existingIdReq,
-                    verified: updateIdentityVerified
+                    verified: updateIdentityVerified,
+                    attestation: attestationData
                 }
             };
 
@@ -504,14 +545,14 @@ export const reviewSourceApproval = async (req, res) => {
                 });
             }
 
-            // P0.2: Use atomic update/version guard to prevent concurrent reviewers or evidence replacement races
+            // P0.2 & Fix 3: Atomic update with expectedEvidenceVersion guard
             const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
                 {
                     _id: setting._id,
                     tenantId,
                     permissionStatus: 'PENDING_REVIEW',
                     reviewStatus: 'UNDER_REVIEW',
-                    evidenceVersion: setting.evidenceVersion
+                    evidenceVersion: expectedVer
                 },
                 {
                     $set: {
@@ -521,7 +562,8 @@ export const reviewSourceApproval = async (req, res) => {
                         approvedAt: new Date(),
                         reviewedBy: req.user._id,
                         reviewedAt: new Date(),
-                        'identityRequirements.verified': updateIdentityVerified
+                        'identityRequirements.verified': true,
+                        'identityRequirements.attestation': attestationData
                     }
                 },
                 { new: true }
@@ -546,8 +588,9 @@ export const reviewSourceApproval = async (req, res) => {
                     decision: 'APPROVED',
                     submittedBy: setting.submittedBy,
                     approvedBy: req.user._id,
-                    evidenceVersion: setting.evidenceVersion,
-                    identityVerified: updateIdentityVerified,
+                    evidenceVersion: expectedVer,
+                    identityVerified: true,
+                    identityContractAttestation: attestationData,
                     notes: notes || null
                 }
             );
@@ -562,14 +605,14 @@ export const reviewSourceApproval = async (req, res) => {
                 }
             });
         } else {
-            // REJECTED: atomic update
+            // REJECTED: atomic update with expectedEvidenceVersion guard
             const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
                 {
                     _id: setting._id,
                     tenantId,
                     permissionStatus: 'PENDING_REVIEW',
                     reviewStatus: 'UNDER_REVIEW',
-                    evidenceVersion: setting.evidenceVersion
+                    evidenceVersion: expectedVer
                 },
                 {
                     $set: {
@@ -577,6 +620,7 @@ export const reviewSourceApproval = async (req, res) => {
                         reviewStatus: 'REJECTED',
                         reviewedBy: req.user._id,
                         reviewedAt: new Date(),
+                        reviewNotes: notes || 'Rejected by independent reviewer',
                         isEnabled: false,
                         schedulingEnabled: false
                     }
@@ -1766,6 +1810,8 @@ export const applyApprovedChanges = async (req, res) => {
             const msg = typeof b === 'string' ? b : (b.message || b.code || '');
             return !msg.includes('permitted fields') &&
                 !msg.includes('rate policy') &&
+                !msg.includes('concurrency') &&
+                !msg.includes('identity') &&
                 !msg.includes('contract') &&
                 !msg.includes('terms');
         });

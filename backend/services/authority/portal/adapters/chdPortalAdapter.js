@@ -34,9 +34,13 @@ export const chdPortalAdapter = Object.freeze({
 
         params.append('btnShow', 'Show');
 
-        if (options.verificationToken) {
-            params.append('__RequestVerificationToken', String(options.verificationToken));
+        if (!options.verificationToken || !String(options.verificationToken).trim()) {
+            const err = new Error('CHD_MISSING_ANTIFORGERY: Chandigarh search requires __RequestVerificationToken in options.');
+            err.code = 'CHD_MISSING_ANTIFORGERY';
+            throw err;
         }
+
+        params.append('__RequestVerificationToken', String(options.verificationToken).trim());
 
         return Object.freeze({
             method: 'POST',

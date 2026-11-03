@@ -18,6 +18,13 @@ export class RedisPortalDistributedLock {
             this.allowInMemoryFallback = false;
         }
         this._localLocks = new Map();
+        this._localSequences = new Map();
+    }
+
+    _nextSequence(seqKey) {
+        const nextVal = (this._localSequences.get(seqKey) || 0) + 1;
+        this._localSequences.set(seqKey, nextVal);
+        return nextVal;
     }
 
     /**
@@ -26,18 +33,22 @@ export class RedisPortalDistributedLock {
      * @param {string} args.key
      * @param {string} [args.searchKey]
      * @param {string} [args.tenantId]
+     * @param {string} [args.authorityCode]
      * @param {number} [args.ttlMs=30000]
-     * @returns {Promise<{ acquired: boolean, release: Function, token: string }>}
+     * @returns {Promise<{ acquired: boolean, release: Function, token: string, fenceToken: number, ttlMs: number }>}
      */
-    async acquire({ key, searchKey, tenantId, ttlMs = 30000 } = {}) {
+    async acquire({ key, searchKey, tenantId, authorityCode, ttlMs = 30000 } = {}) {
         if (!key) {
             throw new Error('PORTAL_LOCK_KEY_REQUIRED: Key is required to acquire distributed lock.');
         }
 
         const lockToken = crypto.randomUUID();
         let lockKey = key;
-        if (tenantId) lockKey = `${lockKey}:${tenantId}`;
+        // Authority-wide lock: rate limits and concurrency are global per authority, not partitioned per tenantId
         if (searchKey) lockKey = `${lockKey}:${searchKey}`;
+
+        const code = authorityCode || key.split(':').pop();
+        const seqKey = `portal_fence_seq:${code}`;
 
         // Production path: Redis distributed lock
         if (this.redisClient) {
@@ -50,15 +61,24 @@ export class RedisPortalDistributedLock {
                         return Object.freeze({
                             acquired: false,
                             token: null,
+                            fenceToken: null,
+                            ttlMs: Number(ttlMs) || 30000,
                             release: async () => {}
                         });
                     }
 
-                    let fenceToken = Date.now();
+                    let fenceToken = 1;
+                    if (typeof this.redisClient.incr === 'function') {
+                        fenceToken = await this.redisClient.incr(seqKey);
+                    } else {
+                        fenceToken = this._nextSequence(seqKey);
+                    }
+
                     return Object.freeze({
                         acquired: true,
                         token: lockToken,
-                        fenceToken,
+                        fenceToken: Number(fenceToken),
+                        ttlMs: Number(ttlMs) || 30000,
                         renew: async (additionalTtlMs = ttlMs) => {
                             try {
                                 const renewScript = `
@@ -131,6 +151,8 @@ export class RedisPortalDistributedLock {
             return Object.freeze({
                 acquired: false,
                 token: null,
+                fenceToken: null,
+                ttlMs: Number(ttlMs) || 30000,
                 release: async () => {}
             });
         }
@@ -140,10 +162,13 @@ export class RedisPortalDistributedLock {
             expiresAt: now + ttlMs
         });
 
+        const fenceToken = this._nextSequence(seqKey);
+
         return Object.freeze({
             acquired: true,
             token: lockToken,
-            fenceToken: now,
+            fenceToken: Number(fenceToken),
+            ttlMs: Number(ttlMs) || 30000,
             renew: async (additionalTtlMs = ttlMs) => {
                 const current = this._localLocks.get(lockKey);
                 if (current && current.token === lockToken && current.expiresAt > Date.now()) {
@@ -164,6 +189,7 @@ export class RedisPortalDistributedLock {
     /** Clear in-memory state (for tests) */
     reset() {
         this._localLocks.clear();
+        this._localSequences.clear();
     }
 }
 

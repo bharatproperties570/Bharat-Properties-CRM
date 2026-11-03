@@ -363,16 +363,18 @@ test('4. Form Adapters & Request Building', async (t) => {
         const reqMode1 = chdPortalAdapter.buildSearchRequest({
             plotNo: '100',
             sectorNo: 'Sector 17'
-        });
+        }, { verificationToken: 'test-token-mode1' });
         assert.ok(reqMode1.body.includes('PropertyNumber=100'));
         assert.ok(reqMode1.body.includes('Sector=Sector+17') || reqMode1.body.includes('Sector=Sector%2017'));
+        assert.ok(reqMode1.body.includes('__RequestVerificationToken=test-token-mode1'));
 
         const reqMode2 = chdPortalAdapter.buildSearchRequest({
             fileType: 'CP',
             fileNumber: '5432'
-        });
+        }, { verificationToken: 'test-token-mode2' });
         assert.ok(reqMode2.body.includes('FileType1=CP'));
         assert.ok(reqMode2.body.includes('FileNumber1=5432'));
+        assert.ok(reqMode2.body.includes('__RequestVerificationToken=test-token-mode2'));
     });
 
     await t.test('4.4 registry retrieves adapters and parsers cleanly', () => {
