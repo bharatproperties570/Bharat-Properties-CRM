@@ -47,6 +47,13 @@ const validApproval = (code = 'HSVP') => ({
     }
 });
 
+function makeTestQuotaProvider(code = 'HSVP') {
+    const q = new RedisPortalQuotaProvider();
+    const app = validApproval(code);
+    q.setCanonicalPolicy({ authorityCode: code, policy: app.ratePolicy, approvedBy: app.approvedBy, policyVersion: 1 });
+    return q;
+}
+
 // ============================================================================
 // 1. HOST ALLOW-LIST EGRESS TRAP
 // ============================================================================
@@ -82,7 +89,7 @@ test('2. Manual Redirect Interception & Egress Trap', async (t) => {
         const circuitBreaker = new DurablePortalCircuitBreaker();
         const auditSink = new PortalAuditSink();
         const lock = new RedisPortalDistributedLock();
-        const quota = new RedisPortalQuotaProvider();
+        const quota = makeTestQuotaProvider('HSVP');
 
         let transportCalls = 0;
         const mockTransport = {
@@ -129,7 +136,7 @@ test('2. Manual Redirect Interception & Egress Trap', async (t) => {
 // ============================================================================
 test('3. Quota Reservation & Rate Limit Egress Trap', async (t) => {
     await t.test('3.1 minimum interval violation blocks transport dispatch (zero egress)', async () => {
-        const quota = new RedisPortalQuotaProvider();
+        const quota = makeTestQuotaProvider('HSVP');
         const lock = new RedisPortalDistributedLock();
         const circuitBreaker = new DurablePortalCircuitBreaker();
         const auditSink = new PortalAuditSink();
@@ -186,7 +193,7 @@ test('3. Quota Reservation & Rate Limit Egress Trap', async (t) => {
 test('4. Distributed Lock Concurrency Mutex', async (t) => {
     await t.test('4.1 concurrent requests for same source acquire lock exclusively and reject parallel runner', async () => {
         const lock = new RedisPortalDistributedLock();
-        const quota = new RedisPortalQuotaProvider();
+        const quota = makeTestQuotaProvider('HSVP');
         const circuitBreaker = new DurablePortalCircuitBreaker();
         const auditSink = new PortalAuditSink();
 

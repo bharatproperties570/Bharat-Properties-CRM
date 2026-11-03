@@ -1108,8 +1108,15 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             const policy = {
                 maxRequestsPerMinute: 1, // Limit: 1 per minute authority-wide
                 maxRequestsPerDay: 100,
-                minimumIntervalMs: 1000
+                minimumIntervalMs: 1000,
+                policyReference: 'SHARED_POLICY_19'
             };
+            await quota.setCanonicalPolicy({
+                authorityCode: 'HSVP',
+                policy,
+                approvedBy: 'admin',
+                policyVersion: 1
+            });
 
             const at = new Date();
             // Tenant A reserves 1 request
@@ -1362,6 +1369,12 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 minimumIntervalMs: 10,
                 policyReference: 'HOURLY_TEST_POLICY'
             };
+            await quotaProvider.setCanonicalPolicy({
+                authorityCode: 'CHD',
+                policy,
+                approvedBy: 'admin',
+                policyVersion: 1
+            });
 
             const now = new Date();
             const r1 = await quotaProvider.reserve({ authorityCode: 'CHD', policy, at: now });
@@ -1653,20 +1666,38 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     });
 
     // =========================================================================
-    // Finding 26: Canonical Authority-Global Quota Policy (P1)
+    // Finding 26: Canonical Authority-Global Quota Policy (Phase 4)
     // =========================================================================
-    await t.test('26. Canonical Authority-Global Quota Policy (P1)', async (t26) => {
+    await t.test('26. Canonical Authority-Global Quota Policy (Phase 4)', async (t26) => {
         const quotaProvider = new RedisPortalQuotaProvider(null, { testMode: true });
 
         const canonicalPolicy = {
-            maxRequestsPerMinute: 1,
+            maxRequestsPerMinute: 2,
+            maxRequestsPerHour: 10,
             maxRequestsPerDay: 50,
             minimumIntervalMs: 500,
             policyReference: 'APPROVED_CANONICAL_POLICY_V1'
         };
 
+        // 26.1 Absent canonical policy fails closed
+        const rMissing = await quotaProvider.reserve({
+            authorityCode: 'HSVP',
+            tenantId: 'tenant-a',
+            policy: canonicalPolicy
+        });
+        assert.equal(rMissing.allowed, false);
+        assert.equal(rMissing.reason, 'CANONICAL_POLICY_MISSING');
+
+        // 26.2 Explicit approved canonical policy set via setCanonicalPolicy
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: 'HSVP',
+            policy: canonicalPolicy,
+            approvedBy: 'audited-reviewer-1',
+            policyVersion: 1
+        });
+
+        // 26.3 Valid reservation matching canonical policy succeeds
         const at = new Date();
-        // Tenant A initializes canonical policy
         const r1 = await quotaProvider.reserve({
             authorityCode: 'HSVP',
             tenantId: 'tenant-a',
@@ -1675,9 +1706,10 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         });
         assert.equal(r1.allowed, true);
 
-        // Tenant B attempts to submit 5/min: MUST BE REJECTED with RATE_LIMIT_ELEVATION_REJECTED
+        // 26.4 Tenant B attempts to submit 5/min: MUST BE REJECTED with RATE_LIMIT_ELEVATION_REJECTED
         const elevatedPolicy = {
             maxRequestsPerMinute: 5, // Tries to raise ceiling
+            maxRequestsPerHour: 10,
             maxRequestsPerDay: 50,
             minimumIntervalMs: 500,
             policyReference: 'APPROVED_CANONICAL_POLICY_V1'
@@ -1692,9 +1724,10 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         assert.equal(r2.allowed, false);
         assert.equal(r2.reason, 'RATE_LIMIT_ELEVATION_REJECTED');
 
-        // Tenant C submits mismatched policyReference: MUST BE REJECTED with POLICY_VERSION_MISMATCH
+        // 26.5 Tenant C submits mismatched policyReference: MUST BE REJECTED with POLICY_VERSION_MISMATCH
         const mismatchedPolicy = {
-            maxRequestsPerMinute: 1,
+            maxRequestsPerMinute: 2,
+            maxRequestsPerHour: 10,
             maxRequestsPerDay: 50,
             minimumIntervalMs: 500,
             policyReference: 'DIFFERENT_UNAPPROVED_POLICY'
@@ -1708,5 +1741,236 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         });
         assert.equal(r3.allowed, false);
         assert.equal(r3.reason, 'POLICY_VERSION_MISMATCH');
+
+        // 26.6 Mismatched content hash is rejected
+        const tamperedHashPolicy = {
+            ...canonicalPolicy,
+            contentHash: 'tampered-hash-value-000'
+        };
+        const r4 = await quotaProvider.reserve({
+            authorityCode: 'HSVP',
+            tenantId: 'tenant-d',
+            policy: tamperedHashPolicy,
+            at: new Date(at.getTime() + 600)
+        });
+        assert.equal(r4.allowed, false);
+        assert.equal(r4.reason, 'POLICY_HASH_MISMATCH');
+    });
+
+    // =========================================================================
+    // Finding 27: CI Job / Test Suite Separation (Phase 1)
+    // =========================================================================
+    await t.test('27. CI Job / Test Suite Separation (Phase 1)', async () => {
+        const pkgPath = path.resolve(__dirname, '../package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+        const portalScript = pkg.scripts['test:authority-portal'];
+        assert.ok(portalScript, 'test:authority-portal script must exist in backend/package.json');
+        assert.ok(
+            !portalScript.includes('authority_portal_redis_integration.test.js') && !portalScript.includes('authority_portal_*.test.js'),
+            'test:authority-portal must strictly exclude authority_portal_redis_integration.test.js and avoid greedy wildcards'
+        );
+
+        const redisScript = pkg.scripts['test:authority-portal-redis'];
+        assert.ok(redisScript, 'test:authority-portal-redis script must exist in backend/package.json');
+        assert.ok(redisScript.includes('authority_portal_redis_integration.test.js'));
+    });
+
+    // =========================================================================
+    // Finding 28: Mandatory Entire ratePolicy Object & DB Immutability on 422 (Phase 3)
+    // =========================================================================
+    await t.test('28. Mandatory Entire ratePolicy Object & DB Immutability on 422 (Phase 3)', async () => {
+        const tenantId = new mongoose.Types.ObjectId();
+        const userId = new mongoose.Types.ObjectId();
+
+        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode: 'HSVP' });
+        const existing = await AuthoritySourceSettings.create({
+            tenantId,
+            authorityCode: 'HSVP',
+            permissionStatus: 'NOT_OBTAINED',
+            reviewStatus: 'NOT_REVIEWED',
+            evidenceVersion: 1,
+            ratePolicy: {
+                maxConcurrent: 1,
+                maxRequestsPerMinute: 2,
+                maxRequestsPerDay: 50,
+                minIntervalMs: 500,
+                minimumIntervalMs: 500,
+                policySource: 'V1_ORIGINAL'
+            }
+        });
+
+        // Test invalid submissions: omitted, null, array, empty object, object without maxConcurrent, maxConcurrent > 1
+        const invalidPayloads = [
+            undefined,                           // Omitted
+            null,                                // Null
+            ['invalid_array'],                   // Array
+            {},                                  // Empty object
+            { maxRequestsPerMinute: 2 },         // Missing maxConcurrent
+            { maxConcurrent: 2 },                // maxConcurrent !== 1 (Option A violation)
+            { maxConcurrent: 0 },                // 0
+            { maxConcurrent: -1 },               // Negative
+            { maxConcurrent: 1.5 },              // Float
+            { maxConcurrent: 'one' }             // Non-numeric
+        ];
+
+        for (const badRatePolicy of invalidPayloads) {
+            const body = {
+                approvalReference: 'EVIDENCE_REF_FAIL',
+                ratePolicy: badRatePolicy
+            };
+            if (badRatePolicy === undefined) delete body.ratePolicy;
+
+            const { req, res } = createMockReqRes({
+                user: { _id: userId, tenantId },
+                params: { authorityCode: 'HSVP' },
+                body
+            });
+
+            await submitSourceApproval(req, res);
+            assert.equal(res.getStatusCode(), 422, `Payload ${JSON.stringify(badRatePolicy)} must return 422`);
+            assert.equal(res.getData().code, 'INVALID_RATE_POLICY');
+
+            // Verify DB setting was NOT mutated
+            const fresh = await AuthoritySourceSettings.findById(existing._id);
+            assert.equal(fresh.evidenceVersion, 1, 'evidenceVersion must remain 1 on 422');
+            assert.equal(fresh.permissionStatus, 'NOT_OBTAINED', 'permissionStatus must remain NOT_OBTAINED on 422');
+            assert.equal(fresh.reviewStatus, 'NOT_REVIEWED', 'reviewStatus must remain NOT_REVIEWED on 422');
+            assert.equal(fresh.ratePolicy.policySource, 'V1_ORIGINAL', 'ratePolicy must remain unchanged on 422');
+        }
+
+        // Positive valid submission
+        const { req: reqOk, res: resOk } = createMockReqRes({
+            user: { _id: userId, tenantId },
+            params: { authorityCode: 'HSVP' },
+            body: {
+                approvalReference: 'EVIDENCE_REF_SUCCESS',
+                ratePolicy: {
+                    maxConcurrent: 1,
+                    maxRequestsPerMinute: 5,
+                    maxRequestsPerDay: 100,
+                    minIntervalMs: 200,
+                    policySource: 'V2_APPROVED'
+                }
+            }
+        });
+        await submitSourceApproval(reqOk, resOk);
+        assert.equal(resOk.getStatusCode(), 200);
+        assert.equal(resOk.getData().data.evidenceVersion, 2);
+        assert.equal(resOk.getData().data.ratePolicy.maxConcurrent, 1);
+        assert.equal(resOk.getData().data.ratePolicy.policySource, 'V2_APPROVED');
+    });
+
+    // =========================================================================
+    // Finding 29: Option A Concurrency & Fail-Closed Monotonic Fencing (Phase 5)
+    // =========================================================================
+    await t.test('29. Option A Concurrency & Fail-Closed Monotonic Fencing (Phase 5)', async () => {
+        const lockProvider = new RedisPortalDistributedLock(null, { testMode: true });
+
+        // 29.1 Calling acquire with maxConcurrent !== 1 throws PORTAL_CONCURRENCY_UNSUPPORTED
+        await assert.rejects(
+            lockProvider.acquire({ authorityCode: 'CHD', maxConcurrent: 2 }),
+            (err) => err.message.includes('PORTAL_CONCURRENCY_UNSUPPORTED')
+        );
+
+        // 29.2 isCurrentFenceToken fail-closed behavior
+        // Missing sequence state -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('NON_EXISTENT_SOURCE', 1), false);
+        // Malformed fenceToken values -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('NON_EXISTENT_SOURCE', null), false);
+        assert.equal(await lockProvider.isCurrentFenceToken('NON_EXISTENT_SOURCE', undefined), false);
+        assert.equal(await lockProvider.isCurrentFenceToken('NON_EXISTENT_SOURCE', 0), false);
+        assert.equal(await lockProvider.isCurrentFenceToken('NON_EXISTENT_SOURCE', 'bad'), false);
+
+        // Acquire lock to establish sequence
+        const lease1 = await lockProvider.acquire({ authorityCode: 'CHD', maxConcurrent: 1 });
+        assert.equal(lease1.acquired, true);
+        const token1 = lease1.fenceToken;
+        assert.ok(token1 >= 1);
+
+        // Equal to current sequence -> true
+        assert.equal(await lockProvider.isCurrentFenceToken('CHD', token1), true);
+        // Stale token (< current) -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('CHD', token1 - 1), false);
+        // Future/invalid token (> current) -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('CHD', token1 + 5), false);
+
+        await lease1.release();
+    });
+
+    // =========================================================================
+    // Finding 30: Deterministic Portal Lease / Persistence Race and Watermark Protection (Phase 6)
+    // =========================================================================
+    await t.test('30. Deterministic Portal Lease / Persistence Race and Watermark Protection (Phase 6)', async () => {
+        const tenantId = new mongoose.Types.ObjectId();
+        const authorityCode = 'GMADA';
+
+        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode });
+        await AuthoritySourceSettings.create({
+            tenantId,
+            authorityCode,
+            permissionStatus: 'GRANTED',
+            approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+            approvalReference: 'GMADA/AUTH/2026/01',
+            commercialUseAuthorized: true,
+            readOnlySearchAuthorized: true,
+            termsReviewed: true,
+            termsReference: 'https://gmada.gov.in/terms',
+            submittedBy: new mongoose.Types.ObjectId(),
+            approvedBy: new mongoose.Types.ObjectId(),
+            reviewedBy: new mongoose.Types.ObjectId(),
+            permittedFields: ['propertyId', 'sectorNumber'],
+            reviewStatus: 'APPROVED',
+            isEnabled: true,
+            isPaused: false,
+            contractVerificationStatus: 'VERIFIED_CONTRACT',
+            contractEvidenceReference: 'GMADA/CONTRACT/01',
+            identityRequirements: { verified: true },
+            ratePolicy: {
+                maxConcurrent: 1,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerDay: 500,
+                minIntervalMs: 50,
+                minimumIntervalMs: 50,
+                policySource: 'APPROVED_POLICY'
+            },
+            lastCommittedFenceToken: 0
+        });
+
+        // Simulate Worker A and Worker B with fence watermarks
+        // Worker A has fence token 5
+        // Worker B has fence token 6
+        // Worker B commits first and advances watermark to 6
+        const watermarkB = await AuthoritySourceSettings.findOneAndUpdate(
+            {
+                tenantId,
+                authorityCode,
+                $or: [
+                    { lastCommittedFenceToken: { $lt: 6 } },
+                    { lastCommittedFenceToken: { $exists: false } },
+                    { lastCommittedFenceToken: null }
+                ]
+            },
+            { $set: { lastCommittedFenceToken: 6 } },
+            { new: true }
+        );
+        assert.ok(watermarkB);
+        assert.equal(watermarkB.lastCommittedFenceToken, 6);
+
+        // Worker A resumes with stale fence token 5: atomic conditional update fails closed!
+        const watermarkA = await AuthoritySourceSettings.findOneAndUpdate(
+            {
+                tenantId,
+                authorityCode,
+                $or: [
+                    { lastCommittedFenceToken: { $lt: 5 } },
+                    { lastCommittedFenceToken: { $exists: false } },
+                    { lastCommittedFenceToken: null }
+                ]
+            },
+            { $set: { lastCommittedFenceToken: 5 } },
+            { new: true }
+        );
+        assert.equal(watermarkA, null, 'Worker A with stale fence token 5 must be rejected by atomic watermark guard');
     });
 });

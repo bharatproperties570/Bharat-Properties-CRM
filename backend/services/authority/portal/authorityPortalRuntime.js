@@ -130,7 +130,8 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
             tenantId = null,
             actorId = null,
             runId = null,
-            runItemId = null
+            runItemId = null,
+            executeWithinLease = null
         } = {}) {
             const correlation = { tenantId, actorId, runId, runItemId };
             const code = String(authorityCode || '').trim().toUpperCase();
@@ -397,6 +398,22 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     isApplied: false,
                     rawPortalResponsePersisted: false
                 });
+
+                // Phase 6: Maintain lease ownership through candidate creation, snapshot persistence and run-item terminal finalization
+                if (typeof executeWithinLease === 'function') {
+                    const callbackResult = await executeWithinLease(result);
+                    // Verify lease was not lost during persistence callback
+                    if (lockLost) {
+                        throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during snapshot persistence.', { authorityCode: code });
+                    }
+                    if (typeof lease.renew === 'function') {
+                        const stillOwned = await lease.renew();
+                        if (!stillOwned) {
+                            throw makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock expired during snapshot persistence.', { authorityCode: code });
+                        }
+                    }
+                    return callbackResult;
+                }
 
                 return result;
             } catch (error) {

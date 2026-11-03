@@ -67,6 +67,18 @@ function makeValidApproval(authorityCode = 'HSVP') {
     };
 }
 
+function makeTestQuotaProvider(authorityCode = 'HSVP') {
+    const q = new RedisPortalQuotaProvider(null, { testMode: true });
+    const app = makeValidApproval(authorityCode);
+    q.setCanonicalPolicy({
+        authorityCode,
+        policy: app.ratePolicy,
+        approvedBy: app.approvedBy,
+        policyVersion: 1
+    });
+    return q;
+}
+
 // ============================================================================
 // GATE 1 — RUNTIME-TO-PROCESSOR PIPELINE INTEGRATION
 // ============================================================================
@@ -91,7 +103,7 @@ test('Gate 1: Runtime-to-Processor Pipeline Integration', async (t) => {
         const runtime = createAuthorityPortalRuntime({
             gateConfig: { enabled: true, readOnly: true },
             lockProvider: new RedisPortalDistributedLock(null, { testMode: true }),
-            quotaProvider: new RedisPortalQuotaProvider(null, { testMode: true }),
+            quotaProvider: makeTestQuotaProvider('HSVP'),
             circuitBreakerStore: new DurablePortalCircuitBreaker({ testMode: true }),
             auditSink: new PortalAuditSink(null, { testMode: true }),
             transport: mockTransport,
@@ -149,7 +161,7 @@ test('Gate 1: Runtime-to-Processor Pipeline Integration', async (t) => {
         const runtime = createAuthorityPortalRuntime({
             gateConfig: { enabled: true, readOnly: true },
             lockProvider: new RedisPortalDistributedLock(null, { testMode: true }),
-            quotaProvider: new RedisPortalQuotaProvider(null, { testMode: true }),
+            quotaProvider: makeTestQuotaProvider('HSVP'),
             circuitBreakerStore: new DurablePortalCircuitBreaker({ testMode: true }),
             auditSink: new PortalAuditSink(null, { testMode: true }),
             transport: mockTransport,
@@ -227,7 +239,7 @@ test('Gate 2: Redis Failure / Fail-Closed Egress Protection', async (t) => {
         await assert.rejects(
             prodQuota.reserve({
                 authorityCode: 'HSVP',
-                policy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000 }
+                policy: { maxRequestsPerMinute: 2, maxRequestsPerDay: 500, minimumIntervalMs: 30000, policyReference: 'HSVP_PROD' }
             }),
             (err) => {
                 assert.equal(err.code, 'PORTAL_QUOTA_REDIS_UNAVAILABLE');
@@ -316,7 +328,7 @@ test('Gate 3: MongoDB Audit Failure / Fail-Closed Egress Protection', async (t) 
         const runtime = createAuthorityPortalRuntime({
             gateConfig: { enabled: true, readOnly: true },
             lockProvider: new RedisPortalDistributedLock(null, { testMode: true }),
-            quotaProvider: new RedisPortalQuotaProvider(null, { testMode: true }),
+            quotaProvider: makeTestQuotaProvider('HSVP'),
             circuitBreakerStore: new DurablePortalCircuitBreaker({ testMode: true }),
             auditSink: failingAuditSink,
             transport: mockTransport,
@@ -392,7 +404,8 @@ test('Gate 5: Atomic Quota Contention & Policy Enforcement', async (t) => {
 
     await t.test('5.2 enforces maxRequestsPerMinute limit strictly', async () => {
         const quota = new RedisPortalQuotaProvider(null, { testMode: true });
-        const policy = { maxRequestsPerMinute: 2, maxRequestsPerDay: 100, minimumIntervalMs: 10 };
+        const policy = { maxRequestsPerMinute: 2, maxRequestsPerDay: 100, minimumIntervalMs: 10, policyReference: 'HSVP_LIMIT_TEST' };
+        await quota.setCanonicalPolicy({ authorityCode: 'HSVP', policy, approvedBy: 'admin', policyVersion: 1 });
 
         // Request 1: allowed
         const r1 = await quota.reserve({ authorityCode: 'HSVP', policy });
@@ -798,7 +811,7 @@ test('Gate 11: Content-Type & Size Limit Protection', async (t) => {
         const runtime = createAuthorityPortalRuntime({
             gateConfig: { enabled: true, readOnly: true },
             lockProvider: new RedisPortalDistributedLock(null, { testMode: true }),
-            quotaProvider: new RedisPortalQuotaProvider(null, { testMode: true }),
+            quotaProvider: makeTestQuotaProvider('HSVP'),
             circuitBreakerStore: new DurablePortalCircuitBreaker({ testMode: true }),
             auditSink: new PortalAuditSink(null, { testMode: true }),
             transport: mockTransport,

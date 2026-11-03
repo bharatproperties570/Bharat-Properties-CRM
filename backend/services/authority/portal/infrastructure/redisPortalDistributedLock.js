@@ -68,10 +68,14 @@ export class RedisPortalDistributedLock {
             currentSeq = this._localSequences.get(seqKey) ?? null;
         }
 
-        if (currentSeq !== null && Number(fenceToken) < currentSeq) {
+        // Must fail closed if sequence key is missing, malformed, or fenceToken is not current (Phase 5)
+        if (currentSeq === null || !Number.isInteger(Number(currentSeq)) || Number(currentSeq) < 1) {
             return false;
         }
-        return true;
+        if (fenceToken === undefined || fenceToken === null || !Number.isInteger(Number(fenceToken)) || Number(fenceToken) < 1) {
+            return false;
+        }
+        return Number(fenceToken) === Number(currentSeq);
     }
 
     /**
@@ -95,184 +99,108 @@ export class RedisPortalDistributedLock {
         }
 
         const lockToken = crypto.randomUUID();
-        const concurrentLimit = Number.isInteger(Number(maxConcurrent)) && Number(maxConcurrent) >= 1 ? Number(maxConcurrent) : 1;
-        const isMutex = concurrentLimit === 1;
+        const concurrentLimit = Number(maxConcurrent);
+        if (maxConcurrent !== undefined && (!Number.isInteger(concurrentLimit) || concurrentLimit !== 1)) {
+            throw new Error('PORTAL_CONCURRENCY_UNSUPPORTED: Authority portal execution strictly enforces maxConcurrent === 1');
+        }
 
         // Authority-wide lock key: stable per authority code, NEVER partitioned by searchKey or tenantId
         const lockKey = key || `portal_lock:${code}`;
-        const semKey = `portal_sem:${code}`;
         const seqKey = `portal_fence_seq:${code}`;
 
-        // Production path: Redis distributed lock / semaphore with atomic sequence fencing
+        // Production path: Redis distributed lock with atomic monotonic sequence fencing
         if (this.redisClient) {
             const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
             if (isReady) {
                 try {
-                    if (isMutex) {
-                        // Mutex path: Atomic acquire and sequence increment
-                        const acquireScript = `
-                            if redis.call("set", KEYS[1], ARGV[1], "NX", "PX", tonumber(ARGV[2])) then
-                                local seq = redis.call("incr", KEYS[2])
-                                return {1, tostring(seq)}
-                            else
-                                return {0, "0"}
-                            end
-                        `;
-                        let acquired = false;
-                        let fenceToken = 0;
+                    // Mutex path: Atomic acquire and sequence increment
+                    const acquireScript = `
+                        if redis.call("set", KEYS[1], ARGV[1], "NX", "PX", tonumber(ARGV[2])) then
+                            local seq = redis.call("incr", KEYS[2])
+                            return {1, tostring(seq)}
+                        else
+                            return {0, "0"}
+                        end
+                    `;
+                    let acquired = false;
+                    let fenceToken = 0;
 
-                        if (typeof this.redisClient.eval === 'function') {
-                            const res = await this.redisClient.eval(acquireScript, 2, lockKey, seqKey, lockToken, ttlMs);
-                            acquired = Array.isArray(res) && Number(res[0]) === 1;
-                            fenceToken = acquired ? Number(res[1]) : 0;
-                        } else {
-                            const res = await this.redisClient.set(lockKey, lockToken, 'PX', ttlMs, 'NX');
-                            if (res === 'OK') {
-                                acquired = true;
-                                fenceToken = typeof this.redisClient.incr === 'function'
-                                    ? await this.redisClient.incr(seqKey)
-                                    : this._nextSequence(seqKey);
-                            }
-                        }
-
-                        if (!acquired) {
-                            return Object.freeze({
-                                acquired: false,
-                                token: null,
-                                fenceToken: null,
-                                ttlMs: Number(ttlMs) || 30000,
-                                renew: async () => false,
-                                release: async () => {}
-                            });
-                        }
-
-                        return Object.freeze({
-                            acquired: true,
-                            token: lockToken,
-                            fenceToken: Number(fenceToken),
-                            ttlMs: Number(ttlMs) || 30000,
-                            renew: async (additionalTtlMs = ttlMs) => {
-                                try {
-                                    const renewScript = `
-                                        if redis.call("get", KEYS[1]) == ARGV[1] then
-                                            return redis.call("pexpire", KEYS[1], tonumber(ARGV[2]))
-                                        else
-                                            return 0
-                                        end
-                                    `;
-                                    if (typeof this.redisClient.eval === 'function') {
-                                        const res = await this.redisClient.eval(renewScript, 1, lockKey, lockToken, additionalTtlMs);
-                                        return Number(res) === 1;
-                                    } else {
-                                        const current = await this.redisClient.get(lockKey);
-                                        if (current === lockToken) {
-                                            await this.redisClient.set(lockKey, lockToken, 'PX', additionalTtlMs);
-                                            return true;
-                                        }
-                                        return false;
-                                    }
-                                } catch {
-                                    return false;
-                                }
-                            },
-                            release: async () => {
-                                try {
-                                    const script = `
-                                        if redis.call("get", KEYS[1]) == ARGV[1] then
-                                            return redis.call("del", KEYS[1])
-                                        else
-                                            return 0
-                                        end
-                                    `;
-                                    if (typeof this.redisClient.eval === 'function') {
-                                        await this.redisClient.eval(script, 1, lockKey, lockToken);
-                                    } else {
-                                        const current = await this.redisClient.get(lockKey);
-                                        if (current === lockToken) {
-                                            await this.redisClient.del(lockKey);
-                                        }
-                                    }
-                                } catch {
-                                    // Suppress release error
-                                }
-                            }
-                        });
+                    if (typeof this.redisClient.eval === 'function') {
+                        const res = await this.redisClient.eval(acquireScript, 2, lockKey, seqKey, lockToken, ttlMs);
+                        acquired = Array.isArray(res) && Number(res[0]) === 1;
+                        fenceToken = acquired ? Number(res[1]) : 0;
                     } else {
-                        // Dynamic semaphore path: exactly concurrentLimit permits, atomic lease tokens & expiry
-                        const nowMs = Date.now();
-                        const semScript = `
-                            redis.call('zremrangebyscore', KEYS[1], '-inf', tonumber(ARGV[2]))
-                            local count = redis.call('zcard', KEYS[1])
-                            if count < tonumber(ARGV[4]) then
-                                local expiry = tonumber(ARGV[2]) + tonumber(ARGV[3])
-                                redis.call('zadd', KEYS[1], expiry, ARGV[1])
-                                local seq = redis.call('incr', KEYS[2])
-                                return {1, tostring(seq)}
-                            else
-                                return {0, "0"}
-                            end
-                        `;
-                        let acquired = false;
-                        let fenceToken = 0;
-
-                        if (typeof this.redisClient.eval === 'function') {
-                            const res = await this.redisClient.eval(semScript, 2, semKey, seqKey, lockToken, nowMs, ttlMs, concurrentLimit);
-                            acquired = Array.isArray(res) && Number(res[0]) === 1;
-                            fenceToken = acquired ? Number(res[1]) : 0;
+                        const res = await this.redisClient.set(lockKey, lockToken, 'PX', ttlMs, 'NX');
+                        if (res === 'OK') {
+                            acquired = true;
+                            fenceToken = typeof this.redisClient.incr === 'function'
+                                ? await this.redisClient.incr(seqKey)
+                                : this._nextSequence(seqKey);
                         }
+                    }
 
-                        if (!acquired) {
-                            return Object.freeze({
-                                acquired: false,
-                                token: null,
-                                fenceToken: null,
-                                ttlMs: Number(ttlMs) || 30000,
-                                renew: async () => false,
-                                release: async () => {}
-                            });
-                        }
-
+                    if (!acquired) {
                         return Object.freeze({
-                            acquired: true,
-                            token: lockToken,
-                            fenceToken: Number(fenceToken),
+                            acquired: false,
+                            token: null,
+                            fenceToken: null,
                             ttlMs: Number(ttlMs) || 30000,
-                            renew: async (additionalTtlMs = ttlMs) => {
-                                try {
-                                    const renewSemScript = `
-                                        local curNow = tonumber(ARGV[2])
-                                        local score = redis.call('zscore', KEYS[1], ARGV[1])
-                                        if score and tonumber(score) > curNow then
-                                            local newExp = curNow + tonumber(ARGV[3])
-                                            redis.call('zadd', KEYS[1], newExp, ARGV[1])
-                                            return 1
-                                        else
-                                            return 0
-                                        end
-                                    `;
-                                    if (typeof this.redisClient.eval === 'function') {
-                                        const res = await this.redisClient.eval(renewSemScript, 1, semKey, lockToken, Date.now(), additionalTtlMs);
-                                        return Number(res) === 1;
-                                    }
-                                    return false;
-                                } catch {
-                                    return false;
-                                }
-                            },
-                            release: async () => {
-                                try {
-                                    const releaseSemScript = `
-                                        return redis.call('zrem', KEYS[1], ARGV[1])
-                                    `;
-                                    if (typeof this.redisClient.eval === 'function') {
-                                        await this.redisClient.eval(releaseSemScript, 1, semKey, lockToken);
-                                    }
-                                } catch {
-                                    // Suppress release error
-                                }
-                            }
+                            renew: async () => false,
+                            release: async () => {}
                         });
                     }
+
+                    return Object.freeze({
+                        acquired: true,
+                        token: lockToken,
+                        fenceToken: Number(fenceToken),
+                        ttlMs: Number(ttlMs) || 30000,
+                        renew: async (additionalTtlMs = ttlMs) => {
+                            try {
+                                const renewScript = `
+                                    if redis.call("get", KEYS[1]) == ARGV[1] then
+                                        return redis.call("pexpire", KEYS[1], tonumber(ARGV[2]))
+                                    else
+                                        return 0
+                                    end
+                                `;
+                                if (typeof this.redisClient.eval === 'function') {
+                                    const res = await this.redisClient.eval(renewScript, 1, lockKey, lockToken, additionalTtlMs);
+                                    return Number(res) === 1;
+                                } else {
+                                    const current = await this.redisClient.get(lockKey);
+                                    if (current === lockToken) {
+                                        await this.redisClient.set(lockKey, lockToken, 'PX', additionalTtlMs);
+                                        return true;
+                                    }
+                                    return false;
+                                }
+                            } catch {
+                                return false;
+                            }
+                        },
+                        release: async () => {
+                            try {
+                                const script = `
+                                    if redis.call("get", KEYS[1]) == ARGV[1] then
+                                        return redis.call("del", KEYS[1])
+                                    else
+                                        return 0
+                                    end
+                                `;
+                                if (typeof this.redisClient.eval === 'function') {
+                                    await this.redisClient.eval(script, 1, lockKey, lockToken);
+                                } else {
+                                    const current = await this.redisClient.get(lockKey);
+                                    if (current === lockToken) {
+                                        await this.redisClient.del(lockKey);
+                                    }
+                                }
+                            } catch {
+                                // Suppress release error
+                            }
+                        }
+                    });
                 } catch (redisErr) {
                     if (!this.allowInMemoryFallback) {
                         const err = new Error(`PORTAL_LOCK_REDIS_UNAVAILABLE: Redis distributed lock failed: ${redisErr.message}`);
@@ -294,11 +222,11 @@ export class RedisPortalDistributedLock {
 
         // Local In-Memory Lock (for unit tests only)
         const now = Date.now();
-        const activeKey = isMutex ? lockKey : semKey;
+        const activeKey = lockKey;
         const existingEntries = this._localLocks.get(activeKey) || [];
         const activeEntries = existingEntries.filter(e => e.expiresAt > now);
 
-        if (activeEntries.length >= concurrentLimit) {
+        if (activeEntries.length >= 1) {
             return Object.freeze({
                 acquired: false,
                 token: null,

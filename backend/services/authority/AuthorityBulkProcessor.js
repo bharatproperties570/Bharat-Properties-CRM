@@ -2194,6 +2194,19 @@ export class AuthorityBulkProcessor {
             // P0.3: Wire runtime via portal runtime factory or explicit injection
             const portalRuntime = options.portalRuntime || createConfiguredPortalRuntime(options.portalOptions || {});
 
+            if (setting.reviewStatus === 'APPROVED' && setting.ratePolicy) {
+                try {
+                    await defaultPortalQuotaProvider.setCanonicalPolicy({
+                        authorityCode: item.authorityCode,
+                        policy: setting.ratePolicy,
+                        approvedBy: setting.approvedBy || 'admin',
+                        policyVersion: setting.evidenceVersion || 1
+                    });
+                } catch {
+                    // Ignore priming error if any
+                }
+            }
+
             let portalResult;
             try {
                 portalResult = await portalRuntime.search({
@@ -2498,6 +2511,49 @@ export class AuthorityBulkProcessor {
                     };
                 }
 
+                // Atomic portal fence watermark validation within transaction (Phase 6)
+                if (candidate.fenceToken) {
+                    const watermarkDoc = await AuthoritySourceSettings.findOneAndUpdate(
+                        {
+                            tenantId,
+                            authorityCode: item.authorityCode,
+                            $or: [
+                                { lastCommittedFenceToken: { $lt: Number(candidate.fenceToken) } },
+                                { lastCommittedFenceToken: { $exists: false } },
+                                { lastCommittedFenceToken: null }
+                            ]
+                        },
+                        {
+                            $set: { lastCommittedFenceToken: Number(candidate.fenceToken) }
+                        },
+                        { session, new: true }
+                    );
+                    if (!watermarkDoc) {
+                        await session.abortTransaction();
+                        await session.endSession();
+                        await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                status: 'FAILED',
+                                matchStatus: 'NOT_ATTEMPTED',
+                                errorMessage: 'A newer portal lease fence token has already been committed for this authority.',
+                                errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                                processedAt: new Date(),
+                                isSynthetic: false,
+                                provenance: 'LIVE'
+                            }
+                        );
+                        return {
+                            success: false,
+                            reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                            code: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                            ownershipLost: true
+                        };
+                    }
+                }
+
                 // Create snapshot inside transaction
                 const createdDocs = await PropertyVerificationSnapshot.create([snapshotPayload], { session });
                 snapshot = createdDocs[0];
@@ -2605,6 +2661,47 @@ export class AuthorityBulkProcessor {
                     return {
                         success: false,
                         reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+            }
+
+            // Atomic portal fence watermark validation in standalone path (Phase 6)
+            if (candidate.fenceToken) {
+                const watermarkDoc = await AuthoritySourceSettings.findOneAndUpdate(
+                    {
+                        tenantId,
+                        authorityCode: item.authorityCode,
+                        $or: [
+                            { lastCommittedFenceToken: { $lt: Number(candidate.fenceToken) } },
+                            { lastCommittedFenceToken: { $exists: false } },
+                            { lastCommittedFenceToken: null }
+                        ]
+                    },
+                    {
+                        $set: { lastCommittedFenceToken: Number(candidate.fenceToken) }
+                    },
+                    { new: true }
+                );
+                if (!watermarkDoc) {
+                    await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            matchStatus: 'NOT_ATTEMPTED',
+                            errorMessage: 'A newer portal lease fence token has already been committed for this authority.',
+                            errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    return {
+                        success: false,
+                        reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                        code: 'PORTAL_LOCK_OWNERSHIP_LOST',
                         ownershipLost: true
                     };
                 }

@@ -314,6 +314,32 @@ export const submitSourceApproval = async (req, res) => {
             });
         }
 
+        // Phase 3 & 5: Require non-null plain object ratePolicy BEFORE mutating setting
+        if (!ratePolicy || typeof ratePolicy !== 'object' || Array.isArray(ratePolicy)) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_RATE_POLICY',
+                message: 'ratePolicy must be a non-null plain object'
+            });
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(ratePolicy, 'maxConcurrent')) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_RATE_POLICY',
+                message: 'ratePolicy.maxConcurrent is an explicit mandatory property'
+            });
+        }
+
+        const mc = Number(ratePolicy.maxConcurrent);
+        if (!Number.isInteger(mc) || mc !== 1) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_RATE_POLICY',
+                message: 'ratePolicy.maxConcurrent must be positive integer equal to 1'
+            });
+        }
+
         // Apply proposed authorization evidence
         setting.permissionStatus = 'PENDING_REVIEW';
         setting.reviewStatus = 'UNDER_REVIEW';
@@ -335,28 +361,16 @@ export const submitSourceApproval = async (req, res) => {
             setting.permittedFields = permittedFields.map(f => String(f).trim());
         }
 
-        // P1: Make maxConcurrent mandatory in each new approval evidence submission
         // A new authorization evidence submission must be self-contained and NOT inherit old values.
-        if (ratePolicy && typeof ratePolicy === 'object') {
-            const mc = Number(ratePolicy.maxConcurrent);
-            if (ratePolicy.maxConcurrent === undefined || ratePolicy.maxConcurrent === null || !Number.isInteger(mc) || mc < 1) {
-                return res.status(422).json({
-                    success: false,
-                    code: 'INVALID_RATE_POLICY',
-                    message: 'ratePolicy.maxConcurrent is mandatory and must be a positive integer >= 1'
-                });
-            }
-
-            setting.ratePolicy = {
-                maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
-                maxRequestsPerHour: Number(ratePolicy.maxRequestsPerHour) || null,
-                maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
-                minIntervalMs: Number(ratePolicy.minIntervalMs || ratePolicy.minimumIntervalMs) || null,
-                minimumIntervalMs: Number(ratePolicy.minimumIntervalMs || ratePolicy.minIntervalMs) || null,
-                maxConcurrent: mc,
-                policySource: ratePolicy.policySource || ratePolicy.policyReference || null
-            };
-        }
+        setting.ratePolicy = {
+            maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
+            maxRequestsPerHour: Number(ratePolicy.maxRequestsPerHour) || null,
+            maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
+            minIntervalMs: Number(ratePolicy.minIntervalMs || ratePolicy.minimumIntervalMs) || null,
+            minimumIntervalMs: Number(ratePolicy.minimumIntervalMs || ratePolicy.minIntervalMs) || null,
+            maxConcurrent: 1,
+            policySource: ratePolicy.policySource || ratePolicy.policyReference || null
+        };
 
         setting.commercialUseAuthorized = Boolean(commercialUseAuthorized);
         setting.readOnlySearchAuthorized = Boolean(readOnlySearchAuthorized);

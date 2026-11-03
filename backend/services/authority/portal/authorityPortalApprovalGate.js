@@ -103,7 +103,7 @@ export function evaluateAuthorityPortalApproval({
         const hasRatePolicy = Number.isFinite(rate.maxRequestsPerMinute) && rate.maxRequestsPerMinute > 0
             && Number.isFinite(rate.maxRequestsPerDay) && rate.maxRequestsPerDay > 0
             && Number.isFinite(rate.minimumIntervalMs) && rate.minimumIntervalMs > 0
-            && Number(rate.maxConcurrentRequests) === 1
+            && Number(rate.maxConcurrentRequests || rate.maxConcurrent) === 1
             && hourlyOk
             && Boolean(String(rate.policyReference || '').trim());
         if (gate?.requireApprovedRatePolicy && !hasRatePolicy) {

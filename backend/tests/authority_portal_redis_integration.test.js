@@ -214,41 +214,54 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         await redisClient.del(key);
     });
 
-    await t.test('5. Atomic Redis Semaphore: Exactly N Permits, Reject N+1 Under Contention', async (t5) => {
+    await t.test('5. Option A Concurrency: Serial Execution (maxConcurrent=1) & Monotonic Fencing Fail-Closed', async (t5) => {
         if (!isRedisAvailable) {
             t5.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
             return;
         }
 
         const lockProvider = new RedisPortalDistributedLock(redisClient, { testMode: false });
-        await redisClient.del('portal_sem:SEMAPHORE_TEST', 'portal_fence_seq:SEMAPHORE_TEST');
+        await redisClient.del('portal_lock:CONCURRENCY_TEST', 'portal_fence_seq:CONCURRENCY_TEST');
 
-        const N = 3;
-        // Acquire N permits in parallel
-        const leases = await Promise.all([
-            lockProvider.acquire({ authorityCode: 'SEMAPHORE_TEST', maxConcurrent: N, ttlMs: 10000 }),
-            lockProvider.acquire({ authorityCode: 'SEMAPHORE_TEST', maxConcurrent: N, ttlMs: 10000 }),
-            lockProvider.acquire({ authorityCode: 'SEMAPHORE_TEST', maxConcurrent: N, ttlMs: 10000 })
-        ]);
+        // 5.1 Calling with maxConcurrent !== 1 strictly throws PORTAL_CONCURRENCY_UNSUPPORTED
+        await assert.rejects(
+            lockProvider.acquire({ authorityCode: 'CONCURRENCY_TEST', maxConcurrent: 2 }),
+            (err) => err.message.includes('PORTAL_CONCURRENCY_UNSUPPORTED')
+        );
 
-        assert.equal(leases[0].acquired, true);
-        assert.equal(leases[1].acquired, true);
-        assert.equal(leases[2].acquired, true);
+        // 5.2 Single worker acquires lock
+        const lease1 = await lockProvider.acquire({ authorityCode: 'CONCURRENCY_TEST', maxConcurrent: 1, ttlMs: 10000 });
+        assert.equal(lease1.acquired, true);
+        assert.ok(lease1.fenceToken >= 1);
 
-        // (N+1)th request MUST be rejected
-        const leaseNPlusOne = await lockProvider.acquire({ authorityCode: 'SEMAPHORE_TEST', maxConcurrent: N, ttlMs: 10000 });
-        assert.equal(leaseNPlusOne.acquired, false, 'N+1 request must be rejected under parallel semaphore contention');
+        // 5.3 Second concurrent worker is rejected
+        const lease2 = await lockProvider.acquire({ authorityCode: 'CONCURRENCY_TEST', maxConcurrent: 1, ttlMs: 10000 });
+        assert.equal(lease2.acquired, false, 'Second worker must be rejected under serial concurrency policy');
 
-        // Release one permit
-        await leases[0].release();
+        // 5.4 Release first worker allows new worker to acquire
+        await lease1.release();
+        const lease3 = await lockProvider.acquire({ authorityCode: 'CONCURRENCY_TEST', maxConcurrent: 1, ttlMs: 10000 });
+        assert.equal(lease3.acquired, true);
+        assert.ok(lease3.fenceToken > lease1.fenceToken);
 
-        // Now an acquisition succeeds
-        const leaseAfterRelease = await lockProvider.acquire({ authorityCode: 'SEMAPHORE_TEST', maxConcurrent: N, ttlMs: 10000 });
-        assert.equal(leaseAfterRelease.acquired, true);
+        // 5.5 isCurrentFenceToken fail-closed evaluation
+        const currentToken = lease3.fenceToken;
+        // Equal to current -> true
+        assert.equal(await lockProvider.isCurrentFenceToken('CONCURRENCY_TEST', currentToken), true);
+        // Stale/older token -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('CONCURRENCY_TEST', lease1.fenceToken), false);
+        // Future/invalid token -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('CONCURRENCY_TEST', currentToken + 10), false);
+        // Malformed token -> false
+        assert.equal(await lockProvider.isCurrentFenceToken('CONCURRENCY_TEST', null), false);
+        assert.equal(await lockProvider.isCurrentFenceToken('CONCURRENCY_TEST', 'invalid'), false);
 
-        // Clean up
-        await Promise.all([leases[1].release(), leases[2].release(), leaseAfterRelease.release()]);
-        await redisClient.del('portal_sem:SEMAPHORE_TEST');
+        await lease3.release();
+        await redisClient.del('portal_lock:CONCURRENCY_TEST');
+
+        // Sequence key missing in Redis -> fails closed (false)
+        await redisClient.del('portal_fence_seq:CONCURRENCY_TEST');
+        assert.equal(await lockProvider.isCurrentFenceToken('CONCURRENCY_TEST', currentToken), false);
     });
 
     await t.test('6. Quota Reservation & Multi-Window Exhaustion (Min, Hour, Day)', async (t6) => {
@@ -274,6 +287,14 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             'quota:hour:WINDOW_TEST:2026-11-03T15',
             'quota:day:WINDOW_TEST:2026-11-03'
         );
+
+        // Explicitly set approved canonical policy first
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: 'WINDOW_TEST',
+            policy,
+            approvedBy: 'admin',
+            policyVersion: 1
+        });
 
         // 1. Min interval violated
         const r1 = await quotaProvider.reserve({ authorityCode: 'WINDOW_TEST', policy, at: baseTime });
@@ -312,25 +333,55 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         assert.equal(r9.reason, 'DAILY_LIMIT_EXCEEDED');
     });
 
-    await t.test('7. Asia/Kolkata Hour & Midnight/Day Rollover with TTL Verification', async (t7) => {
+    await t.test('7. Asia/Kolkata Hour & Midnight/Day Rollover with TTL Verification (Phase 2)', async (t7) => {
         if (!isRedisAvailable) {
             t7.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
             return;
         }
 
         const quotaProvider = new RedisPortalQuotaProvider(redisClient, { testMode: false });
-        const policy = {
-            maxRequestsPerMinute: 10,
-            maxRequestsPerHour: 2,
-            maxRequestsPerDay: 2,
-            minimumIntervalMs: 10,
-            policyReference: 'POL_IST_ROLLOVER'
-        };
 
         // 23:59:50 IST on Nov 3, 2026 => 2026-11-03T18:29:50Z UTC
         const beforeMidnight = new Date('2026-11-03T18:29:50.000Z');
         // 00:00:10 IST on Nov 4, 2026 => 2026-11-03T18:30:10Z UTC
         const afterMidnight = new Date('2026-11-03T18:30:10.000Z');
+
+        // Part 1: Isolate Hourly Cap Exhaustion
+        const hourlyPolicy = {
+            maxRequestsPerMinute: 100, // High enough not to breach minute
+            maxRequestsPerHour: 2,     // Isolate hourly cap to 2
+            maxRequestsPerDay: 100,    // High enough not to breach day
+            minimumIntervalMs: 10,
+            policyReference: 'POL_IST_HOURLY'
+        };
+        await redisClient.del(
+            'quota:last:IST_HR_TEST',
+            'quota:canonical:IST_HR_TEST',
+            'quota:hour:IST_HR_TEST:2026-11-03T23'
+        );
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: 'IST_HR_TEST',
+            policy: hourlyPolicy,
+            approvedBy: 'admin',
+            policyVersion: 1
+        });
+
+        const hr1 = await quotaProvider.reserve({ authorityCode: 'IST_HR_TEST', policy: hourlyPolicy, at: beforeMidnight });
+        assert.equal(hr1.allowed, true);
+        const hr2 = await quotaProvider.reserve({ authorityCode: 'IST_HR_TEST', policy: hourlyPolicy, at: new Date(beforeMidnight.getTime() + 20) });
+        assert.equal(hr2.allowed, true);
+        const hr3 = await quotaProvider.reserve({ authorityCode: 'IST_HR_TEST', policy: hourlyPolicy, at: new Date(beforeMidnight.getTime() + 40) });
+        assert.equal(hr3.allowed, false);
+        assert.equal(hr3.reason, 'PER_HOUR_LIMIT_EXCEEDED', 'Must isolate and assert PER_HOUR_LIMIT_EXCEEDED');
+
+        // Part 2: Isolate Daily Cap Exhaustion and Midnight Rollover
+        const dailyPolicy = {
+            maxRequestsPerMinute: 100, // High enough not to breach minute
+            maxRequestsPerHour: 100,   // High enough not to breach hour
+            maxRequestsPerDay: 2,      // Isolate daily threshold to 2
+            minimumIntervalMs: 10,
+            policyReference: 'POL_IST_DAILY'
+        };
 
         await redisClient.del(
             'quota:last:IST_TEST',
@@ -341,15 +392,23 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             'quota:hour:IST_TEST:2026-11-04T00'
         );
 
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: 'IST_TEST',
+            policy: dailyPolicy,
+            approvedBy: 'admin',
+            policyVersion: 1
+        });
+
         // Exhaust daily quota before midnight (2 requests)
-        const r1 = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy, at: beforeMidnight });
+        const r1 = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy: dailyPolicy, at: beforeMidnight });
         assert.equal(r1.allowed, true);
-        const r2 = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy, at: new Date(beforeMidnight.getTime() + 20) });
+        const r2 = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy: dailyPolicy, at: new Date(beforeMidnight.getTime() + 20) });
         assert.equal(r2.allowed, true);
 
-        const r3 = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy, at: new Date(beforeMidnight.getTime() + 40) });
+        // Third request breaches daily limit
+        const r3 = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy: dailyPolicy, at: new Date(beforeMidnight.getTime() + 40) });
         assert.equal(r3.allowed, false);
-        assert.equal(r3.reason, 'DAILY_LIMIT_EXCEEDED');
+        assert.equal(r3.reason, 'DAILY_LIMIT_EXCEEDED', 'Must isolate and assert DAILY_LIMIT_EXCEEDED');
 
         // Check key TTL of day key in Redis
         const dayTtl = await redisClient.ttl('quota:day:IST_TEST:2026-11-03');
@@ -360,11 +419,11 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         assert.ok(hourTtl > 0 && hourTtl <= 7200, `Hour key TTL (${hourTtl}) must be <= 2h`);
 
         // Now simulate request at 00:00:10 IST: Rollover resets daily counter to 0, request SUCCEEDS!
-        const rRollover = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy, at: afterMidnight });
+        const rRollover = await quotaProvider.reserve({ authorityCode: 'IST_TEST', policy: dailyPolicy, at: afterMidnight });
         assert.equal(rRollover.allowed, true, 'Request after Asia/Kolkata midnight rollover must succeed');
     });
 
-    await t.test('8. Canonical Authority Quota Policy: Reject Ceiling Elevation & Mismatched Versions (P1)', async (t8) => {
+    await t.test('8. Canonical Authority Quota Policy: Trust Anchor, Versioning & Cross-Tenant Bounds (Phase 4)', async (t8) => {
         if (!isRedisAvailable) {
             t8.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
             return;
@@ -373,56 +432,120 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const quotaProvider = new RedisPortalQuotaProvider(redisClient, { testMode: false });
         await redisClient.del('quota:last:CANON_TEST', 'quota:canonical:CANON_TEST');
 
-        const tenantAPolicy = {
-            maxRequestsPerMinute: 1, // 1 per minute approved
+        const canonicalPolicyV1 = {
+            maxRequestsPerMinute: 2,
+            maxRequestsPerHour: 10,
             maxRequestsPerDay: 50,
-            minimumIntervalMs: 500,
+            minimumIntervalMs: 200,
             policyReference: 'OFFICIAL_HSVP_POLICY_V1'
         };
 
-        const at = new Date();
-        // Tenant A initializes canonical policy
-        const rA = await quotaProvider.reserve({
+        // 8.1 Absent canonical policy fails closed
+        const rMissing = await quotaProvider.reserve({
             authorityCode: 'CANON_TEST',
             tenantId: 'tenant-a',
-            policy: tenantAPolicy,
+            policy: canonicalPolicyV1
+        });
+        assert.equal(rMissing.allowed, false);
+        assert.equal(rMissing.reason, 'CANONICAL_POLICY_MISSING', 'Must fail closed when canonical policy is uninitialized');
+
+        // 8.2 Explicit approved canonical policy initialization without TTL
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: 'CANON_TEST',
+            policy: canonicalPolicyV1,
+            approvedBy: 'audit-reviewer-1',
+            policyVersion: 1
+        });
+        const canTtl = await redisClient.ttl('quota:canonical:CANON_TEST');
+        assert.equal(canTtl, -1, 'Canonical policy trust anchor must have NO TTL (persist)');
+
+        // 8.3 Valid tenant request matching canonical policy succeeds
+        const at = new Date();
+        const rValid = await quotaProvider.reserve({
+            authorityCode: 'CANON_TEST',
+            tenantId: 'tenant-a',
+            policy: canonicalPolicyV1,
             at
         });
-        assert.equal(rA.allowed, true);
+        assert.equal(rValid.allowed, true);
 
-        // Tenant B attempts to use a MORE PERMISSIVE rate (5/min): MUST BE REJECTED
-        const tenantBElevatedPolicy = {
-            maxRequestsPerMinute: 5, // Tries to elevate limit
+        // 8.4 Permissive tenant attempts to raise ceiling (e.g. 10/min): MUST BE REJECTED
+        const elevatedPolicy = {
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 10,
             maxRequestsPerDay: 50,
-            minimumIntervalMs: 500,
+            minimumIntervalMs: 200,
             policyReference: 'OFFICIAL_HSVP_POLICY_V1'
         };
-
-        const rB = await quotaProvider.reserve({
+        const rElevated = await quotaProvider.reserve({
             authorityCode: 'CANON_TEST',
             tenantId: 'tenant-b',
-            policy: tenantBElevatedPolicy,
-            at: new Date(at.getTime() + 600)
+            policy: elevatedPolicy,
+            at: new Date(at.getTime() + 300)
         });
-        assert.equal(rB.allowed, false);
-        assert.equal(rB.reason, 'RATE_LIMIT_ELEVATION_REJECTED');
+        assert.equal(rElevated.allowed, false);
+        assert.equal(rElevated.reason, 'RATE_LIMIT_ELEVATION_REJECTED');
 
-        // Tenant C attempts to use MISMATCHED policy reference: MUST BE REJECTED
-        const tenantCMismatchedPolicy = {
-            maxRequestsPerMinute: 1,
-            maxRequestsPerDay: 50,
-            minimumIntervalMs: 500,
-            policyReference: 'UNAPPROVED_ALTERNATIVE_POLICY'
+        // 8.5 Mismatched policyReference is rejected
+        const mismatchedRefPolicy = {
+            ...canonicalPolicyV1,
+            policyReference: 'ROGUE_UNAPPROVED_REF'
         };
-
-        const rC = await quotaProvider.reserve({
+        const rMismatch = await quotaProvider.reserve({
             authorityCode: 'CANON_TEST',
             tenantId: 'tenant-c',
-            policy: tenantCMismatchedPolicy,
-            at: new Date(at.getTime() + 600)
+            policy: mismatchedRefPolicy,
+            at: new Date(at.getTime() + 300)
         });
-        assert.equal(rC.allowed, false);
-        assert.equal(rC.reason, 'POLICY_VERSION_MISMATCH');
+        assert.equal(rMismatch.allowed, false);
+        assert.equal(rMismatch.reason, 'POLICY_VERSION_MISMATCH');
+
+        // 8.6 Mismatched content hash is rejected
+        const tamperedHashPolicy = {
+            ...canonicalPolicyV1,
+            contentHash: 'badf00d_tampered_hash_value'
+        };
+        const rTampered = await quotaProvider.reserve({
+            authorityCode: 'CANON_TEST',
+            tenantId: 'tenant-d',
+            policy: tamperedHashPolicy,
+            at: new Date(at.getTime() + 300)
+        });
+        assert.equal(rTampered.allowed, false);
+        assert.equal(rTampered.reason, 'POLICY_HASH_MISMATCH');
+
+        // 8.7 Cross-tenant shared bucket: Tenant B request within minimumInterval is blocked by Tenant A request
+        const rFast = await quotaProvider.reserve({
+            authorityCode: 'CANON_TEST',
+            tenantId: 'tenant-b',
+            policy: canonicalPolicyV1,
+            at: new Date(at.getTime() + 50) // only 50ms later (violates 200ms)
+        });
+        assert.equal(rFast.allowed, false);
+        assert.equal(rFast.reason, 'MINIMUM_INTERVAL_VIOLATED');
+
+        // 8.8 Explicit approved version rotation to V2
+        const canonicalPolicyV2 = {
+            maxRequestsPerMinute: 5,
+            maxRequestsPerHour: 20,
+            maxRequestsPerDay: 100,
+            minimumIntervalMs: 100,
+            policyReference: 'OFFICIAL_HSVP_POLICY_V2'
+        };
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: 'CANON_TEST',
+            policy: canonicalPolicyV2,
+            approvedBy: 'audit-reviewer-2',
+            policyVersion: 2
+        });
+
+        const rV2 = await quotaProvider.reserve({
+            authorityCode: 'CANON_TEST',
+            tenantId: 'tenant-a',
+            policy: canonicalPolicyV2,
+            at: new Date(at.getTime() + 500)
+        });
+        assert.equal(rV2.allowed, true, 'Approved rotated V2 policy must be accepted');
     });
 
     await t.test('9. Redis Disconnect Handling Fails Closed in Production Mode', async (t9) => {
