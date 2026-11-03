@@ -107,3 +107,20 @@ export const listSiteVisits = async (req, res) => {
         });
     }
 };
+
+export const getSiteVisitJourneyLink = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await SiteVisitService.getJourneyLink(id, req.user);
+        return res.status(200).json({
+            success: true,
+            data: result
+        });
+    } catch (err) {
+        const status = err.statusCode || (err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400));
+        return res.status(status).json({
+            success: false,
+            message: err.message
+        });
+    }
+};

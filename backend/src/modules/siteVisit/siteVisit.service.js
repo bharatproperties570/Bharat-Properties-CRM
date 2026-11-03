@@ -120,12 +120,10 @@ export class SiteVisitService {
                 pickupAddress: pickupAddress || '',
                 visitedProperties: normalizedProperties,
                 rescheduleHistory: [],
-                journeyToken: journeyInfo?.token || null,
                 journeyTokenHash: journeyInfo?.tokenHash || null,
                 journeyTokenJti: journeyInfo?.jti || null,
                 journeyExpiresAt: journeyInfo?.expiresAt || null,
-                journeyUrl: journeyInfo?.journeyUrl || null,
-                clientJourneyUrl: journeyInfo?.journeyUrl || null
+                journeyRevoked: false
             }
         };
 
@@ -159,9 +157,6 @@ export class SiteVisitService {
         return {
             alreadyScheduled: false,
             activity,
-            journeyToken: journeyInfo?.token || null,
-            journeyUrl: journeyInfo?.journeyUrl || null,
-            clientJourneyUrl: journeyInfo?.journeyUrl || null,
             message: 'Site visit scheduled successfully'
         };
     }
@@ -682,6 +677,66 @@ export class SiteVisitService {
                 limit,
                 pages: Math.ceil(total / limit)
             }
+        };
+    }
+
+    /**
+     * Scoped Internal Delivery Path: Deliver signed customer journey link on demand
+     * to authorized CRM user. Does NOT persist raw token in database.
+     */
+    static async getJourneyLink(activityId, user = null) {
+        if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
+            const err = new Error('Invalid or missing Site Visit ID');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const activity = await this.getById(activityId, user);
+        if (!activity) {
+            const err = new Error('Site visit not found');
+            err.statusCode = 404;
+            throw err;
+        }
+
+        if (activity.status === 'Cancelled') {
+            const err = new Error('Cannot generate journey link for cancelled site visit');
+            err.statusCode = 410;
+            throw err;
+        }
+
+        if (activity.details?.journeyRevoked === true) {
+            const err = new Error(activity.details?.journeyRevokedReason || 'Site visit journey link has been revoked');
+            err.statusCode = 403;
+            throw err;
+        }
+
+        const { SiteVisitJourneyService } = await import('./siteVisitJourney.service.js');
+        const journeyInfo = SiteVisitJourneyService.generateJourneyToken(activity);
+
+        // Update stored hash and JTI to maintain revocation/superseding capability
+        const ActivityModel = mongoose.models.Activity || Activity;
+        if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+            await ActivityModel.findByIdAndUpdate(activity._id, {
+                $set: {
+                    'details.journeyTokenHash': journeyInfo.tokenHash,
+                    'details.journeyTokenJti': journeyInfo.jti,
+                    'details.journeyExpiresAt': journeyInfo.expiresAt,
+                    'details.journeyRevoked': false
+                }
+            });
+        } else if (activity.save) {
+            if (!activity.details) activity.details = {};
+            activity.details.journeyTokenHash = journeyInfo.tokenHash;
+            activity.details.journeyTokenJti = journeyInfo.jti;
+            activity.details.journeyExpiresAt = journeyInfo.expiresAt;
+            activity.details.journeyRevoked = false;
+            await activity.save();
+        }
+
+        return {
+            journeyUrl: journeyInfo.journeyUrl,
+            safeToken: journeyInfo.safeToken,
+            expiresAt: journeyInfo.expiresAt
         };
     }
 }

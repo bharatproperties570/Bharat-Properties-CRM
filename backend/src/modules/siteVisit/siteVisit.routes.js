@@ -5,7 +5,8 @@ import {
     cancelSiteVisit,
     completeSiteVisit,
     getSiteVisit,
-    listSiteVisits
+    listSiteVisits,
+    getSiteVisitJourneyLink
 } from './siteVisit.controller.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 
@@ -16,6 +17,8 @@ router.use(authenticate);
 router.post('/', scheduleSiteVisit);
 router.get('/', listSiteVisits);
 router.get('/:id', getSiteVisit);
+router.get('/:id/journey-link', getSiteVisitJourneyLink);
+router.post('/:id/journey-link', getSiteVisitJourneyLink);
 router.post('/:id/reschedule', rescheduleSiteVisit);
 router.post('/:id/cancel', cancelSiteVisit);
 router.post('/:id/complete', completeSiteVisit);

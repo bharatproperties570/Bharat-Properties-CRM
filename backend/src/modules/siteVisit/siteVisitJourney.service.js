@@ -168,6 +168,81 @@ export class SiteVisitJourneyService {
     }
 
     /**
+     * Provider-backed route optimization abstraction with graceful fallback.
+     * Respects Section D.9: Never invent travel times or claim a route is optimal without a real routing result.
+     */
+    static async optimizeRoute(properties, options = {}) {
+        if (!Array.isArray(properties) || properties.length <= 1) {
+            return {
+                optimized: false,
+                strategy: 'SINGLE_OR_EMPTY',
+                estimatedTravelTimes: null,
+                properties: Array.isArray(properties) ? properties : []
+            };
+        }
+
+        const apiKey = process.env.GOOGLE_MAPS_ROUTING_KEY || process.env.GOOGLE_MAPS_API_KEY;
+
+        // If an external routing provider API key is configured, routing service can be invoked here.
+        // In the absence of an external routing response:
+        // Check if all coordinates are provided to perform nearest-neighbor proximity ordering
+        const hasCoords = properties.every(p => {
+            const lat = Number(p.lat || p.latitude);
+            const lng = Number(p.lng || p.longitude);
+            return !Number.isNaN(lat) && !Number.isNaN(lng) && lat !== 0 && lng !== 0;
+        });
+
+        if (apiKey && hasCoords) {
+            // Placeholder/hook for provider Routes API call
+            // If provider call fails or is not enabled, fall through gracefully
+        }
+
+        if (options.heuristicProximity && hasCoords) {
+            // Coordinate proximity nearest-neighbor ordering
+            const remaining = [...properties];
+            const sorted = [remaining.shift()];
+            while (remaining.length > 0) {
+                const current = sorted[sorted.length - 1];
+                const cLat = Number(current.lat || current.latitude);
+                const cLng = Number(current.lng || current.longitude);
+
+                let closestIdx = 0;
+                let minSqDist = Infinity;
+                for (let i = 0; i < remaining.length; i++) {
+                    const rLat = Number(remaining[i].lat || remaining[i].latitude);
+                    const rLng = Number(remaining[i].lng || remaining[i].longitude);
+                    const dist = Math.pow(rLat - cLat, 2) + Math.pow(rLng - cLng, 2);
+                    if (dist < minSqDist) {
+                        minSqDist = dist;
+                        closestIdx = i;
+                    }
+                }
+                sorted.push(remaining.splice(closestIdx, 1)[0]);
+            }
+
+            const reindexed = sorted.map((p, idx) => ({ ...p, order: idx }));
+            return {
+                optimized: true,
+                strategy: 'COORDINATE_PROXIMITY_HEURISTIC',
+                provider: 'INTERNAL_GEOMETRIC',
+                claimedOptimal: false, // Do not claim globally optimal without full TSP routing matrix
+                estimatedTravelTimes: null, // Strictly null: never fabricate travel times
+                properties: reindexed
+            };
+        }
+
+        // Graceful fallback to scheduled order
+        return {
+            optimized: false,
+            strategy: 'FALLBACK_SCHEDULED_ORDER',
+            provider: null,
+            claimedOptimal: false,
+            estimatedTravelTimes: null,
+            properties
+        };
+    }
+
+    /**
      * Compute sequential unlocking status and sanitize property projections.
      * Strictly enforces:
      * - Property 0 is READY (or FEEDBACK_SUBMITTED)
@@ -504,6 +579,7 @@ export class SiteVisitJourneyService {
             inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
             department: activity.department,
             teams: activity.teams,
+            assignedTo: activity.assignedTo || null,
             rating: numRating,
             idempotencyKey,
             responses: {
@@ -514,7 +590,9 @@ export class SiteVisitJourneyService {
                 revisitRequested: Boolean(revisitRequested),
                 expectedPrice: expectedPrice ? Number(expectedPrice) : null,
                 project: property.project,
-                unit: property.property
+                unit: property.property,
+                executive: activity.performedBy || null,
+                executiveId: activity.assignedTo ? String(activity.assignedTo) : null
             },
             sourceMeta: options.sourceMeta || {}
         };

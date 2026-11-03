@@ -1,24 +1,74 @@
+import React, { useState } from 'react';
 import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
 import toast from 'react-hot-toast';
 
 const JourneyProgressTracker = ({ formData, isDark }) => {
-    const journeyUrl = formData.details?.journeyUrl || (formData.details?.journeyToken ? `${window.location.origin}/journey/${formData.details.journeyToken}` : null);
-    const visited = Array.isArray(formData.visitedProperties) ? formData.visitedProperties : [];
+    const [fetchedJourneyUrl, setFetchedJourneyUrl] = useState(null);
+    const [loadingLink, setLoadingLink] = useState(false);
+
+    const journeyUrl = fetchedJourneyUrl || formData.details?.journeyUrl || (formData.details?.journeyToken ? `${window.location.origin}/journey/${formData.details.journeyToken}` : null);
+    const visited = Array.isArray(formData.visitedProperties) ? formData.visitedProperties : (Array.isArray(formData.details?.visitedProperties) ? formData.details.visitedProperties : []);
+
+    const fetchJourneyLink = async () => {
+        if (journeyUrl) return journeyUrl;
+        const actId = formData._id || formData.id;
+        if (!actId) return null;
+        try {
+            setLoadingLink(true);
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/site-visits/${actId}/journey-link`, {
+                headers: {
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                }
+            });
+            const data = await res.json();
+            if (data.success && data.data?.journeyUrl) {
+                setFetchedJourneyUrl(data.data.journeyUrl);
+                return data.data.journeyUrl;
+            }
+        } catch (e) {
+            console.error('Failed to retrieve journey link:', e);
+        } finally {
+            setLoadingLink(false);
+        }
+        return null;
+    };
 
     const handleCopy = () => {
-        if (!journeyUrl) return;
-        navigator.clipboard.writeText(journeyUrl);
-        toast.success('Client Journey link copied to clipboard!');
+        if (journeyUrl) {
+            navigator.clipboard.writeText(journeyUrl);
+            toast.success('Client Journey link copied to clipboard!');
+            return;
+        }
+        fetchJourneyLink().then((url) => {
+            if (url) {
+                navigator.clipboard.writeText(url);
+                toast.success('Client Journey link copied to clipboard!');
+            } else {
+                toast.error('Unable to retrieve client journey link');
+            }
+        });
     };
 
     const handleWhatsApp = () => {
-        if (!journeyUrl) return;
-        const msg = encodeURIComponent(`Hello! Here is your personalized Site Visit Itinerary & Navigation link: ${journeyUrl}`);
-        window.open(`https://wa.me/?text=${msg}`, '_blank');
+        if (journeyUrl) {
+            const msg = encodeURIComponent(`Hello! Here is your personalized Site Visit Itinerary & Navigation link: ${journeyUrl}`);
+            window.open(`https://wa.me/?text=${msg}`, '_blank');
+            return;
+        }
+        fetchJourneyLink().then((url) => {
+            if (url) {
+                const msg = encodeURIComponent(`Hello! Here is your personalized Site Visit Itinerary & Navigation link: ${url}`);
+                window.open(`https://wa.me/?text=${msg}`, '_blank');
+            } else {
+                toast.error('Unable to retrieve client journey link');
+            }
+        });
     };
 
-    if (!journeyUrl && visited.length === 0) return null;
+    const canShareLink = Boolean(journeyUrl || formData._id || formData.id);
+    if (!canShareLink && visited.length === 0) return null;
 
     return (
         <div style={{
@@ -38,11 +88,12 @@ const JourneyProgressTracker = ({ formData, isDark }) => {
                     </span>
                 </div>
 
-                {journeyUrl && (
+                {canShareLink && (
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button
                             type="button"
                             onClick={handleCopy}
+                            disabled={loadingLink}
                             style={{
                                 padding: '6px 10px',
                                 borderRadius: '8px',
@@ -57,11 +108,12 @@ const JourneyProgressTracker = ({ formData, isDark }) => {
                                 gap: '5px'
                             }}
                         >
-                            <i className="far fa-copy"></i> Copy Link
+                            <i className="far fa-copy"></i> {loadingLink ? 'Generating...' : 'Copy Link'}
                         </button>
                         <button
                             type="button"
                             onClick={handleWhatsApp}
+                            disabled={loadingLink}
                             style={{
                                 padding: '6px 10px',
                                 borderRadius: '8px',

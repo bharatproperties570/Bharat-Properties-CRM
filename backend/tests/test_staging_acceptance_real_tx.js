@@ -17,7 +17,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'staging_acceptance_jwt_secret_999';
-process.env.FRONTEND_URL = process.env.FRONTEND_URL || 'https://crm.bharatproperties.co';
+process.env.FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 
 // Models
 import Activity from '../models/Activity.js';
@@ -203,7 +203,9 @@ async function runRealTransactionTests() {
     assert(committedActivity !== null, 'Atomic commit: Activity permanently persisted in database');
     assert(committedActivity.status === 'Pending', 'Committed activity has status Pending');
     assert(committedActivity.details.visitedProperties.length === 2, 'Committed activity has 2 properties in itinerary');
-    assert(Boolean(committedActivity.details.journeyToken), 'Committed activity has cryptographically signed journey token');
+    assert(committedActivity.details.journeyToken === undefined, 'Raw journeyToken bearer credential is NOT persisted in MongoDB');
+    assert(committedActivity.details.journeyUrl === undefined, 'Raw journeyUrl bearer credential is NOT persisted in MongoDB');
+    assert(Boolean(committedActivity.details.journeyTokenHash), 'Committed activity has safely persisted token hash');
 
     const scheduledStage = await Lookup.findOne({ lookup_type: 'Stage', lookup_value: 'Site Visit Scheduled' });
     const committedLead = await Lead.findById(lead1._id);
@@ -357,8 +359,9 @@ async function runAcceptanceJourneyTests() {
     assert(persistedAct.details.visitedProperties.length === 2, '2b. Itinerary contains 2 properties');
     assert(persistedAct.details.visitedProperties[0].status === 'READY', '2c. Property 1 is READY');
     assert(persistedAct.details.visitedProperties[1].status === 'LOCKED', '2d. Property 2 is LOCKED');
-    assert(Boolean(persistedAct.details.journeyToken), '2e. Cryptographic client journey token generated');
-    assert(Boolean(persistedAct.details.clientJourneyUrl), '2f. Public client journey link generated');
+    assert(persistedAct.details.journeyToken === undefined, '2e. Raw bearer token is NOT stored in MongoDB');
+    assert(persistedAct.details.journeyUrl === undefined, '2f. Raw journey URL is NOT stored in MongoDB');
+    assert(Boolean(persistedAct.details.journeyTokenHash), '2g. Cryptographic journey token hash persisted');
 
     // 3. Duplicate scheduling handled correctly (idempotency)
     console.log('\n--- 2.3 Duplicate Scheduling Idempotency ---');
@@ -394,14 +397,18 @@ async function runAcceptanceJourneyTests() {
     const eligibleValidation = SiteVisitAutomationService.validateRecipient(lead);
     assert(eligibleValidation.valid === true && (eligibleValidation.normalized === '9811223344' || eligibleValidation.normalizedMobile === '9811223344'), '4b. Eligible customer validated with normalized 10-digit number');
 
-    // 5. Client journey token verification & security guards
-    console.log('\n--- 2.5 Client Journey Token Validation & Security ---');
-    const journeyToken = persistedAct.details.journeyToken;
+    // 5. Client journey token verification & security guards via scoped internal path
+    console.log('\n--- 2.5 Client Journey Token Validation & Scoped Delivery Path ---');
+    const journeyLinkRes = await SiteVisitService.getJourneyLink(activityId, agent);
+    assert(Boolean(journeyLinkRes.journeyUrl), '5a. Authorized agent retrieved customer journey URL via scoped path');
+    assert(Boolean(journeyLinkRes.safeToken), '5b. Authorized agent retrieved customer safe token via scoped path');
+    const journeyToken = journeyLinkRes.safeToken;
+
     const verifiedData = await SiteVisitJourneyService.verifyJourneyToken(journeyToken);
-    assert(String(verifiedData.activity._id) === String(activityId), '5a. Valid token resolves correct activity');
+    assert(String(verifiedData.activity._id) === String(activityId), '5c. Valid token resolves correct activity');
     const itinerary = await SiteVisitJourneyService.getSanitizedItinerary(verifiedData.activity);
-    assert(itinerary.properties.length === 2, '5b. Sanitized itinerary returned');
-    assert(itinerary.properties[1].isLocked === true, '5c. Property 2 unit details strictly masked/locked');
+    assert(itinerary.properties.length === 2, '5d. Sanitized itinerary returned');
+    assert(itinerary.properties[1].isLocked === true, '5e. Property 2 unit details strictly masked/locked');
 
     // Tampered token check
     let tamperedRejected = false;
@@ -410,7 +417,7 @@ async function runAcceptanceJourneyTests() {
     } catch (err) {
         tamperedRejected = true;
     }
-    assert(tamperedRejected === true, '5d. Tampered token rejected');
+    assert(tamperedRejected === true, '5f. Tampered token rejected');
 
     // 6. Feedback submission persists and is visible to CRM user
     console.log('\n--- 2.6 Feedback Submission & CRM Visibility ---');
@@ -434,15 +441,22 @@ async function runAcceptanceJourneyTests() {
 
     // 7. Cancellation/revocation blocks further access (HTTP 410)
     console.log('\n--- 2.7 Cancellation & Access Revocation ---');
-    const cancelLead = await createTestLead({ firstName: 'Cancel', lastName: 'Test Lead', mobile: '9998887776' });
+    const cancelLead = await createTestLead({
+        firstName: 'Cancel',
+        lastName: 'Test Lead',
+        mobile: '9998887776',
+        assignedTo: agent._id,
+        department: 'sales'
+    });
     const cancelSched = await SiteVisitService.schedule({
         leadId: cancelLead._id,
         date: '2026-11-25',
         time: '10:00',
         properties: [{ project: 'DLF Crest' }]
-    });
+    }, agent);
     const cancelActId = cancelSched.activity._id;
-    const cancelToken = cancelSched.activity.details.journeyToken;
+    const cancelLinkRes = await SiteVisitService.getJourneyLink(cancelActId, agent);
+    const cancelToken = cancelLinkRes.safeToken;
 
     await SiteVisitService.cancel(cancelActId, { reason: 'Client requested postponement' }, agent);
     const cancelledAct = await Activity.findById(cancelActId);
@@ -457,6 +471,16 @@ async function runAcceptanceJourneyTests() {
         }
     }
     assert(accessBlocked === true, '7b. Public journey access blocked (HTTP 410 / Cancelled)');
+
+    let newLinkBlocked = false;
+    try {
+        await SiteVisitService.getJourneyLink(cancelActId, agent);
+    } catch (err) {
+        if (err.statusCode === 410 || err.message.includes('cancelled')) {
+            newLinkBlocked = true;
+        }
+    }
+    assert(newLinkBlocked === true, '7c. Generating journey link on cancelled site visit blocked (HTTP 410)');
 
     // 8. Lead/Deal association, attribution and closed-loop ROI
     console.log('\n--- 2.8 Deal Association & Attribution Inheritance ---');
@@ -513,6 +537,103 @@ async function runAcceptanceJourneyTests() {
 
     const evalMock = SiteVisitAutomationService.evaluateProviderDispatch({ mock: true }, 'sms');
     assert(evalMock.success === false && evalMock.status === 'SIMULATED', '10b. Mock provider distinguishes simulation from delivery');
+
+    // 11. Multi-Property Itinerary (5+ Properties) & Sequential Gate Unlocking
+    console.log('\n--- 2.11 Multi-Property Itinerary (5 Properties) & Sequential Gate Unlocking ---');
+    const multiLead = await createTestLead({
+        firstName: 'Multi',
+        lastName: 'Tour Buyer',
+        mobile: '9877001122',
+        assignedTo: agent._id,
+        department: 'sales'
+    });
+    const fiveProperties = [
+        { project: 'M3M Golfestate', block: 'Tower 1', property: 'Unit 101', city: 'Gurugram' },
+        { project: 'DLF Magnolias', block: 'Tower 4', property: 'Unit 402', city: 'Gurugram' },
+        { project: 'Puri The Aravallis', block: 'Tower A', property: 'Unit 503', city: 'Gurugram' },
+        { project: 'Central Park Resorts', block: 'Tower B', property: 'Unit 604', city: 'Gurugram' },
+        { project: 'Tata Primanti', block: 'Villa 7', property: 'Villa 7', city: 'Gurugram' }
+    ];
+
+    const fiveSched = await SiteVisitService.schedule({
+        leadId: multiLead._id,
+        date: '2026-11-28',
+        time: '11:00',
+        properties: fiveProperties
+    }, agent);
+    const fiveActId = fiveSched.activity._id;
+
+    const fiveAct = await Activity.findById(fiveActId);
+    assert(fiveAct.details.visitedProperties.length === 5, '11a. 5 properties scheduled in single itinerary');
+    assert(fiveAct.details.visitedProperties[0].status === 'READY', '11b. Property 1 (index 0) is READY');
+    for (let pIdx = 1; pIdx < 5; pIdx++) {
+        assert(fiveAct.details.visitedProperties[pIdx].status === 'LOCKED', `11c. Property ${pIdx + 1} is initially LOCKED`);
+    }
+
+    const fiveLinkRes = await SiteVisitService.getJourneyLink(fiveActId, agent);
+    const fiveToken = fiveLinkRes.safeToken;
+    const verifiedFive = await SiteVisitJourneyService.verifyJourneyToken(fiveToken);
+    const sanitizedFive = await SiteVisitJourneyService.getSanitizedItinerary(verifiedFive.activity);
+    assert(sanitizedFive.totalProperties === 5, '11d. Sanitized itinerary reports exactly 5 total properties');
+    assert(sanitizedFive.properties[0].isLocked === false, '11e. Property 1 is unlocked');
+    assert(sanitizedFive.properties[1].isLocked === true && sanitizedFive.properties[1].unit === 'Unit Details Locked', '11f. Property 2 unit masked');
+    assert(sanitizedFive.properties[4].isLocked === true && sanitizedFive.properties[4].location.navigationUrl === null, '11g. Property 5 navigation URL is null while locked');
+
+    // Attempting to bypass gate by submitting feedback for property 2 directly
+    let skipGateBlocked = false;
+    try {
+        await SiteVisitJourneyService.submitPropertyFeedback(fiveActId, 2, { rating: 5 });
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('Please submit feedback')) {
+            skipGateBlocked = true;
+        }
+    }
+    assert(skipGateBlocked === true, '11h. Gate bypass attempt blocked: Cannot submit feedback on later locked properties');
+
+    // Sequential feedback on Property 0 unlocks Property 1
+    await SiteVisitJourneyService.submitPropertyFeedback(fiveActId, 0, { rating: 5, responses: { interest: 'Interested' } });
+    const postProp0Act = await Activity.findById(fiveActId);
+    assert(postProp0Act.details.visitedProperties[0].status === 'FEEDBACK_SUBMITTED', '11i. Property 0 advanced to FEEDBACK_SUBMITTED');
+    assert(postProp0Act.details.visitedProperties[1].status === 'READY', '11j. Property 1 sequentially unlocked to READY');
+    assert(postProp0Act.details.visitedProperties[2].status === 'LOCKED', '11k. Property 2 remains LOCKED');
+
+    // 12. Provider-Backed Route Optimization Abstraction with Fallback & No Fabricated Times
+    console.log('\n--- 2.12 Route Optimization Abstraction & Travel Time Integrity ---');
+    const routeOptResult = await SiteVisitJourneyService.optimizeRoute(fiveProperties);
+    assert(routeOptResult.optimized === false, '12a. Fallback to scheduled order when provider not configured');
+    assert(routeOptResult.estimatedTravelTimes === null, '12b. Travel times strictly null (never fabricated)');
+    assert(routeOptResult.claimedOptimal === false, '12c. Claimed optimal is false without provider routing matrix');
+
+    // Geometric coordinate proximity test
+    const geoProps = [
+        { project: 'Origin', lat: 28.4595, lng: 77.0266 },
+        { project: 'Far Property', lat: 28.5200, lng: 77.1000 },
+        { project: 'Near Property', lat: 28.4600, lng: 77.0270 }
+    ];
+    const geoOptResult = await SiteVisitJourneyService.optimizeRoute(geoProps, { heuristicProximity: true });
+    assert(geoOptResult.optimized === true, '12d. Heuristic proximity sorts nearest-neighbor coordinates');
+    assert(geoOptResult.properties[1].project === 'Near Property', '12e. Nearest property placed second in sequence');
+    assert(geoOptResult.estimatedTravelTimes === null, '12f. Geometric sort preserves estimatedTravelTimes as null');
+
+    // 13. Scoped Journey Link RBAC Fail-Closed Enforcement
+    console.log('\n--- 2.13 Scoped Journey Link RBAC / Tenant Isolation ---');
+    let linkDenied = false;
+    const mockLinkReq = {
+        params: { id: activityId },
+        user: unauthorizedUser
+    };
+    const mockLinkRes = {
+        statusCode: 200,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) {
+            if (this.statusCode === 403 || this.statusCode === 404 || payload.success === false) {
+                linkDenied = true;
+            }
+            return this;
+        }
+    };
+    await SiteVisitController.getSiteVisitJourneyLink(mockLinkReq, mockLinkRes);
+    assert(linkDenied === true || mockLinkRes.statusCode === 403 || mockLinkRes.statusCode === 404, '13. Unauthorized user cannot retrieve journey link for other department\'s visit');
 }
 
 async function main() {

@@ -77,7 +77,10 @@ function validateRecipient(lead) {
         lead.dnd === true ||
         lead.optOut === true ||
         lead.optedOut === true ||
-        lead.isUnsubscribed === true
+        lead.isUnsubscribed === true ||
+        lead.communicationPreferences?.dnd === true ||
+        lead.communicationPreferences?.optOut === true ||
+        lead.communicationPreferences?.doNotContact === true
     );
     if (hasOptedOut) {
         return {
