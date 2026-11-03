@@ -19,17 +19,18 @@
    - **Database name alone is NOT sufficient:** A connection to the production Atlas cluster under an alternate database name (e.g. `dev`, `staging`) cannot bypass production protection.
    - Any connection matching the Atlas production fingerprint (`*.mongodb.net`, `7dehanz`, `atlas-145yac-shard-0`) is permanently classified as a **PRODUCTION CLUSTER**.
 
-2. **Trusted Public-Key Pinning (DEF-01):**
-   - **Pinned Trust Anchors:** Trust anchors reside in `PINNED_DBA_TRUST_STORE` (compiled into the migration runner) or in a protected trust store file (`--dba-trust-store=<path>`).
-   - **Caller-Controlled Keys are NOT Trust Anchors:** Public keys passed via command-line arguments or runtime options are treated merely as candidate keys. Any candidate key MUST have its computed SHA-256 SubjectPublicKeyInfo (SPKI) fingerprint match the pinned trust anchor for that specific approver.
-   - **Approver Binding:** Approver identity in the approval token must be an authorized DBA (`dba.lead@bharatproperties.in`, `chief.architect@bharatproperties.in`, `security.admin@bharatproperties.in`) and must be bound to a pinned active key in the trust store.
+2. **Trusted Public-Key Pinning & Close Trust Registry Injection (DEF-01 & DEF-05):**
+   - **Immutable Trust Anchors in Production:** Trust anchors reside solely in `PINNED_DBA_TRUST_STORE` (compiled into the migration runner).
+   - **Zero Trust-Registry Overrides in Production:** In production execution (`clusterInfo.isProductionCluster`), the runner strictly rejects caller-supplied trust registries (`opts.trustedKeyRegistry`), custom public keys (`opts.trustedPublicKeys`), bypass flags (`opts.allowUnpinnedKey`, `opts.skipFingerprintCheck`, `--allow-unpinned`, `--skip-fingerprint`), and CLI trust-store path overrides (`opts.dbaTrustStorePath`, `--dba-trust-store=`). Any attempt immediately aborts with `SECURITY FATAL`.
+   - **Filesystem Permissions Do Not Grant Trust:** Filesystem permissions (`0600` or `0644`) on caller-supplied files do NOT establish production trust. Custom trust-store files are allowed ONLY in non-production environments.
+   - **Isolated Test Harness:** Cryptographic dependency injection for automated testing is strictly confined to `__testOnly_verifyOperatorApproval`, which is stripped by `runMigration` and permanently disabled when `process.env.NODE_ENV === 'production'`.
+   - **Key Provenance & Fail-Closed Placeholders:** Pinned trust store entries are annotated with `provenance: 'UNPROVISIONED_PLACEHOLDER'`. In production execution, placeholder keys fail closed with fatal errors until real cryptographic verification keys minted via corporate KMS/Vault authority are provisioned.
    - **Key Status & Revocation Protocol:** Every pinned record includes `status` (`ACTIVE` or `REVOKED`), `validFrom`, `validUntil`, and `keyId`. Any key marked `REVOKED` or expired immediately halts migration execution with a fatal closed abort.
-   - **Trust Store Permissions:** Trust store files must be protected with strict filesystem permissions (`0600` or `0644`), forbidding group and other write permissions.
 
 3. **Asymmetric Digital Signature Verification & Architecture Separation (DEF-04):**
    - **Zero Shared Secrets:** Symmetric HMAC secrets and shared signing keys are strictly forbidden. The migration runner holds ONLY trusted public verification keys or their pinned fingerprints.
    - **Zero Signing Capability in Migration Runner:** The migration script contains no private keys, signing routines, or token minting tools. Signing capability is completely removed from production runtime modules.
-   - **External Signing Authority:** The external signing authority architecture requires private signing keys to be stored in hardware security modules, AWS KMS, or HashiCorp Vault accessible only via authenticated multi-party operator workflows. The codebase verifies signatures using standard asymmetric crypto; external KMS/Vault issuance is an operational infrastructure dependency.
+   - **External Signing Authority:** The external signing authority architecture requires private signing keys to be stored in hardware security modules, AWS KMS, or HashiCorp Vault accessible only via authenticated multi-party operator workflows. The codebase verifies signatures using standard asymmetric crypto; external KMS/Vault issuance is an operational infrastructure dependency. Placeholder fingerprints fail closed in production.
    - **Zero Secret Exposure:** Passing private keys or `--dba-approval-secret` is strictly prohibited and immediately aborted by the runner. No secrets or tokens are read from `.env` or persistent shell configuration.
 
 4. **Nine-Parameter Cryptographic Binding:**
@@ -44,21 +45,26 @@
    8. `expiresAt`: Expiration timestamp ($\le 5$ minutes TTL).
    9. `purpose` & `auditRef`: Operational rationale and change-management RFC/ticket reference.
 
-5. **Durable Anti-Replay Ledger & Atomic Lockfile Race Remediation (DEF-02):**
+5. **Durable Anti-Replay Ledger & Lock Recovery TOCTOU Elimination (DEF-02 & DEF-06):**
    - **Atomic Lock Publication:** Exclusive locks are acquired using POSIX exclusive open (`O_CREAT | O_EXCL` via flag `wx`) with owner-only permissions (`0o600`), atomic metadata writing, and synchronous `fsyncSync()`.
    - **Unforgeable Ownership Tokens:** Every lock record contains an unforgeable UUID `ownerToken`, process PID, start time, hostname, and timestamp: `{ ownerToken, pid, processStartTime, hostname, createdAt }`.
    - **Safe Release Verification:** `_releaseLock()` ONLY unlinks the lockfile if the file on disk still contains the exact matching `ownerToken` and `pid`. A delayed process will never unlink a competitor's replacement lock.
    - **Live Process Protection:** Locks held by live processes (`process.kill(pid, 0)` succeeds) are NEVER broken, regardless of elapsed time (>15s). Competing workers back off and wait.
-   - **Safe Dead-Lock Recovery via Atomic Rename:** If an owner PID is dead (`ESRCH`) or PID start time does not match, stale locks are claimed via POSIX atomic rename `fs.renameSync(this.lockPath, recoveryPath)`. Competing workers encounter `ENOENT` during the race and continue their wait loops safely without race conditions.
+   - **Claim Coordinator Serialization (DEF-06):** Stale lock recovery requires acquiring an exclusive claim coordinator (`${this.lockPath}.claim`) via POSIX exclusive create (`openSync(claimPath, 'wx')`), serializing concurrent recovery workers and eliminating race conditions.
+   - **Exact-Instance Inode Inspection & Rename (DEF-06):** Prior to renaming, the worker inspects `{ ino, dev, ownerToken, pid }`. The lock is renamed to a unique recovery file (`${this.lockPath}.recovering.${process.pid}.${Date.now()}.${uuid}`).
+   - **Replacement Lock Restoration (DEF-06):** After renaming, the worker verifies that the renamed file matches the inspected inode and ownerToken. If a replacement lock was created between inspection and rename, the worker immediately reverses the operation by restoring the replacement lock back to `${this.lockPath}` via `renameSync(recoveryPath, this.lockPath)` and aborts recovery.
+   - **Cross-Process PID Reuse Detection (DEF-06):** `getProcessStartTime(pid)` extracts the process start time on Linux (`/proc/<pid>/stat`) and macOS/POSIX (`ps -p <pid> -o lstart=`). If start time differs by > 3000ms, the PID was recycled and the original process is dead.
+   - **Remote Host Ownership (DEF-06):** If a lock record originates from a different hostname (`lockData.hostname !== os.hostname()`), local processes cannot reliably evaluate process lifecycle; the lock fails closed and is never broken locally.
    - **Initialization Grace Period:** An empty or partially written lockfile within its `initGracePeriodMs` (500ms) is never disturbed by competing workers.
    - **Fail-Closed on Corruption:** Any malformed or corrupted record in the ledger file causes immediate fatal termination.
 
 6. **Approval Token Input Protection & Zero Leakage (DEF-03):**
+   - **Strict Production CLI Argument Rejection:** Raw approval tokens passed via `--confirm-dba-approval=<token>` are strictly rejected in production with `SECURITY FATAL` (to prevent exposure in `ps aux`, `/proc/<pid>/cmdline`, and shell history). In non-production, a clear security warning is emitted.
    - **Protected Input Channels:** Operators must provide approval tokens via:
      - `--confirm-dba-approval-file=<path>`: Reading from a file with strict `0600` permissions.
      - `--confirm-dba-approval-stdin`: Piping the token via standard input (`echo "$TOKEN" | node ...`).
      - `--confirm-dba-approval-fd=<fd>`: Reading from an open file descriptor.
-   - **Deprecated CLI Argument Warning:** Passing `--confirm-dba-approval=<token>` is deprecated and emits an explicit security warning regarding exposure in `ps aux`, `/proc/<pid>/cmdline`, and shell history.
+   - **Symbolic Link Prohibition:** Symlinks to token files are strictly prohibited (`fs.lstatSync(resolvedPath).isSymbolicLink()` fails closed to prevent redirection attacks).
    - **Zero Token Leakage:** Verification errors, ledger records, and migration return objects NEVER log, print, or leak raw tokens, base64 payloads, or cryptographic signatures.
 
 7. **Safe Handling of Non-Production Clusters with Production Database Name:**

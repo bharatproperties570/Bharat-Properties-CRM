@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,13 +40,18 @@ export const AUTHORIZED_DBA_APPROVERS = Object.freeze([
     'security.admin@bharatproperties.in'
 ]);
 
-// Pinned Trusted DBA Public Key Registry & Trust Store (DEF-01)
+// Pinned Trusted DBA Public Key Registry & Trust Store (DEF-01 / DEF-05)
+// Immutable Trust Anchors compiled directly into migration module.
+// PROVENANCE NOTE: The pinned fingerprints represent designated DBA authorization identities.
+// Prior to formal production HSM/KMS key ceremony, records are designated UNPROVISIONED_PLACEHOLDER.
+// Any production execution against an UNPROVISIONED_PLACEHOLDER key will fail closed.
 export const PINNED_DBA_TRUST_STORE = Object.freeze({
     'dba.lead@bharatproperties.in': Object.freeze({
         keyId: 'kid-dba-lead-2026-v1',
         approver: 'dba.lead@bharatproperties.in',
         fingerprint: 'SHA256:d8b2e1f4a9c6e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495',
         status: 'ACTIVE',
+        provenance: 'UNPROVISIONED_PLACEHOLDER',
         validFrom: 1735689600000,
         validUntil: 1798761600000
     }),
@@ -54,6 +60,7 @@ export const PINNED_DBA_TRUST_STORE = Object.freeze({
         approver: 'chief.architect@bharatproperties.in',
         fingerprint: 'SHA256:a4f891b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abc',
         status: 'ACTIVE',
+        provenance: 'UNPROVISIONED_PLACEHOLDER',
         validFrom: 1735689600000,
         validUntil: 1798761600000
     }),
@@ -62,6 +69,7 @@ export const PINNED_DBA_TRUST_STORE = Object.freeze({
         approver: 'security.admin@bharatproperties.in',
         fingerprint: 'SHA256:bc3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0123',
         status: 'ACTIVE',
+        provenance: 'UNPROVISIONED_PLACEHOLDER',
         validFrom: 1735689600000,
         validUntil: 1798761600000
     })
@@ -92,9 +100,18 @@ export function computePublicKeyFingerprint(publicKey) {
 }
 
 /**
- * Loads trusted DBA key registry from options or protected trust store file.
+ * Loads trusted DBA key registry.
+ * In production, caller-supplied options or files MUST NEVER override the compiled trust store.
+ * Test harness injection is strictly isolated and rejected in production execution.
  */
-export function loadTrustedKeyRegistry(opts = {}) {
+export function loadTrustedKeyRegistry(opts = {}, isProduction = false) {
+    if (isProduction || process.env.NODE_ENV === 'production') {
+        if (opts.trustedKeyRegistry || opts.trustedPublicKeys || opts.dbaTrustStorePath || process.argv.some(arg => arg.startsWith('--dba-trust-store='))) {
+            throw new Error('[MIGRATION-004] SECURITY FATAL: Trust registry injection and runtime trust store overrides are strictly prohibited in production. Only immutable compiled trust anchors may be used.');
+        }
+        return PINNED_DBA_TRUST_STORE;
+    }
+    // Isolated non-production test harness inspection:
     if (opts.trustedKeyRegistry && typeof opts.trustedKeyRegistry === 'object') {
         return opts.trustedKeyRegistry;
     }
@@ -127,10 +144,45 @@ export const MAX_APPROVAL_TOKEN_AGE_MS = 5 * 60 * 1000; // 5 minutes maximum tok
 export const consumedApprovalNonces = new Set();
 
 /**
+ * Computes process start time across Linux (/proc) and POSIX systems (ps).
+ * Returns epoch timestamp in milliseconds or null if undetermined.
+ */
+export function getProcessStartTime(pid) {
+    if (!pid || typeof pid !== 'number' || pid <= 0) return null;
+    if (pid === process.pid) {
+        return Date.now() - Math.floor(process.uptime() * 1000);
+    }
+    if (process.platform === 'linux') {
+        try {
+            const statContent = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+            const lastParen = statContent.lastIndexOf(')');
+            if (lastParen !== -1) {
+                const rest = statContent.substring(lastParen + 2).split(' ');
+                const starttimeTicks = parseInt(rest[19], 10);
+                if (!isNaN(starttimeTicks)) {
+                    const procStat = fs.statSync(`/proc/${pid}`);
+                    return Math.floor(procStat.mtimeMs);
+                }
+            }
+        } catch (_) {}
+    }
+    try {
+        const out = execSync(`ps -p ${pid} -o lstart=`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1000 });
+        const trimmed = out.trim();
+        if (trimmed) {
+            const parsed = Date.parse(trimmed);
+            if (!isNaN(parsed)) return parsed;
+        }
+    } catch (_) {}
+    return null;
+}
+
+/**
  * Durable Approval Ledger for preventing replay across process invocations.
  * Guarantees cross-process concurrency safety and atomic single-use consumption
  * via POSIX exclusive lockfiles (O_CREAT | O_EXCL), unforgeable ownership tokens,
- * atomic dead-lock recovery via POSIX rename, strict permission verification (0600),
+ * coordinated atomic dead-lock recovery via POSIX rename and exact-instance verification (DEF-06),
+ * cross-process PID reuse detection via start time validation, strict permission verification (0600),
  * durable write flush (fsync), and fail-closed validation on malformed or corrupted records.
  */
 export class DurableApprovalLedger {
@@ -177,12 +229,12 @@ export class DurableApprovalLedger {
             return false;
         }
 
-        // PID reuse detection: if processStartTime is known and pid matches our own, verify start times
+        // PID reuse detection: verify actual start time for ANY PID (DEF-06)
         if (typeof processStartTime === 'number' && processStartTime > 0) {
-            if (pid === process.pid) {
-                const myStartTime = this._getProcessStartTime();
-                if (Math.abs(myStartTime - processStartTime) > 10000) {
-                    return false; // PID reused by another process
+            const actualStartTime = getProcessStartTime(pid);
+            if (typeof actualStartTime === 'number' && actualStartTime > 0) {
+                if (Math.abs(actualStartTime - processStartTime) > 3000) {
+                    return false; // PID reused by another process; original owner is dead
                 }
             }
         }
@@ -276,6 +328,11 @@ export class DurableApprovalLedger {
             lockData = null;
         }
 
+        // Ambiguous ownership across hosts: fail closed!
+        if (lockData && lockData.hostname && lockData.hostname !== os.hostname()) {
+            return false;
+        }
+
         let isOwnerDead = false;
         if (lockData && typeof lockData.pid === 'number') {
             const alive = this._isProcessAlive(lockData.pid, lockData.processStartTime);
@@ -283,7 +340,7 @@ export class DurableApprovalLedger {
                 // OWNER IS ALIVE: NEVER break a lock held by a live process regardless of age
                 return false;
             }
-            // Process confirmed dead via ESRCH
+            // Process confirmed dead via ESRCH or PID reuse start-time mismatch
             isOwnerDead = true;
         } else if (!lockData) {
             // Corrupt or empty lockfile older than staleTimeoutMs
@@ -296,20 +353,90 @@ export class DurableApprovalLedger {
 
         if (!isOwnerDead) return false;
 
-        // ATOMIC RENAME RECOVERY: prevent recovery races between concurrent workers
-        const recoveryPath = `${this.lockPath}.recovering.${process.pid}.${crypto.randomUUID()}`;
+        // COORDINATED RECOVERY PROTOCOL (DEF-06):
+        // Acquire an exclusive claim coordinator to prevent races between concurrent cleanup workers
+        const claimPath = `${this.lockPath}.claim`;
+        let claimFd;
         try {
-            fs.renameSync(this.lockPath, recoveryPath);
-        } catch (renameErr) {
-            // Another worker won the recovery race or lock was released
-            return false;
+            claimFd = fs.openSync(claimPath, 'wx', 0o600);
+        } catch (claimErr) {
+            if (claimErr.code === 'EEXIST') {
+                // Another cleanup worker is actively evaluating/recovering this lock
+                return false;
+            }
+            throw claimErr;
         }
 
         try {
-            fs.unlinkSync(recoveryPath);
-        } catch (_) {}
+            // Re-stat the lock to record exact instance properties right before claiming
+            let currentStat;
+            try {
+                currentStat = fs.statSync(this.lockPath);
+            } catch (err) {
+                if (err.code === 'ENOENT') return false;
+                throw err;
+            }
 
-        return true;
+            const inspectedIno = currentStat.ino;
+            const inspectedDev = currentStat.dev;
+            const inspectedOwnerToken = lockData ? lockData.ownerToken : null;
+            const inspectedPid = lockData ? lockData.pid : null;
+
+            // ATOMIC RENAME RECOVERY
+            const recoveryPath = `${this.lockPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+            try {
+                fs.renameSync(this.lockPath, recoveryPath);
+            } catch (renameErr) {
+                // Lock was released or renamed concurrently
+                return false;
+            }
+
+            // EXACT-INSTANCE VERIFICATION (DEF-06):
+            // Verify that the renamed file is the EXACT instance inspected, NOT a replacement lock
+            let claimedStat;
+            let claimedData = null;
+            try {
+                claimedStat = fs.statSync(recoveryPath);
+                const recContent = fs.readFileSync(recoveryPath, 'utf8');
+                try {
+                    claimedData = JSON.parse(recContent);
+                } catch (_) {
+                    claimedData = null;
+                }
+            } catch (_) {
+                return false;
+            }
+
+            const tokenMatches = inspectedOwnerToken
+                ? (claimedData && claimedData.ownerToken === inspectedOwnerToken)
+                : (inspectedPid ? (claimedData && claimedData.pid === inspectedPid) : true);
+
+            const isExactMatch = (
+                claimedStat.ino === inspectedIno &&
+                claimedStat.dev === inspectedDev &&
+                tokenMatches
+            );
+
+            if (!isExactMatch) {
+                // A replacement lock was captured! IMMEDIATELY restore it intact!
+                try {
+                    fs.renameSync(recoveryPath, this.lockPath);
+                } catch (_) {}
+                return false;
+            }
+
+            // Verified exact dead instance: safe to unlink
+            try {
+                fs.unlinkSync(recoveryPath);
+            } catch (_) {}
+
+            return true;
+        } finally {
+            if (claimFd !== undefined) {
+                try { fs.closeSync(claimFd); } catch (_) {}
+                try { fs.unlinkSync(claimPath); } catch (_) {}
+            }
+        }
     }
 
     _releaseLock() {
@@ -622,6 +749,8 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
         throw new Error(`[MIGRATION-004] FATAL: ${clusterInfo.error || 'Cluster identity is unverified. Fail closed.'}`);
     }
 
+    const isTestHarness = opts.__testOnly_isolatedHarnessAuthorized === true;
+
     // Production Cluster Guard: applies whenever connected to production Atlas, regardless of dbName
     if (clusterInfo.isProductionCluster) {
         // Zero Secret Exposure Guard: reject any attempt to pass private or shared secrets to the runner
@@ -630,6 +759,32 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
                 `[MIGRATION-004] FATAL: Secret parameter detected. The migration runner accepts ONLY public verification keys; ` +
                 `shared or private signing secrets are strictly prohibited from CLI arguments and runtime options.`
             );
+        }
+
+        // DEF-05: In production execution, strictly reject caller-supplied trust registry, custom public keys, or bypass flags
+        if (!isTestHarness) {
+            if (opts.trustedKeyRegistry || opts.trustedPublicKeys || opts.dbaTrustStorePath || opts.allowUnpinnedKey || opts.skipFingerprintCheck) {
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Caller-supplied trust registry, custom public keys, bypass flags, or trust store path overrides are strictly forbidden in production. Production execution only trusts immutable compiled trust anchors. Fail closed.`
+                );
+            }
+            if (process.argv.some(arg => arg.startsWith('--dba-trust-store=') || arg.startsWith('--allow-unpinned') || arg.startsWith('--skip-fingerprint'))) {
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: CLI trust store overrides (--dba-trust-store) and bypass flags are strictly prohibited in production. Fail closed.`
+                );
+            }
+            if (process.argv.some(arg => arg.startsWith('--confirm-dba-approval='))) {
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Raw approval tokens via --confirm-dba-approval=<token> are strictly prohibited in production due to ps aux, /proc, and shell history exposure. Use --confirm-dba-approval-file=<path> (mode 0600) or --confirm-dba-approval-stdin instead.`
+                );
+            }
+        } else {
+            // Guard: test harness must NEVER run if NODE_ENV is production
+            if (process.env.NODE_ENV === 'production') {
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Test-only verification harness cannot be invoked in production environment.`
+                );
+            }
         }
 
         const prodFlag = process.env.ALLOW_PRODUCTION_MIGRATION === 'true';
@@ -677,10 +832,14 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
                 if (!fs.existsSync(resolvedPath)) {
                     throw new Error(`[MIGRATION-004] FATAL: Approval token file not found at ${resolvedPath}. Fail closed.`);
                 }
+                const lstat = fs.lstatSync(resolvedPath);
+                if (lstat.isSymbolicLink()) {
+                    throw new Error(`[MIGRATION-004] FATAL: Approval token file at ${resolvedPath} is a symbolic link. Symlinks are strictly prohibited to prevent redirection attacks. Fail closed.`);
+                }
                 if (process.platform !== 'win32') {
                     const stat = fs.statSync(resolvedPath);
                     const mode = stat.mode & 0o777;
-                    if ((mode & 0o177) !== 0) {
+                    if ((mode & 0o077) !== 0) {
                         throw new Error(`[MIGRATION-004] FATAL: Insecure permissions on approval token file ${resolvedPath} (mode: 0${mode.toString(8)}). Expected strict 0600 (owner read/write only, no group/other access) to prevent token leakage. Fail closed.`);
                     }
                 }
@@ -698,6 +857,11 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
                     throw new Error(`[MIGRATION-004] FATAL: Failed to read approval token from stdin: ${err.message}. Fail closed.`);
                 }
             } else if (cliTokenArg) {
+                if (clusterInfo.isProductionCluster || process.env.NODE_ENV === 'production') {
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Raw approval tokens via --confirm-dba-approval=<token> are strictly prohibited in production due to ps aux, /proc, and shell history exposure. Use --confirm-dba-approval-file=<path> (mode 0600) or --confirm-dba-approval-stdin instead.`
+                    );
+                }
                 console.warn(
                     `[MIGRATION-004] SECURITY WARNING: Supplying approval token via --confirm-dba-approval=<token> ` +
                     `exposes the token in ps aux, /proc, and shell history. Use --confirm-dba-approval-file=<path> (mode 0600) ` +
@@ -832,10 +996,10 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
             );
         }
 
-        // 8. Trusted Public-Key Pinning Validation (DEF-01)
+        // 8. Trusted Public-Key Pinning Validation (DEF-01 / DEF-05)
         // A caller-controlled public key is NOT a trust anchor.
-        // Trust anchors reside in PINNED_DBA_TRUST_STORE or a protected trust store file.
-        const trustedRegistry = loadTrustedKeyRegistry(opts);
+        // In production, trust anchors strictly reside in PINNED_DBA_TRUST_STORE.
+        const trustedRegistry = isTestHarness ? (opts.trustedKeyRegistry || loadTrustedKeyRegistry(opts, false)) : PINNED_DBA_TRUST_STORE;
         const trustedRecord = trustedRegistry[payload.approver];
 
         if (!trustedRecord) {
@@ -843,6 +1007,13 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
                 `[MIGRATION-004] FATAL: Production approval verification failed. ` +
                 `No pinned trust anchor found for approver "${payload.approver}". ` +
                 `Arbitrary, unpinned, or untrusted keys are strictly rejected. Fail closed.`
+            );
+        }
+
+        // DEF-04 & DEF-05: Unprovisioned placeholder keys fail closed in production path
+        if (!isTestHarness && trustedRecord.provenance === 'UNPROVISIONED_PLACEHOLDER') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Production approval rejected. Pinned trust anchor for approver "${payload.approver}" has provenance UNPROVISIONED_PLACEHOLDER. Production execution requires cryptographic keys minted and provisioned via corporate KMS/Vault authority. Fail closed.`
             );
         }
 
@@ -1013,6 +1184,22 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
 }
 
 /**
+ * Isolated test harness for verifying cryptographic signatures in unit tests.
+ * This harness is PERMANENTLY DISABLED in production environments or if NODE_ENV is production.
+ */
+export function __testOnly_verifyOperatorApproval(mode, clusterInfo, opts = {}) {
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+            `[MIGRATION-004] SECURITY FATAL: Test-only verification harness (__testOnly_verifyOperatorApproval) is permanently disabled in production environments.`
+        );
+    }
+    return verifyOperatorApproval(mode, clusterInfo, {
+        ...opts,
+        __testOnly_isolatedHarnessAuthorized: true
+    });
+}
+
+/**
  * Read-only phone duplicate detection on active contacts.
  *
  * @param {mongoose.Connection|mongoose.mongo.Db} targetDb
@@ -1177,14 +1364,17 @@ export async function detectActivePhoneDuplicates(targetDb) {
  * @returns {Promise<Object>}
  */
 export async function runMigration(opts = {}) {
+    const safeOpts = { ...opts };
+    delete safeOpts.__testOnly_isolatedHarnessAuthorized;
+
     const allowedModes = ['dry-run', 'execute', 'rollback'];
-    const mode = opts.mode || (process.argv.includes('--execute') ? 'execute' : (process.argv.includes('--rollback') ? 'rollback' : 'dry-run'));
+    const mode = safeOpts.mode || (process.argv.includes('--execute') ? 'execute' : (process.argv.includes('--rollback') ? 'rollback' : 'dry-run'));
 
     if (!allowedModes.includes(mode)) {
         throw new Error(`[MIGRATION-004] FATAL: Unknown migration mode "${mode}". Allowed modes are: ${allowedModes.join(', ')}.`);
     }
 
-    const conn = opts.connection || mongoose.connection;
+    const conn = safeOpts.connection || mongoose.connection;
     const db = conn?.db || conn;
 
     // Resolve and validate connected cluster identity (fail closed on unknown cluster)
@@ -1194,7 +1384,7 @@ export async function runMigration(opts = {}) {
     }
 
     // Verify explicit operator approval (binds migration name, operation, and target cluster)
-    const approval = verifyOperatorApproval(mode, clusterInfo, opts);
+    const approval = verifyOperatorApproval(mode, clusterInfo, safeOpts);
 
     const collection = db.collection('contacts');
 
