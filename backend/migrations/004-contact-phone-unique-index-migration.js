@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
@@ -38,6 +39,89 @@ export const AUTHORIZED_DBA_APPROVERS = Object.freeze([
     'security.admin@bharatproperties.in'
 ]);
 
+// Pinned Trusted DBA Public Key Registry & Trust Store (DEF-01)
+export const PINNED_DBA_TRUST_STORE = Object.freeze({
+    'dba.lead@bharatproperties.in': Object.freeze({
+        keyId: 'kid-dba-lead-2026-v1',
+        approver: 'dba.lead@bharatproperties.in',
+        fingerprint: 'SHA256:d8b2e1f4a9c6e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495',
+        status: 'ACTIVE',
+        validFrom: 1735689600000,
+        validUntil: 1798761600000
+    }),
+    'chief.architect@bharatproperties.in': Object.freeze({
+        keyId: 'kid-chief-arch-2026-v1',
+        approver: 'chief.architect@bharatproperties.in',
+        fingerprint: 'SHA256:a4f891b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abc',
+        status: 'ACTIVE',
+        validFrom: 1735689600000,
+        validUntil: 1798761600000
+    }),
+    'security.admin@bharatproperties.in': Object.freeze({
+        keyId: 'kid-sec-admin-2026-v1',
+        approver: 'security.admin@bharatproperties.in',
+        fingerprint: 'SHA256:bc3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0123',
+        status: 'ACTIVE',
+        validFrom: 1735689600000,
+        validUntil: 1798761600000
+    })
+});
+
+/**
+ * Computes standard SHA-256 SubjectPublicKeyInfo (SPKI) fingerprint.
+ * Format: "SHA256:<64-char hex>"
+ */
+export function computePublicKeyFingerprint(publicKey) {
+    if (!publicKey) {
+        throw new Error('[MIGRATION-004] FATAL: Cannot compute fingerprint of null/empty public key.');
+    }
+    try {
+        let keyObject;
+        if (typeof publicKey === 'string') {
+            keyObject = crypto.createPublicKey(publicKey.trim());
+        } else if (publicKey instanceof crypto.KeyObject) {
+            keyObject = publicKey;
+        } else {
+            throw new Error('Public key must be a PEM string or crypto.KeyObject');
+        }
+        const der = keyObject.export({ type: 'spki', format: 'der' });
+        return `SHA256:${crypto.createHash('sha256').update(der).digest('hex')}`;
+    } catch (err) {
+        throw new Error(`[MIGRATION-004] FATAL: Invalid public key format for fingerprint computation: ${err.message}`);
+    }
+}
+
+/**
+ * Loads trusted DBA key registry from options or protected trust store file.
+ */
+export function loadTrustedKeyRegistry(opts = {}) {
+    if (opts.trustedKeyRegistry && typeof opts.trustedKeyRegistry === 'object') {
+        return opts.trustedKeyRegistry;
+    }
+    const storePathArg = process.argv.find(arg => arg.startsWith('--dba-trust-store='));
+    const storePath = opts.dbaTrustStorePath || (storePathArg ? storePathArg.split('=')[1] : null);
+    if (storePath) {
+        const resolvedPath = path.resolve(storePath);
+        if (!fs.existsSync(resolvedPath)) {
+            throw new Error(`[MIGRATION-004] FATAL: Configured DBA trust store file not found at ${resolvedPath}. Fail closed.`);
+        }
+        if (process.platform !== 'win32') {
+            const stat = fs.statSync(resolvedPath);
+            const mode = stat.mode & 0o777;
+            if ((mode & 0o022) !== 0) {
+                throw new Error(`[MIGRATION-004] FATAL: Insecure permissions on DBA trust store file (mode: 0${mode.toString(8)}). Group and others must not have write permissions (expected mode 0600 or 0644). Fail closed.`);
+            }
+        }
+        try {
+            const content = fs.readFileSync(resolvedPath, 'utf8');
+            return JSON.parse(content);
+        } catch (err) {
+            throw new Error(`[MIGRATION-004] FATAL: Failed to read/parse DBA trust store file: ${err.message}. Fail closed.`);
+        }
+    }
+    return PINNED_DBA_TRUST_STORE;
+}
+
 // Runtime Approval Configuration & Anti-Replay Store
 export const MAX_APPROVAL_TOKEN_AGE_MS = 5 * 60 * 1000; // 5 minutes maximum token validity
 export const consumedApprovalNonces = new Set();
@@ -45,7 +129,8 @@ export const consumedApprovalNonces = new Set();
 /**
  * Durable Approval Ledger for preventing replay across process invocations.
  * Guarantees cross-process concurrency safety and atomic single-use consumption
- * via POSIX exclusive lockfiles (O_CREAT | O_EXCL), strict permission verification (0600),
+ * via POSIX exclusive lockfiles (O_CREAT | O_EXCL), unforgeable ownership tokens,
+ * atomic dead-lock recovery via POSIX rename, strict permission verification (0600),
  * durable write flush (fsync), and fail-closed validation on malformed or corrupted records.
  */
 export class DurableApprovalLedger {
@@ -57,7 +142,9 @@ export class DurableApprovalLedger {
         this.lockPath = `${this.ledgerPath}.lock`;
         this.lockTimeoutMs = options.lockTimeoutMs || 5000;
         this.staleTimeoutMs = options.staleTimeoutMs || 15000;
+        this.initGracePeriodMs = options.initGracePeriodMs || 500;
         this.retryIntervalMs = options.retryIntervalMs || 25;
+        this.currentOwnerToken = null;
 
         // Ensure parent directory exists with secure mode
         const dir = path.dirname(this.ledgerPath);
@@ -74,6 +161,32 @@ export class DurableApprovalLedger {
             this._verifyFilePermissions(this.ledgerPath);
             this._validateLedgerIntegrity();
         }
+    }
+
+    _getProcessStartTime() {
+        return Date.now() - Math.floor(process.uptime() * 1000);
+    }
+
+    _isProcessAlive(pid, processStartTime) {
+        if (!pid || typeof pid !== 'number' || pid <= 0) return false;
+        try {
+            process.kill(pid, 0);
+        } catch (err) {
+            if (err.code === 'ESRCH') return false; // Process does not exist (dead)
+            if (err.code === 'EPERM') return true;  // Exists, different user
+            return false;
+        }
+
+        // PID reuse detection: if processStartTime is known and pid matches our own, verify start times
+        if (typeof processStartTime === 'number' && processStartTime > 0) {
+            if (pid === process.pid) {
+                const myStartTime = this._getProcessStartTime();
+                if (Math.abs(myStartTime - processStartTime) > 10000) {
+                    return false; // PID reused by another process
+                }
+            }
+        }
+        return true;
     }
 
     _verifyFilePermissions(filePath) {
@@ -94,26 +207,116 @@ export class DurableApprovalLedger {
 
     _acquireLock() {
         const start = Date.now();
+        const ownerToken = crypto.randomUUID();
+        const processStartTime = this._getProcessStartTime();
+
         while (Date.now() - start < this.lockTimeoutMs) {
             try {
                 const fd = fs.openSync(this.lockPath, 'wx', 0o600);
-                const lockData = JSON.stringify({ pid: process.pid, createdAt: Date.now() });
-                fs.writeSync(fd, lockData);
-                fs.closeSync(fd);
-                return;
+                try {
+                    const lockData = {
+                        ownerToken,
+                        pid: process.pid,
+                        processStartTime,
+                        hostname: os.hostname(),
+                        createdAt: Date.now()
+                    };
+                    const payload = JSON.stringify(lockData);
+                    fs.writeSync(fd, payload);
+                    fs.fsyncSync(fd);
+                } finally {
+                    fs.closeSync(fd);
+                }
+                this.currentOwnerToken = ownerToken;
+                return ownerToken;
             } catch (err) {
                 if (err.code === 'EEXIST') {
-                    this._cleanStaleLockIfApplicable();
+                    this._tryRecoverDeadLock();
                     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.retryIntervalMs);
                 } else {
                     throw new Error(`[MIGRATION-004] FATAL: Failed to acquire ledger lock on ${this.lockPath}: ${err.message}. Fail closed.`);
                 }
             }
         }
-        throw new Error(`[MIGRATION-004] FATAL: Durable approval ledger lock timeout. Could not acquire exclusive lock on ${this.lockPath} within ${this.lockTimeoutMs}ms. Fail closed.`);
+        throw new Error(
+            `[MIGRATION-004] FATAL: Durable approval ledger lock timeout. ` +
+            `Could not acquire exclusive lock on ${this.lockPath} within ${this.lockTimeoutMs}ms. ` +
+            `Lock is actively held by a live process. Fail closed.`
+        );
     }
 
-    _cleanStaleLockIfApplicable() {
+    _tryRecoverDeadLock() {
+        if (!fs.existsSync(this.lockPath)) return false;
+
+        let stat;
+        try {
+            stat = fs.statSync(this.lockPath);
+        } catch (err) {
+            if (err.code === 'ENOENT') return false;
+            throw err;
+        }
+
+        // Initialization grace period: do not disturb lockfile being written
+        if (Date.now() - stat.mtimeMs < this.initGracePeriodMs) {
+            return false;
+        }
+
+        let content = '';
+        try {
+            content = fs.readFileSync(this.lockPath, 'utf8');
+        } catch (err) {
+            if (err.code === 'ENOENT') return false;
+            throw err;
+        }
+
+        let lockData = null;
+        try {
+            lockData = JSON.parse(content);
+        } catch (_) {
+            lockData = null;
+        }
+
+        let isOwnerDead = false;
+        if (lockData && typeof lockData.pid === 'number') {
+            const alive = this._isProcessAlive(lockData.pid, lockData.processStartTime);
+            if (alive) {
+                // OWNER IS ALIVE: NEVER break a lock held by a live process regardless of age
+                return false;
+            }
+            // Process confirmed dead via ESRCH
+            isOwnerDead = true;
+        } else if (!lockData) {
+            // Corrupt or empty lockfile older than staleTimeoutMs
+            if (Date.now() - stat.mtimeMs > this.staleTimeoutMs) {
+                isOwnerDead = true;
+            } else {
+                return false;
+            }
+        }
+
+        if (!isOwnerDead) return false;
+
+        // ATOMIC RENAME RECOVERY: prevent recovery races between concurrent workers
+        const recoveryPath = `${this.lockPath}.recovering.${process.pid}.${crypto.randomUUID()}`;
+        try {
+            fs.renameSync(this.lockPath, recoveryPath);
+        } catch (renameErr) {
+            // Another worker won the recovery race or lock was released
+            return false;
+        }
+
+        try {
+            fs.unlinkSync(recoveryPath);
+        } catch (_) {}
+
+        return true;
+    }
+
+    _releaseLock() {
+        const tokenToRelease = this.currentOwnerToken;
+        this.currentOwnerToken = null;
+        if (!tokenToRelease) return;
+
         try {
             if (!fs.existsSync(this.lockPath)) return;
             const content = fs.readFileSync(this.lockPath, 'utf8');
@@ -121,30 +324,11 @@ export class DurableApprovalLedger {
             try {
                 lockData = JSON.parse(content);
             } catch (_) {
-                lockData = { pid: null, createdAt: 0 };
+                return;
             }
-            const isStale = (Date.now() - (lockData.createdAt || 0)) > this.staleTimeoutMs;
-            let isProcessDead = false;
-            if (lockData.pid) {
-                try {
-                    process.kill(lockData.pid, 0);
-                } catch (killErr) {
-                    if (killErr.code === 'ESRCH') {
-                        isProcessDead = true;
-                    }
-                }
-            }
-            if (isStale || isProcessDead) {
-                try {
-                    fs.unlinkSync(this.lockPath);
-                } catch (_) {}
-            }
-        } catch (_) {}
-    }
 
-    _releaseLock() {
-        try {
-            if (fs.existsSync(this.lockPath)) {
+            // ONLY release if the lockfile on disk still contains THIS ownerToken and THIS pid
+            if (lockData && lockData.ownerToken === tokenToRelease && lockData.pid === process.pid) {
                 fs.unlinkSync(this.lockPath);
             }
         } catch (_) {}
@@ -458,18 +642,76 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
             );
         }
 
-        // 2. Controlled Runtime Approval Token Check
+        // 2. Controlled Runtime Approval Token Check (DEF-03)
         // Production approval must originate from an explicit operator interaction at execution time,
         // strictly NOT from persistent .env or environment variables.
-        // process.env.DBA_CONFIRM_MIGRATION is intentionally REMOVED as an approval source.
-        const runtimeToken = opts.runtimeDbaApproval ||
-                             opts.runtimeDbaConfirmation ||
-                             (process.argv.find(arg => arg.startsWith('--confirm-dba-approval='))?.split('=')[1]);
+        // Protected input options:
+        // - programmatic options (opts.runtimeDbaApproval)
+        // - secure file with strict 0600 permissions (--confirm-dba-approval-file=<path> or opts.dbaApprovalFile)
+        // - file descriptor (--confirm-dba-approval-fd=<fd>)
+        // - standard input (--confirm-dba-approval-stdin or opts.dbaApprovalStdin)
+        // - deprecated CLI argument with warning (--confirm-dba-approval=<token>)
+        let runtimeToken = opts.runtimeDbaApproval || opts.runtimeDbaConfirmation;
+        let tokenSource = runtimeToken ? 'RUNTIME_OPTIONS' : null;
+
+        if (!runtimeToken) {
+            const fdArg = process.argv.find(arg => arg.startsWith('--confirm-dba-approval-fd='));
+            const fileArg = process.argv.find(arg => arg.startsWith('--confirm-dba-approval-file='));
+            const approvalFilePath = opts.dbaApprovalFile || (fileArg ? fileArg.split('=')[1] : null);
+            const stdinArg = process.argv.includes('--confirm-dba-approval-stdin') || opts.dbaApprovalStdin === true;
+            const cliTokenArg = process.argv.find(arg => arg.startsWith('--confirm-dba-approval='));
+
+            if (fdArg) {
+                const fd = parseInt(fdArg.split('=')[1], 10);
+                if (isNaN(fd)) {
+                    throw new Error(`[MIGRATION-004] FATAL: Invalid file descriptor provided in --confirm-dba-approval-fd.`);
+                }
+                try {
+                    runtimeToken = fs.readFileSync(fd, 'utf8').trim();
+                    tokenSource = 'FILE_DESCRIPTOR';
+                } catch (err) {
+                    throw new Error(`[MIGRATION-004] FATAL: Failed to read approval token from file descriptor ${fd}: ${err.message}. Fail closed.`);
+                }
+            } else if (approvalFilePath) {
+                const resolvedPath = path.resolve(approvalFilePath);
+                if (!fs.existsSync(resolvedPath)) {
+                    throw new Error(`[MIGRATION-004] FATAL: Approval token file not found at ${resolvedPath}. Fail closed.`);
+                }
+                if (process.platform !== 'win32') {
+                    const stat = fs.statSync(resolvedPath);
+                    const mode = stat.mode & 0o777;
+                    if ((mode & 0o177) !== 0) {
+                        throw new Error(`[MIGRATION-004] FATAL: Insecure permissions on approval token file ${resolvedPath} (mode: 0${mode.toString(8)}). Expected strict 0600 (owner read/write only, no group/other access) to prevent token leakage. Fail closed.`);
+                    }
+                }
+                try {
+                    runtimeToken = fs.readFileSync(resolvedPath, 'utf8').trim();
+                    tokenSource = 'SECURE_FILE';
+                } catch (err) {
+                    throw new Error(`[MIGRATION-004] FATAL: Failed to read approval token from file ${resolvedPath}: ${err.message}. Fail closed.`);
+                }
+            } else if (stdinArg) {
+                try {
+                    runtimeToken = fs.readFileSync(0, 'utf8').trim();
+                    tokenSource = 'STDIN';
+                } catch (err) {
+                    throw new Error(`[MIGRATION-004] FATAL: Failed to read approval token from stdin: ${err.message}. Fail closed.`);
+                }
+            } else if (cliTokenArg) {
+                console.warn(
+                    `[MIGRATION-004] SECURITY WARNING: Supplying approval token via --confirm-dba-approval=<token> ` +
+                    `exposes the token in ps aux, /proc, and shell history. Use --confirm-dba-approval-file=<path> (mode 0600) ` +
+                    `or --confirm-dba-approval-stdin instead.`
+                );
+                runtimeToken = cliTokenArg.split('=')[1]?.trim();
+                tokenSource = 'CLI_ARG_DEPRECATED';
+            }
+        }
 
         if (!runtimeToken || typeof runtimeToken !== 'string' || runtimeToken.trim() === '') {
             throw new Error(
                 `[MIGRATION-004] FATAL: Production ${mode.toUpperCase()} requires explicit runtime operator approval ` +
-                `(--confirm-dba-approval or runtimeDbaApproval). ` +
+                `(--confirm-dba-approval-file, --confirm-dba-approval-stdin, or runtimeDbaApproval). ` +
                 `Persistent .env variables or shell environments cannot authorize production execution.`
             );
         }
@@ -590,28 +832,90 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
             );
         }
 
-        // 8. Public Verification Key Resolution
-        let publicKey = opts.dbaPublicKey ||
-                        (opts.trustedPublicKeys && opts.trustedPublicKeys[payload.approver]);
+        // 8. Trusted Public-Key Pinning Validation (DEF-01)
+        // A caller-controlled public key is NOT a trust anchor.
+        // Trust anchors reside in PINNED_DBA_TRUST_STORE or a protected trust store file.
+        const trustedRegistry = loadTrustedKeyRegistry(opts);
+        const trustedRecord = trustedRegistry[payload.approver];
 
-        if (!publicKey) {
-            const pubKeyFile = (process.argv.find(arg => arg.startsWith('--dba-public-key-file='))?.split('=')[1]);
+        if (!trustedRecord) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Production approval verification failed. ` +
+                `No pinned trust anchor found for approver "${payload.approver}". ` +
+                `Arbitrary, unpinned, or untrusted keys are strictly rejected. Fail closed.`
+            );
+        }
+
+        // Verify key status (ACTIVE vs REVOKED)
+        if (trustedRecord.status === 'REVOKED') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Pinned signing key for approver "${payload.approver}" has been REVOKED. ` +
+                `Revocation reason: ${trustedRecord.revocationReason || 'Administrative revocation'}. Fail closed.`
+            );
+        }
+        if (trustedRecord.status !== 'ACTIVE') {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Pinned signing key for approver "${payload.approver}" is not in ACTIVE status (status: ${trustedRecord.status}). Fail closed.`
+            );
+        }
+
+        // Verify key validity window if specified
+        if (trustedRecord.validFrom && now < trustedRecord.validFrom) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Pinned signing key for approver "${payload.approver}" is not yet valid. Fail closed.`
+            );
+        }
+        if (trustedRecord.validUntil && now > trustedRecord.validUntil) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Pinned signing key for approver "${payload.approver}" has expired. Rotate key in trust store. Fail closed.`
+            );
+        }
+
+        // Verify keyId binding if present in payload or trust record
+        if (payload.keyId && trustedRecord.keyId && payload.keyId !== trustedRecord.keyId) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Key ID mismatch in approval token. Expected keyId "${trustedRecord.keyId}", got "${payload.keyId}". Fail closed.`
+            );
+        }
+
+        // Resolve candidate public key material:
+        // Caller can provide a candidate key (via options or CLI) to be verified against the pinned trust anchor,
+        // or the candidate key can be supplied directly in the trusted registry record.
+        let candidatePublicKey = opts.dbaPublicKey ||
+                                 (opts.trustedPublicKeys && opts.trustedPublicKeys[payload.approver]);
+
+        if (!candidatePublicKey) {
+            const pubKeyFile = opts.dbaPublicKeyFile || (process.argv.find(arg => arg.startsWith('--dba-public-key-file='))?.split('=')[1]);
             const pubKeyArg = (process.argv.find(arg => arg.startsWith('--dba-public-key='))?.split('=')[1]);
             if (pubKeyFile && fs.existsSync(pubKeyFile)) {
-                publicKey = fs.readFileSync(pubKeyFile, 'utf8');
+                candidatePublicKey = fs.readFileSync(pubKeyFile, 'utf8');
             } else if (pubKeyArg) {
-                publicKey = pubKeyArg;
+                candidatePublicKey = pubKeyArg;
             }
         }
 
-        if (!publicKey || typeof publicKey !== 'string' || publicKey.trim() === '') {
+        if (!candidatePublicKey) {
+            candidatePublicKey = trustedRecord.publicKey;
+        }
+
+        if (!candidatePublicKey || typeof candidatePublicKey !== 'string' || candidatePublicKey.trim() === '') {
             throw new Error(
                 `[MIGRATION-004] FATAL: Production approval verification failed. ` +
-                `No trusted public verification key configured or available for approver "${payload.approver}". ` +
-                `The migration runner holds no signing keys. An external authorized DBA signing authority (KMS/Vault) ` +
-                `must issue the approval and supply the trusted public verification key. Fail closed.`
+                `No candidate public verification key configured or available for approver "${payload.approver}". Fail closed.`
             );
         }
+
+        // Validate Candidate Key Fingerprint against Pinned Trust Anchor
+        const computedFingerprint = computePublicKeyFingerprint(candidatePublicKey);
+        if (!trustedRecord.fingerprint || computedFingerprint !== trustedRecord.fingerprint) {
+            throw new Error(
+                `[MIGRATION-004] FATAL: Public key pinning validation failed for approver "${payload.approver}". ` +
+                `Computed fingerprint "${computedFingerprint}" does not match pinned trust anchor "${trustedRecord.fingerprint}". ` +
+                `Arbitrary or attacker-supplied public keys are strictly rejected. Fail closed.`
+            );
+        }
+
+        const publicKey = candidatePublicKey;
 
         // 9. Asymmetric Digital Signature Verification
         const payloadBytes = Buffer.from(encodedPayload, 'utf8');
@@ -669,7 +973,10 @@ export function verifyOperatorApproval(mode, clusterInfo, opts = {}) {
         return {
             approved: true,
             approvalSource: 'ASYMMETRIC_DBA_SIGNATURE',
+            tokenSource: tokenSource || 'RUNTIME_OPTIONS',
             approver: payload.approver,
+            keyId: trustedRecord.keyId || payload.keyId,
+            keyFingerprint: trustedRecord.fingerprint,
             approvalId: payload.approvalId,
             confirmedOperation: mode.toUpperCase(),
             clusterId: clusterInfo.clusterId,

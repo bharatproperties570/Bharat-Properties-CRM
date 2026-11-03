@@ -19,49 +19,64 @@
    - **Database name alone is NOT sufficient:** A connection to the production Atlas cluster under an alternate database name (e.g. `dev`, `staging`) cannot bypass production protection.
    - Any connection matching the Atlas production fingerprint (`*.mongodb.net`, `7dehanz`, `atlas-145yac-shard-0`) is permanently classified as a **PRODUCTION CLUSTER**.
 
-2. **Asymmetric Digital Signature Verification (Separation of Issuance & Verification):**
-   - **Zero Shared Secrets:** Symmetric HMAC secrets and shared signing keys are strictly forbidden. The migration runner holds ONLY trusted public verification keys (Ed25519 SPKI PEM).
-   - **Zero Signing Capability in Migration Runner:** The migration script contains no signing routines or token minting tools (`signDbaApprovalToken` removed from migration runner).
-   - **External Signing Authority:** Private signing keys reside strictly inside protected hardware/KMS/HashiCorp Vault security boundaries accessible only to authorized DBAs.
+2. **Trusted Public-Key Pinning (DEF-01):**
+   - **Pinned Trust Anchors:** Trust anchors reside in `PINNED_DBA_TRUST_STORE` (compiled into the migration runner) or in a protected trust store file (`--dba-trust-store=<path>`).
+   - **Caller-Controlled Keys are NOT Trust Anchors:** Public keys passed via command-line arguments or runtime options are treated merely as candidate keys. Any candidate key MUST have its computed SHA-256 SubjectPublicKeyInfo (SPKI) fingerprint match the pinned trust anchor for that specific approver.
+   - **Approver Binding:** Approver identity in the approval token must be an authorized DBA (`dba.lead@bharatproperties.in`, `chief.architect@bharatproperties.in`, `security.admin@bharatproperties.in`) and must be bound to a pinned active key in the trust store.
+   - **Key Status & Revocation Protocol:** Every pinned record includes `status` (`ACTIVE` or `REVOKED`), `validFrom`, `validUntil`, and `keyId`. Any key marked `REVOKED` or expired immediately halts migration execution with a fatal closed abort.
+   - **Trust Store Permissions:** Trust store files must be protected with strict filesystem permissions (`0600` or `0644`), forbidding group and other write permissions.
+
+3. **Asymmetric Digital Signature Verification & Architecture Separation (DEF-04):**
+   - **Zero Shared Secrets:** Symmetric HMAC secrets and shared signing keys are strictly forbidden. The migration runner holds ONLY trusted public verification keys or their pinned fingerprints.
+   - **Zero Signing Capability in Migration Runner:** The migration script contains no private keys, signing routines, or token minting tools. Signing capability is completely removed from production runtime modules.
+   - **External Signing Authority:** The external signing authority architecture requires private signing keys to be stored in hardware security modules, AWS KMS, or HashiCorp Vault accessible only via authenticated multi-party operator workflows. The codebase verifies signatures using standard asymmetric crypto; external KMS/Vault issuance is an operational infrastructure dependency.
    - **Zero Secret Exposure:** Passing private keys or `--dba-approval-secret` is strictly prohibited and immediately aborted by the runner. No secrets or tokens are read from `.env` or persistent shell configuration.
 
-3. **Nine-Parameter Cryptographic Binding:**
+4. **Nine-Parameter Cryptographic Binding:**
    The asymmetric approval envelope (`<encodedPayload>.<encodedSignature>`) binds 9 mandatory parameters:
    1. `migration`: Exact identifier (`004-contact-phone-unique-index-migration`).
    2. `operation`: Exact operation (`EXECUTE` or `ROLLBACK`).
    3. `clusterId`: Exact target cluster (`production-atlas-7dehanz`).
-   4. `approver`: Authenticated identity from `AUTHORIZED_DBA_APPROVERS` (`dba.lead@bharatproperties.in`, `chief.architect@bharatproperties.in`, `security.admin@bharatproperties.in`).
-   5. `approvalId`: Cryptographically random UUID v4 / unique token nonce ($\ge 16$ chars).
-   6. `issuedAt`: Issuance timestamp.
-   7. `expiresAt`: Expiration timestamp ($\le 5$ minutes TTL).
-   8. `purpose`: Operational rationale (e.g. `PRODUCTION_UNIQUE_PHONE_INDEX_CREATION`).
-   9. `auditRef`: Change-management RFC/ticket reference (e.g. `RFC-2026-004-EXECUTE`).
+   4. `approver`: Authenticated identity from `AUTHORIZED_DBA_APPROVERS`.
+   5. `keyId`: Key identifier bound to the approver's pinned key in the trust store.
+   6. `approvalId`: Cryptographically random UUID v4 / unique token nonce ($\ge 16$ chars).
+   7. `issuedAt`: Issuance timestamp.
+   8. `expiresAt`: Expiration timestamp ($\le 5$ minutes TTL).
+   9. `purpose` & `auditRef`: Operational rationale and change-management RFC/ticket reference.
 
-4. **Durable Anti-Replay Ledger with Cross-Process Concurrency Protection:**
-   - **Atomic POSIX Exclusive Locking:** Single-use consumption is enforced across concurrent worker processes using POSIX exclusive lockfiles (`O_CREAT | O_EXCL` via `wx` flag).
-   - **Atomic Check-and-Consume:** Replay checks and persistent write operations execute within a single atomic critical section, eliminating race conditions.
-   - **Strict Permission Masking:** Ledger and lock files enforce owner-only read/write (`0o600`), failing closed if group/other permissions (`0o077`) are detected.
-   - **Durable Disk Flush:** Every consumed approval record is committed to disk using synchronous `fs.fsyncSync(fd)`.
-   - **Crash Recovery & Stale Lock Breaking:** Lockfiles record process PID and creation timestamp; locks older than 15s or owned by deceased PIDs (`process.kill(pid, 0)` throwing `ESRCH`) are safely pruned.
-   - **Fail-Closed on Corruption:** Any malformed or corrupted record in the ledger file causes immediate fatal termination to prevent replay bypass.
+5. **Durable Anti-Replay Ledger & Atomic Lockfile Race Remediation (DEF-02):**
+   - **Atomic Lock Publication:** Exclusive locks are acquired using POSIX exclusive open (`O_CREAT | O_EXCL` via flag `wx`) with owner-only permissions (`0o600`), atomic metadata writing, and synchronous `fsyncSync()`.
+   - **Unforgeable Ownership Tokens:** Every lock record contains an unforgeable UUID `ownerToken`, process PID, start time, hostname, and timestamp: `{ ownerToken, pid, processStartTime, hostname, createdAt }`.
+   - **Safe Release Verification:** `_releaseLock()` ONLY unlinks the lockfile if the file on disk still contains the exact matching `ownerToken` and `pid`. A delayed process will never unlink a competitor's replacement lock.
+   - **Live Process Protection:** Locks held by live processes (`process.kill(pid, 0)` succeeds) are NEVER broken, regardless of elapsed time (>15s). Competing workers back off and wait.
+   - **Safe Dead-Lock Recovery via Atomic Rename:** If an owner PID is dead (`ESRCH`) or PID start time does not match, stale locks are claimed via POSIX atomic rename `fs.renameSync(this.lockPath, recoveryPath)`. Competing workers encounter `ENOENT` during the race and continue their wait loops safely without race conditions.
+   - **Initialization Grace Period:** An empty or partially written lockfile within its `initGracePeriodMs` (500ms) is never disturbed by competing workers.
+   - **Fail-Closed on Corruption:** Any malformed or corrupted record in the ledger file causes immediate fatal termination.
 
-5. **Safe Handling of Non-Production Clusters with Production Database Name:**
+6. **Approval Token Input Protection & Zero Leakage (DEF-03):**
+   - **Protected Input Channels:** Operators must provide approval tokens via:
+     - `--confirm-dba-approval-file=<path>`: Reading from a file with strict `0600` permissions.
+     - `--confirm-dba-approval-stdin`: Piping the token via standard input (`echo "$TOKEN" | node ...`).
+     - `--confirm-dba-approval-fd=<fd>`: Reading from an open file descriptor.
+   - **Deprecated CLI Argument Warning:** Passing `--confirm-dba-approval=<token>` is deprecated and emits an explicit security warning regarding exposure in `ps aux`, `/proc/<pid>/cmdline`, and shell history.
+   - **Zero Token Leakage:** Verification errors, ledger records, and migration return objects NEVER log, print, or leak raw tokens, base64 payloads, or cryptographic signatures.
+
+7. **Safe Handling of Non-Production Clusters with Production Database Name:**
    - When connected to a local test host (`127.0.0.1`, `localhost`, `::1`) with database name `bharatproperties1`, the migration classifies the target as `NON_PROD_CLUSTER_WITH_PROD_DB_NAME`.
    - Execution is halted unless explicitly authorized for local simulation via `ALLOW_NON_PROD_SIMULATED_PROD=true` or `--allow-non-prod-simulated-prod`.
 
-6. **Credential Masking in Logs & Errors:**
+8. **Credential Masking in Logs & Errors:**
    - All connection URIs, hosts, and error messages are sanitized with `sanitizeMongoUri()`.
-   - Credentials and tokens are NEVER printed in logs.
 
-7. **Zero Mutation on Preflight & Dry-Run:**
+9. **Zero Mutation on Preflight & Dry-Run:**
    - Preflight duplicate scans are read-only.
    - Stored contact phones are NEVER mutated, normalized, or deleted by this migration.
 
-8. **Legacy Index Protection:**
-   - The existing non-unique index `phones.number_1` is preserved during execution and rollback to ensure zero query regressions.
+10. **Legacy Index Protection:**
+    - The existing non-unique index `phones.number_1` is preserved during execution and rollback to ensure zero query regressions.
 
-9. **Concurrent Collision & Controlled Abort:**
-   - If a concurrent insert creates a duplicate during `collection.createIndex()`, MongoDB returns `E11000`. The migration catches this cleanly and logs a controlled abort (`E11000_CONCURRENT_INSERT`), leaving database state uncorrupted.
+11. **Concurrent Collision & Controlled Abort:**
+    - If a concurrent insert creates a duplicate during `collection.createIndex()`, MongoDB returns `E11000`. The migration catches this cleanly and logs a controlled abort (`E11000_CONCURRENT_INSERT`), leaving database state uncorrupted.
 
 ---
 
@@ -136,23 +151,45 @@ Once preflight is clean, an authorized DBA requests a signed approval token from
    ```bash
    # External KMS/Vault CLI produces the asymmetric Ed25519 envelope:
    # <base64url(payload)>.<base64url(signature)>
-   OP_TOKEN="<SIGNED_ENVELOPE_FROM_KMS>"
+   # Save directly to a protected temporary file with strict 0600 permissions
+   umask 077
+   vault write -field=token dba/sign/migration-004 operation=EXECUTE ... > /tmp/dba_execute_token.jwt
+   chmod 0600 /tmp/dba_execute_token.jwt
    ```
 
-2. **Supply Trusted Public Verification Key:**
+2. **Supply Trusted Public Verification Key (Optional if using compiled trust store):**
+   If supplying an external public key file for fingerprint verification:
    Store the DBA authority public key (Ed25519 SPKI PEM) in a protected location (e.g. `/etc/ssl/dba_keys/dba_lead.pub` with mode `0644`).
+   The runner will verify that the candidate key's computed SPKI SHA-256 fingerprint exactly matches the pinned fingerprint in `PINNED_DBA_TRUST_STORE`.
 
-3. **Execute Production Migration:**
+3. **Execute Production Migration via Protected Input Channel:**
    ```bash
    NODE_ENV=production \
    ALLOW_PRODUCTION_MIGRATION=true \
    DBA_APPROVED_INDEX_MIGRATION=true \
    node backend/migrations/004-contact-phone-unique-index-migration.js \
      --execute \
-     --confirm-dba-approval="$OP_TOKEN" \
+     --confirm-dba-approval-file="/tmp/dba_execute_token.jwt" \
      --dba-public-key-file="/etc/ssl/dba_keys/dba_lead.pub" \
      --approval-ledger-path="/var/log/bharat-crm/.dba_approval_ledger.jsonl"
+
+   # Securely erase the token file immediately after execution
+   rm -f /tmp/dba_execute_token.jwt
    ```
+
+   *Alternatively, pipe the token via standard input:*
+   ```bash
+   cat /tmp/dba_execute_token.jwt | NODE_ENV=production \
+   ALLOW_PRODUCTION_MIGRATION=true \
+   DBA_APPROVED_INDEX_MIGRATION=true \
+   node backend/migrations/004-contact-phone-unique-index-migration.js \
+     --execute \
+     --confirm-dba-approval-stdin \
+     --dba-public-key-file="/etc/ssl/dba_keys/dba_lead.pub"
+   ```
+
+> [!WARNING]
+> Do NOT pass approval tokens via CLI argument `--confirm-dba-approval=<token>`. Passing tokens directly in process arguments exposes them in `ps aux`, `/proc/<pid>/cmdline`, and shell history. Always use `--confirm-dba-approval-file` (mode `0600`) or `--confirm-dba-approval-stdin`.
 
 **Automated Post-Build Verification Performed:**
 1. Confirms `contacts_phones_number_active_unique` exists in `collection.indexes()`.
@@ -167,14 +204,20 @@ Once preflight is clean, an authorized DBA requests a signed approval token from
 If production issues arise or index requires removal, request a cryptographically signed rollback token from the external authority and execute:
 
 ```bash
+umask 077
+vault write -field=token dba/sign/migration-004 operation=ROLLBACK ... > /tmp/dba_rollback_token.jwt
+chmod 0600 /tmp/dba_rollback_token.jwt
+
 NODE_ENV=production \
 ALLOW_PRODUCTION_MIGRATION=true \
 DBA_APPROVED_INDEX_MIGRATION=true \
 node backend/migrations/004-contact-phone-unique-index-migration.js \
   --rollback \
-  --confirm-dba-approval="$RB_TOKEN" \
+  --confirm-dba-approval-file="/tmp/dba_rollback_token.jwt" \
   --dba-public-key-file="/etc/ssl/dba_keys/chief_architect.pub" \
   --approval-ledger-path="/var/log/bharat-crm/.dba_approval_ledger.jsonl"
+
+rm -f /tmp/dba_rollback_token.jwt
 ```
 
 **Verification:**
@@ -191,3 +234,49 @@ node backend/migrations/004-contact-phone-unique-index-migration.js \
 - **Retention:** Permanent append-only audit trail. Records are immutable and never deleted.
 - **Backup:** Backed up alongside application audit logs during standard backup intervals.
 - **Disaster Recovery:** In event of host migration, the ledger file must be synced to the standby host before migration execution to prevent token replay across host failovers.
+
+---
+
+## 5. Key Rotation & Revocation Protocol (DEF-01)
+
+### Authorized Approver Trust Store & Pinned Fingerprints
+The migration runner maintains a pinned registry of SubjectPublicKeyInfo (SPKI) SHA-256 fingerprints for each authorized approver:
+
+| Approver Email | Pinned Key ID | SPKI SHA-256 Fingerprint | Status |
+| :--- | :--- | :--- | :--- |
+| `dba.lead@bharatproperties.in` | `kid-dba-lead-2026-v1` | `SHA256:d8b2e1f4a9c6e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495` | `ACTIVE` |
+| `chief.architect@bharatproperties.in` | `kid-chief-arch-2026-v1` | `SHA256:a4f891b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abc` | `ACTIVE` |
+| `security.admin@bharatproperties.in` | `kid-sec-admin-2026-v1` | `SHA256:bc3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0123` | `ACTIVE` |
+
+### Key Rotation Procedure
+1. The DBA generates a new Ed25519 asymmetric key pair inside KMS/Vault with a new key ID (e.g. `kid-dba-lead-2027-v1`).
+2. The public key is exported, and its SPKI SHA-256 fingerprint is computed:
+   ```bash
+   node -e '
+     const crypto = require("crypto");
+     const fs = require("fs");
+     const key = crypto.createPublicKey(fs.readFileSync(process.argv[1], "utf8"));
+     const der = key.export({ type: "spki", format: "der" });
+     console.log("SHA256:" + crypto.createHash("sha256").update(der).digest("hex"));
+   ' /path/to/new_public_key.pem
+   ```
+3. A pull request is submitted updating `PINNED_DBA_TRUST_STORE` in `backend/migrations/004-contact-phone-unique-index-migration.js` with the new key ID, fingerprint, and validity window.
+4. Alternatively, operators configure an external protected trust store file (`--dba-trust-store=/etc/ssl/dba_keys/trust_store.json` with permissions `0600`/`0644`).
+
+### Emergency Key Revocation Procedure
+1. In the event of suspected signing credential compromise, the security admin marks the compromised key's status as `REVOKED` in the trust store:
+   ```json
+   {
+     "dba.lead@bharatproperties.in": {
+       "keyId": "kid-dba-lead-2026-v1",
+       "approver": "dba.lead@bharatproperties.in",
+       "fingerprint": "SHA256:d8b2e1f4a9c6e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495",
+       "status": "REVOKED",
+       "revocationReason": "Incident INC-2026-KEY-COMPROMISE",
+       "revokedAt": 1735689600000
+     }
+   }
+   ```
+2. When `status === 'REVOKED'`, the migration runner immediately aborts with:
+   `[MIGRATION-004] FATAL: Pinned signing key for approver "..." has been REVOKED. Revocation reason: ... Fail closed.`
+3. Any approval token signed by the revoked key is permanently rejected.

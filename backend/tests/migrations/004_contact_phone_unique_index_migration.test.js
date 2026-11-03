@@ -13,6 +13,7 @@ import {
     normalizePhoneForDeduplication,
     resolveClusterIdentity,
     verifyOperatorApproval,
+    loadTrustedKeyRegistry,
     DurableApprovalLedger,
     AUTHORIZED_DBA_APPROVERS,
     consumedApprovalNonces,
@@ -29,7 +30,9 @@ import {
 import {
     generateTestDbaKeyPair,
     signTestDbaApprovalToken,
-    createUnauthenticatedLocalToken
+    createUnauthenticatedLocalToken,
+    computePublicKeyFingerprint,
+    createTestTrustStore
 } from '../helpers/dba_approval_test_signer.js';
 import Lookup from '../../models/Lookup.js';
 import Contact from '../../models/Contact.js';
@@ -279,6 +282,36 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     const TEST_DBA_PUBLIC_KEY = TEST_DBA_KEYPAIR.publicKeyPem;
     const TEST_DBA_PRIVATE_KEY = TEST_DBA_KEYPAIR.privateKeyPem;
 
+    const TEST_TRUST_REGISTRY = {
+        'dba.lead@bharatproperties.in': {
+            keyId: 'kid-test-lead-2026',
+            approver: 'dba.lead@bharatproperties.in',
+            fingerprint: TEST_DBA_KEYPAIR.fingerprint,
+            publicKey: TEST_DBA_PUBLIC_KEY,
+            status: 'ACTIVE',
+            validFrom: Date.now() - 60000,
+            validUntil: Date.now() + 86400000
+        },
+        'chief.architect@bharatproperties.in': {
+            keyId: 'kid-test-lead-2026',
+            approver: 'chief.architect@bharatproperties.in',
+            fingerprint: TEST_DBA_KEYPAIR.fingerprint,
+            publicKey: TEST_DBA_PUBLIC_KEY,
+            status: 'ACTIVE',
+            validFrom: Date.now() - 60000,
+            validUntil: Date.now() + 86400000
+        },
+        'security.admin@bharatproperties.in': {
+            keyId: 'kid-test-lead-2026',
+            approver: 'security.admin@bharatproperties.in',
+            fingerprint: TEST_DBA_KEYPAIR.fingerprint,
+            publicKey: TEST_DBA_PUBLIC_KEY,
+            status: 'ACTIVE',
+            validFrom: Date.now() - 60000,
+            validUntil: Date.now() + 86400000
+        }
+    };
+
     it('7. Production Safety: Rejects execution if baseline environment flags are missing', async () => {
         const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
@@ -413,7 +446,8 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             const validToken = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
-                approver: AUTHORIZED_DBA_APPROVERS[0]
+                approver: AUTHORIZED_DBA_APPROVERS[0],
+                keyId: 'kid-dba-lead-2026-v1'
             }, TEST_DBA_PRIVATE_KEY);
 
             await assert.rejects(async () => {
@@ -423,7 +457,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
                     runtimeDbaConfirmation: validToken
                     // dbaPublicKey intentionally omitted!
                 });
-            }, /No trusted public verification key configured or available for approver.*Fail closed\./);
+            }, /No candidate public verification key configured or available for approver.*Fail closed\./);
         } finally {
             if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
@@ -510,7 +544,8 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
                     mode: 'execute',
                     connection: mockAtlasConn,
                     runtimeDbaConfirmation: forgedToken,
-                    dbaPublicKey: TEST_DBA_PUBLIC_KEY // Checked against authorized public key
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY, // Checked against authorized public key
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY
                 });
             }, /Cryptographic verification failed\. Asymmetric DBA approval signature is invalid, corrupted, or forged\./);
         } finally {
@@ -721,6 +756,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             const firstPass = verifyOperatorApproval('execute', clusterInfo, {
                 runtimeDbaConfirmation: singleUseToken,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                trustedKeyRegistry: TEST_TRUST_REGISTRY,
                 ledger: durableLedger1
             });
             assert.equal(firstPass.approved, true);
@@ -732,6 +768,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
                 verifyOperatorApproval('execute', clusterInfo, {
                     runtimeDbaConfirmation: singleUseToken,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY,
                     ledger: durableLedger1
                 });
             }, /Replay detected\. Runtime approval ID.*has already been consumed/);
@@ -743,6 +780,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
                 verifyOperatorApproval('execute', clusterInfo, {
                     runtimeDbaConfirmation: singleUseToken,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY,
                     ledger: durableLedgerAfterRestart
                 });
             }, /Replay detected\. Runtime approval ID.*has already been consumed.*strictly single-use across process restarts/);
@@ -1037,6 +1075,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             const approvalExecute = verifyOperatorApproval('execute', clusterInfo, {
                 runtimeDbaConfirmation: executeToken,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                trustedKeyRegistry: TEST_TRUST_REGISTRY,
                 ledger: testLedger
             });
             assert.equal(approvalExecute.approved, true);
@@ -1058,6 +1097,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             const approvalRollback = verifyOperatorApproval('rollback', clusterInfo, {
                 runtimeDbaConfirmation: rollbackToken,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                trustedKeyRegistry: TEST_TRUST_REGISTRY,
                 ledger: testLedger
             });
             assert.equal(approvalRollback.approved, true);
@@ -1242,5 +1282,674 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         assert.deepEqual(index.key, { 'phones.number': 1 });
         assert.equal(index.partialFilterExpression.isDeleted, false);
         assert.equal(index.partialFilterExpression.isMerged, false);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-01: TRUSTED PUBLIC-KEY PINNING ADVERSARIAL TESTS
+    // ─────────────────────────────────────────────────────────────
+
+    it('24. DEF-01: Attacker creates own Ed25519 key pair and passes it via opts.dbaPublicKey -> rejected by pinned fingerprint', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            // Attacker generates own keypair
+            const attackerKeyPair = generateTestDbaKeyPair();
+            // Attacker signs payload using an allowlisted DBA email
+            const forgedToken = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, attackerKeyPair.privateKeyPem);
+
+            // Attacker passes their own public key via options
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: forgedToken,
+                    dbaPublicKey: attackerKeyPair.publicKeyPem,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY
+                });
+            }, /Public key pinning validation failed for approver "dba\.lead@bharatproperties\.in"/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('25. DEF-01: Attacker replaces public key file -> rejected by pinned fingerprint check', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const attackerKeyFile = path.join(os.tmpdir(), `attacker-key-${Date.now()}.pem`);
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const attackerKeyPair = generateTestDbaKeyPair();
+            fs.writeFileSync(attackerKeyFile, attackerKeyPair.publicKeyPem, { mode: 0o600 });
+
+            const forgedToken = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, attackerKeyPair.privateKeyPem);
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: forgedToken,
+                    dbaPublicKeyFile: attackerKeyFile,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY
+                });
+            }, /Public key pinning validation failed for approver "dba\.lead@bharatproperties\.in"/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(attackerKeyFile)) fs.unlinkSync(attackerKeyFile); } catch (_) {}
+        }
+    });
+
+    it('26. DEF-01: Fails closed when approver has no pinned trust anchor in the registry', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const token = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'security.admin@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            // Empty registry with no entry for security.admin
+            const emptyRegistry = {};
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: token,
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: emptyRegistry
+                });
+            }, /No pinned trust anchor found for approver "security\.admin@bharatproperties\.in"/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('27. DEF-01: Revoked key: Rejects approval when approver key status is REVOKED', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const token = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            const revokedRegistry = {
+                'dba.lead@bharatproperties.in': {
+                    keyId: 'kid-test-lead-2026',
+                    approver: 'dba.lead@bharatproperties.in',
+                    fingerprint: TEST_DBA_KEYPAIR.fingerprint,
+                    publicKey: TEST_DBA_PUBLIC_KEY,
+                    status: 'REVOKED',
+                    revocationReason: 'Suspected key compromise during security incident SEC-2026-091'
+                }
+            };
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: token,
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: revokedRegistry
+                });
+            }, /Pinned signing key for approver "dba\.lead@bharatproperties\.in" has been REVOKED/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('28. DEF-01: Expired pinned key: Rejects approval when pinned key validUntil is in the past', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const token = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            const expiredRegistry = {
+                'dba.lead@bharatproperties.in': {
+                    keyId: 'kid-test-lead-2026',
+                    approver: 'dba.lead@bharatproperties.in',
+                    fingerprint: TEST_DBA_KEYPAIR.fingerprint,
+                    publicKey: TEST_DBA_PUBLIC_KEY,
+                    status: 'ACTIVE',
+                    validFrom: Date.now() - 200000,
+                    validUntil: Date.now() - 1000 // Expired!
+                }
+            };
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: token,
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: expiredRegistry
+                });
+            }, /Pinned signing key for approver "dba\.lead@bharatproperties\.in" has expired/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('29. DEF-01: Key ID mismatch: Rejects approval when keyId in token does not match pinned trust anchor', async () => {
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const token = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-old-unrotated-2025' // Mismatched keyId
+            }, TEST_DBA_PRIVATE_KEY);
+
+            await assert.rejects(async () => {
+                await runMigration({
+                    mode: 'execute',
+                    connection: mockAtlasConn,
+                    runtimeDbaConfirmation: token,
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY
+                });
+            }, /Key ID mismatch in approval token/);
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+        }
+    });
+
+    it('30. DEF-01: Trust store file security: Rejects trust store file with insecure permissions (0666)', () => {
+        const tempStorePath = path.join(os.tmpdir(), `insecure-trust-store-${Date.now()}.json`);
+
+        try {
+            fs.writeFileSync(tempStorePath, JSON.stringify(TEST_TRUST_REGISTRY), { mode: 0o666 });
+            fs.chmodSync(tempStorePath, 0o666);
+
+            assert.throws(() => {
+                loadTrustedKeyRegistry({ dbaTrustStorePath: tempStorePath });
+            }, /Insecure permissions on DBA trust store file/);
+        } finally {
+            try { if (fs.existsSync(tempStorePath)) fs.unlinkSync(tempStorePath); } catch (_) {}
+        }
+    });
+
+    it('31. DEF-01: Trust store file security: Accepts protected trust store file with mode 0600 or 0644', async () => {
+        const tempStorePath = path.join(os.tmpdir(), `secure-trust-store-${Date.now()}.json`);
+        const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            fs.writeFileSync(tempStorePath, JSON.stringify(TEST_TRUST_REGISTRY), { mode: 0o600 });
+            fs.chmodSync(tempStorePath, 0o600);
+
+            const token = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            const clusterInfo = {
+                isValid: true,
+                isProductionCluster: true,
+                clusterType: 'PRODUCTION_ATLAS',
+                clusterId: PRODUCTION_CLUSTER_ID,
+                dbName: 'bharatproperties1',
+                hosts: ['cluster0.7dehanz.mongodb.net']
+            };
+
+            const tempLedgerPath = path.join(os.tmpdir(), `test-ledger-31-${Date.now()}.jsonl`);
+            const ledger = new DurableApprovalLedger(tempLedgerPath);
+
+            const approval = verifyOperatorApproval('execute', clusterInfo, {
+                runtimeDbaConfirmation: token,
+                dbaTrustStorePath: tempStorePath,
+                ledger
+            });
+
+            assert.equal(approval.approved, true);
+            assert.equal(approval.approver, 'dba.lead@bharatproperties.in');
+            assert.equal(approval.keyFingerprint, TEST_DBA_KEYPAIR.fingerprint);
+
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(`${tempLedgerPath}.lock`)) fs.unlinkSync(`${tempLedgerPath}.lock`); } catch (_) {}
+        } finally {
+            if (prevProdFlag) process.env.ALLOW_PRODUCTION_MIGRATION = prevProdFlag;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDbaFlag) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDbaFlag;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempStorePath)) fs.unlinkSync(tempStorePath); } catch (_) {}
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-02: DURABLE APPROVAL LEDGER LOCKFILE RACE & RESILIENCE
+    // ─────────────────────────────────────────────────────────────
+
+    it('32. DEF-02: Live Process Lock Protection: Competitor NEVER breaks lock held by live process even if age > staleTimeoutMs', () => {
+        const tempLedgerPath = path.join(os.tmpdir(), `test-live-lock-${Date.now()}.jsonl`);
+        const lockPath = `${tempLedgerPath}.lock`;
+
+        try {
+            // Write a lockfile belonging to the current LIVE process, with createdAt simulating > 15s age
+            const liveLockData = {
+                ownerToken: 'live-token-11111111-2222-3333-4444-555555555555',
+                pid: process.pid, // Our own PID, definitely ALIVE!
+                processStartTime: Date.now() - Math.floor(process.uptime() * 1000),
+                hostname: os.hostname(),
+                createdAt: Date.now() - 30000 // 30 seconds ago (exceeds staleTimeoutMs = 15s)
+            };
+            fs.writeFileSync(lockPath, JSON.stringify(liveLockData), { mode: 0o600 });
+
+            // Create a ledger with a short lock timeout (200ms)
+            const ledger = new DurableApprovalLedger(tempLedgerPath, {
+                lockTimeoutMs: 200,
+                retryIntervalMs: 20,
+                staleTimeoutMs: 15000
+            });
+
+            // The competitor must NOT break the live lock, and must time out safely failing closed!
+            assert.throws(() => {
+                ledger._acquireLock();
+            }, /Could not acquire exclusive lock.*Lock is actively held by a live process\. Fail closed\./);
+
+            // Verify the lockfile was NOT deleted or overwritten!
+            assert.ok(fs.existsSync(lockPath), 'Lockfile must remain intact');
+            const dataOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+            assert.equal(dataOnDisk.ownerToken, liveLockData.ownerToken, 'Owner token must not be modified');
+        } finally {
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch (_) {}
+        }
+    });
+
+    it('33. DEF-02: Worker Crash Recovery: Safely detects dead PID and recovers lock via atomic rename', () => {
+        const tempLedgerPath = path.join(os.tmpdir(), `test-crash-rec-${Date.now()}.jsonl`);
+        const lockPath = `${tempLedgerPath}.lock`;
+
+        try {
+            // Write orphaned lock from a dead PID (PID 999999 does not exist)
+            const deadLockData = {
+                ownerToken: 'dead-worker-token-0000-1111-2222',
+                pid: 999999,
+                processStartTime: Date.now() - 60000,
+                hostname: os.hostname(),
+                createdAt: Date.now() - 5000 // Within stale timeout, but PID is dead!
+            };
+            fs.writeFileSync(lockPath, JSON.stringify(deadLockData), { mode: 0o600 });
+
+            const ledger = new DurableApprovalLedger(tempLedgerPath, {
+                lockTimeoutMs: 1000,
+                retryIntervalMs: 25,
+                initGracePeriodMs: 50 // Short grace for test
+            });
+
+            const approvalId = `approval-crash-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+            const res = ledger.recordConsumedApproval(approvalId, { approver: 'dba.lead@bharatproperties.in' });
+
+            assert.equal(res.approvalId, approvalId);
+            assert.equal(fs.existsSync(lockPath), false, 'Lock must be cleanly released after successful consumption');
+        } finally {
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch (_) {}
+        }
+    });
+
+    it('34. DEF-02: Delayed Release Safety: Worker does NOT delete a replacement lock held by another process', () => {
+        const tempLedgerPath = path.join(os.tmpdir(), `test-delayed-rel-${Date.now()}.jsonl`);
+        const lockPath = `${tempLedgerPath}.lock`;
+
+        try {
+            const ledgerA = new DurableApprovalLedger(tempLedgerPath);
+
+            // Worker A sets an old ownerToken
+            ledgerA.currentOwnerToken = 'worker-A-token-1111';
+
+            // Meanwhile, Worker B acquired the lock on disk with different token and PID
+            const lockBData = {
+                ownerToken: 'worker-B-token-2222',
+                pid: 88888,
+                processStartTime: Date.now(),
+                hostname: os.hostname(),
+                createdAt: Date.now()
+            };
+            fs.writeFileSync(lockPath, JSON.stringify(lockBData), { mode: 0o600 });
+
+            // Worker A tries to release its lock
+            ledgerA._releaseLock();
+
+            // Verify Worker B's lock on disk was NOT deleted!
+            assert.ok(fs.existsSync(lockPath), 'Worker B lock must not be deleted by Worker A');
+            const onDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+            assert.equal(onDisk.ownerToken, 'worker-B-token-2222', 'Worker B ownerToken must remain untouched');
+        } finally {
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch (_) {}
+        }
+    });
+
+    it('35. DEF-02: Grace Period Protection: Empty lockfile during initialization is not prematurely deleted', () => {
+        const tempLedgerPath = path.join(os.tmpdir(), `test-grace-${Date.now()}.jsonl`);
+        const lockPath = `${tempLedgerPath}.lock`;
+
+        try {
+            // Create an empty lockfile (simulating openSync before writeSync)
+            fs.writeFileSync(lockPath, '', { mode: 0o600 });
+
+            const ledger = new DurableApprovalLedger(tempLedgerPath, {
+                initGracePeriodMs: 5000 // 5 second grace period
+            });
+
+            // _tryRecoverDeadLock must return false (do not disturb young lockfile)
+            const recovered = ledger._tryRecoverDeadLock();
+            assert.equal(recovered, false, 'Must not disturb lockfile within initialization grace period');
+            assert.ok(fs.existsSync(lockPath), 'Lockfile must remain');
+        } finally {
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch (_) {}
+        }
+    });
+
+    it('36. DEF-02: Malformed Lock Metadata: Corrupted JSON left by dead process is safely recovered via atomic rename', () => {
+        const tempLedgerPath = path.join(os.tmpdir(), `test-malformed-lock-${Date.now()}.jsonl`);
+        const lockPath = `${tempLedgerPath}.lock`;
+
+        try {
+            // Write corrupted content with mtime in the past
+            fs.writeFileSync(lockPath, '{corrupted-json-data-not-valid', { mode: 0o600 });
+            // Set mtime to 30s ago
+            const past = new Date(Date.now() - 30000);
+            fs.utimesSync(lockPath, past, past);
+
+            const ledger = new DurableApprovalLedger(tempLedgerPath, {
+                lockTimeoutMs: 1000,
+                retryIntervalMs: 25,
+                initGracePeriodMs: 50
+            });
+
+            const approvalId = `approval-malformed-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+            const res = ledger.recordConsumedApproval(approvalId, { approver: 'dba.lead@bharatproperties.in' });
+            assert.equal(res.approvalId, approvalId);
+        } finally {
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch (_) {}
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-03: APPROVAL TOKEN EXPOSURE & SECURE INPUT MECHANISMS
+    // ─────────────────────────────────────────────────────────────
+
+    it('37. DEF-03: Secure File Input: Token supplied via secure file with mode 0600 is accepted and verified', () => {
+        const tempTokenFile = path.join(os.tmpdir(), `token-secure-0600-${Date.now()}.txt`);
+        const tempLedgerPath = path.join(os.tmpdir(), `ledger-37-${Date.now()}.jsonl`);
+
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const validToken = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            // Write token with strict 0600 permissions
+            fs.writeFileSync(tempTokenFile, validToken, { mode: 0o600 });
+            fs.chmodSync(tempTokenFile, 0o600);
+
+            const ledger = new DurableApprovalLedger(tempLedgerPath);
+
+            const approval = verifyOperatorApproval('execute', clusterInfo, {
+                dbaApprovalFile: tempTokenFile,
+                dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                trustedKeyRegistry: TEST_TRUST_REGISTRY,
+                ledger
+            });
+
+            assert.equal(approval.approved, true);
+            assert.equal(approval.tokenSource, 'SECURE_FILE');
+            assert.equal(approval.approver, 'dba.lead@bharatproperties.in');
+        } finally {
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempTokenFile)) fs.unlinkSync(tempTokenFile); } catch (_) {}
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(`${tempLedgerPath}.lock`)) fs.unlinkSync(`${tempLedgerPath}.lock`); } catch (_) {}
+        }
+    });
+
+    it('38. DEF-03: Insecure File Rejection: Token file with insecure permissions (0666 or 0644) fails closed', () => {
+        const tempTokenFile = path.join(os.tmpdir(), `token-insecure-${Date.now()}.txt`);
+
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            fs.writeFileSync(tempTokenFile, 'any-token-content', { mode: 0o666 });
+            fs.chmodSync(tempTokenFile, 0o666);
+
+            assert.throws(() => {
+                verifyOperatorApproval('execute', clusterInfo, {
+                    dbaApprovalFile: tempTokenFile,
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY
+                });
+            }, /Insecure permissions on approval token file.*Expected strict 0600/);
+        } finally {
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempTokenFile)) fs.unlinkSync(tempTokenFile); } catch (_) {}
+        }
+    });
+
+    it('39. DEF-03: Deprecated CLI Warning: Supplying approval token via --confirm-dba-approval emits security warning', () => {
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const tempLedgerPath = path.join(os.tmpdir(), `ledger-39-${Date.now()}.jsonl`);
+
+        const warnings = [];
+        const originalWarn = console.warn;
+        console.warn = (...args) => {
+            warnings.push(args.join(' '));
+            originalWarn(...args);
+        };
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const validToken = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            // Simulate CLI argument
+            process.argv.push(`--confirm-dba-approval=${validToken}`);
+
+            const ledger = new DurableApprovalLedger(tempLedgerPath);
+
+            const approval = verifyOperatorApproval('execute', clusterInfo, {
+                dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                trustedKeyRegistry: TEST_TRUST_REGISTRY,
+                ledger
+            });
+
+            assert.equal(approval.approved, true);
+            assert.equal(approval.tokenSource, 'CLI_ARG_DEPRECATED');
+            assert.ok(
+                warnings.some(w => w.includes('SECURITY WARNING: Supplying approval token via --confirm-dba-approval=<token> exposes the token in ps aux')),
+                'Must emit security warning regarding ps aux and shell history exposure'
+            );
+        } finally {
+            console.warn = originalWarn;
+            const idx = process.argv.findIndex(a => a.startsWith('--confirm-dba-approval='));
+            if (idx !== -1) process.argv.splice(idx, 1);
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(`${tempLedgerPath}.lock`)) fs.unlinkSync(`${tempLedgerPath}.lock`); } catch (_) {}
+        }
+    });
+
+    it('40. DEF-03: Zero Token Logging: Verification errors, approval objects and ledger records NEVER expose raw tokens', () => {
+        const clusterInfo = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
+        const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
+        const tempLedgerPath = path.join(os.tmpdir(), `ledger-40-${Date.now()}.jsonl`);
+
+        try {
+            process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
+            process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
+
+            const token = signTestDbaApprovalToken({
+                operation: 'EXECUTE',
+                approver: 'dba.lead@bharatproperties.in',
+                keyId: 'kid-test-lead-2026'
+            }, TEST_DBA_PRIVATE_KEY);
+
+            const [encodedPayload, encodedSig] = token.split('.');
+
+            const ledger = new DurableApprovalLedger(tempLedgerPath);
+
+            const result = verifyOperatorApproval('execute', clusterInfo, {
+                runtimeDbaConfirmation: token,
+                dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                trustedKeyRegistry: TEST_TRUST_REGISTRY,
+                ledger
+            });
+
+            // 1. Result object check
+            const resultStr = JSON.stringify(result);
+            assert.ok(!resultStr.includes(token), 'Result object must not contain raw token');
+            assert.ok(!resultStr.includes(encodedSig), 'Result object must not contain raw signature');
+
+            // 2. Ledger record check
+            const ledgerContent = fs.readFileSync(tempLedgerPath, 'utf8');
+            assert.ok(!ledgerContent.includes(token), 'Ledger file must not contain raw token');
+            assert.ok(!ledgerContent.includes(encodedSig), 'Ledger file must not contain raw signature');
+
+            // 3. Error message check on replay
+            try {
+                verifyOperatorApproval('execute', clusterInfo, {
+                    runtimeDbaConfirmation: token,
+                    dbaPublicKey: TEST_DBA_PUBLIC_KEY,
+                    trustedKeyRegistry: TEST_TRUST_REGISTRY,
+                    ledger
+                });
+                assert.fail('Should have thrown replay error');
+            } catch (err) {
+                assert.ok(!err.message.includes(token), 'Error message must not leak raw token');
+                assert.ok(!err.message.includes(encodedSig), 'Error message must not leak raw signature');
+            }
+        } finally {
+            if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
+            else delete process.env.ALLOW_PRODUCTION_MIGRATION;
+            if (prevDba) process.env.DBA_APPROVED_INDEX_MIGRATION = prevDba;
+            else delete process.env.DBA_APPROVED_INDEX_MIGRATION;
+            try { if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath); } catch (_) {}
+            try { if (fs.existsSync(`${tempLedgerPath}.lock`)) fs.unlinkSync(`${tempLedgerPath}.lock`); } catch (_) {}
+        }
     });
 });
