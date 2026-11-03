@@ -118,8 +118,7 @@ export class RedisPortalQuotaProvider {
         const clientHash = pol.contentHash ? String(pol.contentHash) : '';
 
         const hasValidPolicy = (Number.isFinite(minIntervalMs) && minIntervalMs > 0) &&
-            ((Number.isFinite(maxPerMin) && maxPerMin > 0) || (Number.isFinite(maxPerHour) && maxPerHour > 0) || (Number.isFinite(maxPerDay) && maxPerDay > 0)) &&
-            Boolean(policyRef);
+            ((Number.isFinite(maxPerMin) && maxPerMin > 0) || (Number.isFinite(maxPerHour) && maxPerHour > 0) || (Number.isFinite(maxPerDay) && maxPerDay > 0));
 
         if (!hasValidPolicy) {
             return Object.freeze({

@@ -569,7 +569,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         await assert.rejects(
             prodQuota.reserve({
                 authorityCode: 'HSVP',
-                policy: { maxRequestsPerMinute: 1, minimumIntervalMs: 1000 }
+                policy: { maxRequestsPerMinute: 1, minimumIntervalMs: 1000, policyReference: 'POL_DISCONNECT' }
             }),
             (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
         );
