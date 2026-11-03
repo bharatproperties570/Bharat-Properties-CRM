@@ -2149,6 +2149,7 @@ export class AuthorityBulkProcessor {
             const rawRate = setting?.ratePolicy || {};
             const minInterval = rawRate.minimumIntervalMs || rawRate.minIntervalMs || null;
             const maxMinute = rawRate.maxRequestsPerMinute || null;
+            const maxHour = rawRate.maxRequestsPerHour ? Number(rawRate.maxRequestsPerHour) : null;
             const maxDay = rawRate.maxRequestsPerDay || null;
             const maxConcurrent = rawRate.maxConcurrent || null;
             const policySource = rawRate.policySource || null;
@@ -2182,6 +2183,7 @@ export class AuthorityBulkProcessor {
                 permittedFields: setting.permittedFields,
                 ratePolicy: {
                     maxRequestsPerMinute: maxMinute,
+                    maxRequestsPerHour: maxHour,
                     maxRequestsPerDay: maxDay,
                     minimumIntervalMs: minInterval,
                     maxConcurrentRequests: maxConcurrent,
@@ -2245,6 +2247,31 @@ export class AuthorityBulkProcessor {
                     return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
                 }
                 return { success: false, reason: 'PORTAL_FENCE_TOKEN_INVALID' };
+            }
+
+            // Verify portal fence token has not been superseded by a newer worker
+            if (typeof portalResult.isCurrentFence === 'function') {
+                const isCurrent = await portalResult.isCurrentFence();
+                if (!isCurrent) {
+                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            matchStatus: 'NOT_ATTEMPTED',
+                            errorMessage: 'Portal lock fence token is stale; a newer portal lease was issued before snapshot persistence.',
+                            errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    if (!finalized) {
+                        return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                    }
+                    return { success: false, reason: 'PORTAL_LOCK_OWNERSHIP_LOST' };
+                }
             }
 
             if (!portalResult || portalResult.recordCount === 0 || !portalResult.records || portalResult.records.length === 0) {
@@ -2337,6 +2364,7 @@ export class AuthorityBulkProcessor {
                 contentHash: portalResult.contentHash,
                 sourceReferenceUrl: `https://${portalResult.sourceHost}`,
                 fenceToken: Number(portalResult.fenceToken),
+                isCurrentFence: portalResult.isCurrentFence,
                 proposedChanges: liveProposedChanges,
                 matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' },
                 compositeKey: link.compositeKey ? { key: link.compositeKey } : null
@@ -2348,7 +2376,32 @@ export class AuthorityBulkProcessor {
             await beforeSnapshotPersistence(item, effectiveWorkerId, candidate);
         }
 
-        // Fail-closed lease ownership check immediately before snapshot persistence
+        // Fail-closed portal lease & worker lease verification immediately before snapshot persistence
+        if (candidate?.isCurrentFence && typeof candidate.isCurrentFence === 'function') {
+            const isPortalLeaseCurrent = await candidate.isCurrentFence();
+            if (!isPortalLeaseCurrent) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: 'Portal lease was superseded by a newer fence token before snapshot persistence.',
+                        errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                return {
+                    success: false,
+                    reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                    ownershipLost: true
+                };
+            }
+        }
+
         const preCheck = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
             item._id,
             tenantId,

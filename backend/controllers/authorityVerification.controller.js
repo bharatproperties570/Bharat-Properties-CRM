@@ -335,33 +335,25 @@ export const submitSourceApproval = async (req, res) => {
             setting.permittedFields = permittedFields.map(f => String(f).trim());
         }
 
-        // Safe conversion of ratePolicy (P1.13 & PR42 Fix 1)
-        const existingRate = (setting.ratePolicy && typeof setting.ratePolicy.toObject === 'function')
-            ? setting.ratePolicy.toObject()
-            : (setting.ratePolicy ? { ...setting.ratePolicy } : {});
-
+        // P1: Make maxConcurrent mandatory in each new approval evidence submission
+        // A new authorization evidence submission must be self-contained and NOT inherit old values.
         if (ratePolicy && typeof ratePolicy === 'object') {
-            if (ratePolicy.maxConcurrent !== undefined && ratePolicy.maxConcurrent !== null) {
-                const mc = Number(ratePolicy.maxConcurrent);
-                if (!Number.isInteger(mc) || mc < 1) {
-                    return res.status(422).json({
-                        success: false,
-                        code: 'INVALID_RATE_POLICY',
-                        message: 'ratePolicy.maxConcurrent must be a positive integer greater than or equal to 1'
-                    });
-                }
+            const mc = Number(ratePolicy.maxConcurrent);
+            if (ratePolicy.maxConcurrent === undefined || ratePolicy.maxConcurrent === null || !Number.isInteger(mc) || mc < 1) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'INVALID_RATE_POLICY',
+                    message: 'ratePolicy.maxConcurrent is mandatory and must be a positive integer >= 1'
+                });
             }
 
             setting.ratePolicy = {
-                ...existingRate,
                 maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
                 maxRequestsPerHour: Number(ratePolicy.maxRequestsPerHour) || null,
                 maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
                 minIntervalMs: Number(ratePolicy.minIntervalMs || ratePolicy.minimumIntervalMs) || null,
                 minimumIntervalMs: Number(ratePolicy.minimumIntervalMs || ratePolicy.minIntervalMs) || null,
-                maxConcurrent: (ratePolicy.maxConcurrent !== undefined && ratePolicy.maxConcurrent !== null)
-                    ? (Number.isInteger(Number(ratePolicy.maxConcurrent)) && Number(ratePolicy.maxConcurrent) >= 1 ? Number(ratePolicy.maxConcurrent) : null)
-                    : (existingRate.maxConcurrent || null),
+                maxConcurrent: mc,
                 policySource: ratePolicy.policySource || ratePolicy.policyReference || null
             };
         }

@@ -37,6 +37,7 @@ import { sanitizeAuditMetadata, PortalAuditSink } from '../services/authority/po
 import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
 import { chdPortalAdapter } from '../services/authority/portal/adapters/chdPortalAdapter.js';
 import { createAuthorityPortalRuntime } from '../services/authority/portal/authorityPortalRuntime.js';
+import { assertAuthorityPortalApproval } from '../services/authority/portal/authorityPortalApprovalGate.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1277,5 +1278,435 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(req.method, 'POST');
             assert.ok(req.body.includes('__RequestVerificationToken=ValidChdToken123'));
         });
+    });
+
+    // =========================================================================
+    // Finding 22: Approved Authority-Wide Concurrency Cap (P0)
+    // =========================================================================
+    await t.test('22. Approved Authority-Wide Concurrency Cap (P0)', async (t22) => {
+        await t22.test('22.1 Two different searchKeys on same authority are blocked when maxConcurrent=1', async () => {
+            const lockProvider = new RedisPortalDistributedLock(null, { testMode: true });
+
+            // Property 1 acquires authority lock
+            const lease1 = await lockProvider.acquire({
+                authorityCode: 'HSVP',
+                searchKey: 'hsvp:prop1:sec14',
+                tenantId: 'tenant-1',
+                maxConcurrent: 1
+            });
+            assert.equal(lease1.acquired, true);
+
+            // Property 2 on DIFFERENT property and DIFFERENT tenant MUST BE BLOCKED
+            const lease2 = await lockProvider.acquire({
+                authorityCode: 'HSVP',
+                searchKey: 'hsvp:prop2:sec29',
+                tenantId: 'tenant-2',
+                maxConcurrent: 1
+            });
+            assert.equal(lease2.acquired, false, 'Second property on same authority must be blocked across search keys');
+
+            await lease1.release();
+
+            // After release, acquisition succeeds
+            const lease3 = await lockProvider.acquire({
+                authorityCode: 'HSVP',
+                searchKey: 'hsvp:prop2:sec29',
+                tenantId: 'tenant-2',
+                maxConcurrent: 1
+            });
+            assert.equal(lease3.acquired, true);
+            await lease3.release();
+        });
+
+        await t22.test('22.2 Monotonic sequence token is atomic and failed lock does not increment sequence', async () => {
+            const lockProvider = new RedisPortalDistributedLock(null, { testMode: true });
+
+            const lease1 = await lockProvider.acquire({
+                authorityCode: 'GMADA',
+                maxConcurrent: 1
+            });
+            assert.equal(lease1.acquired, true);
+            const token1 = lease1.fenceToken;
+
+            // Failed acquire must not increment sequence
+            const leaseFail = await lockProvider.acquire({
+                authorityCode: 'GMADA',
+                maxConcurrent: 1
+            });
+            assert.equal(leaseFail.acquired, false);
+            assert.equal(leaseFail.fenceToken, null);
+
+            await lease1.release();
+
+            // Next successful acquire gets token1 + 1
+            const lease2 = await lockProvider.acquire({
+                authorityCode: 'GMADA',
+                maxConcurrent: 1
+            });
+            assert.equal(lease2.acquired, true);
+            assert.equal(lease2.fenceToken, token1 + 1, 'Sequence must only increment on successful acquisition');
+            await lease2.release();
+        });
+    });
+
+    // =========================================================================
+    // Finding 23: Pass and Enforce maxRequestsPerHour (P1)
+    // =========================================================================
+    await t.test('23. Pass and Enforce maxRequestsPerHour (P1)', async (t23) => {
+        await t23.test('23.1 QuotaProvider strictly enforces maxRequestsPerHour', async () => {
+            const quotaProvider = new RedisPortalQuotaProvider(null, { testMode: true });
+            const policy = {
+                maxRequestsPerMinute: 10,
+                maxRequestsPerHour: 2,
+                maxRequestsPerDay: 100,
+                minimumIntervalMs: 10,
+                policyReference: 'HOURLY_TEST_POLICY'
+            };
+
+            const now = new Date();
+            const r1 = await quotaProvider.reserve({ authorityCode: 'CHD', policy, at: now });
+            assert.equal(r1.allowed, true);
+
+            const r2 = await quotaProvider.reserve({ authorityCode: 'CHD', policy, at: new Date(now.getTime() + 50) });
+            assert.equal(r2.allowed, true);
+
+            // 3rd request in same hour must be rejected with PER_HOUR_LIMIT_EXCEEDED
+            const r3 = await quotaProvider.reserve({ authorityCode: 'CHD', policy, at: new Date(now.getTime() + 100) });
+            assert.equal(r3.allowed, false);
+            assert.equal(r3.reason, 'PER_HOUR_LIMIT_EXCEEDED');
+        });
+
+        await t23.test('23.2 authorityPortalApprovalGate validates maxRequestsPerHour when defined', () => {
+            const validApproval = {
+                authorityCode: 'HSVP',
+                status: 'GRANTED',
+                accessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                writtenPermissionReference: 'HSVP/IT/2026/001',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://hsvphry.org.in/Terms#review',
+                approvedBy: 'approver-1',
+                reviewedBy: 'reviewer-2',
+                expiresAt: '2028-01-01T00:00:00.000Z',
+                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerHour: 50,
+                    maxRequestsPerDay: 500,
+                    minimumIntervalMs: 30000,
+                    maxConcurrentRequests: 1,
+                    policyReference: 'HSVP/RATE/01'
+                }
+            };
+
+            // Valid hourly passes
+            assert.doesNotThrow(() => {
+                assertAuthorityPortalApproval({
+                    authorityCode: 'HSVP',
+                    approval: validApproval,
+                    gate: { enabled: true, readOnly: true, requireApprovedRatePolicy: true }
+                });
+            });
+
+            // Invalid hourly fails
+            const invalidApproval = {
+                ...validApproval,
+                ratePolicy: {
+                    ...validApproval.ratePolicy,
+                    maxRequestsPerHour: -5 // Invalid!
+                }
+            };
+            assert.throws(() => {
+                assertAuthorityPortalApproval({
+                    authorityCode: 'HSVP',
+                    approval: invalidApproval,
+                    gate: { enabled: true, readOnly: true, requireApprovedRatePolicy: true }
+                });
+            }, /APPROVED_RATE_POLICY_MISSING/);
+        });
+    });
+
+    // =========================================================================
+    // Finding 24: Lease-Loss / Fence Validation Through Persistence (P1)
+    // =========================================================================
+    await t.test('24. Lease-Loss / Fence Validation Through Persistence (P1)', async (t24) => {
+        await t24.test('24.1 Parser blocks, lock renewal fails during parse => throws PORTAL_LOCK_OWNERSHIP_LOST', async () => {
+            let leaseRenewFails = false;
+            const mockLease = {
+                acquired: true,
+                token: 'tok-1',
+                fenceToken: 1,
+                ttlMs: 50,
+                renew: async () => !leaseRenewFails,
+                release: async () => {}
+            };
+            const mockLockProvider = {
+                acquire: async () => mockLease,
+                isCurrentFenceToken: async () => !leaseRenewFails
+            };
+
+            const slowParser = {
+                parse: async () => {
+                    // Simulate lease being lost during parse
+                    leaseRenewFails = true;
+                    return [{ propertyId: '123' }];
+                }
+            };
+
+            const runtime = createAuthorityPortalRuntime({
+                lockProvider: mockLockProvider,
+                quotaProvider: { reserve: async () => ({ allowed: true }) },
+                circuitBreakerStore: { isPaused: async () => false, pause: async () => {} },
+                transport: { search: async () => ({ status: 200, contentType: 'text/html', body: '<html>OK</html>' }) },
+                parserRegistry: { HSVP: slowParser },
+                auditSink: { write: async () => {} },
+                gateConfig: { enabled: true, readOnly: true }
+            });
+
+            const validApproval = {
+                authorityCode: 'HSVP',
+                status: 'GRANTED',
+                accessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                writtenPermissionReference: 'HSVP/IT/2026/001',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://hsvphry.org.in/Terms#review',
+                approvedBy: 'approver-1',
+                reviewedBy: 'reviewer-2',
+                expiresAt: '2028-01-01T00:00:00.000Z',
+                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 500,
+                    minimumIntervalMs: 1000,
+                    maxConcurrentRequests: 1,
+                    policyReference: 'HSVP/RATE/01'
+                }
+            };
+
+            await assert.rejects(async () => {
+                await runtime.search({
+                    authorityCode: 'HSVP',
+                    inventory: { propertyId: '123', sector: '14', city: 'Gurugram', urbanEstate: 'Gurugram' },
+                    approval: validApproval
+                });
+            }, (err) => {
+                assert.equal(err.code, 'PORTAL_LOCK_OWNERSHIP_LOST');
+                return true;
+            });
+        });
+
+        await t24.test('24.2 Audit failure at final boundary aborts fail-closed and returns no result', async () => {
+            const mockLease = {
+                acquired: true,
+                token: 'tok-audit',
+                fenceToken: 1,
+                ttlMs: 30000,
+                renew: async () => true,
+                release: async () => {}
+            };
+            const mockLockProvider = {
+                acquire: async () => mockLease,
+                isCurrentFenceToken: async () => true
+            };
+
+            let auditCount = 0;
+            const failingAuditSink = {
+                write: async (evt) => {
+                    auditCount++;
+                    // Fail on final search completed audit
+                    if (evt.eventType === 'AUTHORITY_PORTAL_SEARCH_COMPLETED') {
+                        throw new Error('DATABASE_CONNECTION_LOST');
+                    }
+                }
+            };
+
+            const runtime = createAuthorityPortalRuntime({
+                lockProvider: mockLockProvider,
+                quotaProvider: { reserve: async () => ({ allowed: true }) },
+                circuitBreakerStore: { isPaused: async () => false, pause: async () => {} },
+                transport: { search: async () => ({ status: 200, contentType: 'text/html', body: '<html>OK</html>' }) },
+                parserRegistry: { HSVP: { parse: async () => [{ propertyId: '123' }] } },
+                auditSink: failingAuditSink,
+                gateConfig: { enabled: true, readOnly: true }
+            });
+
+            const validApproval = {
+                authorityCode: 'HSVP',
+                status: 'GRANTED',
+                accessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                writtenPermissionReference: 'HSVP/IT/2026/001',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://hsvphry.org.in/Terms#review',
+                approvedBy: 'approver-1',
+                reviewedBy: 'reviewer-2',
+                expiresAt: '2028-01-01T00:00:00.000Z',
+                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 500,
+                    minimumIntervalMs: 1000,
+                    maxConcurrentRequests: 1,
+                    policyReference: 'HSVP/RATE/01'
+                }
+            };
+
+            await assert.rejects(async () => {
+                await runtime.search({
+                    authorityCode: 'HSVP',
+                    inventory: { propertyId: '123', sector: '14', city: 'Gurugram', urbanEstate: 'Gurugram' },
+                    approval: validApproval
+                });
+            }, (err) => {
+                assert.equal(err.code, 'PORTAL_AUDIT_WRITE_FAILED');
+                return true;
+            });
+        });
+    });
+
+    // =========================================================================
+    // Finding 25: Mandatory maxConcurrent in Every Approval Submission (P1)
+    // =========================================================================
+    await t.test('25. Mandatory maxConcurrent in Every Approval Submission (P1)', async (t25) => {
+        const tenantId = new mongoose.Types.ObjectId();
+        const userId = new mongoose.Types.ObjectId();
+
+        // Seed existing setting with maxConcurrent = 1
+        await AuthoritySourceSettings.create({
+            tenantId,
+            authorityCode: 'GMADA',
+            permissionStatus: 'NOT_OBTAINED',
+            reviewStatus: 'NOT_REVIEWED',
+            evidenceVersion: 1,
+            ratePolicy: {
+                maxRequestsPerMinute: 2,
+                maxRequestsPerDay: 100,
+                minIntervalMs: 1000,
+                maxConcurrent: 1,
+                policySource: 'OLD_EVIDENCE'
+            }
+        });
+
+        // 25.1 Omission of maxConcurrent in new submission MUST BE REJECTED (does not inherit old value)
+        const { req: reqOmitted, res: resOmitted } = createMockReqRes({
+            user: { _id: userId, tenantId },
+            params: { authorityCode: 'GMADA' },
+            body: {
+                approvalReference: 'NEW_REF_2026',
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 100,
+                    minIntervalMs: 1000,
+                    policySource: 'NEW_EVIDENCE'
+                    // maxConcurrent OMITTED!
+                }
+            }
+        });
+        await submitSourceApproval(reqOmitted, resOmitted);
+        assert.equal(resOmitted.getStatusCode(), 422);
+        assert.equal(resOmitted.getData().code, 'INVALID_RATE_POLICY');
+
+        // 25.2 Invalid maxConcurrent (0, -1, 1.5, NaN-like string) MUST BE REJECTED
+        for (const badValue of [0, -1, 1.5, 'invalid', null]) {
+            const { req: reqBad, res: resBad } = createMockReqRes({
+                user: { _id: userId, tenantId },
+                params: { authorityCode: 'GMADA' },
+                body: {
+                    approvalReference: 'NEW_REF_2026',
+                    ratePolicy: {
+                        maxRequestsPerMinute: 2,
+                        maxRequestsPerDay: 100,
+                        minIntervalMs: 1000,
+                        maxConcurrent: badValue,
+                        policySource: 'NEW_EVIDENCE'
+                    }
+                }
+            });
+            await submitSourceApproval(reqBad, resBad);
+            assert.equal(resBad.getStatusCode(), 422, `Value ${badValue} must be rejected with 422`);
+            assert.equal(resBad.getData().code, 'INVALID_RATE_POLICY');
+        }
+
+        // 25.3 Explicit positive integer 1 MUST BE ACCEPTED
+        const { req: reqValid, res: resValid } = createMockReqRes({
+            user: { _id: userId, tenantId },
+            params: { authorityCode: 'GMADA' },
+            body: {
+                approvalReference: 'NEW_REF_2026',
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 100,
+                    minIntervalMs: 1000,
+                    maxConcurrent: 1,
+                    policySource: 'NEW_EVIDENCE'
+                }
+            }
+        });
+        await submitSourceApproval(reqValid, resValid);
+        assert.equal(resValid.getStatusCode(), 200);
+        assert.equal(resValid.getData().success, true);
+        assert.equal(resValid.getData().data.ratePolicy.maxConcurrent, 1);
+    });
+
+    // =========================================================================
+    // Finding 26: Canonical Authority-Global Quota Policy (P1)
+    // =========================================================================
+    await t.test('26. Canonical Authority-Global Quota Policy (P1)', async (t26) => {
+        const quotaProvider = new RedisPortalQuotaProvider(null, { testMode: true });
+
+        const canonicalPolicy = {
+            maxRequestsPerMinute: 1,
+            maxRequestsPerDay: 50,
+            minimumIntervalMs: 500,
+            policyReference: 'APPROVED_CANONICAL_POLICY_V1'
+        };
+
+        const at = new Date();
+        // Tenant A initializes canonical policy
+        const r1 = await quotaProvider.reserve({
+            authorityCode: 'HSVP',
+            tenantId: 'tenant-a',
+            policy: canonicalPolicy,
+            at
+        });
+        assert.equal(r1.allowed, true);
+
+        // Tenant B attempts to submit 5/min: MUST BE REJECTED with RATE_LIMIT_ELEVATION_REJECTED
+        const elevatedPolicy = {
+            maxRequestsPerMinute: 5, // Tries to raise ceiling
+            maxRequestsPerDay: 50,
+            minimumIntervalMs: 500,
+            policyReference: 'APPROVED_CANONICAL_POLICY_V1'
+        };
+
+        const r2 = await quotaProvider.reserve({
+            authorityCode: 'HSVP',
+            tenantId: 'tenant-b',
+            policy: elevatedPolicy,
+            at: new Date(at.getTime() + 600)
+        });
+        assert.equal(r2.allowed, false);
+        assert.equal(r2.reason, 'RATE_LIMIT_ELEVATION_REJECTED');
+
+        // Tenant C submits mismatched policyReference: MUST BE REJECTED with POLICY_VERSION_MISMATCH
+        const mismatchedPolicy = {
+            maxRequestsPerMinute: 1,
+            maxRequestsPerDay: 50,
+            minimumIntervalMs: 500,
+            policyReference: 'DIFFERENT_UNAPPROVED_POLICY'
+        };
+
+        const r3 = await quotaProvider.reserve({
+            authorityCode: 'HSVP',
+            tenantId: 'tenant-c',
+            policy: mismatchedPolicy,
+            at: new Date(at.getTime() + 600)
+        });
+        assert.equal(r3.allowed, false);
+        assert.equal(r3.reason, 'POLICY_VERSION_MISMATCH');
     });
 });

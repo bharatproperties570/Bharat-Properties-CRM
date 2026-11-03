@@ -98,10 +98,13 @@ export function evaluateAuthorityPortalApproval({
         }
 
         const rate = approval.ratePolicy || {};
+        const hourlyOk = rate.maxRequestsPerHour === undefined || rate.maxRequestsPerHour === null
+            || (Number.isFinite(Number(rate.maxRequestsPerHour)) && Number(rate.maxRequestsPerHour) > 0);
         const hasRatePolicy = Number.isFinite(rate.maxRequestsPerMinute) && rate.maxRequestsPerMinute > 0
             && Number.isFinite(rate.maxRequestsPerDay) && rate.maxRequestsPerDay > 0
             && Number.isFinite(rate.minimumIntervalMs) && rate.minimumIntervalMs > 0
             && Number(rate.maxConcurrentRequests) === 1
+            && hourlyOk
             && Boolean(String(rate.policyReference || '').trim());
         if (gate?.requireApprovedRatePolicy && !hasRatePolicy) {
             blockers.push(makeBlocker('APPROVED_RATE_POLICY_MISSING', 'Authority-defined requests/minute, requests/day, minimum interval, one-worker concurrency, and policy reference are required.'));

@@ -3,7 +3,7 @@
  *
  * Enforces authority-defined rate policies and daily quotas.
  * In production mode, strictly uses atomic Redis reservation (fail-closed).
- * Eliminates invented defaults; requires an explicit approved policy.
+ * Enforces authority-wide limits, Asia/Kolkata day/hour rollover, and canonical policy pinning.
  */
 
 import crypto from 'node:crypto';
@@ -21,11 +21,13 @@ export class RedisPortalQuotaProvider {
         this._minuteCounts = new Map();
         this._hourCounts = new Map();
         this._dailyCounts = new Map();
+        this._canonicalPolicies = new Map();
     }
 
     /**
      * Reserves quota for a single physical request.
-     * Enforces rate policy authority-wide across all tenants, with IST day/hour rollover.
+     * Enforces rate policy authority-wide across all tenants, with IST day/hour rollover
+     * and canonical policy enforcement.
      * @param {object} args
      * @param {string} args.authorityCode
      * @param {string} [args.searchKey]
@@ -44,6 +46,7 @@ export class RedisPortalQuotaProvider {
         const maxPerMin = Number(pol.maxRequestsPerMinute);
         const maxPerHour = Number(pol.maxRequestsPerHour);
         const maxPerDay = Number(pol.maxRequestsPerDay);
+        const policyRef = String(pol.policyReference || pol.policySource || 'CANONICAL_POLICY').trim();
 
         const hasValidPolicy = (Number.isFinite(minIntervalMs) && minIntervalMs > 0) &&
             ((Number.isFinite(maxPerMin) && maxPerMin > 0) || (Number.isFinite(maxPerHour) && maxPerHour > 0) || (Number.isFinite(maxPerDay) && maxPerDay > 0));
@@ -74,6 +77,7 @@ export class RedisPortalQuotaProvider {
                     const minKey = `quota:min:${scopeKey}:${minuteKey}`;
                     const hrKey = `quota:hour:${scopeKey}:${hourKey}`;
                     const dyKey = `quota:day:${scopeKey}:${dayKey}`;
+                    const canKey = `quota:canonical:${scopeKey}`;
 
                     const luaScript = `
                         local lastReq = redis.call('get', KEYS[1])
@@ -82,6 +86,42 @@ export class RedisPortalQuotaProvider {
                         local maxPerMin = tonumber(ARGV[3])
                         local maxPerHour = tonumber(ARGV[4])
                         local maxPerDay = tonumber(ARGV[5])
+                        local policyRef = ARGV[6]
+
+                        -- Canonical authority-global policy verification (Finding P1)
+                        local canRef = redis.call('hget', KEYS[5], 'ref')
+                        if not canRef then
+                            redis.call('hset', KEYS[5],
+                                'ref', policyRef,
+                                'minIntervalMs', ARGV[2],
+                                'maxPerMin', ARGV[3],
+                                'maxPerHour', ARGV[4],
+                                'maxPerDay', ARGV[5]
+                            )
+                            redis.call('expire', KEYS[5], 86400)
+                        else
+                            local canMin = tonumber(redis.call('hget', KEYS[5], 'maxPerMin') or '0')
+                            local canHour = tonumber(redis.call('hget', KEYS[5], 'maxPerHour') or '0')
+                            local canDay = tonumber(redis.call('hget', KEYS[5], 'maxPerDay') or '0')
+                            local canInterval = tonumber(redis.call('hget', KEYS[5], 'minIntervalMs') or '0')
+
+                            if canRef ~= policyRef then
+                                return {0, 'POLICY_VERSION_MISMATCH', '0'}
+                            end
+
+                            if canMin > 0 and maxPerMin > canMin then
+                                return {0, 'RATE_LIMIT_ELEVATION_REJECTED', '0'}
+                            end
+                            if canHour > 0 and maxPerHour > canHour then
+                                return {0, 'RATE_LIMIT_ELEVATION_REJECTED', '0'}
+                            end
+                            if canDay > 0 and maxPerDay > canDay then
+                                return {0, 'RATE_LIMIT_ELEVATION_REJECTED', '0'}
+                            end
+                            if canInterval > 0 and minIntervalMs < canInterval then
+                                return {0, 'RATE_LIMIT_ELEVATION_REJECTED', '0'}
+                            end
+                        end
 
                         if lastReq then
                             local diff = nowMs - tonumber(lastReq)
@@ -122,7 +162,7 @@ export class RedisPortalQuotaProvider {
                         end
                         if maxPerDay > 0 then
                             redis.call('incr', KEYS[4])
-                            redis.call('expire', KEYS[4], 90000)
+                            redis.call('expire', KEYS[4], 172800)
                         end
 
                         return {1, 'OK', '0'}
@@ -130,16 +170,18 @@ export class RedisPortalQuotaProvider {
 
                     const res = await this.redisClient.eval(
                         luaScript,
-                        4,
+                        5,
                         lastKey,
                         minKey,
                         hrKey,
                         dyKey,
+                        canKey,
                         String(nowMs),
                         String(minIntervalMs),
                         String(maxPerMin || 0),
                         String(maxPerHour || 0),
-                        String(maxPerDay || 0)
+                        String(maxPerDay || 0),
+                        policyRef
                     );
 
                     if (Array.isArray(res) && res[0] === 1) {
@@ -176,6 +218,48 @@ export class RedisPortalQuotaProvider {
         }
 
         // Local In-Memory Fallback (for unit tests only)
+        const canonical = this._canonicalPolicies.get(scopeKey);
+        if (!canonical) {
+            this._canonicalPolicies.set(scopeKey, {
+                ref: policyRef,
+                minIntervalMs,
+                maxPerMin,
+                maxPerHour,
+                maxPerDay
+            });
+        } else {
+            if (canonical.ref !== policyRef) {
+                return Object.freeze({
+                    allowed: false,
+                    reason: 'POLICY_VERSION_MISMATCH'
+                });
+            }
+            if (canonical.maxPerMin > 0 && maxPerMin > canonical.maxPerMin) {
+                return Object.freeze({
+                    allowed: false,
+                    reason: 'RATE_LIMIT_ELEVATION_REJECTED'
+                });
+            }
+            if (canonical.maxPerHour > 0 && maxPerHour > canonical.maxPerHour) {
+                return Object.freeze({
+                    allowed: false,
+                    reason: 'RATE_LIMIT_ELEVATION_REJECTED'
+                });
+            }
+            if (canonical.maxPerDay > 0 && maxPerDay > canonical.maxPerDay) {
+                return Object.freeze({
+                    allowed: false,
+                    reason: 'RATE_LIMIT_ELEVATION_REJECTED'
+                });
+            }
+            if (canonical.minIntervalMs > 0 && minIntervalMs < canonical.minIntervalMs) {
+                return Object.freeze({
+                    allowed: false,
+                    reason: 'RATE_LIMIT_ELEVATION_REJECTED'
+                });
+            }
+        }
+
         const lastReq = this._lastRequestAt.get(scopeKey) || 0;
         if (nowMs - lastReq < minIntervalMs) {
             return Object.freeze({
@@ -229,6 +313,7 @@ export class RedisPortalQuotaProvider {
         this._minuteCounts.clear();
         this._hourCounts.clear();
         this._dailyCounts.clear();
+        this._canonicalPolicies.clear();
     }
 }
 

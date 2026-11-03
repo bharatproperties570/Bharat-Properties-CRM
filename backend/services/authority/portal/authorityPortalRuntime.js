@@ -176,10 +176,13 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 throw makeError('PORTAL_VERIFIED_PARSER_MISSING', 'No verified parser is registered for this portal.');
             }
 
+            const maxConcurrent = approval.ratePolicy?.maxConcurrentRequests
+                || approval.ratePolicy?.maxConcurrent
+                || 1;
             const lease = await lockProvider.acquire({
-                key: `authority-portal:${code}`,
-                searchKey,
+                key: `portal_lock:${code}`,
                 authorityCode: code,
+                maxConcurrent,
                 tenantId: correlation.tenantId
             });
             if (!lease || lease.acquired !== true || typeof lease.release !== 'function') {
@@ -188,6 +191,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 });
             }
 
+            let isRenewing = false;
             let renewalInterval = null;
             let lockLost = false;
             let lockLostError = null;
@@ -195,6 +199,8 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
             if (typeof lease.renew === 'function') {
                 const renewPeriodMs = Math.max(50, Math.floor((lease.ttlMs || 30000) / 3));
                 renewalInterval = setInterval(async () => {
+                    if (isRenewing || lockLost) return;
+                    isRenewing = true;
                     try {
                         const renewed = await lease.renew();
                         if (!renewed) {
@@ -208,6 +214,8 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                         lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', `Distributed portal lock renewal failed: ${err.message}`, {
                             authorityCode: code
                         });
+                    } finally {
+                        isRenewing = false;
                     }
                 }, renewPeriodMs);
                 if (renewalInterval && typeof renewalInterval.unref === 'function') {
@@ -321,6 +329,20 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     });
                 }
 
+                // Actively verify lease ownership after parser completion
+                if (typeof lease.renew === 'function') {
+                    const stillOwned = await lease.renew();
+                    if (!stillOwned) {
+                        lockLost = true;
+                        lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost after parser completion.', {
+                            authorityCode: code
+                        });
+                    }
+                }
+                if (lockLost) {
+                    throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost after parser completion.', { authorityCode: code });
+                }
+
                 if (!Array.isArray(parsed)) {
                     throw makeError('PORTAL_PARSER_CONTRACT_INVALID', 'Portal parser must return an array of record objects.');
                 }
@@ -330,6 +352,29 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
 
                 const records = parsed.map((record) => sanitizeAuthorityPortalRecord(record, approval.permittedFields));
                 const contentHash = createAuthorityPortalContentHash(records);
+
+                // Verify lease ownership immediately before writing completed audit
+                if (lockLost) {
+                    throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost before audit completion.', { authorityCode: code });
+                }
+
+                try {
+                    await writeAudit('AUTHORITY_PORTAL_SEARCH_COMPLETED', code, searchKey, {
+                        recordCount: records.length,
+                        contentHash,
+                        parserVersion: parser.version || null
+                    }, correlation);
+                } catch (auditErr) {
+                    throw makeError('PORTAL_AUDIT_WRITE_FAILED', `Audit write failed at final boundary; aborting: ${auditErr.message}`, {
+                        authorityCode: code
+                    });
+                }
+
+                // Verify lease ownership was not lost during audit write
+                if (lockLost) {
+                    throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during audit completion.', { authorityCode: code });
+                }
+
                 const result = Object.freeze({
                     authorityCode: code,
                     sourceHost: host,
@@ -340,18 +385,18 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     records: Object.freeze(records),
                     contentHash,
                     fenceToken: lease.fenceToken ?? null,
+                    isCurrentFence: async () => {
+                        if (typeof lockProvider.isCurrentFenceToken === 'function') {
+                            return await lockProvider.isCurrentFenceToken(code, lease.fenceToken);
+                        }
+                        return true;
+                    },
                     provenance: 'LIVE',
                     isSynthetic: false,
                     requiresHumanReview: true,
                     isApplied: false,
                     rawPortalResponsePersisted: false
                 });
-
-                await writeAudit('AUTHORITY_PORTAL_SEARCH_COMPLETED', code, searchKey, {
-                    recordCount: records.length,
-                    contentHash,
-                    parserVersion: parser.version || null
-                }, correlation);
 
                 return result;
             } catch (error) {
