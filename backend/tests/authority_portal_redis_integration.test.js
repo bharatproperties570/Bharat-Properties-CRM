@@ -1217,7 +1217,12 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             submittedBy: new mongoose.Types.ObjectId(),
             approvedBy: approverId,
             reviewedBy: reviewerId,
-            permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+            permittedFields: [
+                'propertyId', 'sectorNumber', 'urbanEstate', 'propertyCategory',
+                'propertyType', 'area', 'authorityStatus', 'allotmentDate',
+                'allotmentPrice', 'totalPaid', 'currentDues', 'possessionDate',
+                'litigationStatus', 'buildingPlanApproved', 'occupancyCertificate'
+            ],
             reviewStatus: 'APPROVED',
             isEnabled: true,
             contractVerificationStatus: 'VERIFIED_CONTRACT',
@@ -1236,9 +1241,11 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const inv = await Inventory.create({
             tenantId,
             title: 'HSVP Offline E2E Plot',
-            propertyId: '101',
+            propertyId: '1234',
+            unitNo: '1234',
             sector: '14',
-            city: 'Gurugram',
+            city: 'UE001-Faridabad',
+            urbanEstate: 'UE001-Faridabad',
             status: 'AVAILABLE'
         });
 
@@ -1246,10 +1253,10 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             tenantId,
             inventoryId: inv._id,
             authorityCode,
-            propertyId: '101',
+            propertyId: '1234',
             sectorNumber: '14',
-            urbanEstate: 'Gurugram',
-            compositeKey: 'HSVP:GURUGRAM:14:101',
+            urbanEstate: 'UE001-Faridabad',
+            compositeKey: 'HSVP:UE001-FARIDABAD:14:1234',
             identityVerified: true,
             matchEligibility: 'ELIGIBLE',
             createdBy: new mongoose.Types.ObjectId()
@@ -1273,20 +1280,38 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             async search() {
                 liveNetworkCalls++;
                 // Deterministic offline HTML response matching HSVP Plot Status Enquiry
-                const mockHtml = `
-                    <html><body>
-                    <table class="table">
-                        <tr><th>Plot No</th><td>101</td></tr>
-                        <tr><th>Sector</th><td>14</td></tr>
-                        <tr><th>Urban Estate</th><td>Gurugram</td></tr>
-                        <tr><th>Status</th><td>ALLOTTED</td></tr>
-                    </table>
-                    </body></html>
-                `;
+                const mockHtml = `<!DOCTYPE html>
+<html>
+<head><title>HSVP - Plot Status Enquiry Details</title></head>
+<body>
+    <form id="enquiryForm" action="/Home/PlotStatusEnquiry" method="post"></form>
+    <div id="detailsPanel">
+        <h3>Plot Status Details</h3>
+        <table class="table table-bordered">
+            <tr><th>Plot No</th><td>1234</td></tr>
+            <tr><th>Sector</th><td>Sector 14</td></tr>
+            <tr><th>Urban Estate</th><td>UE001-Faridabad</td></tr>
+            <tr><th>Category</th><td>Residential</td></tr>
+            <tr><th>Sub Category</th><td>14 Marla</td></tr>
+            <tr><th>Area</th><td>350 Sq.Yds</td></tr>
+            <tr><th>Plot Status</th><td>Allotted</td></tr>
+            <tr><th>Allotment Date</th><td>15/08/2012</td></tr>
+            <tr><th>Allotment Price</th><td>2500000</td></tr>
+            <tr><th>Total Amount Paid</th><td>2500000</td></tr>
+            <tr><th>Current Dues</th><td>0</td></tr>
+            <tr><th>Physical Possession Date</th><td>20/12/2014</td></tr>
+            <tr><th>Litigation Status</th><td>Clear / No Case</td></tr>
+            <tr><th>Building Plan Approved</th><td>Yes (2016)</td></tr>
+            <tr><th>Occupancy Certificate</th><td>Issued (2018)</td></tr>
+            <tr><th>Allottee Name</th><td>[REDACTED CITIZEN NAME]</td></tr>
+        </table>
+    </div>
+</body>
+</html>`;
                 return {
                     status: 200,
                     headers: { 'content-type': 'text/html' },
-                    finalUrl: 'https://hsvphry.org.in/PlotStatus',
+                    finalUrl: 'https://hsvphry.org.in/Home/PlotStatusEnquiry',
                     redirected: false,
                     location: '',
                     body: mockHtml
