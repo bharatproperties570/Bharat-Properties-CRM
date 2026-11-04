@@ -82,6 +82,12 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
                 });
                 redisClient2.on('error', () => {});
                 await redisClient2.connect();
+
+                // Clean up any stale keys from previous runs
+                const initialKeys = await redisClient.keys('*portal*');
+                if (initialKeys.length > 0) await redisClient.del(...initialKeys);
+                const initialQuotaKeys = await redisClient.keys('quota:*');
+                if (initialQuotaKeys.length > 0) await redisClient.del(...initialQuotaKeys);
             }
         } catch {
             isRedisAvailable = false;
@@ -625,6 +631,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         assert.equal(typeof runtime.initializeCanonicalPolicy, 'function', 'runtime must expose initializeCanonicalPolicy helper');
 
         // Prime canonical policy through configured runtime
+        await redisClient.del('quota:canonical:HSVP');
         const canonicalRef = 'HSVP_CANONICAL_CONFIGURED_TEST';
         const contentHash = AuthorityCanonicalPolicy.computeContentHash({
             policyReference: canonicalRef,
@@ -678,6 +685,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         });
 
         const authorityCode = 'CHD';
+        await redisClient.del(`quota:canonical:${authorityCode}`);
         const canonicalRef = 'CHD_OFFICIAL_INTEGRATION_2026';
         const contentHash = AuthorityCanonicalPolicy.computeContentHash({
             policyReference: canonicalRef,
@@ -1710,6 +1718,15 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         if (!isRedisAvailable) {
             t.skip('Redis service container not available; skipping real Redis publication ordering test.');
             return;
+        }
+
+        if (!mongoServer) {
+            mongoServer = await MongoMemoryServer.create();
+            const uri = mongoServer.getUri();
+            if (mongoose.connection.readyState !== 0) {
+                await mongoose.disconnect();
+            }
+            await mongoose.connect(uri);
         }
 
         const authorityCode = 'HSVP';
