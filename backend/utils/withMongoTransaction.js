@@ -24,9 +24,8 @@ export const withMongoTransaction = async (callback, options = {}) => {
 
     // Disconnected / unavailable transaction check
     const isConnected = Boolean(mongoose.connection && mongoose.connection.readyState === 1);
-    const isMockedSession = typeof mongoose.startSession === 'function' && mongoose.startSession !== mongoose.Mongoose?.prototype?.startSession;
 
-    if (!isConnected && !isMockedSession) {
+    if (!isConnected) {
         const isProductionOrStaging = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
         const allowFallback = process.env.ALLOW_TRANSACTION_TEST_FALLBACK === 'true';
 

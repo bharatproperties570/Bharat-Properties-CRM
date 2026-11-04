@@ -113,8 +113,8 @@ async function runFeedbackTests() {
 
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(res.body.success, true);
-        assert.strictEqual(res.body.data.leadInfo.name, 'Vikram Malhotra');
-        assert.strictEqual(res.body.data.leadInfo.mobile, '+91 9876543210');
+        assert.strictEqual(res.body.data.leadInfo.greetingName, 'Vikram');
+        assert.strictEqual(res.body.data.leadInfo.mobile, undefined);
         assert.strictEqual(res.body.data.activityInfo.projectName, 'Godrej Woods');
         assert.strictEqual(res.body.data.activityInfo.visitedProperties.length, 1);
         assert.strictEqual(res.body.data.activityInfo.visitedProperties[0].property, 'Unit 1402');

@@ -53,6 +53,7 @@ NurtureBot.executeAutomation = async () => {};
 
 // Save original Mongoose primitives for genuine replica-set testing
 const originalMongooseStartSession = mongoose.startSession;
+const originalMongooseReadyState = mongoose.connection ? mongoose.connection.readyState : 0;
 const originalFeedbackFormFindOne = FeedbackForm.findOne;
 const originalFeedbackFormCreate = FeedbackForm.create;
 const originalFeedbackFormFindById = FeedbackForm.findById;
@@ -81,6 +82,13 @@ const originalOutboxEventCountDocuments = OutboxEvent.countDocuments;
 
 function restoreOriginalMongoosePrimitives() {
     mongoose.startSession = originalMongooseStartSession;
+    if (mongoose.connection) {
+        Object.defineProperty(mongoose.connection, 'readyState', {
+            value: originalMongooseReadyState,
+            configurable: true,
+            writable: true
+        });
+    }
     FeedbackForm.findOne = originalFeedbackFormFindOne;
     FeedbackForm.create = originalFeedbackFormCreate;
     FeedbackForm.findById = originalFeedbackFormFindById;
@@ -120,6 +128,14 @@ const createMockSession = () => {
     return session;
 };
 mongoose.startSession = async () => createMockSession();
+if (!mongoose.connection) {
+    mongoose.connection = {};
+}
+Object.defineProperty(mongoose.connection, 'readyState', {
+    value: 1,
+    configurable: true,
+    writable: true
+});
 
 let passedTests = 0;
 let totalTests = 0;

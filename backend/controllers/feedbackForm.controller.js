@@ -274,23 +274,12 @@ export const getFormBySlug = async (req, res, next) => {
             }
 
             if (claims.leadId && mongoose.Types.ObjectId.isValid(claims.leadId)) {
-                const lead = await Lead.findById(claims.leadId).select('firstName lastName email mobile companyName').lean();
+                const lead = await Lead.findById(claims.leadId).select('firstName companyName').lean();
                 if (lead) {
-                    const fullName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || lead.companyName || 'Valued Client';
-                    const greetingName = lead.firstName || lead.companyName || 'Valued Client';
-                    if (claims.purpose === 'general_feedback' || !claims.activityId) {
-                        // Strict PII protection for general / lead-only feedback
-                        leadInfo = { greetingName };
-                    } else {
-                        // Activity-bound Site Visit feedback
-                        leadInfo = {
-                            _id: lead._id,
-                            name: fullName,
-                            firstName: lead.firstName || '',
-                            greetingName,
-                            mobile: lead.mobile || lead.phone || ''
-                        };
-                    }
+                    // Return ONLY safe greeting name. NEVER expose email, mobile, or raw lead documents
+                    leadInfo = {
+                        greetingName: lead.firstName || lead.companyName || 'Valued Client'
+                    };
                 }
             }
 
