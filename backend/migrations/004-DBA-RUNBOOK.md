@@ -45,8 +45,8 @@
    8. `expiresAt`: Expiration timestamp ($\le 5$ minutes TTL).
    9. `purpose` & `auditRef`: Operational rationale and change-management RFC/ticket reference.
 
-5. **Durable Anti-Replay Ledger & Lock Recovery TOCTOU Elimination (DEF-02, DEF-06, DEF-07, DEF-08, DEF-09):**
-   - **Filesystem Assumptions & Hard-Link Support:** The durable ledger, lockfile (`.lock`), claim coordinator (`.claim`), and temporary staging files (`.recovering.*`, `.releasing.*`) strictly assume a standard POSIX filesystem (e.g. ext4, XFS, APFS) supporting atomic hard links (`link(2)`) and atomic renames (`rename(2)`). All lock, claim, and disposal paths reside in the exact same directory on the same filesystem/mount point to prevent cross-device link errors (`EXDEV`).
+5. **Durable Anti-Replay Ledger & Lock Recovery TOCTOU Elimination (DEF-02, DEF-06, DEF-07, DEF-08, DEF-09, DEF-10):**
+   - **Filesystem Assumptions & Hard-Link Support:** The durable ledger, lockfile (`.lock`), claim coordinator (`.claim`), supervisor coordinator (`.claim.recovery_supervisor`), and temporary staging files (`.recovering.*`, `.releasing.*`) strictly assume a standard POSIX filesystem (e.g. ext4, XFS, APFS) supporting atomic hard links (`link(2)`) and atomic renames (`rename(2)`). All lock, claim, supervisor, and disposal paths reside in the exact same directory on the same filesystem/mount point to prevent cross-device link errors (`EXDEV`).
    - **Atomic Lock Publication:** Exclusive locks are acquired using POSIX exclusive open (`O_CREAT | O_EXCL` via flag `wx`) with owner-only permissions (`0o600`), atomic metadata writing, recording of file inode (`ino`) and device (`dev`), and synchronous `fsyncSync()`.
    - **Unforgeable Ownership Tokens:** Every lock record contains an unforgeable UUID `ownerToken`, process PID, start time, hostname, and timestamp: `{ ownerToken, pid, processStartTime, hostname, createdAt }`.
    - **Delayed Release Protection:** `_releaseLock()` verifies both inode (`stat.ino === currentLockIno`) and owner token. It renames the lock to a private disposal path before unlinking. If an inode mismatch occurs, it restores via atomic no-clobber `linkSync` and never deletes a competitor's replacement lock.
@@ -68,6 +68,20 @@
        - `_releaseClaim(claimToken)` validates exact claim token and PID. Delayed recovery workers cannot delete or supersede newer claims.
        - Expected `ENOENT` is handled safely; all unexpected stat, read, rename, link, or unlink errors throw sanitized `SECURITY FATAL` exceptions and fail closed.
        - Replacement claims are never removed, and diagnostic artifacts are strictly preserved on disk.
+   - **Atomic Stale Recovery Coordinator Recovery & Zero Temporal Void (DEF-10.1):**
+     - **Four-Tier Exclusive Coordinator Hierarchy:** `lockPath` -> `claimPath` -> `claimRecoveryLockPath` -> `claimRecoverySupervisorPath`.
+     - **Supervisor Coordinator (`${this.claimPath}.recovery_supervisor`):** Before a recovery worker touches `claimRecoveryLockPath`, it must acquire exclusive ownership of the recovery supervisor coordinator via POSIX `openSync(..., 'wx', 0o600)`, verified byte count write, and synchronous `fsyncSync()`.
+     - **Zero Temporal Void Invariant:** Closes the interval where renaming `claimRecoveryLockPath` to a staging path caused both canonical coordinator and claim files to be absent. Under DEF-10.1, `_isClaimActive()` evaluates in strict order:
+       1. `_isClaimRecoverySupervisorActive()`: Held by live supervisor worker.
+       2. `_isClaimRecoveryActive()`: Held by live claim recovery coordinator.
+       3. `_hasActiveInFlightRecovery()`: Scans directory entries for active `.recovering.` and `.releasing.` staging artifacts.
+       4. Canonical `this.claimPath` active check.
+     - **In-Flight Recovery Scanning (`_hasActiveInFlightRecovery()`):** Inspects the directory for staging artifacts matching `*.recovering.*` and `*.releasing.*`. Extracts the recovering/releasing process PID from the filename (`match(/\.(?:recovering|releasing)\.(\d+)/)`) and validates whether that process is currently alive and active on the host. If active, normal acquisition and lock breaking are strictly blocked.
+     - **Safe Replacement Restoration:** If a competitor publishes a replacement coordinator between inspection and rename, exact-instance inode/token verification detects the mismatch and restores the replacement coordinator using atomic no-clobber `fs.linkSync()`.
+   - **Durable Recovery Metadata Persistence (DEF-10.2):**
+     - **Pre-Generation of Recovery Staging Paths:** `claimRecoveryPath` is generated *prior* to opening `claimRecoveryLockPath`. The initial atomic file creation writes complete metadata including `claimRecoveryPath`, verified byte count, and synchronous `fsyncSync()`, completely eliminating intermediate unpersisted windows and swallowed write errors.
+     - **Atomic Fail-Closed Assertion:** If metadata persistence fails at any point, the recovery worker throws a sanitized `SECURITY FATAL` error and aborts immediately without touching or renaming the target claim.
+     - **Atomic Durable Writer (`_writeDurableMetadata`):** Employs isolated temporary files (`.tmp.<pid>.<time>.<uuid>`), mode `0600`, synchronous flush (`fsyncSync`), byte length validation, and atomic POSIX `renameSync` for all durable metadata updates.
    - **Exact-Instance Inode Inspection & Rename (DEF-06):** Prior to renaming a dead lock, the recovery worker inspects `{ ino, dev, ownerToken, pid }`. The lock is renamed to a unique recovery file (`${this.lockPath}.recovering.${process.pid}.${Date.now()}.${uuid}`).
    - **Correct No-Clobber Error Handling & Artifact Safety (DEF-07):**
      - After renaming, the worker verifies that the renamed file matches the inspected inode and ownerToken. If a replacement lock was created between inspection and rename, the worker NEVER uses `renameSync` (which would clobber active locks). Instead, it uses `fs.linkSync(recoveryPath, this.lockPath)`.

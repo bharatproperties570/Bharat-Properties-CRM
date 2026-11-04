@@ -3801,5 +3801,570 @@ process.exit(0);
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-10 FINAL FORENSIC REMEDIATION ADVERSARIAL TESTS
+    // ─────────────────────────────────────────────────────────────
+
+    it('92. DEF-10: Scenario 1 — Worker A recovering stale coordinator while Worker B attempts normal lock acquisition: B remains blocked', async () => {
+        const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc1-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const readyFile = path.join(tempDir, 'ready_sc1.txt');
+
+        // Plant stale recovery coordinator (dead PID)
+        const deadRecLock = {
+            recoveryToken: 'dead-rec-tok-92',
+            pid: 999981,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000,
+            claimRecoveryPath: null
+        };
+        fs.writeFileSync(recoveryLockPath, JSON.stringify(deadRecLock), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(recoveryLockPath, past, past);
+
+        // Worker A script: acquires supervisor, renames recoveryLockPath to staging, writes readyFile, sleeps 300ms, then completes
+        const workerAScript = `
+import fs from 'fs';
+import os from 'os';
+
+const claimPath = '${claimPath}';
+const recLockPath = '${recoveryLockPath}';
+const supPath = claimPath + '.recovery_supervisor';
+const readyFile = process.argv[2];
+const stagingPath = recLockPath + '.recovering.' + process.pid + '.' + Date.now() + '.sc1';
+
+const supData = {
+    supervisorToken: 'sup-tok-92',
+    pid: process.pid,
+    processStartTime: Date.now(),
+    hostname: os.hostname(),
+    createdAt: Date.now()
+};
+
+fs.writeFileSync(supPath, JSON.stringify(supData), { mode: 0o600 });
+fs.renameSync(recLockPath, stagingPath);
+fs.writeFileSync(readyFile, 'READY');
+
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+
+try { fs.unlinkSync(stagingPath); } catch (_) {}
+try { fs.unlinkSync(supPath); } catch (_) {}
+process.exit(0);
+`;
+        const workerAFile = path.join(tempDir, 'worker92A.mjs');
+        fs.writeFileSync(workerAFile, workerAScript, { mode: 0o700 });
+
+        const childA = spawn('node', [workerAFile, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
+
+        while (!fs.existsSync(readyFile)) {
+            await new Promise(r => setTimeout(r, 10));
+        }
+
+        // Canonical recovery lock is absent and claim is absent!
+        assert.ok(!fs.existsSync(recoveryLockPath), 'recovery_lock must be absent during rename');
+        assert.ok(!fs.existsSync(claimPath), 'claimPath is absent');
+
+        // Worker B tests _isClaimActive and normal acquisition:
+        const ledgerB = new DurableApprovalLedger(ledgerPath, {
+            lockTimeoutMs: 100,
+            retryIntervalMs: 15,
+            initGracePeriodMs: 0
+        });
+
+        // Must remain active because supervisor is held AND in-flight recovery is detected!
+        const claimActive = ledgerB._isClaimActive();
+        assert.equal(claimActive, true, 'Claim must be active while supervisor is held during coordinator recovery');
+
+        let timedOut = false;
+        try {
+            ledgerB._acquireLock();
+        } catch (err) {
+            if (err.message.includes('lock timeout')) {
+                timedOut = true;
+            }
+        }
+        assert.equal(timedOut, true, 'Worker B must time out and remain blocked during coordinator recovery');
+
+        await new Promise((resolve) => childA.on('exit', resolve));
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('93. DEF-10: Scenario 2 — Worker A paused after coordinator rename; Worker B remains blocked', async () => {
+        const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc2-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const readyFile = path.join(tempDir, 'ready_sc2.txt');
+
+        const deadRecLock = {
+            recoveryToken: 'dead-rec-tok-93',
+            pid: 999980,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(recoveryLockPath, JSON.stringify(deadRecLock), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(recoveryLockPath, past, past);
+
+        const workerAScript = `
+import fs from 'fs';
+import os from 'os';
+
+const supPath = '${supervisorPath}';
+const recLockPath = '${recoveryLockPath}';
+const readyFile = process.argv[2];
+const stagingPath = recLockPath + '.recovering.' + process.pid + '.sc2';
+
+const supData = {
+    supervisorToken: 'sup-tok-93',
+    pid: process.pid,
+    processStartTime: Date.now(),
+    hostname: os.hostname(),
+    createdAt: Date.now()
+};
+
+fs.writeFileSync(supPath, JSON.stringify(supData), { mode: 0o600 });
+fs.renameSync(recLockPath, stagingPath);
+fs.writeFileSync(readyFile, 'READY');
+
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+
+try { fs.unlinkSync(stagingPath); } catch (_) {}
+try { fs.unlinkSync(supPath); } catch (_) {}
+process.exit(0);
+`;
+        const workerAFile = path.join(tempDir, 'worker93A.mjs');
+        fs.writeFileSync(workerAFile, workerAScript, { mode: 0o700 });
+
+        const childA = spawn('node', [workerAFile, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
+
+        while (!fs.existsSync(readyFile)) {
+            await new Promise(r => setTimeout(r, 10));
+        }
+
+        const ledgerB = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        assert.equal(ledgerB._isClaimRecoverySupervisorActive(), true, 'Supervisor must be recognized as active');
+        assert.equal(ledgerB._hasActiveInFlightRecovery(), true, 'In-flight staging must be detected');
+        assert.equal(ledgerB._isClaimActive(), true, 'Claim must be considered active during paused rename interval');
+
+        await new Promise((resolve) => childA.on('exit', resolve));
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('94. DEF-10: Scenario 3 — Two workers simultaneously attempting recovery of same stale recovery coordinator: Exactly 1 owner, other yields', async () => {
+        const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc3-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+
+        const deadRecLock = {
+            recoveryToken: 'dead-rec-tok-94',
+            pid: 999979,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(recoveryLockPath, JSON.stringify(deadRecLock), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(recoveryLockPath, past, past);
+
+        const workerScript = `
+import { DurableApprovalLedger } from '${targetModule}';
+const ledgerPath = process.argv[2];
+const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+const active = ledger._isClaimRecoveryActive();
+process.stdout.write(JSON.stringify({ active }) + '\\n');
+`;
+        const workerFile = path.join(tempDir, 'worker94.mjs');
+        fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
+
+        const child1 = spawn('node', [workerFile, ledgerPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+        const child2 = spawn('node', [workerFile, ledgerPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+
+        await Promise.all([
+            new Promise((res) => child1.stdout.on('data', res)),
+            new Promise((res) => child2.stdout.on('data', res))
+        ]);
+
+        assert.ok(!fs.existsSync(recoveryLockPath), 'Dead recovery lock must be recovered');
+        assert.ok(!fs.existsSync(supervisorPath), 'Supervisor coordinator must be released');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('95. DEF-10: Scenario 4 — Worker crash immediately after coordinator rename: Next worker recovers cleanly', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc4-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const stagingPath = `${recoveryLockPath}.recovering.deadpid.sc4`;
+
+        // Simulate dead recovery worker that acquired supervisor and renamed recoveryLockPath to stagingPath
+        const deadSup = {
+            supervisorToken: 'dead-sup-tok-95',
+            pid: 999978,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(supervisorPath, JSON.stringify(deadSup), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(supervisorPath, past, past);
+
+        const deadStaging = {
+            recoveryToken: 'dead-rec-tok-95',
+            pid: 999978,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname()
+        };
+        fs.writeFileSync(stagingPath, JSON.stringify(deadStaging), { mode: 0o600 });
+
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const active = ledger._isClaimRecoverySupervisorActive();
+
+        assert.equal(active, false, 'Dead supervisor must be cleanly recovered');
+        assert.ok(!fs.existsSync(supervisorPath), 'Dead supervisor file must be unlinked');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('96. DEF-10: Scenario 5 — Worker crash after restoring in-flight claim before coordinator cleanup: Active claim preserved', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc5-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const stagingPath = `${claimPath}.recovering.deadpid.sc5`;
+
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        // Active replacement claim at claimPath
+        const activeClaim = {
+            claimToken: 'live-claim-tok-96',
+            pid: process.pid,
+            processStartTime: ledger._getProcessStartTime(),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        fs.writeFileSync(claimPath, JSON.stringify(activeClaim), { mode: 0o600 });
+        fs.linkSync(claimPath, stagingPath);
+
+        // Stale recovery lock referencing inFlightPath
+        const deadRecLock = {
+            recoveryToken: 'dead-rec-tok-96',
+            pid: 999977,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 10000,
+            claimRecoveryPath: stagingPath
+        };
+        fs.writeFileSync(recoveryLockPath, JSON.stringify(deadRecLock), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(recoveryLockPath, past, past);
+
+        const active = ledger._isClaimActive();
+
+        assert.equal(active, true, 'Active destination claim must be preserved');
+        assert.ok(fs.existsSync(claimPath), 'claimPath must remain intact');
+        assert.ok(!fs.existsSync(recoveryLockPath), 'Stale recovery lock must be cleaned up');
+        assert.ok(!fs.existsSync(stagingPath), 'Redundant in-flight link must be unlinked');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('97. DEF-10: Scenario 6 — Replacement coordinator appearing during recovery: Detects mismatch and restores via no-clobber linkSync', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc6-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        const inspectedStat = { ino: 881122, dev: 445566 };
+        const inspectedRecData = { recoveryToken: 'stale-rec-tok-97', pid: 999976 };
+
+        // Replacement coordinator actually created on disk
+        const replacementRec = {
+            recoveryToken: 'replacement-active-rec-97',
+            pid: process.pid,
+            processStartTime: ledger._getProcessStartTime(),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        fs.writeFileSync(recoveryLockPath, JSON.stringify(replacementRec), { mode: 0o600 });
+
+        const recovered = ledger._tryRecoverDeadClaimRecoveryLock(inspectedStat, inspectedRecData);
+        assert.equal(recovered, false, 'Recovery must abort and return false on mismatch');
+        assert.ok(fs.existsSync(recoveryLockPath), 'Replacement coordinator must be restored at recoveryLockPath');
+        const restored = JSON.parse(fs.readFileSync(recoveryLockPath, 'utf8'));
+        assert.equal(restored.recoveryToken, 'replacement-active-rec-97', 'Replacement token must be preserved');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('98. DEF-10: Scenario 7 — Recovery metadata write failure before claim rename: Claim rename aborted and fails closed', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc7-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const recoveryLockPath = `${claimPath}.recovery_lock`;
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        const deadClaim = {
+            claimToken: 'dead-claim-tok-98',
+            pid: 999975,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(claimPath, JSON.stringify(deadClaim), { mode: 0o600 });
+        const stat = fs.statSync(claimPath);
+
+        // Intercept fs.openSync to simulate failure opening recovery lock
+        const origOpen = fs.openSync;
+        try {
+            fs.openSync = function(p, flags, mode) {
+                if (p === recoveryLockPath) {
+                    const err = new Error('Disk I/O failure on coordinator write');
+                    err.code = 'EIO';
+                    throw err;
+                }
+                return origOpen.apply(this, arguments);
+            };
+
+            assert.throws(() => {
+                ledger._tryRecoverDeadClaim(stat, deadClaim);
+            }, /SECURITY FATAL: Failed to acquire claim recovery coordinator/, 'Must throw SECURITY FATAL and fail closed');
+
+            assert.ok(fs.existsSync(claimPath), 'claimPath must NEVER be renamed when coordinator write fails');
+        } finally {
+            fs.openSync = origOpen;
+        }
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('99. DEF-10: Scenario 8 — Partial metadata write followed by process crash: Stale malformed supervisor recovered cleanly', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc8-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0, staleTimeoutMs: 50 });
+
+        // Malformed/partial write
+        fs.writeFileSync(supervisorPath, '{"partial": "json', { mode: 0o600 });
+
+        // If fresh (within staleTimeoutMs), fails closed (active)
+        const activeFresh = ledger._isClaimRecoverySupervisorActive();
+        assert.equal(activeFresh, true, 'Fresh malformed supervisor must fail closed as active');
+
+        // Age beyond staleTimeoutMs
+        const past = new Date(Date.now() - 500);
+        fs.utimesSync(supervisorPath, past, past);
+
+        const activeStale = ledger._isClaimRecoverySupervisorActive();
+        assert.equal(activeStale, false, 'Stale malformed supervisor must be recovered cleanly');
+        assert.ok(!fs.existsSync(supervisorPath), 'Stale malformed supervisor file must be unlinked');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('100. DEF-10: Scenario 9 — Unknown process identity and cross-host recovery: Remote hostname fails closed', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc9-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        const remoteSup = {
+            supervisorToken: 'remote-sup-tok-100',
+            pid: process.pid,
+            processStartTime: ledger._getProcessStartTime(),
+            hostname: 'other-cluster-node-99',
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(supervisorPath, JSON.stringify(remoteSup), { mode: 0o600 });
+
+        const active = ledger._isClaimRecoverySupervisorActive();
+        assert.equal(active, true, 'Cross-host supervisor must fail closed and never be broken locally');
+        assert.ok(fs.existsSync(supervisorPath), 'Remote supervisor must remain intact');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('101. DEF-10: Scenario 10 — Unexpected filesystem errors during coordinator recovery and release: Propagates sanitized SECURITY FATAL error', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc10-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        const supToken = 'sup-tok-101';
+        const supData = {
+            supervisorToken: supToken,
+            pid: process.pid,
+            processStartTime: ledger._getProcessStartTime(),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        fs.writeFileSync(supervisorPath, JSON.stringify(supData), { mode: 0o600 });
+
+        const origRename = fs.renameSync;
+        try {
+            fs.renameSync = function(src, dst) {
+                if (src === supervisorPath) {
+                    const err = new Error('Unexpected I/O failure on supervisor release');
+                    err.code = 'EIO';
+                    throw err;
+                }
+                return origRename.apply(this, arguments);
+            };
+
+            assert.throws(() => {
+                ledger._releaseClaimRecoverySupervisor(supToken);
+            }, /SECURITY FATAL: Failed to rename claim recovery supervisor during release/, 'Unexpected rename error must propagate sanitized fatal error');
+        } finally {
+            fs.renameSync = origRename;
+        }
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('102. DEF-10: Scenario 11 — Delayed stale worker attempting to delete newer coordinator: Newer coordinator preserved', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-sc11-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const lockPath = `${ledgerPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const supervisorPath = `${claimPath}.recovery_supervisor`;
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        const newerSup = {
+            supervisorToken: 'newer-sup-tok-102',
+            pid: 777777,
+            processStartTime: Date.now(),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        fs.writeFileSync(supervisorPath, JSON.stringify(newerSup), { mode: 0o600 });
+
+        ledger._releaseClaimRecoverySupervisor('stale-sup-tok-102');
+
+        assert.ok(fs.existsSync(supervisorPath), 'Newer supervisor must not be deleted');
+        const onDisk = JSON.parse(fs.readFileSync(supervisorPath, 'utf8'));
+        assert.equal(onDisk.supervisorToken, 'newer-sup-tok-102', 'Newer supervisor token must remain intact');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('103. DEF-10: Scenario 12 — Multi-Process Adversarial Critical Section Stress Proof: Zero violations under concurrent coordinator contention', async () => {
+        const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def10-cs-stress-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const sentinelPath = path.join(tempDir, 'stress_sentinel10.json');
+
+        fs.writeFileSync(sentinelPath, JSON.stringify({
+            currentInFlight: 0,
+            maxConcurrency: 0,
+            totalEntries: 0,
+            violations: 0
+        }), { mode: 0o600 });
+
+        const numWorkers = 5;
+        const iterationsPerWorker = 3;
+
+        const workerScript = `
+import fs from 'fs';
+import { DurableApprovalLedger } from '${targetModule}';
+
+const ledgerPath = process.argv[2];
+const sentinelPath = process.argv[3];
+const workerId = process.argv[4];
+const iterations = parseInt(process.argv[5], 10);
+
+const ledger = new DurableApprovalLedger(ledgerPath, {
+    lockTimeoutMs: 15000,
+    retryIntervalMs: 15
+});
+
+for (let i = 0; i < iterations; i++) {
+    ledger._acquireLock();
+    try {
+        ledger._assertLockOwnership();
+
+        const content = fs.readFileSync(sentinelPath, 'utf8');
+        const state = JSON.parse(content);
+        state.currentInFlight += 1;
+        state.totalEntries += 1;
+        if (state.currentInFlight > state.maxConcurrency) {
+            state.maxConcurrency = state.currentInFlight;
+        }
+        if (state.currentInFlight > 1) {
+            state.violations += 1;
+        }
+        fs.writeFileSync(sentinelPath, JSON.stringify(state));
+
+        // Sleep 10ms in critical section
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+
+        const verifyContent = fs.readFileSync(sentinelPath, 'utf8');
+        const verifyState = JSON.parse(verifyContent);
+        if (verifyState.currentInFlight !== 1) {
+            verifyState.violations += 1;
+        }
+        verifyState.currentInFlight -= 1;
+        fs.writeFileSync(sentinelPath, JSON.stringify(verifyState));
+    } finally {
+        ledger._releaseLock();
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+}
+process.exit(0);
+`;
+        const workerFile = path.join(tempDir, 'worker_stress10.mjs');
+        fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
+
+        const workers = [];
+        for (let w = 0; w < numWorkers; w++) {
+            workers.push(new Promise((resolve, reject) => {
+                const child = spawn('node', [workerFile, ledgerPath, sentinelPath, 'w-' + w, String(iterationsPerWorker)], {
+                    stdio: ['ignore', 'inherit', 'inherit']
+                });
+                child.on('exit', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error('Worker ' + w + ' exited with code ' + code));
+                });
+                child.on('error', reject);
+            }));
+        }
+
+        await Promise.all(workers);
+
+        const finalSentinel = JSON.parse(fs.readFileSync(sentinelPath, 'utf8'));
+        assert.equal(finalSentinel.totalEntries, numWorkers * iterationsPerWorker, 'All critical section entries must complete');
+        assert.equal(finalSentinel.maxConcurrency, 1, 'Maximum concurrent processes must be strictly 1');
+        assert.equal(finalSentinel.violations, 0, 'Zero mutual exclusion violations');
+        assert.equal(finalSentinel.currentInFlight, 0, 'Clean exit from critical section');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
 });
 

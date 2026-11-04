@@ -247,6 +247,7 @@ export class DurableApprovalLedger {
         this.lockPath = `${this.ledgerPath}.lock`;
         this.claimPath = `${this.lockPath}.claim`;
         this.claimRecoveryLockPath = `${this.claimPath}.recovery_lock`;
+        this.claimRecoverySupervisorPath = `${this.claimPath}.recovery_supervisor`;
         this.lockTimeoutMs = options.lockTimeoutMs !== undefined ? options.lockTimeoutMs : 5000;
         this.staleTimeoutMs = options.staleTimeoutMs !== undefined ? options.staleTimeoutMs : 15000;
         this.initGracePeriodMs = options.initGracePeriodMs !== undefined ? options.initGracePeriodMs : 500;
@@ -319,6 +320,284 @@ export class DurableApprovalLedger {
         }
     }
 
+    _writeDurableMetadata(filePath, data) {
+        const payload = typeof data === 'string' ? data : JSON.stringify(data);
+        const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+        const fd = fs.openSync(tempPath, 'wx', 0o600);
+        try {
+            const written = fs.writeSync(fd, payload);
+            if (written !== Buffer.byteLength(payload)) {
+                throw new Error(`Incomplete write: expected ${Buffer.byteLength(payload)} bytes, wrote ${written}`);
+            }
+            fs.fsyncSync(fd);
+        } finally {
+            fs.closeSync(fd);
+        }
+        fs.renameSync(tempPath, filePath);
+    }
+
+    _isClaimRecoverySupervisorActive() {
+        if (!fs.existsSync(this.claimRecoverySupervisorPath)) return false;
+        try {
+            let stat;
+            try {
+                stat = fs.statSync(this.claimRecoverySupervisorPath);
+            } catch (err) {
+                if (err.code === 'ENOENT') return false;
+                return true; // Fail closed on stat error
+            }
+
+            // Initialization grace period: supervisor is actively being written
+            if (this.initGracePeriodMs > 0 && (Date.now() - stat.mtimeMs) < this.initGracePeriodMs) {
+                return true;
+            }
+
+            let content;
+            try {
+                content = fs.readFileSync(this.claimRecoverySupervisorPath, 'utf8');
+            } catch (err) {
+                if (err.code === 'ENOENT') return false;
+                return true; // Fail closed on read error
+            }
+
+            let supData = null;
+            try {
+                supData = JSON.parse(content);
+            } catch (_) {
+                supData = null;
+            }
+
+            // Cross-host ownership: fail closed! (DEF-10.1)
+            if (supData && supData.hostname && supData.hostname !== os.hostname()) {
+                return true;
+            }
+
+            if (supData && typeof supData.pid === 'number') {
+                const alive = this._isProcessAlive(supData.pid, supData.processStartTime);
+                if (alive) {
+                    // SUPERVISOR WORKER IS ALIVE: SUPERVISOR IS ACTIVE REGARDLESS OF AGE
+                    return true;
+                }
+                // Supervisor worker is confirmed dead: attempt dead supervisor recovery
+                const recovered = this._tryRecoverDeadSupervisor(stat, supData);
+                return !recovered;
+            } else if (!supData) {
+                // Malformed or empty supervisor file: only recover if older than staleTimeoutMs
+                if (Date.now() - stat.mtimeMs > this.staleTimeoutMs) {
+                    const recovered = this._tryRecoverDeadSupervisor(stat, null);
+                    return !recovered;
+                }
+                return true; // Within stale timeout, fail closed
+            }
+
+            return true;
+        } catch (_) {
+            return true; // Fail closed on any unexpected error
+        }
+    }
+
+    _tryRecoverDeadSupervisor(inspectedStat, inspectedSupData) {
+        if (!fs.existsSync(this.claimRecoverySupervisorPath)) return false;
+
+        const inspectedIno = inspectedStat ? inspectedStat.ino : null;
+        const inspectedDev = inspectedStat ? inspectedStat.dev : null;
+        const inspectedToken = inspectedSupData ? inspectedSupData.supervisorToken : null;
+        const inspectedPid = inspectedSupData ? inspectedSupData.pid : null;
+
+        const stagingPath = `${this.claimRecoverySupervisorPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+        try {
+            fs.renameSync(this.claimRecoverySupervisorPath, stagingPath);
+        } catch (renameErr) {
+            // Another worker recovered or released it concurrently
+            return false;
+        }
+
+        let stagingStat;
+        let stagingData = null;
+        try {
+            stagingStat = fs.statSync(stagingPath);
+            const content = fs.readFileSync(stagingPath, 'utf8');
+            try {
+                stagingData = JSON.parse(content);
+            } catch (_) {
+                stagingData = null;
+            }
+        } catch (_) {
+            return false;
+        }
+
+        const tokenMatches = inspectedToken
+            ? (stagingData && stagingData.supervisorToken === inspectedToken)
+            : (inspectedPid ? (stagingData && stagingData.pid === inspectedPid) : true);
+
+        const isExactMatch = (
+            (!inspectedIno || stagingStat.ino === inspectedIno) &&
+            (!inspectedDev || stagingStat.dev === inspectedDev) &&
+            tokenMatches
+        );
+
+        if (!isExactMatch) {
+            // Captured replacement supervisor! Restore via no-clobber linkSync
+            try {
+                fs.linkSync(stagingPath, this.claimRecoverySupervisorPath);
+                try { fs.unlinkSync(stagingPath); } catch (_) {}
+            } catch (linkErr) {
+                if (linkErr.code === 'EEXIST') {
+                    try { fs.unlinkSync(stagingPath); } catch (_) {}
+                } else {
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber supervisor restoration. ` +
+                        `Artifact preserved at ${stagingPath}. Fail closed.`
+                    );
+                }
+            }
+            return false;
+        }
+
+        // Exact match confirmed: safe to unlink staging supervisor
+        try { fs.unlinkSync(stagingPath); } catch (_) {}
+        return true;
+    }
+
+    _releaseClaimRecoverySupervisor(supervisorToken) {
+        if (!supervisorToken) return;
+        if (!fs.existsSync(this.claimRecoverySupervisorPath)) return;
+
+        let stat;
+        try {
+            stat = fs.statSync(this.claimRecoverySupervisorPath);
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to stat claim recovery supervisor during release: ${err.message}. Fail closed.`);
+        }
+
+        let content;
+        try {
+            content = fs.readFileSync(this.claimRecoverySupervisorPath, 'utf8');
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to read claim recovery supervisor during release: ${err.message}. Fail closed.`);
+        }
+
+        let data = null;
+        try {
+            data = JSON.parse(content);
+        } catch (_) {
+            return;
+        }
+
+        if (!data || data.supervisorToken !== supervisorToken || data.pid !== process.pid) {
+            return; // Superseded by another recovery worker, do not touch
+        }
+
+        // Rename to private release path
+        const releasePath = `${this.claimRecoverySupervisorPath}.releasing.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+        try {
+            fs.renameSync(this.claimRecoverySupervisorPath, releasePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to rename claim recovery supervisor during release: ${err.message}. Fail closed.`);
+        }
+
+        try {
+            const relStat = fs.statSync(releasePath);
+            const relContent = fs.readFileSync(releasePath, 'utf8');
+            let relData = null;
+            try {
+                relData = JSON.parse(relContent);
+            } catch (_) {}
+            if (relStat.ino === stat.ino && relStat.dev === stat.dev && relData && relData.supervisorToken === supervisorToken) {
+                fs.unlinkSync(releasePath);
+            } else {
+                // Captured replacement supervisor! Restore using linkSync
+                try {
+                    fs.linkSync(releasePath, this.claimRecoverySupervisorPath);
+                    fs.unlinkSync(releasePath);
+                } catch (linkErr) {
+                    if (linkErr.code === 'EEXIST') {
+                        try { fs.unlinkSync(releasePath); } catch (_) {}
+                    } else {
+                        throw new Error(
+                            `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring replacement claim recovery supervisor during release. ` +
+                            `Artifact preserved at ${releasePath}. Fail closed.`
+                        );
+                    }
+                }
+            }
+        } catch (verifyErr) {
+            if (verifyErr.message && verifyErr.message.startsWith('[MIGRATION-004] SECURITY FATAL')) {
+                throw verifyErr;
+            }
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to release claim recovery supervisor: ${verifyErr.message}. Fail closed.`);
+        }
+    }
+
+    _hasActiveInFlightRecovery() {
+        try {
+            const dir = path.dirname(this.lockPath);
+            const claimBase = path.basename(this.claimPath);
+            const lockBase = path.basename(this.lockPath);
+            let entries;
+            try {
+                entries = fs.readdirSync(dir);
+            } catch (err) {
+                return true; // Fail closed if readdir fails
+            }
+
+            for (const entry of entries) {
+                if (
+                    (entry.startsWith(claimBase) || entry.startsWith(lockBase)) &&
+                    (entry.includes('.recovering.') || entry.includes('.releasing.'))
+                ) {
+                    const fullPath = path.join(dir, entry);
+                    try {
+                        const stat = fs.statSync(fullPath);
+                        let content;
+                        try {
+                            content = fs.readFileSync(fullPath, 'utf8');
+                        } catch (readErr) {
+                            if (readErr.code === 'ENOENT') continue;
+                            return true; // Fail closed on read error
+                        }
+                        let data = null;
+                        try {
+                            data = JSON.parse(content);
+                        } catch (_) {}
+
+                        // Cross-host ownership: fail closed!
+                        if (data && data.hostname && data.hostname !== os.hostname()) {
+                            return true;
+                        }
+
+                        // Check recovering or releasing worker process identity from filename:
+                        const match = entry.match(/\.(?:recovering|releasing)\.(\d+)/);
+                        const stagingPid = match ? parseInt(match[1], 10) : null;
+                        if (stagingPid && this._isProcessAlive(stagingPid, null)) {
+                            return true; // Live worker is actively recovering or releasing this artifact
+                        }
+
+                        if (data && typeof data.pid === 'number') {
+                            if (this._isProcessAlive(data.pid, data.processStartTime)) {
+                                return true; // In-flight recovery or release by live process
+                            }
+                        } else if (!data) {
+                            // Malformed or empty staging file within stale timeout: fail closed (active)
+                            if (Date.now() - stat.mtimeMs < this.staleTimeoutMs) {
+                                return true;
+                            }
+                        }
+                    } catch (statErr) {
+                        if (statErr.code === 'ENOENT') continue;
+                        return true; // Fail closed
+                    }
+                }
+            }
+            return false;
+        } catch (_) {
+            return true; // Fail closed
+        }
+    }
+
     _isClaimRecoveryActive() {
         if (!fs.existsSync(this.claimRecoveryLockPath)) return false;
         try {
@@ -382,107 +661,167 @@ export class DurableApprovalLedger {
     _tryRecoverDeadClaimRecoveryLock(inspectedStat, inspectedRecData) {
         if (!fs.existsSync(this.claimRecoveryLockPath)) return false;
 
-        const inspectedIno = inspectedStat ? inspectedStat.ino : null;
-        const inspectedDev = inspectedStat ? inspectedStat.dev : null;
-        const inspectedToken = inspectedRecData ? inspectedRecData.recoveryToken : null;
-        const inspectedPid = inspectedRecData ? inspectedRecData.pid : null;
+        // Serialize recovery-of-recovery workers: acquire exclusive supervisor coordinator (DEF-10.1)
+        const supervisorToken = crypto.randomUUID();
+        const supervisorData = {
+            supervisorToken,
+            pid: process.pid,
+            processStartTime: this._getProcessStartTime(),
+            hostname: os.hostname(),
+            createdAt: Date.now(),
+            targetRecoveryLockIno: inspectedStat ? inspectedStat.ino : null,
+            targetRecoveryLockDev: inspectedStat ? inspectedStat.dev : null,
+            targetRecoveryLockToken: inspectedRecData ? inspectedRecData.recoveryToken : null,
+            targetRecoveryLockPid: inspectedRecData ? inspectedRecData.pid : null
+        };
 
-        const stagingPath = `${this.claimRecoveryLockPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+        let supervisorAcquired = false;
         try {
-            fs.renameSync(this.claimRecoveryLockPath, stagingPath);
-        } catch (renameErr) {
-            // Another worker recovered or released it concurrently
-            return false;
-        }
-
-        let stagingStat;
-        let stagingData = null;
-        try {
-            stagingStat = fs.statSync(stagingPath);
-            const content = fs.readFileSync(stagingPath, 'utf8');
+            const supFd = fs.openSync(this.claimRecoverySupervisorPath, 'wx', 0o600);
             try {
-                stagingData = JSON.parse(content);
-            } catch (_) {
-                stagingData = null;
-            }
-        } catch (_) {
-            return false;
-        }
-
-        const tokenMatches = inspectedToken
-            ? (stagingData && stagingData.recoveryToken === inspectedToken)
-            : (inspectedPid ? (stagingData && stagingData.pid === inspectedPid) : true);
-
-        const isExactMatch = (
-            (!inspectedIno || stagingStat.ino === inspectedIno) &&
-            (!inspectedDev || stagingStat.dev === inspectedDev) &&
-            tokenMatches
-        );
-
-        if (!isExactMatch) {
-            // Captured replacement recovery lock! Restore via no-clobber linkSync
-            try {
-                fs.linkSync(stagingPath, this.claimRecoveryLockPath);
-                try { fs.unlinkSync(stagingPath); } catch (_) {}
-            } catch (linkErr) {
-                if (linkErr.code === 'EEXIST') {
-                    try { fs.unlinkSync(stagingPath); } catch (_) {}
-                } else {
-                    throw new Error(
-                        `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber claim recovery lock restoration. ` +
-                        `Artifact preserved at ${stagingPath}. Fail closed.`
-                    );
+                const payload = JSON.stringify(supervisorData);
+                const written = fs.writeSync(supFd, payload);
+                if (written !== Buffer.byteLength(payload)) {
+                    throw new Error(`Incomplete write: expected ${Buffer.byteLength(payload)} bytes, wrote ${written}`);
                 }
+                fs.fsyncSync(supFd);
+                supervisorAcquired = true;
+            } finally {
+                fs.closeSync(supFd);
             }
-            return false;
+        } catch (supErr) {
+            if (supErr.code === 'EEXIST') {
+                // Another recovery worker is actively recovering the recovery lock coordinator
+                this._isClaimRecoverySupervisorActive();
+                return false;
+            }
+            throw new Error(
+                `[MIGRATION-004] SECURITY FATAL: Failed to acquire claim recovery supervisor coordinator on ${this.claimRecoverySupervisorPath}: ${supErr.message}. Fail closed.`
+            );
         }
 
-        // Exact match confirmed!
-        // Check if dead recovery worker had an in-flight claimRecoveryPath
-        const inFlightPath = stagingData ? stagingData.claimRecoveryPath : null;
-        if (inFlightPath && fs.existsSync(inFlightPath)) {
-            // The dead recovery worker crashed after renaming the dead claim!
-            // Check if this.claimPath currently exists:
-            if (!fs.existsSync(this.claimPath)) {
-                // Determine whether inFlightPath is live or dead:
-                let inFlightData = null;
+        try {
+            if (!fs.existsSync(this.claimRecoveryLockPath)) return false;
+
+            let currentStat;
+            try {
+                currentStat = fs.statSync(this.claimRecoveryLockPath);
+            } catch (err) {
+                if (err.code === 'ENOENT') return false;
+                throw err;
+            }
+
+            if (inspectedStat && (currentStat.ino !== inspectedStat.ino || currentStat.dev !== inspectedStat.dev)) {
+                // Coordinator was replaced between inspection and supervisor acquisition!
+                return false;
+            }
+
+            const inspectedIno = currentStat.ino;
+            const inspectedDev = currentStat.dev;
+            const inspectedToken = inspectedRecData ? inspectedRecData.recoveryToken : null;
+            const inspectedPid = inspectedRecData ? inspectedRecData.pid : null;
+
+            const stagingPath = `${this.claimRecoveryLockPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+            try {
+                fs.renameSync(this.claimRecoveryLockPath, stagingPath);
+            } catch (renameErr) {
+                // Another worker recovered or released it concurrently
+                return false;
+            }
+
+            let stagingStat;
+            let stagingData = null;
+            try {
+                stagingStat = fs.statSync(stagingPath);
+                const content = fs.readFileSync(stagingPath, 'utf8');
                 try {
-                    const ifContent = fs.readFileSync(inFlightPath, 'utf8');
-                    inFlightData = JSON.parse(ifContent);
-                } catch (_) {}
+                    stagingData = JSON.parse(content);
+                } catch (_) {
+                    stagingData = null;
+                }
+            } catch (_) {
+                return false;
+            }
 
-                const isLive = inFlightData && typeof inFlightData.pid === 'number'
-                    ? this._isProcessAlive(inFlightData.pid, inFlightData.processStartTime)
-                    : false;
+            const tokenMatches = inspectedToken
+                ? (stagingData && stagingData.recoveryToken === inspectedToken)
+                : (inspectedPid ? (stagingData && stagingData.pid === inspectedPid) : true);
 
-                if (isLive) {
-                    // It was a replacement live claim that got renamed! Restore it!
+            const isExactMatch = (
+                (!inspectedIno || stagingStat.ino === inspectedIno) &&
+                (!inspectedDev || stagingStat.dev === inspectedDev) &&
+                tokenMatches
+            );
+
+            if (!isExactMatch) {
+                // Captured replacement recovery lock! Restore via no-clobber linkSync
+                try {
+                    fs.linkSync(stagingPath, this.claimRecoveryLockPath);
+                    try { fs.unlinkSync(stagingPath); } catch (_) {}
+                } catch (linkErr) {
+                    if (linkErr.code === 'EEXIST') {
+                        try { fs.unlinkSync(stagingPath); } catch (_) {}
+                    } else {
+                        throw new Error(
+                            `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber claim recovery lock restoration. ` +
+                            `Artifact preserved at ${stagingPath}. Fail closed.`
+                        );
+                    }
+                }
+                return false;
+            }
+
+            // Exact match confirmed!
+            // Check if dead recovery worker had an in-flight claimRecoveryPath
+            const inFlightPath = stagingData ? stagingData.claimRecoveryPath : null;
+            if (inFlightPath && fs.existsSync(inFlightPath)) {
+                // The dead recovery worker crashed after renaming the dead claim!
+                // Check if this.claimPath currently exists:
+                if (!fs.existsSync(this.claimPath)) {
+                    // Determine whether inFlightPath is live or dead:
+                    let inFlightData = null;
                     try {
-                        fs.linkSync(inFlightPath, this.claimPath);
-                        try { fs.unlinkSync(inFlightPath); } catch (_) {}
-                    } catch (linkErr) {
-                        if (linkErr.code === 'EEXIST') {
+                        const ifContent = fs.readFileSync(inFlightPath, 'utf8');
+                        inFlightData = JSON.parse(ifContent);
+                    } catch (_) {}
+
+                    const isLive = inFlightData && typeof inFlightData.pid === 'number'
+                        ? this._isProcessAlive(inFlightData.pid, inFlightData.processStartTime)
+                        : false;
+
+                    if (isLive) {
+                        // It was a replacement live claim that got renamed! Restore it!
+                        try {
+                            fs.linkSync(inFlightPath, this.claimPath);
                             try { fs.unlinkSync(inFlightPath); } catch (_) {}
-                        } else {
-                            throw new Error(
-                                `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring in-flight claim. ` +
-                                `Artifact preserved at ${inFlightPath}. Fail closed.`
-                            );
+                        } catch (linkErr) {
+                            if (linkErr.code === 'EEXIST') {
+                                try { fs.unlinkSync(inFlightPath); } catch (_) {}
+                            } else {
+                                throw new Error(
+                                    `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring in-flight claim. ` +
+                                    `Artifact preserved at ${inFlightPath}. Fail closed.`
+                                );
+                            }
                         }
+                    } else {
+                        // It was the dead claim: clean it up
+                        try { fs.unlinkSync(inFlightPath); } catch (_) {}
                     }
                 } else {
-                    // It was the dead claim: clean it up
+                    // this.claimPath already exists: clean up the staging inFlightPath
                     try { fs.unlinkSync(inFlightPath); } catch (_) {}
                 }
-            } else {
-                // this.claimPath already exists: clean up the staging inFlightPath
-                try { fs.unlinkSync(inFlightPath); } catch (_) {}
+            }
+
+            // Clean up our staging recovery lock file
+            try { fs.unlinkSync(stagingPath); } catch (_) {}
+            return true;
+        } finally {
+            if (supervisorAcquired) {
+                this._releaseClaimRecoverySupervisor(supervisorToken);
             }
         }
-
-        // Clean up our staging recovery lock file
-        try { fs.unlinkSync(stagingPath); } catch (_) {}
-        return true;
     }
 
     _releaseClaimRecoveryLock(recoveryToken) {
@@ -556,9 +895,19 @@ export class DurableApprovalLedger {
     }
 
     _isClaimActive() {
-        // Coordinate with active claim recovery workers (DEF-08):
+        // Coordinate with active claim recovery supervisor (DEF-10.1):
+        if (this._isClaimRecoverySupervisorActive()) {
+            return true;
+        }
+
+        // Coordinate with active claim recovery workers (DEF-08 & DEF-10.1):
         // Do not rely solely on existence of claim file as proof that recovery is inactive!
         if (this._isClaimRecoveryActive()) {
+            return true;
+        }
+
+        // In-flight recovery scan (DEF-10.1 zero-void invariant):
+        if (this._hasActiveInFlightRecovery()) {
             return true;
         }
 
@@ -625,8 +974,10 @@ export class DurableApprovalLedger {
     _tryRecoverDeadClaim(inspectedStat, inspectedClaimData) {
         if (!fs.existsSync(this.claimPath)) return false;
 
-        // 1. Serialize recovery workers: acquire exclusive claim recovery lock
+        // 1. Serialize recovery workers: acquire exclusive claim recovery lock (DEF-08 & DEF-10.2)
         const recoveryToken = crypto.randomUUID();
+        // Pre-generate claimRecoveryPath before creating recovery lock to guarantee durable persistence (DEF-10.2)
+        const claimRecoveryPath = `${this.claimPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
         const recoveryData = {
             recoveryToken,
             pid: process.pid,
@@ -637,14 +988,18 @@ export class DurableApprovalLedger {
             targetClaimDev: inspectedStat ? inspectedStat.dev : null,
             targetClaimToken: inspectedClaimData ? inspectedClaimData.claimToken : null,
             targetClaimPid: inspectedClaimData ? inspectedClaimData.pid : null,
-            claimRecoveryPath: null
+            claimRecoveryPath
         };
 
         let recoveryLockAcquired = false;
         try {
             const recFd = fs.openSync(this.claimRecoveryLockPath, 'wx', 0o600);
             try {
-                fs.writeSync(recFd, JSON.stringify(recoveryData));
+                const payload = JSON.stringify(recoveryData);
+                const written = fs.writeSync(recFd, payload);
+                if (written !== Buffer.byteLength(payload)) {
+                    throw new Error(`Incomplete write: expected ${Buffer.byteLength(payload)} bytes, wrote ${written}`);
+                }
                 fs.fsyncSync(recFd);
                 recoveryLockAcquired = true;
             } finally {
@@ -661,7 +1016,6 @@ export class DurableApprovalLedger {
             );
         }
 
-        let claimRecoveryPath = null;
         try {
             // Re-stat the claim file to ensure it still exists and hasn't changed
             let currentStat;
@@ -681,15 +1035,6 @@ export class DurableApprovalLedger {
             const inspectedDev = currentStat.dev;
             const inspectedToken = inspectedClaimData ? inspectedClaimData.claimToken : null;
             const inspectedPid = inspectedClaimData ? inspectedClaimData.pid : null;
-
-            // Atomic rename to unique claim recovery path (DEF-08)
-            claimRecoveryPath = `${this.claimPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
-
-            // Update recovery lock with claimRecoveryPath before rename to survive crash
-            recoveryData.claimRecoveryPath = claimRecoveryPath;
-            try {
-                fs.writeFileSync(this.claimRecoveryLockPath, JSON.stringify(recoveryData), { mode: 0o600 });
-            } catch (_) {}
 
             try {
                 fs.renameSync(this.claimPath, claimRecoveryPath);
@@ -1005,9 +1350,9 @@ export class DurableApprovalLedger {
 
         if (!isOwnerDead) return false;
 
-        // COORDINATED RECOVERY PROTOCOL (DEF-06 & DEF-08):
-        // Coordinate with active claim recovery workers and active claims:
-        if (this._isClaimRecoveryActive() || this._isClaimActive()) {
+        // COORDINATED RECOVERY PROTOCOL (DEF-06, DEF-08, DEF-10):
+        // Coordinate with active supervisor, active claim recovery, in-flight recovery, and active claims:
+        if (this._isClaimRecoverySupervisorActive() || this._isClaimRecoveryActive() || this._hasActiveInFlightRecovery() || this._isClaimActive()) {
             return false;
         }
 
@@ -1040,7 +1385,7 @@ export class DurableApprovalLedger {
             throw new Error(`[MIGRATION-004] FATAL: Failed to acquire recovery claim coordinator on ${this.claimPath}: ${claimErr.message}. Fail closed.`);
         }
 
-        if (this._isClaimRecoveryActive()) {
+        if (this._isClaimRecoverySupervisorActive() || this._isClaimRecoveryActive() || this._hasActiveInFlightRecovery()) {
             this._releaseClaim(claimToken);
             return false;
         }
