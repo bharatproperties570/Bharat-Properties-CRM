@@ -145,58 +145,88 @@ export const consumedApprovalNonces = new Set();
 
 let cachedClkTck = null;
 
+export function __resetClkTckCacheForTesting() {
+    cachedClkTck = null;
+}
+
 /**
  * Computes process start time across Linux (/proc) and POSIX systems (ps).
  * Returns epoch timestamp in milliseconds or null if undetermined.
  */
-export function getProcessStartTime(pid) {
+export function getProcessStartTime(pid, options = {}) {
     if (!pid || typeof pid !== 'number' || pid <= 0) return null;
-    if (process.platform === 'linux') {
+
+    if (process.platform === 'linux' || options.forceLinux) {
         try {
-            const statContent = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+            const procStatPath = options.procStatPath || `/proc/${pid}/stat`;
+            const sysStatPath = options.sysStatPath || '/proc/stat';
+
+            const statContent = fs.readFileSync(procStatPath, 'utf8');
             const lastParen = statContent.lastIndexOf(')');
             if (lastParen !== -1) {
                 const rest = statContent.substring(lastParen + 2).split(' ');
+                // Field 22 (starttime) is index 19 in rest (field 3 is index 0)
                 const starttimeTicks = parseInt(rest[19], 10);
-                if (!isNaN(starttimeTicks)) {
+                if (!isNaN(starttimeTicks) && starttimeTicks >= 0) {
                     let btime = null;
                     try {
-                        const statLines = fs.readFileSync('/proc/stat', 'utf8').split('\n');
+                        const statLines = fs.readFileSync(sysStatPath, 'utf8').split('\n');
                         for (let i = 0; i < statLines.length; i++) {
                             if (statLines[i].startsWith('btime ')) {
-                                btime = parseInt(statLines[i].substring(6).trim(), 10);
-                                break;
+                                const parsedBtime = parseInt(statLines[i].substring(6).trim(), 10);
+                                if (!isNaN(parsedBtime) && parsedBtime > 0) {
+                                    btime = parsedBtime;
+                                    break;
+                                }
                             }
                         }
                     } catch (_) {}
 
-                    if (btime !== null && !isNaN(btime)) {
-                        if (cachedClkTck === null) {
+                    if (btime !== null) {
+                        let clkTck = null;
+                        if (options.clkTck !== undefined) {
+                            clkTck = (typeof options.clkTck === 'number' && options.clkTck > 0) ? options.clkTck : null;
+                        } else if (cachedClkTck !== null) {
+                            clkTck = cachedClkTck;
+                        } else {
                             try {
                                 const tckOut = execSync('getconf CLK_TCK', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1000 }).trim();
                                 const parsed = parseInt(tckOut, 10);
-                                cachedClkTck = (!isNaN(parsed) && parsed > 0) ? parsed : 100;
+                                if (!isNaN(parsed) && parsed > 0) {
+                                    cachedClkTck = parsed;
+                                    clkTck = parsed;
+                                }
                             } catch (_) {
-                                cachedClkTck = 100;
+                                clkTck = null;
                             }
                         }
-                        return (btime * 1000) + Math.floor((starttimeTicks / cachedClkTck) * 1000);
+
+                        // DEF-09: Do not silently assume 100 Hz if actual rate cannot be established!
+                        if (clkTck !== null && clkTck > 0) {
+                            return (btime * 1000) + Math.floor((starttimeTicks / clkTck) * 1000);
+                        }
+                        // Cannot determine CLK_TCK reliably -> return null!
+                        return null;
                     }
                 }
             }
         } catch (_) {}
+        if (options.forceLinux) return null;
     }
+
     try {
         const out = execSync(`ps -p ${pid} -o lstart=`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1000 });
         const trimmed = out.trim();
         if (trimmed) {
             const parsed = Date.parse(trimmed);
-            if (!isNaN(parsed)) return parsed;
+            const now = Date.now();
+            // DEF-09: Validate lstart output format and fail closed on ambiguity
+            if (!isNaN(parsed) && parsed > 946684800000 && parsed <= now + 5000) {
+                return parsed;
+            }
         }
     } catch (_) {}
-    if (pid === process.pid) {
-        return Date.now() - Math.floor(process.uptime() * 1000);
-    }
+
     return null;
 }
 
@@ -216,10 +246,10 @@ export class DurableApprovalLedger {
         this.ledgerPath = path.resolve(ledgerPath);
         this.lockPath = `${this.ledgerPath}.lock`;
         this.claimPath = `${this.lockPath}.claim`;
-        this.lockTimeoutMs = options.lockTimeoutMs || 5000;
-        this.staleTimeoutMs = options.staleTimeoutMs || 15000;
-        this.initGracePeriodMs = options.initGracePeriodMs || 500;
-        this.retryIntervalMs = options.retryIntervalMs || 25;
+        this.lockTimeoutMs = options.lockTimeoutMs !== undefined ? options.lockTimeoutMs : 5000;
+        this.staleTimeoutMs = options.staleTimeoutMs !== undefined ? options.staleTimeoutMs : 15000;
+        this.initGracePeriodMs = options.initGracePeriodMs !== undefined ? options.initGracePeriodMs : 500;
+        this.retryIntervalMs = options.retryIntervalMs !== undefined ? options.retryIntervalMs : 25;
         this.currentOwnerToken = null;
         this.currentLockIno = null;
         this.currentLockDev = null;
@@ -291,15 +321,202 @@ export class DurableApprovalLedger {
     _isClaimActive() {
         if (!fs.existsSync(this.claimPath)) return false;
         try {
-            const stat = fs.statSync(this.claimPath);
-            if (Date.now() - stat.mtimeMs > this.staleTimeoutMs) {
-                try { fs.unlinkSync(this.claimPath); } catch (_) {}
-                return false;
+            let stat;
+            try {
+                stat = fs.statSync(this.claimPath);
+            } catch (err) {
+                if (err.code === 'ENOENT') return false;
+                return true; // Fail closed on stat error
             }
+
+            // Initialization grace period: claim is actively being written
+            if (this.initGracePeriodMs > 0 && (Date.now() - stat.mtimeMs) < this.initGracePeriodMs) {
+                return true;
+            }
+
+            let content;
+            try {
+                content = fs.readFileSync(this.claimPath, 'utf8');
+            } catch (err) {
+                if (err.code === 'ENOENT') return false;
+                return true; // Fail closed on read error
+            }
+
+            let claimData = null;
+            try {
+                claimData = JSON.parse(content);
+            } catch (_) {
+                claimData = null;
+            }
+
+            // Cross-host ownership: fail closed! (DEF-08)
+            if (claimData && claimData.hostname && claimData.hostname !== os.hostname()) {
+                return true;
+            }
+
+            if (claimData && typeof claimData.pid === 'number') {
+                const alive = this._isProcessAlive(claimData.pid, claimData.processStartTime);
+                if (alive) {
+                    // OWNER IS ALIVE: CLAIM IS ACTIVE REGARDLESS OF AGE (DEF-08)
+                    return true;
+                }
+                // Owner is confirmed dead: attempt coordinated dead-claim recovery (DEF-08)
+                const recovered = this._tryRecoverDeadClaim(stat, claimData);
+                return !recovered;
+            } else if (!claimData) {
+                // Malformed or empty claim file: only recover if older than staleTimeoutMs
+                if (Date.now() - stat.mtimeMs > this.staleTimeoutMs) {
+                    const recovered = this._tryRecoverDeadClaim(stat, null);
+                    return !recovered;
+                }
+                // Within stale timeout, fail closed (active)
+                return true;
+            }
+
             return true;
+        } catch (_) {
+            return true;
+        }
+    }
+
+    _tryRecoverDeadClaim(inspectedStat, inspectedClaimData) {
+        if (!fs.existsSync(this.claimPath)) return false;
+
+        const inspectedIno = inspectedStat.ino;
+        const inspectedDev = inspectedStat.dev;
+        const inspectedToken = inspectedClaimData ? inspectedClaimData.claimToken : null;
+        const inspectedPid = inspectedClaimData ? inspectedClaimData.pid : null;
+
+        // Atomic rename to unique claim recovery path (DEF-08)
+        const claimRecoveryPath = `${this.claimPath}.recovering.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+        try {
+            fs.renameSync(this.claimPath, claimRecoveryPath);
+        } catch (renameErr) {
+            // Another recovery worker renamed/released it concurrently
+            return false;
+        }
+
+        // Exact-instance verification (DEF-08):
+        let claimedStat;
+        let claimedData = null;
+        try {
+            claimedStat = fs.statSync(claimRecoveryPath);
+            const recContent = fs.readFileSync(claimRecoveryPath, 'utf8');
+            try {
+                claimedData = JSON.parse(recContent);
+            } catch (_) {
+                claimedData = null;
+            }
         } catch (_) {
             return false;
         }
+
+        const tokenMatches = inspectedToken
+            ? (claimedData && claimedData.claimToken === inspectedToken)
+            : (inspectedPid ? (claimedData && claimedData.pid === inspectedPid) : true);
+
+        const isExactMatch = (
+            claimedStat.ino === inspectedIno &&
+            claimedStat.dev === inspectedDev &&
+            tokenMatches
+        );
+
+        if (!isExactMatch) {
+            // Mismatch: a replacement claim was acquired before our rename!
+            // Restore using atomic no-clobber linkSync (DEF-07 & DEF-08)
+            try {
+                fs.linkSync(claimRecoveryPath, this.claimPath);
+                try {
+                    fs.unlinkSync(claimRecoveryPath);
+                } catch (_) {}
+            } catch (linkErr) {
+                if (linkErr.code === 'EEXIST') {
+                    // Replacement claim is safe at this.claimPath
+                    try { fs.unlinkSync(claimRecoveryPath); } catch (_) {}
+                } else {
+                    // Unexpected error: NEVER unlink! Preserve artifact and fail closed! (DEF-07)
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber claim restoration. ` +
+                        `Claim artifact preserved at ${claimRecoveryPath}. Fail closed.`
+                    );
+                }
+            }
+            return false;
+        }
+
+        // Exact dead claim verified: safe to unlink
+        try {
+            fs.unlinkSync(claimRecoveryPath);
+        } catch (_) {}
+        return true;
+    }
+
+    _releaseClaim(claimToken) {
+        if (!claimToken) return;
+        try {
+            if (!fs.existsSync(this.claimPath)) return;
+            let stat;
+            try {
+                stat = fs.statSync(this.claimPath);
+            } catch (err) {
+                if (err.code === 'ENOENT') return;
+                throw err;
+            }
+
+            let content;
+            try {
+                content = fs.readFileSync(this.claimPath, 'utf8');
+            } catch (err) {
+                if (err.code === 'ENOENT') return;
+                return;
+            }
+            let data = null;
+            try {
+                data = JSON.parse(content);
+            } catch (_) {
+                return;
+            }
+
+            // Delayed worker protection (DEF-08):
+            // If token or PID does not match, another worker replaced our claim. DO NOT TOUCH IT!
+            if (!data || data.claimToken !== claimToken || data.pid !== process.pid) {
+                return;
+            }
+
+            // Rename to private release path to eliminate TOCTOU race
+            const claimReleasePath = `${this.claimPath}.releasing.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+            try {
+                fs.renameSync(this.claimPath, claimReleasePath);
+            } catch (err) {
+                if (err.code === 'ENOENT') return;
+                return;
+            }
+
+            // Verify exact instance
+            try {
+                const relStat = fs.statSync(claimReleasePath);
+                const relContent = fs.readFileSync(claimReleasePath, 'utf8');
+                const relData = JSON.parse(relContent);
+                if (relStat.ino === stat.ino && relStat.dev === stat.dev && relData.claimToken === claimToken) {
+                    fs.unlinkSync(claimReleasePath);
+                } else {
+                    // Captured replacement claim! Restore using linkSync (DEF-07 & DEF-08)
+                    try {
+                        fs.linkSync(claimReleasePath, this.claimPath);
+                        fs.unlinkSync(claimReleasePath);
+                    } catch (linkErr) {
+                        if (linkErr.code === 'EEXIST') {
+                            try { fs.unlinkSync(claimReleasePath); } catch (_) {}
+                        } else {
+                            throw new Error(
+                                `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring replacement claim during release. ` +
+                                `Artifact preserved at ${claimReleasePath}. Fail closed.`
+                            );
+                        }
+                    }
+                }
+            } catch (_) {}
+        } catch (_) {}
     }
 
     _assertLockOwnership() {
@@ -401,7 +618,7 @@ export class DurableApprovalLedger {
         }
 
         // Initialization grace period: do not disturb lockfile being written
-        if (Date.now() - stat.mtimeMs < this.initGracePeriodMs) {
+        if (this.initGracePeriodMs > 0 && (Date.now() - stat.mtimeMs) < this.initGracePeriodMs) {
             return false;
         }
 
@@ -445,22 +662,34 @@ export class DurableApprovalLedger {
 
         if (!isOwnerDead) return false;
 
-        // COORDINATED RECOVERY PROTOCOL (DEF-06):
+        // COORDINATED RECOVERY PROTOCOL (DEF-06 & DEF-08):
         // Acquire an exclusive claim coordinator to prevent races between concurrent cleanup workers
-        let claimFd;
+        const claimToken = crypto.randomUUID();
+        const claimData = {
+            claimToken,
+            pid: process.pid,
+            processStartTime: this._getProcessStartTime(),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        let claimAcquired = false;
         try {
-            claimFd = fs.openSync(this.claimPath, 'wx', 0o600);
+            const claimFd = fs.openSync(this.claimPath, 'wx', 0o600);
             try {
-                const claimData = JSON.stringify({ pid: process.pid, time: Date.now() });
-                fs.writeSync(claimFd, claimData);
+                fs.writeSync(claimFd, JSON.stringify(claimData));
                 fs.fsyncSync(claimFd);
-            } catch (_) {}
+                claimAcquired = true;
+            } finally {
+                fs.closeSync(claimFd);
+            }
         } catch (claimErr) {
             if (claimErr.code === 'EEXIST') {
-                // Another cleanup worker is actively evaluating/recovering this lock
+                // Another cleanup worker is actively evaluating/recovering this lock.
+                // Inspect claim; will recover if dead (DEF-08)
+                this._isClaimActive();
                 return false;
             }
-            throw claimErr;
+            throw new Error(`[MIGRATION-004] FATAL: Failed to acquire recovery claim coordinator on ${this.claimPath}: ${claimErr.message}. Fail closed.`);
         }
 
         try {
@@ -487,7 +716,7 @@ export class DurableApprovalLedger {
                 return false;
             }
 
-            // EXACT-INSTANCE VERIFICATION (DEF-06):
+            // EXACT-INSTANCE VERIFICATION (DEF-06 & DEF-07):
             // Verify that the renamed file is the EXACT instance inspected, NOT a replacement lock
             let claimedStat;
             let claimedData = null;
@@ -519,10 +748,30 @@ export class DurableApprovalLedger {
                 // Use atomic no-clobber publication (fs.linkSync) which fails with EEXIST if destination exists.
                 try {
                     fs.linkSync(recoveryPath, this.lockPath);
-                    fs.unlinkSync(recoveryPath);
+                    // linkSync succeeded: destination now exists as a hard link.
+                    // Safe to unlink the staging copy.
+                    try {
+                        fs.unlinkSync(recoveryPath);
+                    } catch (unlinkErr) {
+                        // Destination lock is already published and intact at this.lockPath.
+                        // Staging link remains. Do NOT touch this.lockPath.
+                    }
                 } catch (linkErr) {
-                    // If destination exists (EEXIST), replacement lock is safe; unlink temporary recovery link
-                    try { fs.unlinkSync(recoveryPath); } catch (_) {}
+                    if (linkErr.code === 'EEXIST') {
+                        // Destination already exists: replacement lock is active and safe at this.lockPath.
+                        // Safe to unlink our staging copy since it was superseded.
+                        try {
+                            fs.unlinkSync(recoveryPath);
+                        } catch (_) {}
+                    } else {
+                        // DEF-07: Unexpected filesystem error (EPERM, EIO, EXDEV, ENOSPC, etc.)!
+                        // NEVER unlink recoveryPath! It is the ONLY copy of the lock!
+                        // Preserve recoveryPath for forensic recovery and fail closed.
+                        throw new Error(
+                            `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber lock restoration. ` +
+                            `Lock artifact preserved at ${recoveryPath}. Fail closed.`
+                        );
+                    }
                 }
                 return false;
             }
@@ -534,9 +783,8 @@ export class DurableApprovalLedger {
 
             return true;
         } finally {
-            if (claimFd !== undefined) {
-                try { fs.closeSync(claimFd); } catch (_) {}
-                try { fs.unlinkSync(this.claimPath); } catch (_) {}
+            if (claimAcquired) {
+                this._releaseClaim(claimToken);
             }
         }
     }
@@ -550,61 +798,82 @@ export class DurableApprovalLedger {
         this.currentLockDev = null;
         if (!tokenToRelease) return;
 
-        try {
-            if (!fs.existsSync(this.lockPath)) return;
+        if (!fs.existsSync(this.lockPath)) return;
 
-            let stat;
+        let stat;
+        try {
+            stat = fs.statSync(this.lockPath);
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to stat lock during release: ${err.message}. Fail closed.`);
+        }
+
+        // If inode or device does not match our acquired lock, a replacement lock is present!
+        // DO NOT TOUCH IT!
+        if (stat.ino !== inoToRelease || stat.dev !== devToRelease) {
+            return;
+        }
+
+        // Verify lock content
+        let lockData;
+        try {
+            const content = fs.readFileSync(this.lockPath, 'utf8');
+            lockData = JSON.parse(content);
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            return;
+        }
+
+        if (!lockData || lockData.ownerToken !== tokenToRelease || lockData.pid !== process.pid) {
+            return;
+        }
+
+        // To avoid TOCTOU between stat/read and unlink, rename to private release path
+        const releasePath = `${this.lockPath}.releasing.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+        try {
+            fs.renameSync(this.lockPath, releasePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to rename lock during release: ${err.message}. Fail closed.`);
+        }
+
+        // Verify the file we renamed is still our exact lock instance
+        let relStat;
+        try {
+            relStat = fs.statSync(releasePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') return;
+            throw new Error(`[MIGRATION-004] SECURITY FATAL: Failed to stat release path ${releasePath}: ${err.message}. Fail closed.`);
+        }
+
+        if (relStat.ino === inoToRelease && relStat.dev === devToRelease) {
             try {
-                stat = fs.statSync(this.lockPath);
+                fs.unlinkSync(releasePath);
             } catch (err) {
                 if (err.code === 'ENOENT') return;
-                throw err;
             }
-
-            // If inode or device does not match our acquired lock, a replacement lock is present!
-            // DO NOT TOUCH IT!
-            if (stat.ino !== inoToRelease || stat.dev !== devToRelease) {
-                return;
-            }
-
-            // Verify lock content
-            let lockData;
+        } else {
+            // Captured a replacement lock! Restore using atomic no-clobber linkSync
             try {
-                const content = fs.readFileSync(this.lockPath, 'utf8');
-                lockData = JSON.parse(content);
-            } catch (_) {
-                return;
-            }
-
-            if (!lockData || lockData.ownerToken !== tokenToRelease || lockData.pid !== process.pid) {
-                return;
-            }
-
-            // To avoid TOCTOU between stat/read and unlink, rename to private release path
-            const releasePath = `${this.lockPath}.releasing.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
-            try {
-                fs.renameSync(this.lockPath, releasePath);
-            } catch (err) {
-                return;
-            }
-
-            // Verify the file we renamed is still our exact lock instance
-            try {
-                const relStat = fs.statSync(releasePath);
-                if (relStat.ino === inoToRelease && relStat.dev === devToRelease) {
+                fs.linkSync(releasePath, this.lockPath);
+                try {
                     fs.unlinkSync(releasePath);
+                } catch (_) {}
+            } catch (linkErr) {
+                if (linkErr.code === 'EEXIST') {
+                    // Replacement lock is active and safe at this.lockPath
+                    try { fs.unlinkSync(releasePath); } catch (_) {}
                 } else {
-                    // Captured a replacement lock! Restore using atomic no-clobber linkSync
-                    try {
-                        fs.linkSync(releasePath, this.lockPath);
-                        fs.unlinkSync(releasePath);
-                    } catch (linkErr) {
-                        // If destination exists (EEXIST), replacement lock is safe; unlink temporary path
-                        try { fs.unlinkSync(releasePath); } catch (_) {}
-                    }
+                    // DEF-07: Unexpected filesystem error (EPERM, EIO, EXDEV, ENOSPC, etc.)!
+                    // NEVER unlink releasePath! It is the ONLY copy of the active replacement lock!
+                    // Preserve releasePath for forensic recovery and fail closed.
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring replacement lock during release. ` +
+                        `Active lock preserved at ${releasePath}. Fail closed.`
+                    );
                 }
-            } catch (_) {}
-        } catch (_) {}
+            }
+        }
     }
 
     _validateLedgerIntegrity() {

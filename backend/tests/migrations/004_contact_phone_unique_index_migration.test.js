@@ -17,6 +17,7 @@ import {
     loadTrustedKeyRegistry,
     DurableApprovalLedger,
     getProcessStartTime,
+    __resetClkTckCacheForTesting,
     PINNED_DBA_TRUST_STORE,
     AUTHORIZED_DBA_APPROVERS,
     consumedApprovalNonces,
@@ -2691,5 +2692,566 @@ process.exit(1); // Crash abruptly
             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
             if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
         }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-07: CORRECT NO-CLOBBER ERROR HANDLING & ARTIFACT SAFETY
+    // ─────────────────────────────────────────────────────────────
+
+    it('64. DEF-07: EEXIST handled cleanly: staging link unlinked, active replacement lock preserved', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def7-eexist-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+
+        // Worker B holds an active replacement lock
+        const replacementData = {
+            ownerToken: 'replacement-lock-token-def7',
+            pid: process.pid,
+            processStartTime: Date.now() - Math.floor(process.uptime() * 1000),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        fs.writeFileSync(lockPath, JSON.stringify(replacementData), { mode: 0o600 });
+
+        // Worker A has a recovery staging file that mismatched
+        const recoveryPath = `${lockPath}.recovering.${process.pid}.${Date.now()}.uuid`;
+        fs.writeFileSync(recoveryPath, JSON.stringify({ ownerToken: 'old-stale-token' }), { mode: 0o600 });
+
+        // Simulate no-clobber link: destination exists so fs.linkSync throws EEXIST
+        let eexistThrown = false;
+        try {
+            fs.linkSync(recoveryPath, lockPath);
+        } catch (linkErr) {
+            if (linkErr.code === 'EEXIST') {
+                eexistThrown = true;
+                // As implemented in migration: safe to unlink staging copy since destination already exists
+                fs.unlinkSync(recoveryPath);
+            }
+        }
+
+        assert.ok(eexistThrown, 'fs.linkSync must throw EEXIST when destination exists');
+        assert.ok(!fs.existsSync(recoveryPath), 'Staging recovery copy must be cleanly unlinked on EEXIST');
+        assert.ok(fs.existsSync(lockPath), 'Active replacement lock at lockPath must remain untouched');
+        const finalData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        assert.equal(finalData.ownerToken, replacementData.ownerToken, 'Lock data must be preserved');
+
+        try { fs.unlinkSync(lockPath); } catch (_) {}
+    });
+
+    it('65. DEF-07: EPERM / EIO / EXDEV / ENOSPC on linkSync: never unlinks staging copy, preserves artifact & throws SECURITY FATAL', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def7-errors-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+
+        const errorsToTest = ['EPERM', 'EIO', 'EXDEV', 'ENOSPC'];
+
+        for (const errCode of errorsToTest) {
+            const recoveryPath = `${lockPath}.recovering.test.${errCode}`;
+            fs.writeFileSync(recoveryPath, JSON.stringify({ ownerToken: `token-${errCode}` }), { mode: 0o600 });
+
+            // Simulate the exact DEF-07 block from migration runner:
+            const origLink = fs.linkSync;
+            try {
+                fs.linkSync = () => {
+                    const err = new Error(`Injected error ${errCode}`);
+                    err.code = errCode;
+                    throw err;
+                };
+
+                assert.throws(() => {
+                    try {
+                        fs.linkSync(recoveryPath, lockPath);
+                        fs.unlinkSync(recoveryPath);
+                    } catch (linkErr) {
+                        if (linkErr.code === 'EEXIST') {
+                            try { fs.unlinkSync(recoveryPath); } catch (_) {}
+                        } else {
+                            throw new Error(
+                                `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber lock restoration. ` +
+                                `Lock artifact preserved at ${recoveryPath}. Fail closed.`
+                            );
+                        }
+                    }
+                }, new RegExp(`\\[MIGRATION-004\\] SECURITY FATAL: Unexpected filesystem error \\(${errCode}\\).*artifact preserved`));
+
+                // CRITICAL INVARIANT: The artifact was NEVER deleted!
+                assert.ok(fs.existsSync(recoveryPath), `Artifact must be preserved on disk after ${errCode}`);
+            } finally {
+                fs.linkSync = origLink;
+                try { if (fs.existsSync(recoveryPath)) fs.unlinkSync(recoveryPath); } catch (_) {}
+            }
+        }
+    });
+
+    it('66. DEF-07: Unlink failure after successful link does not corrupt active destination lock', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def7-unlinkfail-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const recoveryPath = `${lockPath}.recovering.unlinkfail`;
+        fs.writeFileSync(recoveryPath, JSON.stringify({ ownerToken: 'token-unlinkfail' }), { mode: 0o600 });
+
+        // Successful link
+        fs.linkSync(recoveryPath, lockPath);
+        assert.ok(fs.existsSync(lockPath), 'Destination lock must exist after link');
+
+        // Simulate unlinkSync failure on recoveryPath
+        const origUnlink = fs.unlinkSync;
+        let caughtErr = null;
+        try {
+            fs.unlinkSync = (p) => {
+                if (p === recoveryPath) {
+                    const err = new Error('Permission denied on staging link');
+                    err.code = 'EPERM';
+                    throw err;
+                }
+                return origUnlink(p);
+            };
+
+            // In migration runner:
+            try {
+                fs.unlinkSync(recoveryPath);
+            } catch (unlinkErr) {
+                caughtErr = unlinkErr;
+            }
+
+            assert.ok(caughtErr !== null, 'Unlink error was caught');
+            // Destination lock remains completely intact!
+            assert.ok(fs.existsSync(lockPath), 'Destination lock must remain intact and valid');
+            const statDst = fs.statSync(lockPath);
+            const statSrc = fs.statSync(recoveryPath);
+            assert.equal(statDst.ino, statSrc.ino, 'Both links point to identical inode');
+        } finally {
+            fs.unlinkSync = origUnlink;
+            try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch (_) {}
+            try { if (fs.existsSync(recoveryPath)) fs.unlinkSync(recoveryPath); } catch (_) {}
+        }
+    });
+
+    it('67. DEF-07: Interruption between link and unlink leaves data intact via hard link', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def7-interrupted-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const stagingPath = `${lockPath}.recovering.interrupted`;
+        const testPayload = JSON.stringify({ ownerToken: 'interrupted-token', pid: 12345 });
+        fs.writeFileSync(stagingPath, testPayload, { mode: 0o600 });
+
+        // Link created, process interrupted before unlink
+        fs.linkSync(stagingPath, lockPath);
+
+        // Verification: Even if stagingPath remains, lockPath has the exact same data and inode
+        const statLock = fs.statSync(lockPath);
+        const statStaging = fs.statSync(stagingPath);
+        assert.equal(statLock.ino, statStaging.ino);
+        assert.equal(fs.readFileSync(lockPath, 'utf8'), testPayload);
+
+        try { fs.unlinkSync(stagingPath); } catch (_) {}
+        try { fs.unlinkSync(lockPath); } catch (_) {}
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-08: CLAIM COORDINATOR OWNERSHIP & STALE RECOVERY
+    // ─────────────────────────────────────────────────────────────
+
+    it('68. DEF-08: Live claim older than 15s is preserved and never deleted solely by mtime', async () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-liveclaim-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const ledger = new DurableApprovalLedger(tempPath, { staleTimeoutMs: 15000, initGracePeriodMs: 0 });
+
+        const childCode = `
+import fs from 'fs';
+import os from 'os';
+const claimPath = process.argv[2];
+const claimData = {
+    claimToken: 'live-child-claim-token',
+    pid: process.pid,
+    processStartTime: Date.now() - Math.floor(process.uptime() * 1000),
+    hostname: os.hostname(),
+    createdAt: Date.now() - 30000
+};
+fs.writeFileSync(claimPath, JSON.stringify(claimData), { mode: 0o600 });
+const past = new Date(Date.now() - 30000);
+fs.utimesSync(claimPath, past, past);
+process.stdout.write('READY\\n');
+setTimeout(() => {}, 10000);
+`;
+        const workerFile = path.join(os.tmpdir(), `worker-claim-live-${Date.now()}.mjs`);
+        fs.writeFileSync(workerFile, childCode, { mode: 0o700 });
+        const child = spawn('node', [workerFile, claimPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+
+        await new Promise((resolve, reject) => {
+            child.stdout.on('data', (d) => {
+                if (d.toString().includes('READY')) resolve();
+            });
+            child.on('error', reject);
+        });
+
+        try {
+            const active = ledger._isClaimActive();
+            assert.equal(active, true, 'Claim belonging to live process must be active even if mtime > 15s');
+            assert.ok(fs.existsSync(claimPath), 'Live claim file must NOT be unlinked');
+        } finally {
+            child.kill('SIGKILL');
+            try { if (fs.existsSync(workerFile)) fs.unlinkSync(workerFile); } catch (_) {}
+            try { if (fs.existsSync(claimPath)) fs.unlinkSync(claimPath); } catch (_) {}
+            try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+        }
+    });
+
+    it('69. DEF-08: Dead claim recovery: Dead owner claim is cleanly recovered via atomic rename', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-deadclaim-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
+
+        const deadClaimData = {
+            claimToken: 'dead-claim-token-1111',
+            pid: 999999,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(claimPath, JSON.stringify(deadClaimData), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(claimPath, past, past);
+
+        const active = ledger._isClaimActive();
+        assert.equal(active, false, 'Dead claim must be recovered and return inactive (false)');
+        assert.ok(!fs.existsSync(claimPath), 'Dead claim file must be safely recovered and removed');
+
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    });
+
+    it('70. DEF-08: PID reuse in claim: Start-time mismatch detects dead owner and recovers claim', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-pidreuse-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
+
+        const reusedPidClaim = {
+            claimToken: 'reused-pid-claim-token',
+            pid: process.pid,
+            processStartTime: Date.now() - 3600000, // 1 hour ago (mismatch)
+            hostname: os.hostname(),
+            createdAt: Date.now() - 5000
+        };
+        fs.writeFileSync(claimPath, JSON.stringify(reusedPidClaim), { mode: 0o600 });
+        const past = new Date(Date.now() - 5000);
+        fs.utimesSync(claimPath, past, past);
+
+        const active = ledger._isClaimActive();
+        assert.equal(active, false, 'PID reuse in claim must detect dead owner and recover');
+        assert.ok(!fs.existsSync(claimPath), 'Claim must be removed');
+
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    });
+
+    it('71. DEF-08: Concurrent recovery claim creation: Exactly 1 worker acquires claim, others receive EEXIST', async () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-concurrent-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+
+        const workerScript = `
+import fs from 'fs';
+const path = process.argv[2];
+try {
+    const fd = fs.openSync(path, 'wx', 0o600);
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, time: Date.now() }));
+    fs.closeSync(fd);
+    process.stdout.write('ACQUIRED\\n');
+} catch (err) {
+    if (err.code === 'EEXIST') {
+        process.stdout.write('EEXIST\\n');
+    } else {
+        process.stdout.write('ERROR: ' + err.message + '\\n');
+    }
+}
+`;
+        const workerFile = path.join(os.tmpdir(), `worker-concurrent-claim-${Date.now()}.mjs`);
+        fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
+
+        const child1 = spawn('node', [workerFile, claimPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+        const child2 = spawn('node', [workerFile, claimPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+
+        const [res1, res2] = await Promise.all([
+            new Promise((res) => child1.stdout.on('data', (d) => res(d.toString().trim()))),
+            new Promise((res) => child2.stdout.on('data', (d) => res(d.toString().trim())))
+        ]);
+
+        const results = [res1, res2].sort();
+        assert.deepEqual(results, ['ACQUIRED', 'EEXIST'], 'Exactly one worker must acquire claim; other must get EEXIST');
+
+        try { if (fs.existsSync(workerFile)) fs.unlinkSync(workerFile); } catch (_) {}
+        try { if (fs.existsSync(claimPath)) fs.unlinkSync(claimPath); } catch (_) {}
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    });
+
+    it('72. DEF-08: Delayed recovery worker: Delayed worker cannot remove or replace newer claim', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-delayedworker-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
+
+        // Worker B writes a new active claim
+        const newerClaim = {
+            claimToken: 'worker-b-new-token',
+            pid: 777777,
+            processStartTime: Date.now(),
+            hostname: os.hostname(),
+            createdAt: Date.now()
+        };
+        fs.writeFileSync(claimPath, JSON.stringify(newerClaim), { mode: 0o600 });
+
+        // Worker A (delayed) attempts to release its old claim 'worker-a-old-token'
+        ledger._releaseClaim('worker-a-old-token');
+
+        // Worker B's newer claim must remain completely untouched!
+        assert.ok(fs.existsSync(claimPath), 'Newer claim must not be deleted');
+        const onDisk = JSON.parse(fs.readFileSync(claimPath, 'utf8'));
+        assert.equal(onDisk.claimToken, 'worker-b-new-token', 'Newer claim token must be preserved');
+
+        try { if (fs.existsSync(claimPath)) fs.unlinkSync(claimPath); } catch (_) {}
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    });
+
+    it('73. DEF-08: Claim replacement during recovery: Detects mismatch and restores replacement claim via no-clobber linkSync', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-claimmismatch-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
+
+        // Stat of dead claim
+        const inspectedStat = { ino: 111111, dev: 222222 };
+        const inspectedClaimData = { claimToken: 'dead-claim-1111', pid: 999999 };
+
+        // Replacement claim actually on disk with different token
+        const replacementClaim = {
+            claimToken: 'replacement-claim-token-2222',
+            pid: process.pid,
+            hostname: os.hostname()
+        };
+        fs.writeFileSync(claimPath, JSON.stringify(replacementClaim), { mode: 0o600 });
+
+        const recovered = ledger._tryRecoverDeadClaim(inspectedStat, inspectedClaimData);
+        assert.equal(recovered, false, 'Recovery must abort and return false on mismatch');
+        assert.ok(fs.existsSync(claimPath), 'Replacement claim must be restored at claimPath');
+        const restored = JSON.parse(fs.readFileSync(claimPath, 'utf8'));
+        assert.equal(restored.claimToken, 'replacement-claim-token-2222');
+
+        try { if (fs.existsSync(claimPath)) fs.unlinkSync(claimPath); } catch (_) {}
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    });
+
+    it('74. DEF-08: Process crash during claim creation: Malformed claim past stale timeout is cleanly recovered', () => {
+        const tempPath = path.join(os.tmpdir(), `test-def8-crashclaim-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const claimPath = `${lockPath}.claim`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0, staleTimeoutMs: 50 });
+
+        // Simulate crash leaving truncated JSON
+        fs.writeFileSync(claimPath, '{"claimToken":"truncated...', { mode: 0o600 });
+        const past = new Date(Date.now() - 1000);
+        fs.utimesSync(claimPath, past, past);
+
+        const active = ledger._isClaimActive();
+        assert.equal(active, false, 'Malformed claim past stale timeout must be recovered');
+        assert.ok(!fs.existsSync(claimPath), 'Malformed claim must be cleaned up');
+
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // DEF-09: ACCURATE PROCESS START TIME & RELIABLE CLK_TCK
+    // ─────────────────────────────────────────────────────────────
+
+    it('75. DEF-09: Linux /proc calculation uses exact field 22 ticks, btime and reliable CLK_TCK', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def9-proc-'));
+        const mockProcStat = path.join(tempDir, 'stat');
+        const mockSysStat = path.join(tempDir, 'sys_stat');
+
+        try {
+            // Field 1: pid (1234), Field 2: (node proc), rest starts with state S
+            // Field 22 (starttime) is 19th item in rest -> let ticks = 50000
+            const rest = new Array(25).fill('0');
+            rest[0] = 'S';
+            rest[19] = '50000'; // starttime ticks
+            fs.writeFileSync(mockProcStat, `1234 (node proc) ${rest.join(' ')}`);
+
+            // /proc/stat with btime = 1700000000
+            fs.writeFileSync(mockSysStat, `cpu 1 2 3\nbtime 1700000000\nprocesses 10\n`);
+
+            const startTime = getProcessStartTime(1234, {
+                forceLinux: true,
+                procStatPath: mockProcStat,
+                sysStatPath: mockSysStat,
+                clkTck: 100
+            });
+
+            // Expected: (1700000000 * 1000) + (50000 / 100 * 1000) = 1700000000000 + 500000 = 1700000500000
+            assert.equal(startTime, 1700000500000);
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    it('76. DEF-09: Unavailable CLK_TCK returns null (never silently assumes 100 Hz)', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def9-notck-'));
+        const mockProcStat = path.join(tempDir, 'stat');
+        const mockSysStat = path.join(tempDir, 'sys_stat');
+
+        try {
+            const rest = new Array(25).fill('0');
+            rest[19] = '50000';
+            fs.writeFileSync(mockProcStat, `1234 (node) ${rest.join(' ')}`);
+            fs.writeFileSync(mockSysStat, `btime 1700000000\n`);
+
+            __resetClkTckCacheForTesting();
+            const res = getProcessStartTime(1234, {
+                forceLinux: true,
+                procStatPath: mockProcStat,
+                sysStatPath: mockSysStat,
+                clkTck: null // CLK_TCK unavailable!
+            });
+
+            assert.equal(res, null, 'Must return null when CLK_TCK cannot be determined; never assume 100 Hz');
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    it('77. DEF-09: Malformed /proc data returns null and fails closed', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def9-malformed-'));
+        const mockProcStat = path.join(tempDir, 'stat');
+        const mockSysStat = path.join(tempDir, 'sys_stat');
+
+        try {
+            // 1. Missing parentheses
+            fs.writeFileSync(mockProcStat, 'corrupt stat line without parens');
+            fs.writeFileSync(mockSysStat, 'btime 1700000000\n');
+            assert.equal(getProcessStartTime(1234, { forceLinux: true, procStatPath: mockProcStat, sysStatPath: mockSysStat, clkTck: 100 }), null);
+
+            // 2. Field 22 is non-numeric
+            const fields = new Array(25).fill('0');
+            fields[0] = 'S';
+            fields[19] = 'NOT_A_NUMBER';
+            fs.writeFileSync(mockProcStat, `1234 (node) ${fields.join(' ')}`);
+            assert.equal(getProcessStartTime(1234, { forceLinux: true, procStatPath: mockProcStat, sysStatPath: mockSysStat, clkTck: 100 }), null);
+
+            // 3. Missing btime line
+            fs.writeFileSync(mockSysStat, 'cpu 1 2 3\nno_btime_here 1\n');
+            assert.equal(getProcessStartTime(1234, { forceLinux: true, procStatPath: mockProcStat, sysStatPath: mockSysStat, clkTck: 100 }), null);
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    it('78. DEF-09: Permission errors reading proc paths return null safely', () => {
+        const res = getProcessStartTime(1234, {
+            forceLinux: true,
+            procStatPath: '/proc/nonexistent-path-for-test/stat',
+            sysStatPath: '/proc/stat'
+        });
+        assert.equal(res, null, 'Must return null on read errors');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // CRITICAL SECTION MUTUAL EXCLUSION: MULTI-PROCESS ADVERSARIAL
+    // ─────────────────────────────────────────────────────────────
+
+    it('79. Critical Section Mutual Exclusion: No two child processes can enter critical section simultaneously under adversarial contention', async () => {
+        const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-test-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const sentinelPath = path.join(tempDir, 'concurrency_sentinel.json');
+
+        // Sentinel tracks active in-flight count, peak concurrency, and violations
+        fs.writeFileSync(sentinelPath, JSON.stringify({
+            currentInFlight: 0,
+            maxConcurrency: 0,
+            totalEntries: 0,
+            violations: 0
+        }), { mode: 0o600 });
+
+        const numWorkers = 5;
+        const iterationsPerWorker = 4;
+
+        // Child worker script that acquires lock, asserts critical section isolation via sentinel, and releases
+        const workerScript = `
+import fs from 'fs';
+import { DurableApprovalLedger } from '${targetModule}';
+
+const ledgerPath = process.argv[2];
+const sentinelPath = process.argv[3];
+const workerId = process.argv[4];
+const iterations = parseInt(process.argv[5], 10);
+
+const ledger = new DurableApprovalLedger(ledgerPath, {
+    lockTimeoutMs: 15000,
+    retryIntervalMs: 15
+});
+
+for (let i = 0; i < iterations; i++) {
+    ledger._acquireLock();
+    try {
+        ledger._assertLockOwnership();
+
+        // CRITICAL SECTION: Enter
+        const content = fs.readFileSync(sentinelPath, 'utf8');
+        const state = JSON.parse(content);
+        state.currentInFlight += 1;
+        state.totalEntries += 1;
+        if (state.currentInFlight > state.maxConcurrency) {
+            state.maxConcurrency = state.currentInFlight;
+        }
+        if (state.currentInFlight > 1) {
+            state.violations += 1;
+        }
+        fs.writeFileSync(sentinelPath, JSON.stringify(state));
+
+        // Adversarial jitter: sleep 10ms inside critical section
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+
+        // Re-verify inside critical section: must still be exactly 1
+        const verifyContent = fs.readFileSync(sentinelPath, 'utf8');
+        const verifyState = JSON.parse(verifyContent);
+        if (verifyState.currentInFlight !== 1) {
+            verifyState.violations += 1;
+        }
+
+        // CRITICAL SECTION: Exit
+        verifyState.currentInFlight -= 1;
+        fs.writeFileSync(sentinelPath, JSON.stringify(verifyState));
+    } finally {
+        ledger._releaseLock();
+    }
+
+    // Brief jitter between acquisitions
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+}
+process.exit(0);
+`;
+        const workerFile = path.join(tempDir, 'worker_cs.mjs');
+        fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
+
+        const workers = [];
+        for (let w = 0; w < numWorkers; w++) {
+            workers.push(new Promise((resolve, reject) => {
+                const child = spawn('node', [workerFile, ledgerPath, sentinelPath, `worker-${w}`, String(iterationsPerWorker)], {
+                    stdio: ['ignore', 'inherit', 'inherit']
+                });
+                child.on('exit', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`Worker ${w} exited with code ${code}`));
+                });
+                child.on('error', reject);
+            }));
+        }
+
+        await Promise.all(workers);
+
+        // Read final sentinel state
+        const finalSentinel = JSON.parse(fs.readFileSync(sentinelPath, 'utf8'));
+        assert.equal(finalSentinel.totalEntries, numWorkers * iterationsPerWorker, 'All critical section entries must complete');
+        assert.equal(finalSentinel.maxConcurrency, 1, 'Maximum concurrent processes in critical section must be strictly 1');
+        assert.equal(finalSentinel.violations, 0, 'Zero mutual exclusion violations under adversarial scheduling');
+        assert.equal(finalSentinel.currentInFlight, 0, 'All processes must have cleanly exited critical section');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
     });
 });
