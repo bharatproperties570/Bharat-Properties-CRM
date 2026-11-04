@@ -181,7 +181,9 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_portal_transport_failed',
             'authority_portal_response_rejected',
             'authority_portal_parse_failed',
-            'authority_portal_source_paused'
+            'authority_portal_source_paused',
+            'canonical_policy_rotated',
+            'authority_canonical_policy_rotated'
         ],
         index: true
     },
@@ -207,7 +209,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal', 'authority_canonical_policy']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId

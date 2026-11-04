@@ -1206,6 +1206,15 @@ export class AuthorityBulkProcessor {
                     { lastCommittedFenceToken: { $lt: token } },
                     { lastCommittedFenceToken: { $exists: false } },
                     { lastCommittedFenceToken: null }
+                ],
+                $and: [
+                    {
+                        $or: [
+                            { highestIssuedFenceToken: { $lte: token } },
+                            { highestIssuedFenceToken: { $exists: false } },
+                            { highestIssuedFenceToken: null }
+                        ]
+                    }
                 ]
             },
             {
@@ -1214,6 +1223,9 @@ export class AuthorityBulkProcessor {
                     lastCommittedAt: new Date(),
                     lastCommittedByTenantId: tenantId,
                     lastWorkerId: workerId
+                },
+                $max: {
+                    highestIssuedFenceToken: token
                 }
             },
             opts
@@ -1255,6 +1267,7 @@ export class AuthorityBulkProcessor {
         supportsTransactions,
         heartbeat = null,
         beforeSnapshotPersistence = null,
+        beforeTransactionCommit = null,
         afterRollbackPurged = null,
         isOrphanRecovered = false
     }) {
@@ -1453,6 +1466,71 @@ export class AuthorityBulkProcessor {
                     };
                 }
 
+                // In-transaction hook before committing transaction (for delayed persistence / race testing)
+                if (typeof beforeTransactionCommit === 'function') {
+                    await beforeTransactionCommit({ session, candidate, item, effectiveWorkerId });
+                }
+
+                // Re-verify portal lease validity and fence token right before committing transaction
+                if (candidate) {
+                    if (typeof candidate.isCurrentFence === 'function') {
+                        const isCurrent = await candidate.isCurrentFence();
+                        if (!isCurrent) {
+                            await session.abortTransaction();
+                            await session.endSession();
+                            await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                                item._id,
+                                tenantId,
+                                effectiveWorkerId,
+                                {
+                                    status: 'FAILED',
+                                    matchStatus: 'NOT_ATTEMPTED',
+                                    errorMessage: 'Portal lease was superseded by a newer fence token during persistence.',
+                                    errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                                    processedAt: new Date(),
+                                    isSynthetic: false,
+                                    provenance: 'LIVE'
+                                }
+                            );
+                            return {
+                                success: false,
+                                reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                                code: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                                ownershipLost: true
+                            };
+                        }
+                    }
+
+                    if (typeof candidate.checkLeaseValid === 'function') {
+                        try {
+                            await candidate.checkLeaseValid();
+                        } catch (leaseErr) {
+                            await session.abortTransaction();
+                            await session.endSession();
+                            await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                                item._id,
+                                tenantId,
+                                effectiveWorkerId,
+                                {
+                                    status: 'FAILED',
+                                    matchStatus: 'NOT_ATTEMPTED',
+                                    errorMessage: leaseErr.message,
+                                    errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                                    processedAt: new Date(),
+                                    isSynthetic: false,
+                                    provenance: 'LIVE'
+                                }
+                            );
+                            return {
+                                success: false,
+                                reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                                code: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                                ownershipLost: true
+                            };
+                        }
+                    }
+                }
+
                 await session.commitTransaction();
                 await session.endSession();
             } catch (txErr) {
@@ -1632,6 +1710,64 @@ export class AuthorityBulkProcessor {
                 finalizeUpdates['recoveryState.stage'] = 'NONE';
                 finalizeUpdates['recoveryState.orphanedSnapshotId'] = null;
                 finalizeUpdates['recoveryState.orphanedByWorkerId'] = null;
+            }
+
+            // In standalone mode, invoke hook before final terminal update
+            if (typeof beforeTransactionCommit === 'function') {
+                await beforeTransactionCommit({ session: null, candidate, item, effectiveWorkerId });
+            }
+
+            // Re-verify portal lease validity and fence token in standalone mode right before finalizing
+            if (candidate) {
+                let leaseLostStandalone = false;
+                let leaseLostMessage = 'Portal lease was superseded during standalone snapshot persistence.';
+                if (typeof candidate.isCurrentFence === 'function') {
+                    const isCurrent = await candidate.isCurrentFence();
+                    if (!isCurrent) leaseLostStandalone = true;
+                }
+                if (!leaseLostStandalone && typeof candidate.checkLeaseValid === 'function') {
+                    try {
+                        await candidate.checkLeaseValid();
+                    } catch (lErr) {
+                        leaseLostStandalone = true;
+                        leaseLostMessage = lErr.message;
+                    }
+                }
+
+                if (leaseLostStandalone) {
+                    // Stale worker lost lease during standalone persistence.
+                    // Immediately purge the newly inserted snapshot so no snapshot survives!
+                    if (snapshot && snapshot._id) {
+                        try {
+                            await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                                tenantId,
+                                runItemId: item._id,
+                                snapshotId: snapshot._id,
+                                createdByWorkerId: effectiveWorkerId
+                            });
+                        } catch {}
+                    }
+                    await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            matchStatus: 'NOT_ATTEMPTED',
+                            errorMessage: leaseLostMessage,
+                            errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    return {
+                        success: false,
+                        reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                        code: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                        ownershipLost: true
+                    };
+                }
             }
 
             finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
@@ -2009,6 +2145,7 @@ export class AuthorityBulkProcessor {
             fenceToken: optFenceToken,
             runId: optRunId,
             beforeSnapshotPersistence,
+            beforeTransactionCommit,
             beforeOrphanCleanup,
             afterOrphanPurged,
             afterRollbackPurged,
@@ -2830,6 +2967,7 @@ export class AuthorityBulkProcessor {
                 supportsTransactions,
                 heartbeat,
                 beforeSnapshotPersistence,
+                beforeTransactionCommit,
                 afterRollbackPurged,
                 isOrphanRecovered
             });
@@ -3124,6 +3262,8 @@ export class AuthorityBulkProcessor {
                     sourceReferenceUrl: `https://${portalResult.sourceHost}`,
                     fenceToken: Number(portalResult.fenceToken),
                     isCurrentFence: portalResult.isCurrentFence,
+                    isLeaseValid: portalResult.isLeaseValid,
+                    checkLeaseValid: portalResult.checkLeaseValid,
                     proposedChanges: liveProposedChanges,
                     matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' },
                     compositeKey: link.compositeKey ? { key: link.compositeKey } : null
@@ -3140,6 +3280,7 @@ export class AuthorityBulkProcessor {
                     supportsTransactions,
                     heartbeat,
                     beforeSnapshotPersistence,
+                    beforeTransactionCommit,
                     afterRollbackPurged,
                     isOrphanRecovered
                 });
@@ -3181,6 +3322,9 @@ export class AuthorityBulkProcessor {
 
             if (portalResult && portalResult.callbackResult) {
                 return portalResult.callbackResult;
+            }
+            if (portalResult && (portalResult.success !== undefined || portalResult.ownershipLost !== undefined)) {
+                return portalResult;
             }
             return { success: true, portalResult };
         }

@@ -43,7 +43,11 @@ export async function registerOrRotateCanonicalPolicy({
     authorityCode,
     policy,
     reviewedBy,
+    reviewerId = null,
+    reviewerName = null,
     approvedBy,
+    approverId = null,
+    approverName = null,
     policyVersion = null,
     expectedPreviousVersion = null,
     quotaProvider = null,
@@ -66,15 +70,15 @@ export async function registerOrRotateCanonicalPolicy({
         throw new CanonicalPolicyError('MISSING_POLICY_REFERENCE', 'policyReference is mandatory for canonical authority policy.');
     }
 
-    const reviewer = String(reviewedBy || '').trim();
-    const approver = String(approvedBy || '').trim();
+    const reviewer = String(reviewedBy || reviewerId || '').trim();
+    const approver = String(approvedBy || approverId || '').trim();
     if (!reviewer) {
         throw new CanonicalPolicyError('MISSING_REVIEWER', 'reviewedBy is mandatory for canonical policy registration.');
     }
     if (!approver) {
         throw new CanonicalPolicyError('MISSING_APPROVER', 'approvedBy is mandatory for canonical policy registration.');
     }
-    if (reviewer === approver) {
+    if (reviewer === approver || (reviewerId && approverId && String(reviewerId) === String(approverId))) {
         throw new CanonicalPolicyError(
             'CANONICAL_POLICY_SELF_APPROVAL',
             'Independent maker-checker separation required: reviewer and approver must be distinct individuals.'
@@ -162,7 +166,15 @@ export async function registerOrRotateCanonicalPolicy({
         if (expectedPreviousVersion !== null && expectedPreviousVersion !== undefined) {
             throw new CanonicalPolicyError('VERSION_CONFLICT', 'Cannot assert expectedPreviousVersion on initial policy creation.');
         }
-        nextVersion = policyVersion !== null && policyVersion !== undefined ? Number(policyVersion) : 1;
+        if (policyVersion !== null && policyVersion !== undefined) {
+            const requestedVer = Number(policyVersion);
+            if (!Number.isInteger(requestedVer) || requestedVer < 1) {
+                throw new CanonicalPolicyError('INVALID_VERSION', 'Policy version must be a positive integer >= 1.');
+            }
+            nextVersion = requestedVer;
+        } else {
+            nextVersion = 1;
+        }
     }
 
     const recordData = {
@@ -178,7 +190,14 @@ export async function registerOrRotateCanonicalPolicy({
         effectiveFrom,
         expiresAt,
         reviewedBy: reviewer,
+        reviewerId: reviewerId || null,
+        reviewerName: reviewerName || null,
         approvedBy: approver,
+        approverId: approverId || null,
+        approverName: approverName || null,
+        redisSyncStatus: 'PENDING',
+        redisSyncError: null,
+        lastSyncedAt: null,
         isActive: true,
         updatedAt: new Date()
     };
@@ -200,35 +219,105 @@ export async function registerOrRotateCanonicalPolicy({
 
     // Synchronize to Redis quota provider if supplied
     if (quotaProvider && typeof quotaProvider.setCanonicalPolicy === 'function') {
-        await quotaProvider.setCanonicalPolicy({
-            authorityCode: code,
-            policy: {
-                policyReference: ref,
-                minIntervalMs,
-                maxRequestsPerMinute,
-                maxRequestsPerHour,
-                maxRequestsPerDay,
-                contentHash
-            },
-            approvedBy: approver,
-            policyVersion: nextVersion
-        });
+        try {
+            await quotaProvider.setCanonicalPolicy({
+                authorityCode: code,
+                policy: {
+                    policyReference: ref,
+                    minIntervalMs,
+                    maxRequestsPerMinute,
+                    maxRequestsPerHour,
+                    maxRequestsPerDay,
+                    contentHash
+                },
+                approvedBy: approver,
+                policyVersion: nextVersion
+            });
+            savedDoc.redisSyncStatus = 'SYNCED';
+            savedDoc.lastSyncedAt = new Date();
+            savedDoc.redisSyncError = null;
+        } catch (syncErr) {
+            savedDoc.redisSyncStatus = 'FAILED';
+            savedDoc.redisSyncError = syncErr.message;
+        }
+
+        await AuthorityCanonicalPolicy.updateOne(
+            { _id: savedDoc._id },
+            {
+                $set: {
+                    redisSyncStatus: savedDoc.redisSyncStatus,
+                    lastSyncedAt: savedDoc.lastSyncedAt,
+                    redisSyncError: savedDoc.redisSyncError
+                }
+            }
+        );
     }
 
     return savedDoc;
 }
 
 /**
- * Retrieves the currently active and valid canonical policy for an authority.
- * Fails closed if missing, inactive, or expired.
+ * Reconciles and synchronizes an existing canonical policy to Redis.
  */
-export async function getCanonicalPolicy(authorityCode, { session = null } = {}) {
+export async function syncCanonicalPolicyToRedis({ authorityCode, quotaProvider, session = null } = {}) {
+    const code = String(authorityCode || '').trim().toUpperCase();
+    if (!quotaProvider || typeof quotaProvider.setCanonicalPolicy !== 'function') {
+        throw new CanonicalPolicyError('NO_QUOTA_PROVIDER', 'Quota provider is required for synchronization.');
+    }
+    const policyDoc = await getCanonicalPolicy(code, { session });
+    if (!policyDoc) {
+        throw new CanonicalPolicyError('CANONICAL_POLICY_NOT_FOUND', `No active, valid canonical policy found for authority ${code}.`);
+    }
+
+    try {
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: code,
+            policy: {
+                policyReference: policyDoc.policyReference,
+                minIntervalMs: policyDoc.minIntervalMs,
+                maxRequestsPerMinute: policyDoc.maxRequestsPerMinute,
+                maxRequestsPerHour: policyDoc.maxRequestsPerHour,
+                maxRequestsPerDay: policyDoc.maxRequestsPerDay,
+                contentHash: policyDoc.contentHash
+            },
+            approvedBy: policyDoc.approvedBy,
+            policyVersion: policyDoc.version
+        });
+
+        policyDoc.redisSyncStatus = 'SYNCED';
+        policyDoc.redisSyncError = null;
+        policyDoc.lastSyncedAt = new Date();
+        await AuthorityCanonicalPolicy.updateOne(
+            { _id: policyDoc._id },
+            { $set: { redisSyncStatus: 'SYNCED', redisSyncError: null, lastSyncedAt: policyDoc.lastSyncedAt } }
+        );
+        return { success: true, policy: policyDoc };
+    } catch (syncErr) {
+        policyDoc.redisSyncStatus = 'FAILED';
+        policyDoc.redisSyncError = syncErr.message;
+        await AuthorityCanonicalPolicy.updateOne(
+            { _id: policyDoc._id },
+            { $set: { redisSyncStatus: 'FAILED', redisSyncError: syncErr.message } }
+        );
+        return { success: false, reason: syncErr.message, policy: policyDoc };
+    }
+}
+
+/**
+ * Retrieves the currently active and valid canonical policy for an authority.
+ * Fails closed if missing, inactive, future-effective, or expired.
+ */
+export async function getCanonicalPolicy(authorityCode, { session = null, now = Date.now() } = {}) {
     const code = String(authorityCode || '').trim().toUpperCase();
     const doc = await AuthorityCanonicalPolicy.findOne({ authorityCode: code, isActive: true }).session(session);
     if (!doc) {
         return null;
     }
-    if (doc.expiresAt && doc.expiresAt.getTime() <= Date.now()) {
+    const currentMs = typeof now === 'number' ? now : (now instanceof Date ? now.getTime() : Date.now());
+    if (doc.effectiveFrom && doc.effectiveFrom.getTime() > currentMs) {
+        return null; // Future-effective policy cannot be used yet
+    }
+    if (doc.expiresAt && doc.expiresAt.getTime() <= currentMs) {
         return null; // Expired policy cannot be used
     }
     return doc;

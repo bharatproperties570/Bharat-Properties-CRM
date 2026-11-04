@@ -21,6 +21,7 @@ import {
     createAuthorityPortalContentHash,
     createAuthorityPortalSearchKey
 } from './authorityPortalResultSanitizer.js';
+import { AuthorityGlobalFenceWatermark } from '../../../models/AuthorityGlobalFenceWatermark.js';
 
 const EXPECTED_HOSTS = Object.freeze({
     HSVP: 'hsvphry.org.in',
@@ -214,6 +215,16 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 throw makeError('PORTAL_SOURCE_BUSY', 'Another worker owns this source or a distributed lock could not be acquired.', {
                     authorityCode: code
                 });
+            }
+
+            // Durably record issued fence token to establish the issued-but-not-yet-committed watermark window
+            if (lease.fenceToken) {
+                try {
+                    await AuthorityGlobalFenceWatermark.recordIssuedFenceToken({
+                        authorityCode: code,
+                        fenceToken: lease.fenceToken
+                    });
+                } catch {}
             }
 
             let isRenewing = false;
@@ -411,10 +422,99 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     contentHash,
                     fenceToken: lease.fenceToken ?? null,
                     isCurrentFence: async () => {
+                        if (lockLost) return false;
                         if (typeof lockProvider.isCurrentFenceToken === 'function') {
-                            return await lockProvider.isCurrentFenceToken(code, lease.fenceToken);
+                            const isCurrent = await lockProvider.isCurrentFenceToken(code, lease.fenceToken);
+                            if (!isCurrent) {
+                                lockLost = true;
+                                return false;
+                            }
                         }
-                        return true;
+                        try {
+                            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode: code,
+                                fenceToken: lease.fenceToken
+                            });
+                            if (isSuperseded) {
+                                lockLost = true;
+                                return false;
+                            }
+                        } catch {}
+                        return !lockLost;
+                    },
+                    isLeaseValid: async () => {
+                        if (lockLost) return false;
+                        if (typeof lease.renew === 'function') {
+                            try {
+                                const renewed = await lease.renew();
+                                if (!renewed) {
+                                    lockLost = true;
+                                    return false;
+                                }
+                            } catch {
+                                lockLost = true;
+                                return false;
+                            }
+                        }
+                        if (typeof lockProvider.isCurrentFenceToken === 'function') {
+                            const isCurrent = await lockProvider.isCurrentFenceToken(code, lease.fenceToken);
+                            if (!isCurrent) {
+                                lockLost = true;
+                                return false;
+                            }
+                        }
+                        try {
+                            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode: code,
+                                fenceToken: lease.fenceToken
+                            });
+                            if (isSuperseded) {
+                                lockLost = true;
+                                return false;
+                            }
+                        } catch {}
+                        return !lockLost;
+                    },
+                    checkLeaseValid: async () => {
+                        if (lockLost) {
+                            throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost.', { authorityCode: code });
+                        }
+                        if (typeof lease.renew === 'function') {
+                            let renewed = false;
+                            try {
+                                renewed = await lease.renew();
+                            } catch (e) {
+                                lockLost = true;
+                                lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', `Distributed portal lock renewal failed: ${e.message}`, { authorityCode: code });
+                                throw lockLostError;
+                            }
+                            if (!renewed) {
+                                lockLost = true;
+                                lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock expired or renewed by another worker.', { authorityCode: code });
+                                throw lockLostError;
+                            }
+                        }
+                        if (typeof lockProvider.isCurrentFenceToken === 'function') {
+                            const isCurrent = await lockProvider.isCurrentFenceToken(code, lease.fenceToken);
+                            if (!isCurrent) {
+                                lockLost = true;
+                                lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock superseded by a newer fence token.', { authorityCode: code });
+                                throw lockLostError;
+                            }
+                        }
+                        try {
+                            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode: code,
+                                fenceToken: lease.fenceToken
+                            });
+                            if (isSuperseded) {
+                                lockLost = true;
+                                lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Portal fence token was superseded in global watermark.', { authorityCode: code });
+                                throw lockLostError;
+                            }
+                        } catch (wmErr) {
+                            if (wmErr.code === 'PORTAL_LOCK_OWNERSHIP_LOST') throw wmErr;
+                        }
                     },
                     provenance: 'LIVE',
                     isSynthetic: false,
@@ -426,6 +526,10 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 // Phase 6: Maintain lease ownership through candidate creation, snapshot persistence and run-item terminal finalization
                 if (typeof executeWithinLease === 'function') {
                     const callbackResult = await executeWithinLease(result);
+                    // If callback already safely aborted due to ownership loss / watermark supersedence, return callbackResult cleanly
+                    if (callbackResult && (callbackResult.ownershipLost === true || callbackResult.code === 'PORTAL_LOCK_OWNERSHIP_LOST')) {
+                        return callbackResult;
+                    }
                     // Verify lease was not lost during persistence callback
                     if (lockLost) {
                         throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during snapshot persistence.', { authorityCode: code });

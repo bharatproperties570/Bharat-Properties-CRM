@@ -46,11 +46,35 @@ export class RedisPortalQuotaProvider {
         const maxPerMin = Number(pol.maxRequestsPerMinute || 0);
         const maxPerHour = Number(pol.maxRequestsPerHour || 0);
         const maxPerDay = Number(pol.maxRequestsPerDay || 0);
-        const version = String(policyVersion || 1);
+        const versionNum = Number(policyVersion !== undefined && policyVersion !== null ? policyVersion : 1);
+        if (!Number.isInteger(versionNum) || versionNum < 1) {
+            const err = new Error('INVALID_POLICY_VERSION: Canonical policy version must be a positive integer >= 1.');
+            err.code = 'INVALID_POLICY_VERSION';
+            throw err;
+        }
+        const version = String(versionNum);
 
-        const contentHash = crypto.createHash('sha256')
-            .update(JSON.stringify({ ref, minIntervalMs, maxPerMin, maxPerHour, maxPerDay }))
-            .digest('hex');
+        const contentHash = pol.contentHash
+            ? String(pol.contentHash)
+            : crypto.createHash('sha256')
+                .update(JSON.stringify({ ref, minIntervalMs, maxPerMin, maxPerHour, maxPerDay }))
+                .digest('hex');
+
+        // Monotonic check against in-memory state
+        const existingLocal = this._canonicalPolicies.get(code);
+        if (existingLocal) {
+            const curLocalVer = Number(existingLocal.version || 0);
+            if (versionNum < curLocalVer) {
+                const err = new Error(`STALE_POLICY_VERSION: Incoming version ${versionNum} is lower than current in-memory version ${curLocalVer}.`);
+                err.code = 'STALE_POLICY_VERSION';
+                throw err;
+            }
+            if (versionNum === curLocalVer && existingLocal.contentHash && existingLocal.contentHash !== contentHash) {
+                const err = new Error(`POLICY_HASH_MISMATCH: Version ${versionNum} already exists with a different content hash.`);
+                err.code = 'POLICY_HASH_MISMATCH';
+                throw err;
+            }
+        }
 
         const canonicalRecord = {
             ref,
@@ -64,30 +88,113 @@ export class RedisPortalQuotaProvider {
             updatedAt: Date.now()
         };
 
-        this._canonicalPolicies.set(code, canonicalRecord);
-
         if (this.redisClient) {
             const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
-            if (isReady && typeof this.redisClient.hset === 'function') {
+            if (isReady) {
                 const canKey = `quota:canonical:${code}`;
-                await this.redisClient.hset(
-                    canKey,
-                    'ref', ref,
-                    'version', version,
-                    'contentHash', contentHash,
-                    'minIntervalMs', String(minIntervalMs),
-                    'maxPerMin', String(maxPerMin),
-                    'maxPerHour', String(maxPerHour),
-                    'maxPerDay', String(maxPerDay),
-                    'approvedBy', String(approvedBy),
-                    'updatedAt', String(canonicalRecord.updatedAt)
-                );
-                if (typeof this.redisClient.persist === 'function') {
-                    await this.redisClient.persist(canKey);
+
+                // Atomic monotonic version and hash verification Lua script
+                const setCanonicalLua = `
+                    local canKey = KEYS[1]
+                    local incVersion = tonumber(ARGV[1])
+                    local incHash = ARGV[2]
+                    local incRef = ARGV[3]
+                    local minInterval = ARGV[4]
+                    local maxMin = ARGV[5]
+                    local maxHour = ARGV[6]
+                    local maxDay = ARGV[7]
+                    local approved = ARGV[8]
+                    local updated = ARGV[9]
+
+                    local curVer = tonumber(redis.call('hget', canKey, 'version') or '0')
+                    local curHash = redis.call('hget', canKey, 'contentHash')
+
+                    if curVer and curVer > 0 then
+                        if incVersion < curVer then
+                            return {0, 'STALE_POLICY_VERSION', tostring(curVer)}
+                        elseif incVersion == curVer then
+                            if curHash and curHash ~= '' and curHash ~= incHash then
+                                return {0, 'POLICY_HASH_MISMATCH', tostring(curVer)}
+                            end
+                            -- Idempotent re-assertion permitted
+                        end
+                    end
+
+                    redis.call('hset', canKey,
+                        'ref', incRef,
+                        'version', tostring(incVersion),
+                        'contentHash', incHash,
+                        'minIntervalMs', minInterval,
+                        'maxPerMin', maxMin,
+                        'maxPerHour', maxHour,
+                        'maxPerDay', maxDay,
+                        'approvedBy', approved,
+                        'updatedAt', updated
+                    )
+                    redis.call('persist', canKey)
+                    return {1, 'OK', tostring(incVersion)}
+                `;
+
+                if (typeof this.redisClient.eval === 'function') {
+                    const res = await this.redisClient.eval(
+                        setCanonicalLua,
+                        1,
+                        canKey,
+                        versionNum,
+                        contentHash,
+                        ref,
+                        String(minIntervalMs),
+                        String(maxPerMin),
+                        String(maxPerHour),
+                        String(maxPerDay),
+                        String(approvedBy),
+                        String(canonicalRecord.updatedAt)
+                    );
+
+                    if (Array.isArray(res) && res[0] === 0) {
+                        const errCode = res[1] || 'CANONICAL_POLICY_REJECTED';
+                        const currentVer = res[2] || '';
+                        const err = new Error(`${errCode}: Incoming policy version ${versionNum} rejected against Redis canonical version ${currentVer}.`);
+                        err.code = errCode;
+                        throw err;
+                    }
+                } else if (typeof this.redisClient.hset === 'function') {
+                    // Fallback client without eval: manual read and set
+                    const curVerStr = typeof this.redisClient.hget === 'function' ? await this.redisClient.hget(canKey, 'version') : null;
+                    const curHashStr = typeof this.redisClient.hget === 'function' ? await this.redisClient.hget(canKey, 'contentHash') : null;
+                    const curVer = curVerStr ? Number(curVerStr) : 0;
+                    if (curVer > 0) {
+                        if (versionNum < curVer) {
+                            const err = new Error(`STALE_POLICY_VERSION: Incoming version ${versionNum} is lower than Redis version ${curVer}.`);
+                            err.code = 'STALE_POLICY_VERSION';
+                            throw err;
+                        }
+                        if (versionNum === curVer && curHashStr && curHashStr !== contentHash) {
+                            const err = new Error(`POLICY_HASH_MISMATCH: Version ${versionNum} already exists in Redis with a different content hash.`);
+                            err.code = 'POLICY_HASH_MISMATCH';
+                            throw err;
+                        }
+                    }
+                    await this.redisClient.hset(
+                        canKey,
+                        'ref', ref,
+                        'version', version,
+                        'contentHash', contentHash,
+                        'minIntervalMs', String(minIntervalMs),
+                        'maxPerMin', String(maxPerMin),
+                        'maxPerHour', String(maxPerHour),
+                        'maxPerDay', String(maxPerDay),
+                        'approvedBy', String(approvedBy),
+                        'updatedAt', String(canonicalRecord.updatedAt)
+                    );
+                    if (typeof this.redisClient.persist === 'function') {
+                        await this.redisClient.persist(canKey);
+                    }
                 }
             }
         }
 
+        this._canonicalPolicies.set(code, canonicalRecord);
         return canonicalRecord;
     }
 

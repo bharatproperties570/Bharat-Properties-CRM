@@ -18,6 +18,15 @@ import PropertyVerificationRunItem, {
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import Inventory from '../models/Inventory.js';
 import AuditLog from '../models/AuditLog.js';
+import User from '../models/User.js';
+import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
+import {
+    registerOrRotateCanonicalPolicy,
+    getCanonicalPolicy,
+    syncCanonicalPolicyToRedis
+} from '../services/authority/portal/canonicalPolicyService.js';
+import { getApplicationRedisClient } from '../services/authority/portal/portalRuntimeFactory.js';
+import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
 import { buildCompositeKey, computeSnapshotContentHash } from '../services/authority/authorityNormalizer.js';
 import { isSentinel } from '../services/authority/authorityFieldDictionary.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
@@ -670,6 +679,208 @@ export const reviewSourceApproval = async (req, res) => {
     } catch (error) {
         console.error('reviewSourceApproval error:', error);
         res.status(500).json({ success: false, message: 'Failed to review source approval' });
+    }
+};
+
+// ============================================================
+// CANONICAL AUTHORITY-GLOBAL QUOTA POLICY (Admin Maker-Checker)
+// ============================================================
+
+/**
+ * GET /api/authority/canonical-policy/:authorityCode
+ * Retrieves the currently active and valid authority-global canonical rate policy.
+ * Permission: authorityVerification.view
+ */
+export const getCanonicalPolicyByCode = async (req, res) => {
+    try {
+        const { authorityCode } = req.params;
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+        const policy = await getCanonicalPolicy(code);
+        if (!policy) {
+            return res.status(404).json({ success: false, message: `No active canonical policy found for ${code}` });
+        }
+        res.json({ success: true, data: policy });
+    } catch (error) {
+        console.error('getCanonicalPolicyByCode error:', error);
+        res.status(500).json({ success: false, message: 'Failed to retrieve canonical policy' });
+    }
+};
+
+/**
+ * POST /api/authority/canonical-policy/:authorityCode/rotate
+ * Privileged admin-only endpoint to register or rotate an authority-global canonical policy.
+ * Enforces independent authenticated maker-checker separation:
+ * - approver is derived directly from req.user
+ * - reviewerId is verified against active User model
+ * - reviewerId !== approverId
+ * - atomic CAS version progression
+ * - mandatory audit logging
+ * Permission: authorityVerification.edit + manageAuthoritySettings approval right
+ */
+export const rotateCanonicalPolicy = async (req, res) => {
+    try {
+        const { authorityCode } = req.params;
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const approverUser = req.user;
+        if (!approverUser || !approverUser._id) {
+            return res.status(401).json({ success: false, message: 'Authentication required' });
+        }
+
+        const { reviewerId, policy, policyVersion, expectedPreviousVersion } = req.body;
+        if (!reviewerId) {
+            return res.status(400).json({
+                success: false,
+                code: 'MISSING_REVIEWER',
+                message: 'reviewerId is required for independent maker-checker verification'
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(reviewerId)) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_REVIEWER_ID',
+                message: 'reviewerId must be a valid ObjectId'
+            });
+        }
+
+        if (String(reviewerId) === String(approverUser._id)) {
+            return res.status(422).json({
+                success: false,
+                code: 'CANONICAL_POLICY_SELF_APPROVAL',
+                message: 'Independent maker-checker separation required: reviewer and approver must be distinct individuals.'
+            });
+        }
+
+        let reviewerUser;
+        try {
+            reviewerUser = await User.findById(reviewerId).select('_id fullName name email isActive role permissions');
+        } catch {
+            reviewerUser = null;
+        }
+
+        if (!reviewerUser || reviewerUser.isActive === false) {
+            return res.status(400).json({
+                success: false,
+                code: 'REVIEWER_NOT_ACTIVE',
+                message: 'Reviewer user not found or inactive.'
+            });
+        }
+
+        let quotaProvider = null;
+        try {
+            const redisClient = getApplicationRedisClient();
+            if (redisClient) {
+                quotaProvider = new RedisPortalQuotaProvider(redisClient);
+            }
+        } catch {}
+
+        const existing = await AuthorityCanonicalPolicy.findOne({ authorityCode: code });
+        const previousVersion = existing?.version || 0;
+        const previousContentHash = existing?.contentHash || null;
+
+        let savedDoc;
+        try {
+            savedDoc = await registerOrRotateCanonicalPolicy({
+                authorityCode: code,
+                policy,
+                reviewedBy: String(reviewerUser._id),
+                reviewerId: reviewerUser._id,
+                reviewerName: reviewerUser.fullName || reviewerUser.name || 'Reviewer',
+                approvedBy: String(approverUser._id),
+                approverId: approverUser._id,
+                approverName: approverUser.fullName || approverUser.name || 'Approver',
+                policyVersion,
+                expectedPreviousVersion,
+                quotaProvider
+            });
+        } catch (serviceErr) {
+            return res.status(400).json({
+                success: false,
+                code: serviceErr.code || 'CANONICAL_POLICY_ERROR',
+                message: serviceErr.message
+            });
+        }
+
+        // Mandatory audit log
+        try {
+            await AuditLog.create({
+                eventType: 'canonical_policy_rotated',
+                userId: approverUser._id,
+                userName: approverUser.fullName || approverUser.name || 'Admin',
+                userEmail: approverUser.email || null,
+                description: `Rotated canonical policy for authority ${code} to version ${savedDoc.version}`,
+                metadata: {
+                    authorityCode: code,
+                    previousVersion,
+                    previousContentHash,
+                    newVersion: savedDoc.version,
+                    newContentHash: savedDoc.contentHash,
+                    policyReference: savedDoc.policyReference,
+                    reviewerId: String(reviewerUser._id),
+                    approverId: String(approverUser._id),
+                    redisSyncStatus: savedDoc.redisSyncStatus,
+                    redisSyncError: savedDoc.redisSyncError || null
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent'),
+                status: savedDoc.redisSyncStatus === 'FAILED' ? 'warning' : 'success'
+            });
+        } catch (auditErr) {
+            console.error('Failed to log audit event for canonical policy rotation:', auditErr);
+        }
+
+        const statusCode = savedDoc.redisSyncStatus === 'FAILED' ? 202 : 200;
+        return res.status(statusCode).json({
+            success: true,
+            data: savedDoc,
+            redisSyncStatus: savedDoc.redisSyncStatus,
+            warning: savedDoc.redisSyncStatus === 'FAILED' ? 'Policy committed in DB but Redis sync failed and remains pending.' : null
+        });
+    } catch (error) {
+        console.error('rotateCanonicalPolicy error:', error);
+        res.status(500).json({ success: false, message: 'Failed to rotate canonical policy', error: error.message });
+    }
+};
+
+/**
+ * POST /api/authority/canonical-policy/:authorityCode/sync
+ * Reconciles and synchronizes an existing canonical policy to Redis.
+ * Permission: authorityVerification.edit + manageAuthoritySettings approval right
+ */
+export const syncCanonicalPolicy = async (req, res) => {
+    try {
+        const { authorityCode } = req.params;
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+        let quotaProvider = null;
+        try {
+            const redisClient = getApplicationRedisClient();
+            if (redisClient) {
+                quotaProvider = new RedisPortalQuotaProvider(redisClient);
+            }
+        } catch {}
+
+        if (!quotaProvider) {
+            return res.status(503).json({ success: false, message: 'Redis quota provider unavailable' });
+        }
+
+        const result = await syncCanonicalPolicyToRedis({ authorityCode: code, quotaProvider });
+        if (!result.success) {
+            return res.status(502).json({ success: false, message: 'Failed to synchronize canonical policy to Redis', reason: result.reason });
+        }
+        res.json({ success: true, data: result.policy });
+    } catch (error) {
+        console.error('syncCanonicalPolicy error:', error);
+        res.status(500).json({ success: false, message: 'Failed to sync canonical policy' });
     }
 };
 

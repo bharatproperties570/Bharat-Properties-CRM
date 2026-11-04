@@ -75,10 +75,44 @@ const AuthorityCanonicalPolicySchema = new mongoose.Schema({
         required: true,
         trim: true
     },
+    reviewerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    reviewerName: {
+        type: String,
+        default: null,
+        trim: true
+    },
     approvedBy: {
         type: String,
         required: true,
         trim: true
+    },
+    approverId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    approverName: {
+        type: String,
+        default: null,
+        trim: true
+    },
+    redisSyncStatus: {
+        type: String,
+        enum: ['PENDING', 'SYNCED', 'FAILED'],
+        default: 'PENDING',
+        index: true
+    },
+    redisSyncError: {
+        type: String,
+        default: null
+    },
+    lastSyncedAt: {
+        type: Date,
+        default: null
     },
     isActive: {
         type: Boolean,

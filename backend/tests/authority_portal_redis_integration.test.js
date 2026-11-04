@@ -984,4 +984,365 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const lockKeys = await redisClient.keys(`*${authorityCode}*`);
         if (lockKeys.length > 0) await redisClient.del(...lockKeys);
     });
+
+    await t.test('13. Atomic Monotonic Canonical Policy Lua CAS in Real Redis (Remediation 2)', async (t13) => {
+        if (!isRedisAvailable) {
+            t13.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
+            return;
+        }
+
+        const quotaProvider = new RedisPortalQuotaProvider(redisClient, { testMode: false });
+        const authorityCode = 'HSVP';
+
+        // Clean up previous keys
+        const preKeys = await redisClient.keys(`*canonical:${authorityCode}*`);
+        if (preKeys.length > 0) await redisClient.del(...preKeys);
+
+        const hashV1 = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: 'HSVP_CANONICAL_CAS_V1',
+            minIntervalMs: 500,
+            maxRequestsPerMinute: 6,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 300
+        });
+
+        // 13.1 Worker A sets canonical policy version 1 into real Redis
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP_CANONICAL_CAS_V1',
+                minIntervalMs: 500,
+                maxRequestsPerMinute: 6,
+                maxRequestsPerHour: 60,
+                maxRequestsPerDay: 300,
+                contentHash: hashV1
+            },
+            approvedBy: 'audit-officer-cas1',
+            policyVersion: 1
+        });
+
+        const canKey = `quota:canonical:${authorityCode}`;
+        const ttlV1 = await redisClient.ttl(canKey);
+        assert.equal(ttlV1, -1, 'Canonical policy key must be persistent without TTL');
+        const storedV1 = await redisClient.hgetall(canKey);
+        assert.equal(storedV1.version, '1');
+        assert.equal(storedV1.contentHash, hashV1);
+
+        // 13.2 Admin rotates to version 2 with maker-checker and syncs to Redis
+        const hashV2 = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: 'HSVP_CANONICAL_CAS_V2',
+            minIntervalMs: 500,
+            maxRequestsPerMinute: 6,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 300
+        });
+
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP_CANONICAL_CAS_V2',
+                minIntervalMs: 500,
+                maxRequestsPerMinute: 6,
+                maxRequestsPerHour: 60,
+                maxRequestsPerDay: 300,
+                contentHash: hashV2
+            },
+            approvedBy: 'audit-officer-cas2',
+            policyVersion: 2
+        });
+
+        const storedV2 = await redisClient.hgetall(canKey);
+        assert.equal(storedV2.version, '2');
+        assert.equal(storedV2.contentHash, hashV2);
+
+        // 13.3 Worker A attempts delayed priming of Redis with stale v1 -> rejected with STALE_POLICY_VERSION
+        await assert.rejects(
+            async () => {
+                await quotaProvider.setCanonicalPolicy({
+                    authorityCode,
+                    policy: {
+                        policyReference: 'HSVP_CANONICAL_CAS_V1',
+                        minIntervalMs: 500,
+                        maxRequestsPerMinute: 6,
+                        maxRequestsPerHour: 60,
+                        maxRequestsPerDay: 300,
+                        contentHash: hashV1
+                    },
+                    approvedBy: 'audit-officer-cas1',
+                    policyVersion: 1
+                });
+            },
+            (err) => err.code === 'STALE_POLICY_VERSION'
+        );
+
+        // Verify Redis canonical policy remains at v2
+        const storedAfterStale = await redisClient.hgetall(canKey);
+        assert.equal(storedAfterStale.version, '2');
+
+        // 13.4 Competing worker attempts same-version different hash -> rejected with POLICY_HASH_MISMATCH
+        await assert.rejects(
+            async () => {
+                await quotaProvider.setCanonicalPolicy({
+                    authorityCode,
+                    policy: {
+                        policyReference: 'HSVP_CANONICAL_CAS_V2',
+                        minIntervalMs: 500,
+                        maxRequestsPerMinute: 6,
+                        maxRequestsPerHour: 60,
+                        maxRequestsPerDay: 300,
+                        contentHash: 'hash-v2-tampered'
+                    },
+                    approvedBy: 'audit-officer-cas2',
+                    policyVersion: 2
+                });
+            },
+            (err) => err.code === 'POLICY_HASH_MISMATCH'
+        );
+
+        // 13.5 Idempotent re-assertion of v2 with matching hash succeeds without error
+        const idempRes = await quotaProvider.setCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP_CANONICAL_CAS_V2',
+                minIntervalMs: 500,
+                maxRequestsPerMinute: 6,
+                maxRequestsPerHour: 60,
+                maxRequestsPerDay: 300,
+                contentHash: hashV2
+            },
+            approvedBy: 'audit-officer-cas2',
+            policyVersion: 2
+        });
+        assert.ok(idempRes);
+        assert.equal(String(idempRes.version), '2');
+
+        // 13.6 Subsequent reservation attempted with v1 policy is rejected with POLICY_VERSION_MISMATCH
+        const resStale = await quotaProvider.reserve({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP_CANONICAL_CAS_V2',
+                minIntervalMs: 500,
+                maxRequestsPerMinute: 6,
+                maxRequestsPerHour: 60,
+                maxRequestsPerDay: 300,
+                contentHash: hashV2,
+                version: 1
+            }
+        });
+        assert.equal(resStale.allowed, false);
+        assert.equal(resStale.reason, 'POLICY_VERSION_MISMATCH');
+
+        // 13.7 Subsequent reservation with matching v2 policy succeeds
+        const resV2 = await quotaProvider.reserve({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP_CANONICAL_CAS_V2',
+                minIntervalMs: 500,
+                maxRequestsPerMinute: 6,
+                maxRequestsPerHour: 60,
+                maxRequestsPerDay: 300,
+                contentHash: hashV2,
+                version: 2
+            }
+        });
+        assert.equal(resV2.allowed, true);
+
+        // Cleanup
+        await redisClient.del(canKey);
+    });
+
+    await t.test('14. Offline E2E Configured Portal Runtime + Renewal Interval & Lease-Loss Persistence Abort (Remediation 5)', async (t14) => {
+        if (!isRedisAvailable) {
+            t14.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
+            return;
+        }
+
+        if (!mongoServer) {
+            mongoServer = await MongoMemoryServer.create();
+            const uri = mongoServer.getUri();
+            if (mongoose.connection.readyState !== 0) {
+                await mongoose.disconnect();
+            }
+            await mongoose.connect(uri);
+        }
+
+        const tenantId = new mongoose.Types.ObjectId();
+        const authorityCode = 'HSVP';
+
+        // Clean up previous Redis keys for HSVP
+        const prevKeys = await redisClient.keys(`*${authorityCode}*`);
+        if (prevKeys.length > 0) await redisClient.del(...prevKeys);
+
+        // 14.1 Canonical policy setup
+        const canonicalRef = 'HSVP_CANONICAL_OFFLINE_E2E';
+        const contentHash = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: canonicalRef,
+            minIntervalMs: 50,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500
+        });
+
+        const reviewerId = new mongoose.Types.ObjectId().toString();
+        const approverId = new mongoose.Types.ObjectId().toString();
+
+        const canonicalPolicyDoc = await registerOrRotateCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: canonicalRef,
+                minIntervalMs: 50,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerHour: 100,
+                maxRequestsPerDay: 500,
+                maxConcurrent: 1,
+                expiresAt: new Date(Date.now() + 86400000)
+            },
+            reviewedBy: reviewerId,
+            approvedBy: approverId,
+            quotaProvider: new RedisPortalQuotaProvider(redisClient, { testMode: false })
+        });
+
+        // 14.2 Settings for Tenant
+        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode });
+        await AuthoritySourceSettings.create({
+            tenantId,
+            authorityCode,
+            permissionStatus: 'GRANTED',
+            approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+            approvalReference: 'HSVP/AUTH/OFFLINE/2026',
+            commercialUseAuthorized: true,
+            readOnlySearchAuthorized: true,
+            termsReviewed: true,
+            termsReference: 'https://hsvphry.org.in/terms',
+            submittedBy: new mongoose.Types.ObjectId(),
+            approvedBy: approverId,
+            reviewedBy: reviewerId,
+            permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+            reviewStatus: 'APPROVED',
+            isEnabled: true,
+            contractVerificationStatus: 'VERIFIED_CONTRACT',
+            contractEvidenceReference: 'HSVP/CONTRACT/E2E',
+            identityRequirements: { verified: true },
+            ratePolicy: {
+                maxConcurrent: 1,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerDay: 500,
+                minIntervalMs: 50,
+                minimumIntervalMs: 50,
+                policySource: canonicalRef
+            }
+        });
+
+        const inv = await Inventory.create({
+            tenantId,
+            title: 'HSVP Offline E2E Plot',
+            propertyId: '101',
+            sector: '14',
+            city: 'Gurugram',
+            status: 'AVAILABLE'
+        });
+
+        const link = await PropertyAuthorityLink.create({
+            tenantId,
+            inventoryId: inv._id,
+            authorityCode,
+            propertyId: '101',
+            sectorNumber: '14',
+            urbanEstate: 'Gurugram',
+            compositeKey: 'HSVP:GURUGRAM:14:101',
+            identityVerified: true,
+            matchEligibility: 'ELIGIBLE',
+            createdBy: new mongoose.Types.ObjectId()
+        });
+
+        const runItem = await PropertyVerificationRunItem.create({
+            tenantId,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: inv._id,
+            linkId: link._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-offline-e2e',
+            workerClaimToken: 'claim-token-offline-e2e',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        // 14.3 Strictly Offline Fake Transport returning deterministic HTML
+        let liveNetworkCalls = 0;
+        const fakeOfflineTransport = {
+            async search() {
+                liveNetworkCalls++;
+                // Deterministic offline HTML response matching HSVP Plot Status Enquiry
+                const mockHtml = `
+                    <html><body>
+                    <table class="table">
+                        <tr><th>Plot No</th><td>101</td></tr>
+                        <tr><th>Sector</th><td>14</td></tr>
+                        <tr><th>Urban Estate</th><td>Gurugram</td></tr>
+                        <tr><th>Status</th><td>ALLOTTED</td></tr>
+                    </table>
+                    </body></html>
+                `;
+                return {
+                    status: 200,
+                    headers: { 'content-type': 'text/html' },
+                    finalUrl: 'https://hsvphry.org.in/PlotStatus',
+                    redirected: false,
+                    location: '',
+                    body: mockHtml
+                };
+            }
+        };
+
+        // Create configured portal runtime wired with real Redis and fake offline transport
+        const configuredRuntime = createConfiguredPortalRuntime({
+            redisClient,
+            transport: fakeOfflineTransport,
+            testMode: false
+        });
+
+        let persistenceHookFired = false;
+        let leaseStolen = false;
+
+        const res = await AuthorityBulkProcessor.processItem(runItem, {
+            tenantId,
+            workerId: 'worker-offline-e2e',
+            claimToken: 'claim-token-offline-e2e',
+            isFixtureMode: false,
+            portalRuntime: configuredRuntime,
+            canonicalPolicy: canonicalPolicyDoc,
+            beforeTransactionCommit: async ({ candidate }) => {
+                persistenceHookFired = true;
+                // Deliberately delay persistence across renewal interval
+                await new Promise((r) => setTimeout(r, 100));
+
+                // Simulate competing lease acquisition by another worker advancing the global watermark
+                const currentFence = candidate.fenceToken || 1;
+                await AuthorityGlobalFenceWatermark.recordIssuedFenceToken({
+                    authorityCode,
+                    fenceToken: currentFence + 10
+                });
+                leaseStolen = true;
+            }
+        });
+
+        assert.equal(persistenceHookFired, true, 'Persistence hook must have executed');
+        assert.equal(leaseStolen, true, 'Lease must have been stolen during persistence');
+        assert.equal(liveNetworkCalls, 1, 'Only fake offline transport must have been called');
+
+        // Verify fail-closed abortion: no snapshot in MongoDB, runItem marked FAILED
+        assert.equal(res.success, false, 'Stale worker must fail closed');
+        assert.equal(res.reason, 'PORTAL_LOCK_OWNERSHIP_LOST');
+        assert.equal(res.ownershipLost, true);
+
+        const finalItem = await PropertyVerificationRunItem.findById(runItem._id);
+        assert.equal(finalItem.status, 'FAILED');
+
+        const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+        assert.equal(snapCount, 0, 'No snapshot must survive when lease is stolen during persistence');
+
+        // Cleanup
+        const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
+        if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
+    });
 });

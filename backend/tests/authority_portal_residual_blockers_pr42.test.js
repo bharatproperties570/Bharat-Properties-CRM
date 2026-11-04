@@ -27,8 +27,12 @@ import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProce
 import {
     updateSourceSettings,
     submitSourceApproval,
-    reviewSourceApproval
+    reviewSourceApproval,
+    rotateCanonicalPolicy,
+    getCanonicalPolicyByCode,
+    syncCanonicalPolicy
 } from '../controllers/authorityVerification.controller.js';
+import AuditLog from '../models/AuditLog.js';
 import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
 import { portalHttpTransport } from '../services/authority/portal/infrastructure/portalHttpTransport.js';
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
@@ -41,14 +45,17 @@ import { assertAuthorityPortalApproval } from '../services/authority/portal/auth
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
-import { registerOrRotateCanonicalPolicy, getCanonicalPolicy } from '../services/authority/portal/canonicalPolicyService.js';
+import {
+    registerOrRotateCanonicalPolicy,
+    getCanonicalPolicy,
+    syncCanonicalPolicyToRedis
+} from '../services/authority/portal/canonicalPolicyService.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import Lookup from '../models/Lookup.js';
 import Team from '../models/Team.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
-import AuditLog from '../models/AuditLog.js';
 import Inventory from '../models/Inventory.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2171,5 +2178,775 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
         const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
         assert.equal(snapCount, 0, 'No snapshot should be created when watermark check fails');
+    });
+
+    await t.test('31. Deterministic Lease-Loss in Persistence Stage Across Tenants (Remediation 1)', async () => {
+        const authorityCode = 'GMADA';
+        const tenantA = new mongoose.Types.ObjectId();
+        const tenantB = new mongoose.Types.ObjectId();
+
+        const invA = await Inventory.create({
+            tenantId: tenantA,
+            unitNo: 'PLT-RACE-A',
+            sector: '66',
+            urbanEstate: 'Mohali'
+        });
+        const linkA = await PropertyAuthorityLink.create({
+            tenantId: tenantA,
+            inventoryId: invA._id,
+            authorityCode,
+            propertyId: 'PLT-RACE-A',
+            sectorNumber: '66',
+            urbanEstate: 'Mohali',
+            matchEligibility: 'ELIGIBLE',
+            compositeKey: 'GMADA:MOHALI:66:PLT-RACE-A',
+            createdBy: new mongoose.Types.ObjectId()
+        });
+        const runItemA = await PropertyVerificationRunItem.create({
+            tenantId: tenantA,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: invA._id,
+            linkId: linkA._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-race-A',
+            workerClaimToken: 'claim-token-race-A',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        const invB = await Inventory.create({
+            tenantId: tenantB,
+            unitNo: 'PLT-RACE-B',
+            sector: '66',
+            urbanEstate: 'Mohali'
+        });
+        const linkB = await PropertyAuthorityLink.create({
+            tenantId: tenantB,
+            inventoryId: invB._id,
+            authorityCode,
+            propertyId: 'PLT-RACE-B',
+            sectorNumber: '66',
+            urbanEstate: 'Mohali',
+            matchEligibility: 'ELIGIBLE',
+            compositeKey: 'GMADA:MOHALI:66:PLT-RACE-B',
+            createdBy: new mongoose.Types.ObjectId()
+        });
+        const runItemB = await PropertyVerificationRunItem.create({
+            tenantId: tenantB,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: invB._id,
+            linkId: linkB._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-race-B',
+            workerClaimToken: 'claim-token-race-B',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        const canonicalPolicyDoc = await AuthorityCanonicalPolicy.findOneAndUpdate(
+            { authorityCode },
+            {
+                $set: {
+                    authorityCode,
+                    policyReference: 'GMADA/RACE/POL',
+                    version: 1,
+                    contentHash: 'hash-race',
+                    minIntervalMs: 50,
+                    maxRequestsPerMinute: 10,
+                    maxRequestsPerHour: 100,
+                    maxRequestsPerDay: 500,
+                    maxConcurrent: 1,
+                    effectiveFrom: new Date(Date.now() - 10000),
+                    expiresAt: new Date(Date.now() + 86400000),
+                    reviewedBy: String(new mongoose.Types.ObjectId()),
+                    approvedBy: String(new mongoose.Types.ObjectId()),
+                    isActive: true
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        // Ensure settings exist for both tenants
+        for (const tid of [tenantA, tenantB]) {
+            await AuthoritySourceSettings.deleteMany({ tenantId: tid, authorityCode });
+            await AuthoritySourceSettings.create({
+                tenantId: tid,
+                authorityCode,
+                permissionStatus: 'GRANTED',
+                approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                approvalReference: 'GMADA/RACE/2026',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://gmada.gov.in/terms',
+                submittedBy: new mongoose.Types.ObjectId(),
+                approvedBy: new mongoose.Types.ObjectId(),
+                reviewedBy: new mongoose.Types.ObjectId(),
+                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate', 'status'],
+                reviewStatus: 'APPROVED',
+                isEnabled: true,
+                contractVerificationStatus: 'VERIFIED_CONTRACT',
+                contractEvidenceReference: 'GMADA/CONTRACT/01',
+                identityRequirements: { verified: true },
+                ratePolicy: {
+                    maxConcurrent: 1,
+                    maxRequestsPerMinute: 10,
+                    maxRequestsPerDay: 500,
+                    minIntervalMs: 50,
+                    minimumIntervalMs: 50,
+                    policySource: 'GMADA/RACE/POL'
+                }
+            });
+        }
+
+        // Initialize AuthorityGlobalFenceWatermark
+        await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
+        await AuthorityGlobalFenceWatermark.create({
+            authorityCode,
+            lastCommittedFenceToken: 0,
+            highestIssuedFenceToken: 10
+        });
+
+        // 1. Worker A acquires token 10
+        let workerARacePaused = false;
+        let workerAAttemptedCommit = false;
+
+        const runtimeWorkerA = {
+            async search(args) {
+                if (typeof args.executeWithinLease === 'function') {
+                    return await args.executeWithinLease({
+                        authorityCode,
+                        fenceToken: 10,
+                        isCurrentFence: async () => {
+                            const superseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode,
+                                fenceToken: 10
+                            });
+                            return !superseded;
+                        },
+                        checkLeaseValid: async () => {
+                            const superseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode,
+                                fenceToken: 10
+                            });
+                            if (superseded) {
+                                const err = new Error('Distributed portal lock superseded by newer fence token.');
+                                err.code = 'PORTAL_LOCK_OWNERSHIP_LOST';
+                                throw err;
+                            }
+                        },
+                        recordCount: 1,
+                        records: [{
+                            propertyId: 'PLT-RACE-A',
+                            sectorNumber: '66',
+                            urbanEstate: 'Mohali',
+                            status: 'ALLOTTED'
+                        }],
+                        contentHash: 'hash-A',
+                        sourceHost: 'gmada.gov.in'
+                    });
+                }
+                return {};
+            }
+        };
+
+        // Worker A executes with beforeTransactionCommit hook that pauses A,
+        // has Worker B acquire token 11 (issued-but-not-yet-committed window),
+        // and then resumes A.
+        const resA = await AuthorityBulkProcessor.processItem(runItemA, {
+            tenantId: tenantA,
+            workerId: 'worker-race-A',
+            claimToken: 'claim-token-race-A',
+            isFixtureMode: false,
+            portalRuntime: runtimeWorkerA,
+            canonicalPolicy: canonicalPolicyDoc,
+            beforeTransactionCommit: async () => {
+                workerARacePaused = true;
+                // 2. Worker B on Tenant B acquires newer token 11 and issues it in watermark
+                await AuthorityGlobalFenceWatermark.recordIssuedFenceToken({
+                    authorityCode,
+                    fenceToken: 11
+                });
+                // Note: Worker B has NOT committed yet! lastCommittedFenceToken is still <= 10!
+                const wmBeforeResume = await AuthorityGlobalFenceWatermark.findOne({ authorityCode });
+                assert.ok(wmBeforeResume.lastCommittedFenceToken < 11, 'Worker B has not yet committed token 11');
+                assert.equal(wmBeforeResume.highestIssuedFenceToken, 11, 'Worker B token 11 is issued');
+
+                workerAAttemptedCommit = true;
+            }
+        });
+
+        assert.equal(workerARacePaused, true, 'Worker A should have paused inside transaction commit hook');
+        assert.equal(workerAAttemptedCommit, true, 'Worker A attempted commit after token 11 issued');
+        assert.equal(resA.success, false, 'Worker A must fail closed');
+        assert.equal(resA.reason, 'PORTAL_LOCK_OWNERSHIP_LOST');
+        assert.equal(resA.ownershipLost, true);
+
+        // Assert Worker A transaction was aborted: no snapshot, item marked FAILED
+        const itemAFinal = await PropertyVerificationRunItem.findById(runItemA._id);
+        assert.equal(itemAFinal.status, 'FAILED');
+        const snapACount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItemA._id });
+        assert.equal(snapACount, 0, 'Worker A snapshot must NOT be committed to MongoDB');
+
+        // 3. Now Worker B on Tenant B completes using newer lease token 11
+        const runtimeWorkerB = {
+            async search(args) {
+                if (typeof args.executeWithinLease === 'function') {
+                    return await args.executeWithinLease({
+                        authorityCode,
+                        fenceToken: 11,
+                        isCurrentFence: async () => {
+                            const superseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode,
+                                fenceToken: 11
+                            });
+                            return !superseded;
+                        },
+                        checkLeaseValid: async () => {
+                            const superseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                                authorityCode,
+                                fenceToken: 11
+                            });
+                            if (superseded) {
+                                const err = new Error('PORTAL_LOCK_OWNERSHIP_LOST');
+                                err.code = 'PORTAL_LOCK_OWNERSHIP_LOST';
+                                throw err;
+                            }
+                        },
+                        recordCount: 1,
+                        records: [{
+                            propertyId: 'PLT-RACE-B',
+                            sectorNumber: '66',
+                            urbanEstate: 'Mohali',
+                            status: 'ALLOTTED'
+                        }],
+                        contentHash: 'hash-B',
+                        sourceHost: 'gmada.gov.in'
+                    });
+                }
+                return {};
+            }
+        };
+
+        const resB = await AuthorityBulkProcessor.processItem(runItemB, {
+            tenantId: tenantB,
+            workerId: 'worker-race-B',
+            claimToken: 'claim-token-race-B',
+            isFixtureMode: false,
+            portalRuntime: runtimeWorkerB,
+            canonicalPolicy: canonicalPolicyDoc
+        });
+
+        assert.equal(resB.success, true, 'Worker B must succeed with newer token');
+        const itemBFinal = await PropertyVerificationRunItem.findById(runItemB._id);
+        assert.equal(itemBFinal.status, 'SUCCEEDED');
+        const snapB = await PropertyVerificationSnapshot.findOne({ runItemId: runItemB._id });
+        assert.ok(snapB, 'Worker B snapshot must be committed');
+        assert.equal(snapB.fenceToken, 11);
+
+        const wmFinal = await AuthorityGlobalFenceWatermark.findOne({ authorityCode });
+        assert.equal(wmFinal.lastCommittedFenceToken, 11);
+    });
+
+    await t.test('32. Authenticated Canonical Policy Controller Maker-Checker & Audit (Remediation 3)', async () => {
+        const authorityCode = 'HSVP';
+
+        // 32.1: Unauthorized request (missing req.user) is rejected with 401
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: null,
+                body: {}
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(statusCode, 401);
+            assert.equal(jsonBody.success, false);
+        }
+
+        // 32.2: Same actor for reviewer and approver returns 422 CANONICAL_POLICY_SELF_APPROVAL
+        const approverUser = await User.create({
+            fullName: 'Admin Approver',
+            email: `approver-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: new mongoose.Types.ObjectId(),
+            department: 'inventory',
+            isActive: true
+        });
+
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                body: {
+                    reviewerId: approverUser._id.toString(),
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(statusCode, 422);
+            assert.equal(jsonBody.code, 'CANONICAL_POLICY_SELF_APPROVAL');
+        }
+
+        // 32.3: Inactive reviewer is rejected with 400 REVIEWER_NOT_ACTIVE
+        const inactiveReviewer = await User.create({
+            fullName: 'Inactive Reviewer',
+            email: `inactive-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: new mongoose.Types.ObjectId(),
+            department: 'inventory',
+            isActive: false
+        });
+
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                body: {
+                    reviewerId: inactiveReviewer._id.toString(),
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(statusCode, 400);
+            assert.equal(jsonBody.code, 'REVIEWER_NOT_ACTIVE');
+        }
+
+        // 32.4: Distinct authorized actors rotate canonical policy successfully and log audit
+        const activeReviewer = await User.create({
+            fullName: 'Active Reviewer',
+            email: `reviewer-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: new mongoose.Types.ObjectId(),
+            department: 'inventory',
+            isActive: true
+        });
+
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                ip: '127.0.0.1',
+                get(header) { return header === 'user-agent' ? 'test-agent' : null; },
+                body: {
+                    reviewerId: activeReviewer._id.toString(),
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerHour: 100,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.ok(statusCode === 200 || statusCode === 202);
+            assert.equal(jsonBody.success, true);
+            assert.equal(jsonBody.data.version, 1);
+            assert.equal(jsonBody.data.authorityCode, 'HSVP');
+
+            // Verify AuditLog entry was persisted
+            const auditEntry = await AuditLog.findOne({
+                eventType: 'canonical_policy_rotated',
+                'metadata.authorityCode': 'HSVP'
+            });
+            assert.ok(auditEntry, 'Audit log entry must exist for canonical policy rotation');
+            assert.equal(auditEntry.metadata.newVersion, 1);
+            assert.equal(auditEntry.metadata.policyReference, 'HSVP/CANONICAL/01');
+            assert.equal(auditEntry.metadata.reviewerId, activeReviewer._id.toString());
+            assert.equal(auditEntry.metadata.approverId, approverUser._id.toString());
+        }
+
+        // 32.5: Duplicate / lower version sequence rotation is rejected with 400
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                body: {
+                    reviewerId: activeReviewer._id.toString(),
+                    policyVersion: 1, // Already at version 1!
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(statusCode, 400);
+            assert.equal(jsonBody.code, 'INVALID_VERSION_SEQUENCE');
+        }
+
+        // 32.6: Redis sync failure marks status FAILED and remains visibly pending
+        {
+            const failingQuotaProvider = {
+                async setCanonicalPolicy() {
+                    throw new Error('REDIS_CONNECTION_REFUSED');
+                }
+            };
+
+            const rotatedDoc = await registerOrRotateCanonicalPolicy({
+                authorityCode,
+                policy: {
+                    policyReference: 'HSVP/CANONICAL/02',
+                    minIntervalMs: 15000,
+                    maxRequestsPerMinute: 10,
+                    maxRequestsPerDay: 500,
+                    expiresAt: new Date(Date.now() + 86400000)
+                },
+                reviewerId: activeReviewer._id,
+                approverId: approverUser._id,
+                reviewedBy: activeReviewer._id.toString(),
+                approvedBy: approverUser._id.toString(),
+                policyVersion: 2,
+                quotaProvider: failingQuotaProvider
+            });
+
+            assert.equal(rotatedDoc.version, 2);
+            assert.equal(rotatedDoc.redisSyncStatus, 'FAILED');
+            assert.ok(rotatedDoc.redisSyncError.includes('REDIS_CONNECTION_REFUSED'));
+
+            // Verify Mongo document reflects FAILED sync status
+            const savedInDb = await AuthorityCanonicalPolicy.findOne({ authorityCode, version: 2 });
+            assert.equal(savedInDb.redisSyncStatus, 'FAILED');
+
+            // Reconcile with working provider
+            let syncedPolicy = null;
+            const workingQuotaProvider = {
+                async setCanonicalPolicy(args) {
+                    syncedPolicy = args;
+                    return args;
+                }
+            };
+
+            const reconcileRes = await syncCanonicalPolicyToRedis({
+                authorityCode,
+                quotaProvider: workingQuotaProvider
+            });
+            assert.equal(reconcileRes.success, true);
+            assert.equal(reconcileRes.policy.redisSyncStatus, 'SYNCED');
+            assert.ok(syncedPolicy);
+            assert.equal(syncedPolicy.policyVersion, 2);
+        }
+    });
+
+    await t.test('33. Canonical Policy Validity Window & Version Boundaries (Remediation 4)', async () => {
+        const authorityCode = 'CHD';
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+
+        const now = Date.now();
+
+        // 33.1: getCanonicalPolicy rejects future-effective policy
+        await AuthorityCanonicalPolicy.create({
+            authorityCode,
+            policyReference: 'CHD/FUTURE/01',
+            version: 1,
+            contentHash: 'hash-future',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            maxConcurrent: 1,
+            effectiveFrom: new Date(now + 3600000), // 1 hour in the future!
+            expiresAt: new Date(now + 86400000),
+            reviewedBy: 'reviewer-1',
+            approvedBy: 'approver-1',
+            isActive: true
+        });
+
+        const futureLookup = await getCanonicalPolicy(authorityCode, { now });
+        assert.equal(futureLookup, null, 'Future-effective canonical policy must be rejected on lookup');
+
+        // 33.2: getCanonicalPolicy rejects expired policy
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        await AuthorityCanonicalPolicy.create({
+            authorityCode,
+            policyReference: 'CHD/EXPIRED/01',
+            version: 1,
+            contentHash: 'hash-expired',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            maxConcurrent: 1,
+            effectiveFrom: new Date(now - 7200000),
+            expiresAt: new Date(now - 1000), // Expired 1 second ago!
+            reviewedBy: 'reviewer-1',
+            approvedBy: 'approver-1',
+            isActive: true
+        });
+
+        const expiredLookup = await getCanonicalPolicy(authorityCode, { now });
+        assert.equal(expiredLookup, null, 'Expired canonical policy must be rejected on lookup');
+
+        // 33.3: getCanonicalPolicy accepts policy within validity window [effectiveFrom <= now < expiresAt]
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        await AuthorityCanonicalPolicy.create({
+            authorityCode,
+            policyReference: 'CHD/VALID/01',
+            version: 1,
+            contentHash: 'hash-valid',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            maxConcurrent: 1,
+            effectiveFrom: new Date(now - 10000),
+            expiresAt: new Date(now + 86400000),
+            reviewedBy: 'reviewer-1',
+            approvedBy: 'approver-1',
+            isActive: true
+        });
+
+        const validLookup = await getCanonicalPolicy(authorityCode, { now });
+        assert.ok(validLookup, 'Policy within validity window must be accepted');
+        assert.equal(validLookup.policyReference, 'CHD/VALID/01');
+
+        // 33.4: Initial policy version must be a positive integer >= 1
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode: 'GMADA' });
+        for (const badVer of [0, -1, 1.5, NaN, 'invalid']) {
+            await assert.rejects(
+                async () => {
+                    await registerOrRotateCanonicalPolicy({
+                        authorityCode: 'GMADA',
+                        policy: {
+                            policyReference: 'GMADA/BAD/VER',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerDay: 500,
+                            expiresAt: new Date(now + 86400000)
+                        },
+                        reviewedBy: 'rev',
+                        approvedBy: 'app',
+                        policyVersion: badVer
+                    });
+                },
+                (err) => err.code === 'INVALID_VERSION' || err.code === 'INVALID_VERSION_SEQUENCE'
+            );
+        }
+
+        // 33.5: Boundary time condition: exactly at expiresAt must be rejected
+        const exactExpiresAt = new Date(now + 5000);
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode: 'GMADA' });
+        await AuthorityCanonicalPolicy.create({
+            authorityCode: 'GMADA',
+            policyReference: 'GMADA/BOUNDARY/01',
+            version: 1,
+            contentHash: 'hash-boundary',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            maxConcurrent: 1,
+            effectiveFrom: new Date(now - 5000),
+            expiresAt: exactExpiresAt,
+            reviewedBy: 'reviewer-1',
+            approvedBy: 'approver-1',
+            isActive: true
+        });
+
+        const atExpiryLookup = await getCanonicalPolicy('GMADA', { now: exactExpiresAt.getTime() });
+        assert.equal(atExpiryLookup, null, 'Policy at exact expiresAt must be rejected');
+    });
+
+    await t.test('34. RedisPortalQuotaProvider In-Memory Monotonic Policy CAS & Hash Guard (Remediation 2 Unit)', async () => {
+        const quotaProvider = new RedisPortalQuotaProvider(null, { testMode: true });
+        const authorityCode = 'HSVP';
+
+        const hashV1 = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: 'HSVP/POL/V1',
+            minIntervalMs: 1000,
+            maxRequestsPerMinute: 5,
+            maxRequestsPerHour: 50,
+            maxRequestsPerDay: 200
+        });
+
+        // 34.1: Initial registration version 1 succeeds
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP/POL/V1',
+                minIntervalMs: 1000,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 50,
+                maxRequestsPerDay: 200,
+                contentHash: hashV1
+            },
+            approvedBy: 'approver-01',
+            policyVersion: 1
+        });
+
+        // 34.2: Rotate to version 2 succeeds
+        const hashV2 = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: 'HSVP/POL/V2',
+            minIntervalMs: 1000,
+            maxRequestsPerMinute: 5,
+            maxRequestsPerHour: 50,
+            maxRequestsPerDay: 200
+        });
+
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP/POL/V2',
+                minIntervalMs: 1000,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 50,
+                maxRequestsPerDay: 200,
+                contentHash: hashV2
+            },
+            approvedBy: 'approver-02',
+            policyVersion: 2
+        });
+
+        // 34.3: Delayed worker attempting to prime v1 fails with STALE_POLICY_VERSION
+        await assert.rejects(
+            async () => {
+                await quotaProvider.setCanonicalPolicy({
+                    authorityCode,
+                    policy: {
+                        policyReference: 'HSVP/POL/V1',
+                        minIntervalMs: 1000,
+                        maxRequestsPerMinute: 5,
+                        maxRequestsPerHour: 50,
+                        maxRequestsPerDay: 200,
+                        contentHash: hashV1
+                    },
+                    approvedBy: 'approver-01',
+                    policyVersion: 1
+                });
+            },
+            (err) => err.code === 'STALE_POLICY_VERSION'
+        );
+
+        // 34.4: Worker attempting version 2 with mismatched contentHash fails with POLICY_HASH_MISMATCH
+        await assert.rejects(
+            async () => {
+                await quotaProvider.setCanonicalPolicy({
+                    authorityCode,
+                    policy: {
+                        policyReference: 'HSVP/POL/V2',
+                        minIntervalMs: 1000,
+                        maxRequestsPerMinute: 5,
+                        maxRequestsPerHour: 50,
+                        maxRequestsPerDay: 200,
+                        contentHash: 'tampered-hash-v2'
+                    },
+                    approvedBy: 'approver-02',
+                    policyVersion: 2
+                });
+            },
+            (err) => err.code === 'POLICY_HASH_MISMATCH'
+        );
+
+        // 34.5: Idempotent re-assertion of version 2 with same hash succeeds
+        const idempRes = await quotaProvider.setCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP/POL/V2',
+                minIntervalMs: 1000,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 50,
+                maxRequestsPerDay: 200,
+                contentHash: hashV2
+            },
+            approvedBy: 'approver-02',
+            policyVersion: 2
+        });
+        assert.ok(idempRes);
+        assert.equal(String(idempRes.version), '2');
+
+        // 34.6: Reservation with stale v1 is rejected with POLICY_VERSION_MISMATCH
+        const resStale = await quotaProvider.reserve({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP/POL/V2',
+                minIntervalMs: 1000,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 50,
+                maxRequestsPerDay: 200,
+                contentHash: hashV2,
+                version: 1
+            }
+        });
+        assert.equal(resStale.allowed, false);
+        assert.equal(resStale.reason, 'POLICY_VERSION_MISMATCH');
+
+        // 34.7: Reservation with mismatched hash is rejected with POLICY_HASH_MISMATCH
+        const resHashBad = await quotaProvider.reserve({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP/POL/V2',
+                minIntervalMs: 1000,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 50,
+                maxRequestsPerDay: 200,
+                contentHash: 'hash-bad',
+                version: 2
+            }
+        });
+        assert.equal(resHashBad.allowed, false);
+        assert.equal(resHashBad.reason, 'POLICY_HASH_MISMATCH');
+
+        // 34.8: Reservation matching version 2 and hash succeeds
+        const resOk = await quotaProvider.reserve({
+            authorityCode,
+            policy: {
+                policyReference: 'HSVP/POL/V2',
+                minIntervalMs: 1000,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 50,
+                maxRequestsPerDay: 200,
+                contentHash: hashV2,
+                version: 2
+            }
+        });
+        assert.equal(resOk.allowed, true);
     });
 });

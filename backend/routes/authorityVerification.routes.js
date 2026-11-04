@@ -20,7 +20,10 @@ import {
     getPendingReviews,
     submitReview,
     applyApprovedChanges,
-    getVerificationHistory
+    getVerificationHistory,
+    getCanonicalPolicyByCode,
+    rotateCanonicalPolicy,
+    syncCanonicalPolicy
 } from '../controllers/authorityVerification.controller.js';
 
 const router = express.Router();
@@ -57,6 +60,24 @@ router.post('/settings/:authorityCode/review-approval',
     checkPermission('authorityVerification', 'edit'),
     checkApprovalRight('manageAuthoritySettings'),
     reviewSourceApproval
+);
+
+// ============================================================
+// CANONICAL AUTHORITY-GLOBAL QUOTA POLICY (Admin Maker-Checker)
+// ============================================================
+router.get('/canonical-policy/:authorityCode',
+    checkPermission('authorityVerification', 'view'),
+    getCanonicalPolicyByCode
+);
+router.post('/canonical-policy/:authorityCode/rotate',
+    checkPermission('authorityVerification', 'edit'),
+    checkApprovalRight('manageAuthoritySettings'),
+    rotateCanonicalPolicy
+);
+router.post('/canonical-policy/:authorityCode/sync',
+    checkPermission('authorityVerification', 'edit'),
+    checkApprovalRight('manageAuthoritySettings'),
+    syncCanonicalPolicy
 );
 
 // ============================================================
