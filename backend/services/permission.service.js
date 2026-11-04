@@ -9,18 +9,20 @@ import { DEPARTMENTS } from '../config/departments.config.js';
  * Calculate final permissions for a user
  * Formula: Department Default ⊕ Role Permission ⊕ Data Scope ⊕ Financial Overrides
  */
-export const calculateUserPermissions = async (user) => {
+export const calculateUserPermissions = async (user, { skipCache = false, bypassCache = false } = {}) => {
     if (!user.department || !user.role) {
         throw new Error('User must have department and role assigned');
     }
 
-    // Try to get from cache first
+    // Try to get from cache first unless cache skip is requested
     const roleId = user.role._id || user.role;
     const cacheService = await import('./cache.service.js');
-    const cached = await cacheService.getCachedUserPermissions(user._id.toString(), roleId.toString());
-
-    if (cached) {
-        return cached;
+    const shouldSkip = skipCache || bypassCache;
+    if (!shouldSkip) {
+        const cached = await cacheService.getCachedUserPermissions(user._id.toString(), roleId.toString());
+        if (cached) {
+            return cached;
+        }
     }
 
     // Get department defaults
@@ -31,7 +33,7 @@ export const calculateUserPermissions = async (user) => {
 
     // Populate role if it's just an ID
     let role = user.role;
-    if (typeof role === 'string' || role._id) {
+    if (typeof role === 'string' || role._id || (role && !role.moduleAccess)) {
         const Role = (await import('../models/Role.js')).default;
         role = await Role.findById(user.role._id || user.role);
     }
@@ -70,8 +72,10 @@ export const calculateUserPermissions = async (user) => {
         dashboardType: department.dashboardType
     };
 
-    // Cache the result
-    await cacheService.cacheUserPermissions(user._id.toString(), roleId.toString(), permissions);
+    // Cache the result unless cache skip is requested
+    if (!shouldSkip) {
+        await cacheService.cacheUserPermissions(user._id.toString(), roleId.toString(), permissions);
+    }
 
     return permissions;
 };
@@ -164,9 +168,9 @@ export const hasFinancialPermission = async (user, permission) => {
 /**
  * Check if user has approval right
  */
-export const hasApprovalRight = async (user, approvalType) => {
+export const hasApprovalRight = async (user, approvalType, { skipCache = false, bypassCache = false } = {}) => {
     try {
-        const permissions = await calculateUserPermissions(user);
+        const permissions = await calculateUserPermissions(user, { skipCache: skipCache || bypassCache });
         return permissions.approvalRights[approvalType] === true;
     } catch (error) {
         console.error('Approval right check error:', error);

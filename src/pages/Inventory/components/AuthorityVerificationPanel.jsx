@@ -42,6 +42,10 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
         (selectedAuthority !== 'HSVP' || linkData.urbanEstate)
     );
 
+    // Verification Mode (Phase 4.4.4): Fixture Demonstration vs Live Government Portal
+    const [verificationMode, setVerificationMode] = useState('fixture'); // 'fixture' | 'live'
+    const [sourceSetting, setSourceSetting] = useState(null);
+
     // Verification Run state
     const [activeRun, setActiveRun] = useState(null);
     const [runItem, setRunItem] = useState(null);
@@ -115,6 +119,18 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
             if (histRes?.success && histRes?.data) {
                 setHistory(extractSnapshots(histRes.data));
             }
+
+            // Load authority source settings (Phase 4.4.4)
+            if (typeof authorityAPI.getSettingByCode === 'function') {
+                try {
+                    const settingRes = await authorityAPI.getSettingByCode(selectedAuthority);
+                    if (settingRes?.success && settingRes?.data) {
+                        setSourceSetting(settingRes.data);
+                    }
+                } catch {
+                    // Suppress settings fetch error
+                }
+            }
         } catch (err) {
             console.error('[AuthorityVerificationPanel] Error loading data:', err);
         } finally {
@@ -151,17 +167,20 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
         }
     };
 
-    // Trigger Verification Run (Demonstration Fixture Mode)
+    // Trigger Verification Run
     const handleRunVerification = async () => {
         if (!inventory?._id) return;
         setIsRunningVerification(true);
         try {
-            // 1. Create run with isFixtureMode = true
+            const isLive = verificationMode === 'live';
+            const isFixture = !isLive;
+
+            // 1. Create run with appropriate fixture mode
             const createRes = await authorityAPI.createRun({
                 authorityCode: selectedAuthority,
                 runMode: 'SINGLE',
                 inventoryIds: [inventory._id],
-                isFixtureMode: true
+                isFixtureMode: isFixture
             });
 
             if (!createRes?.success) {
@@ -175,7 +194,7 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
 
             // 2. Process run items
             const processRes = await authorityAPI.processRun(runId, {
-                isFixtureMode: true,
+                isFixtureMode: isFixture,
                 batchSize: 1
             });
 
@@ -195,9 +214,9 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                 }
 
                 if (item.status === 'SUCCEEDED') {
-                    toast.success('Demonstration verification completed successfully!');
+                    toast.success(isLive ? 'Live verification completed successfully!' : 'Demonstration verification completed successfully!');
                 } else if (item.status === 'NO_MATCH') {
-                    toast.error('No matching authority record found in demonstration fixtures.');
+                    toast.error(isLive ? 'No matching live authority record found.' : 'No matching authority record found in demonstration fixtures.');
                 } else {
                     toast.error(`Verification item status: ${item.status}`);
                 }
@@ -355,21 +374,111 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                 </div>
             </div>
 
-            {/* MANDATORY DEMONSTRATION BANNER */}
-            <div style={{
-                background: 'rgba(234, 88, 12, 0.08)',
-                border: '1px solid rgba(234, 88, 12, 0.25)',
-                borderRadius: '8px',
-                padding: '10px 14px',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '10px'
-            }}>
-                <i className="fas fa-exclamation-triangle" style={{ color: '#ea580c', marginTop: '2px', fontSize: '0.85rem' }}></i>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
-                    <strong>DEMONSTRATION FIXTURE DATA:</strong> Live external portal fetching is currently disabled pending government API authorization (<code>authorizationStatus: NOT_OBTAINED</code>). Records and proposed differences shown below are simulated demonstration fixtures for pre-live operational verification.
-                </div>
+            {/* Mode Selector (Phase 4.4.4): Demonstration Fixture Mode vs Live Portal Mode */}
+            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                <button
+                    type="button"
+                    onClick={() => setVerificationMode('fixture')}
+                    style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid ' + (verificationMode === 'fixture' ? '#ea580c' : 'var(--border-color)'),
+                        background: verificationMode === 'fixture' ? 'rgba(234, 88, 12, 0.1)' : 'transparent',
+                        color: verificationMode === 'fixture' ? '#ea580c' : 'var(--text-muted)',
+                        fontSize: '0.75rem',
+                        fontWeight: verificationMode === 'fixture' ? 700 : 500,
+                        cursor: 'pointer'
+                    }}
+                >
+                    <i className="fas fa-flask" style={{ marginRight: '6px' }}></i>
+                    Demonstration Fixture Mode
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setVerificationMode('live')}
+                    style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid ' + (verificationMode === 'live' ? '#4f46e5' : 'var(--border-color)'),
+                        background: verificationMode === 'live' ? 'rgba(79, 70, 229, 0.1)' : 'transparent',
+                        color: verificationMode === 'live' ? '#4f46e5' : 'var(--text-muted)',
+                        fontSize: '0.75rem',
+                        fontWeight: verificationMode === 'live' ? 700 : 500,
+                        cursor: 'pointer'
+                    }}
+                >
+                    <i className="fas fa-satellite-dish" style={{ marginRight: '6px' }}></i>
+                    Live Government Portal Mode
+                </button>
             </div>
+
+            {/* MANDATORY DEMONSTRATION OR LIVE STATUS BANNER */}
+            {verificationMode === 'fixture' ? (
+                <div style={{
+                    background: 'rgba(234, 88, 12, 0.08)',
+                    border: '1px solid rgba(234, 88, 12, 0.25)',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px'
+                }}>
+                    <i className="fas fa-exclamation-triangle" style={{ color: '#ea580c', marginTop: '2px', fontSize: '0.85rem' }}></i>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
+                        <strong>DEMONSTRATION FIXTURE DATA:</strong> Live external portal fetching is currently disabled pending government API authorization (<code>authorizationStatus: NOT_OBTAINED</code>). Records and proposed differences shown below are simulated demonstration fixtures for pre-live operational verification.
+                    </div>
+                </div>
+            ) : (
+                (() => {
+                    const isLiveActive = Boolean(sourceSetting?.effectivelyActive === true);
+                    if (!isLiveActive) {
+                        const blockers = sourceSetting?.activationCheck?.blockers || [];
+                        return (
+                            <div style={{
+                                background: 'rgba(239, 68, 68, 0.08)',
+                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                borderRadius: '8px',
+                                padding: '10px 14px',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '10px'
+                            }}>
+                                <i className="fas fa-ban" style={{ color: '#ef4444', marginTop: '2px', fontSize: '0.85rem' }}></i>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
+                                    <strong>LIVE PORTAL ACCESS INACTIVE:</strong> Live government verification for <strong>{selectedAuthority}</strong> is currently blocked.
+                                    <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                                        <li>Permission Status: <code>{sourceSetting?.permissionStatus || 'NOT_OBTAINED'}</code></li>
+                                        <li>Review Status: <code>{sourceSetting?.reviewStatus || 'NOT_REQUESTED'}</code></li>
+                                        {blockers.length > 0 ? (
+                                            blockers.map((b, idx) => (
+                                                <li key={idx}>Blocker: <code>{typeof b === 'string' ? b : (b.message || b.code)}</code></li>
+                                            ))
+                                        ) : (
+                                            <li>Requirement: Official written authority agreement and administrative review required before live requests can be executed.</li>
+                                        )}
+                                    </ul>
+                                </div>
+                            </div>
+                        );
+                    }
+                    return (
+                        <div style={{
+                            background: 'rgba(22, 163, 74, 0.08)',
+                            border: '1px solid rgba(22, 163, 74, 0.25)',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '10px'
+                        }}>
+                            <i className="fas fa-check-circle" style={{ color: '#16a34a', marginTop: '2px', fontSize: '0.85rem' }}></i>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
+                                <strong>LIVE PORTAL ACCESS ACTIVE:</strong> Authorized read-only verification is enabled for {selectedAuthority}. Live queries adhere to distributed rate quotas and circuit breakers.
+                            </div>
+                        </div>
+                    );
+                })()
+            )}
 
             {/* Authority Selector Tabs */}
             <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-gray, rgba(0,0,0,0.02))', padding: '4px', borderRadius: '8px' }}>
@@ -537,28 +646,42 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                         {isSavingLink ? 'Saving...' : 'Save Identity Link'}
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={handleRunVerification}
-                        disabled={isRunningVerification || !isIdentityComplete}
-                        title={!isIdentityComplete ? 'Complete required identity fields first' : 'Verify Record (Demo)'}
-                        style={{
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: !isIdentityComplete ? '#94a3b8' : '#4f46e5',
-                            color: '#fff',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            cursor: !isIdentityComplete ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                        }}
-                    >
-                        <i className={`fas fa-${isRunningVerification ? 'spinner fa-spin' : 'play'}`}></i>
-                        {isRunningVerification ? 'Verifying...' : 'Verify Record (Demo)'}
-                    </button>
+                    {(() => {
+                        const isLive = verificationMode === 'live';
+                        const isLiveActive = Boolean(sourceSetting?.effectivelyActive === true);
+                        const isDisabled = isRunningVerification || !isIdentityComplete || (isLive && !isLiveActive);
+                        let title = isLive ? 'Verify Record (Live)' : 'Verify Record (Demo)';
+                        if (!isIdentityComplete) {
+                            title = 'Complete required identity fields first';
+                        } else if (isLive && !isLiveActive) {
+                            title = 'Live authority authorization is required to execute live queries';
+                        }
+
+                        return (
+                            <button
+                                type="button"
+                                onClick={handleRunVerification}
+                                disabled={isDisabled}
+                                title={title}
+                                style={{
+                                    padding: '6px 14px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: isDisabled ? '#94a3b8' : (isLive ? '#0284c7' : '#4f46e5'),
+                                    color: '#fff',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <i className={`fas fa-${isRunningVerification ? 'spinner fa-spin' : (isLive ? 'satellite-dish' : 'play')}`}></i>
+                                {isRunningVerification ? 'Verifying...' : (isLive ? 'Verify Record (Live)' : 'Verify Record (Demo)')}
+                            </button>
+                        );
+                    })()}
                 </div>
             </form>
 
@@ -567,9 +690,20 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                                Verification Comparison & Proposed Changes
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                    Verification Comparison & Proposed Changes
+                                </span>
+                                {runItem.isSynthetic || runItem.provenance === 'SYNTHETIC_FIXTURE' || runItem.provenance === 'DEMONSTRATION' ? (
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(234, 88, 12, 0.1)', color: '#ea580c' }}>
+                                        [DEMONSTRATION FIXTURE]
+                                    </span>
+                                ) : (
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(217, 119, 6, 0.15)', color: '#d97706', border: '1px solid rgba(217, 119, 6, 0.3)' }}>
+                                        [LIVE RECORD - REVIEW REQUIRED]
+                                    </span>
+                                )}
+                            </div>
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                                 Match Confidence: <strong>{runItem.matchStatus}</strong> · Review Status: <strong>{runItem.reviewerDecision}</strong>
                             </div>
@@ -820,9 +954,20 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                                         gap: '6px'
                                     }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <span style={{ fontWeight: 800, fontSize: '0.8rem', color: '#4f46e5' }}>
-                                                {snap.authorityCode} Snapshot
-                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ fontWeight: 800, fontSize: '0.8rem', color: '#4f46e5' }}>
+                                                    {snap.authorityCode} Snapshot
+                                                </span>
+                                                {snap.isSynthetic || snap.provenance === 'SYNTHETIC_FIXTURE' || snap.provenance === 'DEMONSTRATION' ? (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(234, 88, 12, 0.1)', color: '#ea580c' }}>
+                                                        DEMO
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(22, 163, 74, 0.1)', color: '#16a34a' }}>
+                                                        LIVE
+                                                    </span>
+                                                )}
+                                            </div>
                                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                                                 {new Date(snap.observedAt || snap.createdAt || Date.now()).toLocaleString()}
                                             </span>

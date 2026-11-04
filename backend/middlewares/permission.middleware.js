@@ -124,11 +124,12 @@ export const checkFinancialPermission = (permission) => {
 /**
  * Middleware to check approval right
  * Usage: checkApprovalRight('approveDeal')
+ * Supports options: { skipCache: boolean }
  */
-export const checkApprovalRight = (approvalType) => {
+export const checkApprovalRight = (approvalType, options = {}) => {
     return async (req, res, next) => {
         try {
-            const user = req.user;
+            let user = req.user;
 
             if (!user) {
                 return res.status(401).json({
@@ -137,7 +138,23 @@ export const checkApprovalRight = (approvalType) => {
                 });
             }
 
-            const allowed = await hasApprovalRight(user, approvalType);
+            // P1-B Objective B: Sensitive authority approval rights default to fresh evaluation (skipCache: true)
+            const isSensitiveAuthorityRight = approvalType === 'manageAuthoritySettings' || approvalType === 'approveAuthorityChanges';
+            const shouldSkipCache = options.skipCache !== undefined ? Boolean(options.skipCache) : isSensitiveAuthorityRight;
+
+            if (shouldSkipCache) {
+                const User = (await import('../models/User.js')).default;
+                const freshUser = await User.findById(user._id).populate('role');
+                if (!freshUser || freshUser.isActive === false) {
+                    return res.status(401).json({
+                        success: false,
+                        message: 'User account is inactive or not found'
+                    });
+                }
+                user = freshUser;
+            }
+
+            const allowed = await hasApprovalRight(user, approvalType, { skipCache: shouldSkipCache });
 
             if (!allowed) {
                 await AuditLog.create({
@@ -149,7 +166,8 @@ export const checkApprovalRight = (approvalType) => {
                     metadata: {
                         approvalType,
                         url: req.originalUrl,
-                        method: req.method
+                        method: req.method,
+                        cacheSkipped: shouldSkipCache
                     },
                     ipAddress: req.ip,
                     userAgent: req.get('user-agent'),

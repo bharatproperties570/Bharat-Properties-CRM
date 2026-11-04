@@ -444,7 +444,16 @@ describe('S4: Sources default-disabled', () => {
             approvalReference: 'Letter/2024/123',
             approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
             reviewStatus: 'APPROVED',
-            ratePolicy: { maxRequestsPerDay: 100, maxRequestsPerHour: 10 },
+            ratePolicy: {
+                maxRequestsPerDay: 100,
+                maxRequestsPerHour: 10,
+                maxRequestsPerMinute: 5,
+                minimumIntervalMs: 12000,
+                maxConcurrent: 1,
+                policySource: 'AUTHORITY_DIRECT_AGREEMENT'
+            },
+            contractVerificationStatus: 'VERIFIED_CONTRACT',
+            contractEvidenceReference: 'EVIDENCE-DOC-001',
             identityRequirements: { verified: true },
             permittedFields: ['propertyId', 'sectorNumber']
         };

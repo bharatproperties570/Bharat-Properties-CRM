@@ -643,6 +643,7 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
