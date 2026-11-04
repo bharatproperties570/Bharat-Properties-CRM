@@ -321,37 +321,55 @@ export class DurableApprovalLedger {
     }
 
     _fsyncDirectory(dirPath) {
-        if (!dirPath || typeof dirPath !== 'string') return;
-        if (process.platform === 'win32') {
-            // Windows does not support directory opening or fsync via POSIX descriptors
-            return;
+        if (!dirPath || typeof dirPath !== 'string') {
+            throw new Error('[MIGRATION-004] SECURITY FATAL: Invalid directory path provided for fsync. Fail closed.');
         }
+        if (process.platform === 'win32') {
+            // Windows libuv/Node.js does not support opening directory paths as file descriptors (throws EISDIR/EPERM).
+            // POSIX directory entry durability is not available on Windows; durability is limited to file-level fsync.
+            return false;
+        }
+
         let dirFd = null;
         try {
             dirFd = fs.openSync(dirPath, 'r');
-            try {
-                fs.fsyncSync(dirFd);
-            } catch (fsyncErr) {
-                // Explicitly handle filesystems/platforms that disallow directory fsync:
-                // EISDIR, ENOTSUP, EINVAL, EBADF, EPERM
-                const ignoredCodes = ['EISDIR', 'ENOTSUP', 'EINVAL', 'EBADF', 'EPERM'];
-                if (!ignoredCodes.includes(fsyncErr.code)) {
-                    throw fsyncErr;
-                }
-            }
         } catch (openErr) {
-            // Some POSIX environments or restricted sandboxes disallow opening directories with openSync
-            const ignoredCodes = ['EISDIR', 'EACCES', 'EPERM', 'ENOTSUP', 'EINVAL'];
-            if (!ignoredCodes.includes(openErr.code)) {
-                throw openErr;
+            // Any open failure on POSIX (EACCES, EPERM, EMFILE, ENFILE, EIO, ENOENT) is an unexpected fault
+            throw new Error(
+                `[MIGRATION-004] SECURITY FATAL: Failed to open directory descriptor for durability fsync on ${dirPath} (${openErr.code || openErr.message}). Fail closed.`
+            );
+        }
+
+        let fsyncSucceeded = false;
+        try {
+            fs.fsyncSync(dirFd);
+            fsyncSucceeded = true;
+        } catch (fsyncErr) {
+            // Documented platform limitations on specific non-POSIX/network filesystems:
+            // EINVAL: filesystem driver does not implement directory fsync (e.g. some CIFS/NFS mounts)
+            // ENOTSUP / EOPNOTSUPP: operation explicitly unsupported by underlying filesystem
+            if (fsyncErr.code === 'EINVAL' || fsyncErr.code === 'ENOTSUP' || fsyncErr.code === 'EOPNOTSUPP') {
+                // Documented filesystem limitation: directory fsync not supported by driver
+                fsyncSucceeded = false;
+            } else {
+                // Unexpected error: EIO (hardware/disk fault), EBADF, EPERM, ENOSPC, etc.
+                // MUST FAIL CLOSED!
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Directory fsync failed on ${dirPath} with unexpected error (${fsyncErr.code || fsyncErr.message}). Fail closed.`
+                );
             }
         } finally {
             if (dirFd !== null) {
                 try {
                     fs.closeSync(dirFd);
-                } catch (_) {}
+                } catch (closeErr) {
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Failed to close directory descriptor on ${dirPath} (${closeErr.code || closeErr.message}). Descriptor leak / durability failure. Fail closed.`
+                    );
+                }
             }
         }
+        return fsyncSucceeded;
     }
 
     _safeUnlink(filePath, contextDesc = 'artifact') {
@@ -413,7 +431,7 @@ export class DurableApprovalLedger {
         const isUpdateMode = options.mode === 'update' || options.expectedToken !== undefined || options.expectedIno !== undefined;
 
         if (isCreateMode) {
-            // Atomic no-clobber publication (DEF-11.2): destination MUST NOT be overwritten
+            // Atomic no-clobber publication (DEF-11.2 & DEF-12.1): destination MUST NOT be overwritten
             try {
                 fs.linkSync(tempPath, filePath);
                 // Hard link established: safe to unlink tempPath
@@ -433,7 +451,8 @@ export class DurableApprovalLedger {
                 );
             }
         } else if (isUpdateMode) {
-            // Exact-owner update (DEF-11.2): destination MUST exist and match expected identity
+            // Atomic Displace-and-No-Clobber-Link Protocol (DEF-12.1):
+            // Eliminates the TOCTOU gap between ownership inspection and destination replacement.
             if (!fs.existsSync(filePath)) {
                 this._safeUnlink(tempPath, 'unmatched temporary metadata file');
                 throw new Error(
@@ -441,57 +460,121 @@ export class DurableApprovalLedger {
                 );
             }
 
-            let destStat;
-            let destData = null;
+            // 1. Atomically displace the target destination into a private staging path
+            const stagingPath = `${filePath}.displaced.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
             try {
-                destStat = fs.statSync(filePath);
-                const content = fs.readFileSync(filePath, 'utf8');
-                try { destData = JSON.parse(content); } catch (_) {}
-            } catch (readErr) {
-                this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                fs.renameSync(filePath, stagingPath);
+            } catch (displaceErr) {
+                if (displaceErr.code === 'ENOENT') {
+                    this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} disappeared concurrently during exact-owner update. Fail closed.`
+                    );
+                }
                 throw new Error(
-                    `[MIGRATION-004] SECURITY FATAL: Failed to inspect destination metadata at ${filePath}: ${readErr.message}. Fail closed.`
+                    `[MIGRATION-004] SECURITY FATAL: Failed to displace destination file ${filePath} during update: ${displaceErr.message}. Diagnostic artifact preserved at ${tempPath}. Fail closed.`
                 );
             }
 
-            const inoMatches = options.expectedIno ? destStat.ino === options.expectedIno : true;
-            const devMatches = options.expectedDev ? destStat.dev === options.expectedDev : true;
+            // 2. Inspect the displaced file to verify ownership match
+            let stagingStat;
+            let destData = null;
+            try {
+                stagingStat = fs.statSync(stagingPath);
+                const content = fs.readFileSync(stagingPath, 'utf8');
+                try { destData = JSON.parse(content); } catch (_) {}
+            } catch (readErr) {
+                // If inspection fails, restore displaced file via linkSync
+                try { fs.linkSync(stagingPath, filePath); } catch (_) {}
+                this._safeUnlink(stagingPath, 'displaced staging metadata file');
+                this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Failed to inspect displaced metadata at ${stagingPath}: ${readErr.message}. Fail closed.`
+                );
+            }
+
+            const inoMatches = options.expectedIno ? stagingStat.ino === options.expectedIno : true;
+            const devMatches = options.expectedDev ? stagingStat.dev === options.expectedDev : true;
             const tokenMatches = options.expectedToken
-                ? (destData && (destData.recoveryToken === options.expectedToken || destData.supervisorToken === options.expectedToken || destData.claimToken === options.expectedToken || destData.ownerToken === options.expectedToken))
+                ? (destData && (destData.recoveryToken === options.expectedToken || destData.supervisorToken === options.expectedToken || destData.claimToken === options.expectedToken || destData.ownerToken === options.expectedToken || destData.token === options.expectedToken))
                 : true;
             const pidMatches = options.expectedPid ? (destData && destData.pid === options.expectedPid) : true;
 
-            if (!inoMatches || !devMatches || !tokenMatches || !pidMatches) {
-                // Destination coordinator was replaced by another worker!
-                // NEVER overwrite a replacement coordinator!
+            const isExactMatch = inoMatches && devMatches && tokenMatches && pidMatches;
+
+            if (!isExactMatch) {
+                // Mismatch: The displaced file belonged to a competitor / replacement worker!
+                // NEVER overwrite a replacement coordinator! Restore it via no-clobber linkSync!
+                try {
+                    fs.linkSync(stagingPath, filePath);
+                    this._safeUnlink(stagingPath, 'restored displaced competitor metadata file');
+                } catch (restoreErr) {
+                    if (restoreErr.code === 'EEXIST') {
+                        // Another replacement appeared at filePath: safe to clean displaced staging
+                        this._safeUnlink(stagingPath, 'superseded displaced competitor metadata file');
+                    } else {
+                        throw new Error(
+                            `[MIGRATION-004] SECURITY FATAL: Unexpected error (${restoreErr.code || restoreErr.message}) restoring displaced replacement coordinator. ` +
+                            `Artifact preserved at ${stagingPath}. Fail closed.`
+                        );
+                    }
+                }
                 this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                this._fsyncDirectory(targetDir);
                 throw new Error(
                     `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} has been superseded by a replacement coordinator (token/inode mismatch). Active replacement preserved. Fail closed.`
                 );
             }
 
-            // Pre-check passed: atomic rename
+            // Optional test hook for adversarial interleaving (DEF-12.1)
+            if (typeof options.__testHookBeforePublish === 'function') {
+                options.__testHookBeforePublish();
+            }
+
+            // 3. Publish the new temporary metadata using NO-CLOBBER linkSync
+            // If a competing worker slipped in between renameSync and linkSync, linkSync will fail with EEXIST!
             try {
-                fs.renameSync(tempPath, filePath);
-            } catch (renameErr) {
+                fs.linkSync(tempPath, filePath);
+                // Publication succeeded: clean up displaced old file and link source
+                this._safeUnlink(stagingPath, 'superseded old metadata file');
+                this._safeUnlink(tempPath, 'temporary metadata publication link source');
+            } catch (linkErr) {
+                if (linkErr.code === 'EEXIST') {
+                    // A competitor acquired filePath during publication!
+                    // NEVER CLOBBER COMPETITOR! Clean up our files and fail closed!
+                    this._safeUnlink(stagingPath, 'superseded old metadata file');
+                    this._safeUnlink(tempPath, 'uncommitted temporary metadata file');
+                    this._fsyncDirectory(targetDir);
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} was acquired by a competitor during update publication. Active replacement preserved. Fail closed.`
+                    );
+                }
                 throw new Error(
-                    `[MIGRATION-004] SECURITY FATAL: Failed to rename metadata temp file to destination (${filePath}): ${renameErr.message}. ` +
-                    `Artifact preserved at ${tempPath}. Fail closed.`
+                    `[MIGRATION-004] SECURITY FATAL: Unexpected error (${linkErr.code || linkErr.message}) publishing updated metadata to ${filePath}. ` +
+                    `Artifacts preserved at ${stagingPath} and ${tempPath}. Fail closed.`
                 );
             }
         } else {
-            // Standard atomic rename publication
-            try {
-                fs.renameSync(tempPath, filePath);
-            } catch (renameErr) {
+            // If neither create nor update is specified:
+            // Prohibit unverified overwriting of existing destinations!
+            if (fs.existsSync(filePath)) {
+                this._safeUnlink(tempPath, 'uncommitted temporary metadata file');
                 throw new Error(
-                    `[MIGRATION-004] SECURITY FATAL: Failed to rename metadata temp file to ${filePath}: ${renameErr.message}. ` +
-                    `Artifact preserved at ${tempPath}. Fail closed.`
+                    `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} already exists. Unverified overwrite is prohibited. Use mode: 'update' with expected ownership tokens or mode: 'create'. Fail closed.`
+                );
+            }
+            try {
+                fs.linkSync(tempPath, filePath);
+                this._safeUnlink(tempPath, 'temporary metadata publication file');
+            } catch (linkErr) {
+                this._safeUnlink(tempPath, 'uncommitted temporary metadata file');
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} already exists or failed no-clobber publication (${linkErr.message}). Fail closed.`
                 );
             }
         }
 
-        // Fsync containing directory where supported (DEF-11.1)
+        // Fsync containing directory where supported (DEF-11.1 & DEF-12.2)
         this._fsyncDirectory(targetDir);
     }
 

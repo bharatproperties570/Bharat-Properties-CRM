@@ -352,22 +352,93 @@ At no point during normal acquisition, dead-lock recovery, or stale coordinator 
 2. In-flight recovery moves the target file to a private `.recovering.<pid>.<timestamp>.<uuid>` staging path.
 3. Concurrent workers scan for active in-flight staging markers (`_hasActiveInFlightRecovery()`) and fail closed (block/wait) if a live worker is actively recovering or releasing artifacts.
 
-### DEF-11.1: Durable Directory-Entry Persistence (`_fsyncDirectory`)
-On POSIX filesystems (ext4, XFS, APFS), writing data and calling `fsync()` on a file descriptor ensures that file data and metadata blocks are flushed to physical media. However, directory entries (directory blocks pointing inode numbers to filenames created by `linkSync`, `openSync(O_CREAT)`, or `renameSync`) reside in the parent directory's block.
+### DEF-11.1 & DEF-12.2: Durable Directory-Entry Persistence (`_fsyncDirectory`)
+On POSIX filesystems (ext4, XFS, APFS), writing data and calling `fsync()` on a file descriptor ensures that file data and metadata blocks are flushed to physical media. However, directory entries (directory blocks mapping filenames to inode numbers created by `linkSync`, `openSync(O_CREAT)`, or `renameSync`) reside in the parent directory's block.
 - **Directory Fsync:** After creating or renaming coordinators, `_fsyncDirectory(dirPath)` opens the parent directory with `O_RDONLY` and issues `fsync()` on the directory descriptor.
-- **Platform Compatibility Guarantees:**
-  - **POSIX:** Directory `fsync()` flushes directory entry allocations to disk. If a filesystem or sandbox returns `EISDIR`, `ENOTSUP`, `EINVAL`, `EBADF`, or `EPERM` on directory descriptors, `_fsyncDirectory` handles the code explicitly without crashing.
-  - **Windows (NTFS):** Opening directories as POSIX descriptors is unsupported (`EISDIR`/`EINVAL`). `_fsyncDirectory` detects `process.platform === 'win32'` and safely bypasses directory `fsync`, as NTFS transactions journal directory metadata automatically.
-  - **Diagnostic Temp File Preservation:** On write or fsync failure during `_writeDurableMetadata()`, the diagnostic temporary file is preserved on disk for forensic inspection, and an actionable `[MIGRATION-004] SECURITY FATAL` error is thrown.
+- **Strict Error Classification & Platform Compatibility Guarantees (DEF-12.2):**
+  - **POSIX Documented Limitations:** `fsync()` on directory file descriptors is not supported on all filesystem drivers or network mounts. Documented driver limitations (`EINVAL`, `ENOTSUP`, `EOPNOTSUPP`) are handled safely without crashing.
+  - **POSIX Unexpected Filesystem Errors:** Unexpected errors (`EACCES`, `EPERM`, `EMFILE`, `EIO`, `EBADF`, `ENOSPC`) immediately throw `[MIGRATION-004] SECURITY FATAL` and fail closed. We do NOT swallow permission, resource exhaustion, or I/O controller faults.
+  - **Directory Descriptor Close Safety:** Errors encountered during `closeSync(dirFd)` in the `finally` block throw `[MIGRATION-004] SECURITY FATAL: Failed to close directory descriptor: ... Fail closed.` rather than being silently ignored.
+  - **Windows (win32):** On Windows, opening directories via POSIX file descriptors is fundamentally unsupported by the operating system (`EISDIR`/`EINVAL`). `_fsyncDirectory` detects `process.platform === 'win32'` and immediately returns `false` without attempting descriptor open. The runtime explicitly documents this platform limitation and does NOT make unverified assertions regarding NTFS journaling guarantees.
+  - **Diagnostic Temp File Preservation:** On write or fsync failure during `_writeDurableMetadata()`, diagnostic temporary files are preserved on disk for forensic inspection, and an actionable `[MIGRATION-004] SECURITY FATAL` error is emitted.
 
-### DEF-11.2: No-Clobber Metadata Replacement Protocol
-To prevent a delayed or desynchronized worker from overwriting a newly acquired coordinator created by a competing worker:
-- **Create Mode (`options.mode === 'create'` / `options.noClobber: true`):** Employs atomic hard linking (`fs.linkSync(tempPath, destPath)`). If the destination file already exists, the kernel atomically rejects the link with `EEXIST`. The temporary file is cleaned up, and the operation fails closed without clobbering the destination.
-- **Exact-Owner Update Mode (`options.mode === 'update'`):** Validates that the destination file matches the caller's expected ownership token, inode number (`ino`), device ID (`dev`), and process PID. If another worker has acquired or superseded the coordinator in the interim, the update is rejected, the temporary staging file is cleaned up, and the active replacement is preserved.
+### DEF-11.2 & DEF-12.1: Atomic Displace-and-No-Clobber Publication Protocol
+To eliminate time-of-check to time-of-use (TOCTOU) race conditions during metadata creation and updates:
+- **Create Mode (`options.mode === 'create'` / `options.noClobber: true`):**
+  - Employs atomic hard linking (`fs.linkSync(tempPath, destPath)`).
+  - If the destination file already exists, the kernel atomically rejects the link with `EEXIST`.
+  - The temporary file is cleaned up, and the operation fails closed without clobbering the existing coordinator.
+- **Exact-Owner Update Mode (`options.mode === 'update'` / DEF-12.1):**
+  - **The Race in Ordinary Rename:** On POSIX, `fs.renameSync(source, destination)` unconditionally replaces `destination`. If a process checks destination ownership (inode, dev, token, PID) and subsequently calls `renameSync(tempPath, filePath)`, a competing worker could acquire or recover the destination in the microsecond interval between inspection and rename, causing the ordinary rename to clobber the valid replacement.
+  - **Atomic Displace-and-No-Clobber Protocol:**
+    1. **Displacement:** Atomically displace the target destination into a private staging path (`fs.renameSync(filePath, stagingPath)`).
+    2. **Displaced Staging Inspection:** Read and parse `stagingPath` to verify exact ownership match (`token`, `ino`, `dev`, `pid`). If a mismatch occurs, immediately restore the displaced coordinator via `fs.linkSync(stagingPath, filePath)` and fail closed.
+    3. **Atomic Publication via Hard Link:** Publish `tempPath` to `filePath` via `fs.linkSync(tempPath, filePath)`. If a competitor slipped in between displacement and publication, `linkSync` atomically fails with `EEXIST`. The competitor's coordinator is untouched, the displaced file is preserved/restored, and the caller fails closed.
+    4. **Directory Persistence & Cleanup:** Durably fsync the containing directory, then cleanly unlink the displaced staging file and temporary file.
 
 ### DEF-11.3: Safe Unlink Semantics (`_safeUnlink`)
 Previous implementations caught and silently swallowed unlink errors with `try { fs.unlinkSync(...); } catch (_) {}`.
 - **Fail Closed on Unexpected Errors:** `_safeUnlink(filePath, contextDesc)` treats `ENOENT` as the only idempotent success case (file already removed).
 - Any unexpected filesystem error (`EPERM`, `EIO`, `ENOSPC`, `EROFS`) halts execution immediately with `[MIGRATION-004] SECURITY FATAL`, preserves the artifact on disk, and fails closed.
 - Before unlinking any recovery or release staging artifact, exact device, inode, and token matches are confirmed.
+
+### DEF-12.3: Crash-Boundary Invariants
+Deterministic crash-boundary testing using real OS `SIGKILL` termination validates the following invariants:
+1. **Crash during coordinator verification:** Pre-commit displacement leaves destination vacant; subsequent recovery cleanly detects abandoned state and restores or re-acquires.
+2. **Crash after displacement into staging:** Displaced staging marker `.displaced.<pid>.<time>.<uuid>` remains visible; `_hasActiveInFlightRecovery()` or subsequent worker detects dead owner PID and restores state cleanly.
+3. **Crash after hard link but before temp file cleanup:** Destination coordinator is published and fully valid; leftover `.tmp.` file does not invalidate the canonical coordinator.
+4. **Crash during supervisor release:** Higher-tier recovery coordinators detect dead supervisor PID and recover without data corruption.
+5. **Crash during recovery restoration:** Live replacement claims created by concurrent workers are preserved via `EEXIST` no-clobber protection; recovered stale artifacts are cleaned up safely.
+
+---
+
+## 7. Production Signing Trust Readiness & KMS Provisioning Requirements (DEF-12.4)
+
+### Current Security State: Zero Unverified Keys
+In `backend/migrations/004-contact-phone-unique-index-migration.js`, all entries in `PINNED_DBA_TRUST_STORE` are explicitly marked:
+```javascript
+provenance: 'UNPROVISIONED_PLACEHOLDER'
+```
+Any execution in production mode (`NODE_ENV=production` or targeting production clusters) that encounters a trust store entry with `provenance === 'UNPROVISIONED_PLACEHOLDER'` strictly halts with:
+```
+[MIGRATION-004] FATAL: Production approval rejected. Pinned trust anchor for approver "..." has provenance UNPROVISIONED_PLACEHOLDER. Production execution requires cryptographic keys minted and provisioned via corporate KMS/Vault authority. Fail closed.
+```
+This ensures zero placeholder, mock, or self-signed keys can ever authorize a production migration run.
+
+### Formal KMS / Vault Key Provisioning Protocol (Before Production Execution)
+Before executing Migration 004 on the production Atlas cluster, the following cryptographic provisioning must be completed:
+
+1. **Key Generation in Secure Enclave:**
+   - Keys must be generated within Cloud KMS (AWS KMS, Google Cloud KMS) or HashiCorp Vault Transit engine using `ED25519` or `ECDSA_P256`.
+   - Private keys must NEVER leave the hardware security module (HSM) or secure enclave.
+
+2. **Public Key Export and SPKI DER Fingerprinting:**
+   - Export the public key in SubjectPublicKeyInfo (SPKI) DER format.
+   - Compute the SHA-256 fingerprint:
+     ```bash
+     node -e '
+       const crypto = require("crypto");
+       const fs = require("fs");
+       const key = crypto.createPublicKey(fs.readFileSync(process.argv[1], "utf8"));
+       const der = key.export({ type: "spki", format: "der" });
+       console.log("SHA256:" + crypto.createHash("sha256").update(der).digest("hex"));
+     ' /path/to/exported_public_key.pem
+     ```
+
+3. **Trust Store Provisioning:**
+   - Update `PINNED_DBA_TRUST_STORE` (or external protected file `/etc/ssl/dba_keys/trust_store.json` with permissions `0600`/`0644` owned by root):
+     ```javascript
+     'dba.lead@bharatproperties.in': Object.freeze({
+         keyId: 'kid-dba-lead-2026-prod-v1',
+         approver: 'dba.lead@bharatproperties.in',
+         fingerprint: 'SHA256:<ACTUAL_COMPUTED_SPKI_SHA256_HEX>',
+         status: 'ACTIVE',
+         provenance: 'CORPORATE_KMS_PROVISIONED',
+         validFrom: <EPOCH_MS_START>,
+         validUntil: <EPOCH_MS_END>
+     })
+     ```
+   - Change `provenance` to `'CORPORATE_KMS_PROVISIONED'`.
+   - Verify approval tokens are generated dynamically per execution with single-use `auditRef` and `nonce`, valid for a maximum of 5 minutes (`MAX_APPROVAL_TOKEN_AGE_MS = 300000`).
+
 
