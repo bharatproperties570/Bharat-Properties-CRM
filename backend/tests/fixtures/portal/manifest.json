@@ -1,0 +1,139 @@
+{
+  "manifestVersion": "1.0.0",
+  "generatedAt": "2026-11-02T20:13:00Z",
+  "provenanceType": "SYNTHETIC_CONTRACT_FIXTURES",
+  "livePortalAccessStatus": "BLOCKED_PENDING_WRITTEN_AUTHORITY_PERMISSION",
+  "policyNotice": "Live authority portal access is blocked (permissionStatus: NOT_OBTAINED / PENDING_REVIEW). In accordance with strict legal and operational guidelines, these fixtures are synthesized contract fixtures modeling public schema structures. Zero live tokens, zero cookies, zero ASP.NET ViewState sessions, and zero personal PII (names, Aadhaar, PAN, contact numbers) are stored or tracked.",
+  "fixtures": [
+    {
+      "filePath": "chd/initial_form.html",
+      "authorityCode": "CHD",
+      "kind": "INITIAL_SEARCH_FORM",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 1038,
+      "sha256": "78fd33db3ad0497a2a38043b865782eb23c73161561da400149b5b3033e24398",
+      "targetParser": "chdPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "chd/mode1_result.html",
+      "authorityCode": "CHD",
+      "kind": "MODE1_SECTOR_PLOT_RESULT",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 863,
+      "sha256": "8c77d379e4d6ac0ae9d377c0113091d4d6956e9b6af5a61d0bbf8f464bed942c",
+      "targetParser": "chdPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "chd/mode2_result.html",
+      "authorityCode": "CHD",
+      "kind": "MODE2_FILE_NUMBER_RESULT",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 743,
+      "sha256": "13786ad0cb5b7f8cfe012411944bd15b04820075164c22288f930d174a812819",
+      "targetParser": "chdPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "chd/no_records.html",
+      "authorityCode": "CHD",
+      "kind": "EMPTY_RESULT",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 247,
+      "sha256": "7fc849754eaa59268822d38312f5433a6a0bce4aff47ac162adf583cb8eb11b5",
+      "targetParser": "chdPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "gmada/error_502.html",
+      "authorityCode": "GMADA",
+      "kind": "UPSTREAM_GATEWAY_ERROR",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 150,
+      "sha256": "881c71085b44b9247ca8cc18d917c4c4e81eb6a846cbd0d48fcd5dd8ee12cc2e",
+      "targetParser": "gmadaPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "gmada/gridview_result.html",
+      "authorityCode": "GMADA",
+      "kind": "LEDGER_GRIDVIEW_RESULT",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 1255,
+      "sha256": "78eb60f33d014325a981e958c7fe3675caba29ee71d56a858abece2008dab976",
+      "targetParser": "gmadaPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "gmada/initial_form.html",
+      "authorityCode": "GMADA",
+      "kind": "INITIAL_SEARCH_FORM",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 1512,
+      "sha256": "16c0a42a82dc76edd878ef5501d8d63938b77b59e45ed80c1ba4cf196f74b5fc",
+      "targetParser": "gmadaPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "gmada/no_records.html",
+      "authorityCode": "GMADA",
+      "kind": "EMPTY_RESULT",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 215,
+      "sha256": "1cc8e7a470726c42a648e5661ead36b392d8ef9cb5d5f300ea1f2f12638f3bbb",
+      "targetParser": "gmadaPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "hsvp/challenge.html",
+      "authorityCode": "HSVP",
+      "kind": "CAPTCHA_CHALLENGE",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 351,
+      "sha256": "96d917661387d05ef28e8869e749d9fb97957db43c2f43263d58f02d7b3004c4",
+      "targetParser": "hsvpPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "hsvp/initial_form.html",
+      "authorityCode": "HSVP",
+      "kind": "INITIAL_SEARCH_FORM",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 1092,
+      "sha256": "230ee99c97877363820d389cfb268b4ce5320c9a905eb5d3239754602464dee7",
+      "targetParser": "hsvpPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "hsvp/login_wall.html",
+      "authorityCode": "HSVP",
+      "kind": "LOGIN_WALL",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 454,
+      "sha256": "b7e4519de51de7c2de19e71da44fc3796049153b7d26899b63c9d98486fd3006",
+      "targetParser": "hsvpPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "hsvp/no_records.html",
+      "authorityCode": "HSVP",
+      "kind": "EMPTY_RESULT",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 228,
+      "sha256": "ca0ce03f45100572fd62a9208e1a367a4f24b8a595c11b1bdfa5c57dd6d8a88d",
+      "targetParser": "hsvpPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    },
+    {
+      "filePath": "hsvp/valid_details.html",
+      "authorityCode": "HSVP",
+      "kind": "PLOT_STATUS_DETAILS",
+      "fixtureClassification": "synthetic_contract_fixture",
+      "bytes": 1665,
+      "sha256": "b409282681c3bca4f855eb4ad5799c30d18b8d038dbdea1ded0837a5246c42c8",
+      "targetParser": "hsvpPortalParser",
+      "redactionMethod": "Synthetic structural template based on public contract"
+    }
+  ]
+}

@@ -195,18 +195,13 @@ export const updateRole = async (req, res) => {
             defaultDataScope: role.defaultDataScope
         };
 
-        // Update role
+        // Update role and increment permissionsVersion within transaction
         Object.assign(role, updates);
+        role.permissionsVersion = (Number(role.permissionsVersion) || 1) + 1;
         await role.save({ session });
 
-        // Invalidate caches for all users with this role
-        await invalidateAllRoleCaches(id);
-
-        // Get all users with this role and invalidate their permission caches
+        // Find affected users for audit and post-commit cache invalidation
         const usersWithRole = await User.find({ role: id }).select('_id');
-        for (const user of usersWithRole) {
-            await invalidateUserPermissionCache(user._id);
-        }
 
         // Log audit event (only if user is authenticated)
         if (req.user?._id) {
@@ -228,11 +223,13 @@ export const updateRole = async (req, res) => {
                         moduleAccess: role.moduleAccess,
                         financialPermissions: role.financialPermissions,
                         approvalRights: role.approvalRights,
-                        defaultDataScope: role.defaultDataScope
+                        defaultDataScope: role.defaultDataScope,
+                        permissionsVersion: role.permissionsVersion
                     }
                 },
                 metadata: {
-                    affectedUsers: usersWithRole.length
+                    affectedUsers: usersWithRole.length,
+                    permissionsVersion: role.permissionsVersion
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('user-agent')
@@ -241,10 +238,23 @@ export const updateRole = async (req, res) => {
 
         await session.commitTransaction();
 
+        // P1-B: Invalidate caches AFTER successful transaction commit so concurrent checks cannot repopulate stale state
+        let cacheInvalidationWarning = null;
+        try {
+            await invalidateAllRoleCaches(id);
+            for (const user of usersWithRole) {
+                await invalidateUserPermissionCache(user._id);
+            }
+        } catch (cacheErr) {
+            console.error('Post-commit cache invalidation error:', cacheErr);
+            cacheInvalidationWarning = `Post-commit cache invalidation failed: ${cacheErr.message}`;
+        }
+
         res.status(200).json({
             success: true,
             message: 'Role updated successfully',
-            data: role
+            data: role,
+            ...(cacheInvalidationWarning ? { warning: cacheInvalidationWarning } : {})
         });
     } catch (error) {
         await session.abortTransaction();
@@ -303,9 +313,6 @@ export const deleteRole = async (req, res) => {
 
         await Role.findByIdAndDelete(id, { session });
 
-        // Invalidate role cache
-        await invalidateAllRoleCaches(id);
-
         // Log audit event (only if user is authenticated)
         if (req.user?._id) {
             await AuditLog.create([{
@@ -326,6 +333,13 @@ export const deleteRole = async (req, res) => {
         }
 
         await session.commitTransaction();
+
+        // P1-B: Invalidate role cache AFTER successful commit
+        try {
+            await invalidateAllRoleCaches(id);
+        } catch (cacheErr) {
+            console.error('Post-commit role cache invalidation error:', cacheErr);
+        }
 
         res.status(200).json({
             success: true,

@@ -877,6 +877,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
                     authorityCode: 'HSVP',
                     status: 'SUCCEEDED',
                     reviewerDecision: 'APPROVED',
+                    reviewedBy: new mongoose.Types.ObjectId(),
                     isSynthetic: false,
                     provenance: 'LIVE',
                     proposedChanges: [

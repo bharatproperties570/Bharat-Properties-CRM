@@ -137,6 +137,11 @@ const PropertyAuthorityLinkSchema = new mongoose.Schema({
         type: String,
         default: null
     },
+    duplicateOfLinkId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'PropertyAuthorityLink',
+        default: null
+    },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
@@ -201,6 +206,105 @@ PropertyAuthorityLinkSchema.statics.getForInventory = function (tenantId, invent
 
 PropertyAuthorityLinkSchema.statics.getByCompositeKey = function (tenantId, compositeKey) {
     return this.find({ tenantId, compositeKey, isActive: true });
+};
+
+/**
+ * Reconciles duplicate authority links for a tenant (R-05).
+ * 
+ * Detects duplicate (inventoryId, authorityCode) sets within the tenant.
+ * Deterministically selects the canonical link:
+ * 1. Verified identity (identityVerified: true)
+ * 2. Has latestSnapshotId attached
+ * 3. Active status (isActive: true)
+ * 4. Most recently updated
+ * 
+ * Reassigns any dangling references in PropertyVerificationRunItem and PropertyVerificationSnapshot
+ * to the canonical link ID so historical records remain fully intact.
+ * Deactivates or marks non-canonical duplicates without detaching or deleting valid inventory relationships.
+ */
+PropertyAuthorityLinkSchema.statics.reconcileDuplicateLinks = async function (tenantId, options = {}) {
+    if (!tenantId) {
+        throw new Error('TENANT_ID_REQUIRED: Tenant ID is required for duplicate link reconciliation');
+    }
+
+    const tId = tenantId instanceof mongoose.Types.ObjectId ? tenantId : new mongoose.Types.ObjectId(tenantId);
+    const PropertyVerificationRunItem = mongoose.model('PropertyVerificationRunItem');
+
+    // 1. Detect duplicates grouped by (inventoryId, authorityCode)
+    const duplicateGroups = await this.aggregate([
+        { $match: { tenantId: tId } },
+        {
+            $group: {
+                _id: { inventoryId: '$inventoryId', authorityCode: '$authorityCode' },
+                count: { $sum: 1 },
+                linkIds: { $push: '$_id' }
+            }
+        },
+        { $match: { count: { $gt: 1 } } }
+    ]);
+
+    let duplicateSetsCount = duplicateGroups.length;
+    let canonicalLinksCount = 0;
+    let reconciledDuplicatesCount = 0;
+    let updatedReferencesCount = 0;
+
+    for (const group of duplicateGroups) {
+        const links = await this.find({
+            _id: { $in: group.linkIds },
+            tenantId: tId
+        }).sort({
+            identityVerified: -1,
+            latestSnapshotId: -1,
+            isActive: -1,
+            updatedAt: -1,
+            _id: -1
+        });
+
+        if (links.length <= 1) continue;
+
+        // Deterministic winner
+        const canonical = links[0];
+        const duplicates = links.slice(1);
+        canonicalLinksCount++;
+
+        // Ensure canonical link is active and retains valid inventory relationship
+        await this.updateOne(
+            { _id: canonical._id, tenantId: tId },
+            { $set: { isActive: true } }
+        );
+
+        const duplicateIds = duplicates.map(d => d._id);
+
+        // 2. Safely reassign dangling references in RunItem to the canonical link
+        // (Snapshots are strictly immutable audit records; they resolve via duplicateOfLinkId)
+        const itemUpdateRes = await PropertyVerificationRunItem.updateMany(
+            { tenantId: tId, linkId: { $in: duplicateIds } },
+            { $set: { linkId: canonical._id } }
+        );
+        updatedReferencesCount += (itemUpdateRes.modifiedCount || 0);
+
+        // 3. Mark non-canonical duplicates as inactive duplicates without deleting valid inventory references
+        const dupUpdateRes = await this.updateMany(
+            { _id: { $in: duplicateIds }, tenantId: tId },
+            {
+                $set: {
+                    isActive: false,
+                    matchEligibility: 'INELIGIBLE',
+                    duplicateOfLinkId: canonical._id,
+                    deactivatedReason: 'DUPLICATE_RECONCILED'
+                }
+            }
+        );
+        reconciledDuplicatesCount += (dupUpdateRes.modifiedCount || duplicates.length);
+    }
+
+    return {
+        tenantId: tId.toString(),
+        duplicateSetsCount,
+        canonicalLinksCount,
+        reconciledDuplicatesCount,
+        updatedReferencesCount
+    };
 };
 
 export { MATCH_ELIGIBILITY };

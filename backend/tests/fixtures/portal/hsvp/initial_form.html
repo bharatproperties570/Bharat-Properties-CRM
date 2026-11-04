@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>HSVP - Plot Status Enquiry</title></head>
+<body>
+    <form id="enquiryForm" action="/Home/PlotStatusEnquiry" method="post">
+        <input type="hidden" name="__RequestVerificationToken" value="cf7a8d9e2b1c4a3f6e5d8c7b9a0f1e2d3c4b5a6f" />
+        <select id="SelectedUrbanEstate" name="SelectedUrbanEstate">
+            <option value="">--Select Urban Estate--</option>
+            <option value="UE001">UE001 - Faridabad</option>
+            <option value="UE007">UE007 - Gurugram</option>
+            <option value="UE020">UE020 - Panchkula</option>
+        </select>
+        <select id="SelectedSector" name="SelectedSector">
+            <option value="">--Select Sector--</option>
+            <option value="Sector 14">Sector 14</option>
+            <option value="Sector 15">Sector 15</option>
+        </select>
+        <input type="text" id="PlotNo" name="PlotNo" placeholder="Enter Plot No" />
+        <input type="hidden" name="submitAction" value="" />
+        <button type="submit" id="btnSubmit">Search Plot</button>
+    </form>
+</body>
+</html>

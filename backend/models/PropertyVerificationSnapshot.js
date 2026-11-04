@@ -52,6 +52,11 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         default: null,
         index: true
     },
+    fenceToken: {
+        type: Number,
+        default: null,
+        index: true
+    },
 
     // ========== Source Reference ==========
     // Approved source URL (NOT containing session tokens or credentials)

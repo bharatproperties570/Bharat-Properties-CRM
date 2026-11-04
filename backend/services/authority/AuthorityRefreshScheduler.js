@@ -146,30 +146,101 @@ export class AuthorityRefreshScheduler {
                 inventoryIds,
                 runMode: 'BULK_SCHEDULED',
                 isFixtureMode: isSimulation || !settings.isEffectivelyActive()
+            }, {
+                isSystem: true,
+                ipAddress: 'system',
+                userAgent: 'AuthorityRefreshScheduler/v4.4.1'
             });
 
             let processOutcome = null;
+            let executionError = null;
             if (run.status === 'CREATED') {
-                processOutcome = await AuthorityBulkProcessor.processRun(run._id, {
-                    tenantId: tId,
-                    batchSize: 50,
-                    isFixtureMode: isSimulation || !settings.isEffectivelyActive()
-                });
+                try {
+                    processOutcome = await AuthorityBulkProcessor.processRun(run._id, {
+                        tenantId: tId,
+                        batchSize: 50,
+                        isFixtureMode: isSimulation || !settings.isEffectivelyActive(),
+                        isSystem: true,
+                        ipAddress: 'system',
+                        userAgent: 'AuthorityRefreshScheduler/v4.4.1'
+                    });
+                } catch (procErr) {
+                    executionError = procErr;
+                }
             }
 
-            // Update settings last run metadata
-            settings.lastRunId = run._id;
-            settings.lastRunAt = new Date();
-            settings.lastRunStatus = run.status === 'COMPLETED' ? 'SUCCESS' : (run.status === 'PARTIAL' ? 'PARTIAL' : 'FAILED');
-            await settings.save().catch(() => {}); // ignore Phase 3 lock if saving inactive
+            // Inspect authoritative persisted run state (Phase 4.4 - Finding F-05)
+            const freshRun = await PropertyVerificationRun.findOne({ _id: run._id, tenantId: tId }).lean();
+            const finalRunStatus = freshRun?.status || processOutcome?.status || run.status;
+            const completedAt = freshRun?.completedAt || new Date();
+
+            let derivedStatus = 'FAILED';
+            if (executionError) {
+                derivedStatus = 'FAILED';
+            } else if (finalRunStatus === 'COMPLETED') {
+                derivedStatus = 'SUCCESS';
+            } else if (finalRunStatus === 'PARTIAL') {
+                derivedStatus = 'PARTIAL';
+            } else if (finalRunStatus === 'PAUSED') {
+                derivedStatus = 'PAUSED';
+            } else if (finalRunStatus === 'CANCELLED') {
+                derivedStatus = 'CANCELLED';
+            } else if (finalRunStatus === 'POLICY_REJECTED' || finalRunStatus === 'FAILED') {
+                derivedStatus = 'FAILED';
+            }
+
+            // Update settings last run metadata conditionally so older retries do not overwrite newer runs (Phase 4.4.1 - Finding F-07)
+            let settingsUpdateStatus = 'SKIPPED_STALE_RUN';
+            let settingsUpdateError = null;
+            let updateResult = null;
+
+            try {
+                updateResult = await AuthoritySourceSettings.updateOne(
+                    {
+                        _id: settings._id,
+                        tenantId: tId,
+                        $or: [
+                            { lastRunAt: null },
+                            { lastRunAt: { $lte: completedAt } },
+                            { lastRunId: run._id }
+                        ]
+                    },
+                    {
+                        $set: {
+                            lastRunId: run._id,
+                            lastRunAt: completedAt,
+                            lastRunStatus: derivedStatus
+                        }
+                    }
+                );
+
+                if (updateResult.matchedCount > 0) {
+                    settingsUpdateStatus = 'UPDATED';
+                    // Update in-memory settings only when database matched and updated
+                    settings.lastRunId = run._id;
+                    settings.lastRunAt = completedAt;
+                    settings.lastRunStatus = derivedStatus;
+                } else {
+                    // Document was not matched by conditional query: a newer run already ran or exists
+                    settingsUpdateStatus = 'SKIPPED_STALE_RUN';
+                }
+            } catch (dbErr) {
+                // Database write failure: do NOT silently suppress, and do NOT treat in-memory settings as updated
+                settingsUpdateStatus = 'FAILED';
+                settingsUpdateError = dbErr.message;
+            }
 
             results.push({
                 tenantId: tId,
                 authorityCode: authCode,
                 runId: run._id,
-                status: processOutcome?.status || run.status,
-                totalItems: run.totalItems,
-                processOutcome
+                status: finalRunStatus,
+                lastRunStatus: derivedStatus,
+                settingsUpdateStatus,
+                ...(settingsUpdateError ? { settingsUpdateError } : {}),
+                totalItems: freshRun?.totalItems || run.totalItems,
+                processOutcome,
+                ...(executionError ? { error: executionError.message } : {})
             });
         }
 

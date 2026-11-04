@@ -155,6 +155,12 @@ const RoleSchema = new mongoose.Schema({
         approveAuthorityChanges: { type: Boolean, default: false }
     },
 
+    // ========== Permissions Versioning ==========
+    permissionsVersion: {
+        type: Number,
+        default: 1
+    },
+
     // ========== Legacy Support ==========
     // Keep old 'permissions' field for backward compatibility
     permissions: {

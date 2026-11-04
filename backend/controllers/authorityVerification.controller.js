@@ -7,7 +7,7 @@
  */
 
 import mongoose from 'mongoose';
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { checkActivationEligibility } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem, {
@@ -18,6 +18,19 @@ import PropertyVerificationRunItem, {
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import Inventory from '../models/Inventory.js';
 import AuditLog from '../models/AuditLog.js';
+import User from '../models/User.js';
+import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
+import {
+    registerOrRotateCanonicalPolicy,
+    getCanonicalPolicy,
+    syncCanonicalPolicyToRedis,
+    publishCanonicalPolicyToRedis,
+    markCanonicalPolicyAudited,
+    markCanonicalPolicyAuditFailed
+} from '../services/authority/portal/canonicalPolicyService.js';
+import { hasApprovalRight } from '../services/permission.service.js';
+import { getApplicationRedisClient } from '../services/authority/portal/portalRuntimeFactory.js';
+import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
 import { buildCompositeKey, computeSnapshotContentHash } from '../services/authority/authorityNormalizer.js';
 import { isSentinel } from '../services/authority/authorityFieldDictionary.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
@@ -29,6 +42,28 @@ import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProce
 function getTenantId(req) {
     // tenantId from authenticated user context
     return req.user?.tenantId || req.user?._id?.toString() || null;
+}
+
+let customQuotaProvider = null;
+
+export function setTestQuotaProvider(provider) {
+    customQuotaProvider = provider;
+}
+
+export function getQuotaProvider(req = null) {
+    if (customQuotaProvider !== null) {
+        return customQuotaProvider;
+    }
+    if (req?.app?.get && typeof req.app.get === 'function' && req.app.get('quotaProvider')) {
+        return req.app.get('quotaProvider');
+    }
+    try {
+        const redisClient = getApplicationRedisClient();
+        if (redisClient) {
+            return new RedisPortalQuotaProvider(redisClient);
+        }
+    } catch {}
+    return null;
 }
 
 function auditEvent(eventType, userId, targetType, targetId, description, metadata = {}, options = {}) {
@@ -137,14 +172,30 @@ export const updateSourceSettings = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Settings not found' });
         }
 
-        // Server-side allowlist of updatable fields
+        // Server-side allowlist of updatable fields for generic PATCH
         const ALLOWED_SETTINGS_FIELDS = new Set([
-            'permissionStatus', 'policyVersion', 'approvedAccessMethod',
-            'permittedFields', 'approvalReference', 'approvalDate',
-            'approvalExpiryDate', 'reviewStatus', 'ratePolicy',
-            'isEnabled', 'isPaused', 'schedulingEnabled', 'scheduleCron',
-            'identityRequirements'
+            'policyVersion', 'isEnabled', 'isPaused', 'schedulingEnabled',
+            'scheduleCron', 'scheduleTimezone', 'userReportedEvidence'
         ]);
+
+        const EVIDENCE_FIELDS = new Set([
+            'permissionArtifactUri', 'secureEvidenceId', 'approvalReference',
+            'issuedBy', 'authorityRole', 'authorizationScope',
+            'commercialUseAuthorized', 'readOnlySearchAuthorized',
+            'termsReviewed', 'termsReference', 'ratePolicy',
+            'contractEvidenceReference', 'contractVerificationStatus',
+            'permissionStatus', 'reviewStatus', 'permittedFields', 'identityRequirements'
+        ]);
+
+        // Reject attempts to update formal authorization evidence via generic PATCH (P0.2)
+        const attemptedEvidenceFields = Object.keys(req.body).filter(k => EVIDENCE_FIELDS.has(k));
+        if (attemptedEvidenceFields.length > 0) {
+            return res.status(422).json({
+                success: false,
+                code: 'SUBMIT_WORKFLOW_REQUIRED',
+                message: `Formal authorization evidence fields (${attemptedEvidenceFields.join(', ')}) cannot be altered via generic PATCH. Submit formal authorization evidence via /submit-approval.`
+            });
+        }
 
         const changes = {};
         const before = {};
@@ -161,40 +212,56 @@ export const updateSourceSettings = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No valid fields to update' });
         }
 
-        // Phase 3 Server-Side Activation Lock:
-        // Sources remain strictly offline and fixture-only. Live authority activation,
-        // approval granting, and scheduling are prohibited until a future phase authorizes live integration.
+        // P0.1 Source activation deadlock fix:
+        // Build candidate settings state to evaluate checkActivationEligibility independently of isEnabled
         const activationBlockers = [];
+        const candidateState = { ...setting.toObject(), ...changes };
+        const candidateEligibility = checkActivationEligibility(candidateState);
+
         if (changes.isEnabled === true) {
-            activationBlockers.push('isEnabled cannot be set to true: live authority fetching is prohibited in Phase 3');
+            if (!candidateEligibility.canActivate) {
+                activationBlockers.push(...candidateEligibility.blockers.map(b => typeof b === 'string' ? b : (b.message || b.code)));
+            }
         }
+
         if (changes.schedulingEnabled === true) {
-            activationBlockers.push('schedulingEnabled cannot be set to true: background authority scheduling is prohibited in Phase 3');
-        }
-        if (changes.reviewStatus === 'APPROVED') {
-            activationBlockers.push('reviewStatus cannot be set to APPROVED via settings update: requires independent maker-checker review');
-        }
-        if (changes.permissionStatus === 'GRANTED') {
-            activationBlockers.push('permissionStatus cannot be set to GRANTED: requires formal written authorization and MoU from authority');
+            const willBeEnabled = changes.isEnabled !== undefined ? changes.isEnabled : setting.isEnabled;
+            if (!willBeEnabled) {
+                activationBlockers.push('schedulingEnabled cannot be set to true while source is disabled (isEnabled must be true)');
+            }
+            if (!candidateEligibility.canActivate) {
+                activationBlockers.push(...candidateEligibility.blockers.map(b => typeof b === 'string' ? b : (b.message || b.code)));
+            }
         }
 
         if (activationBlockers.length > 0) {
             return res.status(422).json({
                 success: false,
                 code: 'ACTIVATION_LOCKED_PHASE3',
-                message: 'Source activation is locked: Live authority integrations and approvals are prohibited during Phase 3.',
+                message: 'Source activation is locked: Live authority integrations and approvals require complete verified evidence and independent review.',
                 blockers: activationBlockers
             });
         }
 
+        // If userReportedEvidence is submitted, ensure it remains UNVERIFIED/PENDING_WRITTEN_REFERENCE
+        if (changes.userReportedEvidence) {
+            changes.userReportedEvidence = {
+                ...changes.userReportedEvidence,
+                reportedAt: new Date(),
+                verificationStatus: changes.userReportedEvidence.verificationStatus === 'VALIDATED'
+                    ? 'PENDING_WRITTEN_REFERENCE'
+                    : (changes.userReportedEvidence.verificationStatus || 'UNVERIFIED')
+            };
+        }
+
         // If enabling, enforce activation gate
         if (changes.isEnabled === true) {
-            // Apply other changes first to check eligibility
             Object.assign(setting, changes);
             const check = setting.checkActivationEligibility();
             if (!check.canActivate) {
                 return res.status(422).json({
                     success: false,
+                    code: 'ACTIVATION_LOCKED_PHASE3',
                     message: 'Cannot enable source — activation requirements not met',
                     blockers: check.blockers
                 });
@@ -231,6 +298,961 @@ export const updateSourceSettings = async (req, res) => {
     } catch (error) {
         console.error('updateSourceSettings error:', error);
         res.status(500).json({ success: false, message: 'Failed to update source settings' });
+    }
+};
+
+/**
+ * POST /api/authority/settings/:authorityCode/submit-approval
+ * Submits an authority-specific authorization record for independent review.
+ * Permission: authorityVerification admin (approvalRights.manageAuthoritySettings)
+ */
+export const submitSourceApproval = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { authorityCode } = req.params;
+        if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const setting = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!setting) {
+            return res.status(404).json({ success: false, message: 'Settings not found' });
+        }
+
+        const {
+            approvalReference,
+            permissionArtifactUri,
+            secureEvidenceId,
+            issuedBy,
+            authorityRole,
+            authorizationScope,
+            approvalDate,
+            approvalExpiryDate,
+            permittedFields,
+            ratePolicy,
+            commercialUseAuthorized,
+            readOnlySearchAuthorized,
+            termsReviewed,
+            termsReference,
+            contractVerificationStatus,
+            contractEvidenceReference,
+            identityRequirements
+        } = req.body;
+
+        if (!approvalReference && !permissionArtifactUri && !secureEvidenceId) {
+            return res.status(400).json({
+                success: false,
+                code: 'APPROVAL_EVIDENCE_MISSING',
+                message: 'Approval reference, artifact URI, or secure evidence ID is required.'
+            });
+        }
+
+        // Phase 3 & 5: Require non-null plain object ratePolicy BEFORE mutating setting
+        if (!ratePolicy || typeof ratePolicy !== 'object' || Array.isArray(ratePolicy)) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_RATE_POLICY',
+                message: 'ratePolicy must be a non-null plain object'
+            });
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(ratePolicy, 'maxConcurrent')) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_RATE_POLICY',
+                message: 'ratePolicy.maxConcurrent is an explicit mandatory property'
+            });
+        }
+
+        const mc = Number(ratePolicy.maxConcurrent);
+        if (!Number.isInteger(mc) || mc !== 1) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_RATE_POLICY',
+                message: 'ratePolicy.maxConcurrent must be positive integer equal to 1'
+            });
+        }
+
+        // Apply proposed authorization evidence
+        setting.permissionStatus = 'PENDING_REVIEW';
+        setting.reviewStatus = 'UNDER_REVIEW';
+        setting.submittedBy = req.user._id;
+        setting.submittedAt = new Date();
+        setting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+        setting.evidenceVersion = (setting.evidenceVersion || 0) + 1;
+
+        if (approvalReference) setting.approvalReference = String(approvalReference).trim();
+        if (permissionArtifactUri) setting.permissionArtifactUri = String(permissionArtifactUri).trim();
+        if (secureEvidenceId) setting.secureEvidenceId = String(secureEvidenceId).trim();
+        if (issuedBy) setting.issuedBy = String(issuedBy).trim();
+        if (authorityRole) setting.authorityRole = String(authorityRole).trim();
+        if (authorizationScope) setting.authorizationScope = String(authorizationScope).trim();
+        if (approvalDate) setting.approvalDate = new Date(approvalDate);
+        if (approvalExpiryDate) setting.approvalExpiryDate = new Date(approvalExpiryDate);
+
+        if (Array.isArray(permittedFields)) {
+            setting.permittedFields = permittedFields.map(f => String(f).trim());
+        }
+
+        // A new authorization evidence submission must be self-contained and NOT inherit old values.
+        setting.ratePolicy = {
+            maxRequestsPerMinute: Number(ratePolicy.maxRequestsPerMinute) || null,
+            maxRequestsPerHour: Number(ratePolicy.maxRequestsPerHour) || null,
+            maxRequestsPerDay: Number(ratePolicy.maxRequestsPerDay) || null,
+            minIntervalMs: Number(ratePolicy.minIntervalMs || ratePolicy.minimumIntervalMs) || null,
+            minimumIntervalMs: Number(ratePolicy.minimumIntervalMs || ratePolicy.minIntervalMs) || null,
+            maxConcurrent: 1,
+            policySource: ratePolicy.policySource || ratePolicy.policyReference || null
+        };
+
+        setting.commercialUseAuthorized = Boolean(commercialUseAuthorized);
+        setting.readOnlySearchAuthorized = Boolean(readOnlySearchAuthorized);
+        setting.termsReviewed = Boolean(termsReviewed);
+        if (termsReference) setting.termsReference = String(termsReference).trim();
+        if (contractVerificationStatus) setting.contractVerificationStatus = contractVerificationStatus;
+        if (contractEvidenceReference) setting.contractEvidenceReference = String(contractEvidenceReference).trim();
+
+        // Safe conversion of identityRequirements (P1.13 & PR42 Fix 2: Submitter cannot self-attest verified=true)
+        const existingIdentity = (setting.identityRequirements && typeof setting.identityRequirements.toObject === 'function')
+            ? setting.identityRequirements.toObject()
+            : (setting.identityRequirements ? { ...setting.identityRequirements } : {});
+
+        if (identityRequirements && typeof identityRequirements === 'object') {
+            setting.identityRequirements = {
+                required: Array.isArray(identityRequirements.required) ? identityRequirements.required.map(String) : (existingIdentity.required || []),
+                optional: Array.isArray(identityRequirements.optional) ? identityRequirements.optional.map(String) : (existingIdentity.optional || []),
+                verified: false, // Strictly forced to false for submitter; caller-supplied verified is rejected/ignored
+                attestation: null
+            };
+        }
+
+        await setting.save();
+
+        await auditEvent(
+            'authority_source_approval_submitted',
+            req.user._id,
+            'authority_settings',
+            setting._id,
+            `Authority source authorization submitted for ${authorityCode} (v${setting.evidenceVersion})`,
+            {
+                authorityCode,
+                submittedBy: req.user._id,
+                approvalReference: setting.approvalReference,
+                approvalExpiryDate: setting.approvalExpiryDate,
+                evidenceVersion: setting.evidenceVersion
+            }
+        );
+
+        res.json({
+            success: true,
+            message: `Authorization evidence submitted for ${authorityCode} (v${setting.evidenceVersion}). Awaiting independent maker-checker review.`,
+            data: {
+                ...setting.toObject(),
+                activationCheck: setting.checkActivationEligibility(),
+                effectivelyActive: setting.isEffectivelyActive()
+            }
+        });
+    } catch (error) {
+        console.error('submitSourceApproval error:', error);
+        res.status(500).json({ success: false, message: 'Failed to submit source approval' });
+    }
+};
+
+/**
+ * POST /api/authority/settings/:authorityCode/review-approval
+ * Reviews and approves or rejects an authority-specific authorization record.
+ * Permission: authorityVerification admin (approvalRights.manageAuthoritySettings)
+ * Enforces strict independent maker-checker: submitter cannot self-approve.
+ */
+export const reviewSourceApproval = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { authorityCode } = req.params;
+        if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const setting = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!setting) {
+            return res.status(404).json({ success: false, message: 'Settings not found' });
+        }
+
+        const { decision, notes, expectedEvidenceVersion, identityContractAttestation } = req.body;
+        if (!['APPROVED', 'REJECTED'].includes(decision)) {
+            return res.status(400).json({ success: false, message: 'Decision must be either APPROVED or REJECTED' });
+        }
+
+        // P0.2 Close maker-checker loophole guard: Require current state permissionStatus=PENDING_REVIEW and reviewStatus=UNDER_REVIEW
+        if (setting.permissionStatus !== 'PENDING_REVIEW' || setting.reviewStatus !== 'UNDER_REVIEW') {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_APPROVAL_STATE',
+                message: `Source cannot be reviewed in current state: permissionStatus=${setting.permissionStatus}, reviewStatus=${setting.reviewStatus}. Must be PENDING_REVIEW and UNDER_REVIEW.`
+            });
+        }
+
+        const reviewerId = String(req.user._id);
+
+        if (decision === 'APPROVED') {
+            // P0.2: For APPROVED, require submittedBy to exist and be a valid authenticated user ID
+            if (!setting.submittedBy) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'SUBMITTER_REQUIRED',
+                    message: 'Cannot approve authorization: evidence has no authenticated submitter.'
+                });
+            }
+
+            const submitterId = String(setting.submittedBy);
+            // Strict independent maker-checker separation: reviewer ID != submitter ID
+            if (submitterId === reviewerId) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'MAKER_CHECKER_VIOLATION',
+                    message: 'Independent maker-checker review violation: submitter cannot self-approve source authorization.'
+                });
+            }
+        }
+
+        // PR42 Mandatory Fix 3: Evidence version is mandatory on BOTH review outcomes
+        if (expectedEvidenceVersion === undefined || expectedEvidenceVersion === null || !Number.isInteger(Number(expectedEvidenceVersion)) || Number(expectedEvidenceVersion) < 1) {
+            return res.status(422).json({
+                success: false,
+                code: 'EVIDENCE_VERSION_REQUIRED',
+                message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
+            });
+        }
+
+        const expectedVer = Number(expectedEvidenceVersion);
+        if (expectedVer !== Number(setting.evidenceVersion)) {
+            return res.status(409).json({
+                success: false,
+                code: 'STALE_EVIDENCE_VERSION',
+                message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
+            });
+        }
+
+        if (decision === 'APPROVED') {
+            // PR42 Mandatory Fix 2: Require reviewer explicit, evidence-backed identity contract attestation
+            let updateIdentityVerified = false;
+            let attestationData = null;
+            if (identityContractAttestation && typeof identityContractAttestation === 'object') {
+                const ref = String(identityContractAttestation.evidenceReference || '').trim();
+                const ver = (identityContractAttestation.evidenceVersion !== undefined && identityContractAttestation.evidenceVersion !== null)
+                    ? Number(identityContractAttestation.evidenceVersion)
+                    : null;
+                const hash = identityContractAttestation.evidenceHash ? String(identityContractAttestation.evidenceHash).trim() : null;
+                if (ref && (ver !== null || hash)) {
+                    updateIdentityVerified = true;
+                    attestationData = {
+                        evidenceReference: ref,
+                        evidenceVersion: ver,
+                        evidenceHash: hash,
+                        attestedBy: req.user._id,
+                        attestedAt: new Date()
+                    };
+                }
+            }
+
+            // Candidate evaluation before atomic update
+            const existingIdReq = (setting.identityRequirements && typeof setting.identityRequirements.toObject === 'function')
+                ? setting.identityRequirements.toObject()
+                : (setting.identityRequirements ? { ...setting.identityRequirements } : {});
+
+            const candidate = {
+                ...setting.toObject(),
+                permissionStatus: 'GRANTED',
+                reviewStatus: 'APPROVED',
+                approvedBy: req.user._id,
+                reviewedBy: req.user._id,
+                identityRequirements: {
+                    ...existingIdReq,
+                    verified: updateIdentityVerified,
+                    attestation: attestationData
+                }
+            };
+
+            const check = checkActivationEligibility(candidate);
+            if (!check.canActivate) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'APPROVAL_CRITERIA_UNMET',
+                    message: 'Cannot approve authorization: approval criteria unmet',
+                    blockers: check.blockers
+                });
+            }
+
+            // P0.2 & Fix 3: Atomic update with expectedEvidenceVersion guard
+            const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                {
+                    _id: setting._id,
+                    tenantId,
+                    permissionStatus: 'PENDING_REVIEW',
+                    reviewStatus: 'UNDER_REVIEW',
+                    evidenceVersion: expectedVer
+                },
+                {
+                    $set: {
+                        permissionStatus: 'GRANTED',
+                        reviewStatus: 'APPROVED',
+                        approvedBy: req.user._id,
+                        approvedAt: new Date(),
+                        reviewedBy: req.user._id,
+                        reviewedAt: new Date(),
+                        'identityRequirements.verified': true,
+                        'identityRequirements.attestation': attestationData
+                    }
+                },
+                { new: true }
+            );
+
+            if (!updatedSetting) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'CONCURRENT_REVIEW_CONFLICT',
+                    message: 'Source settings were modified by another transaction or already reviewed.'
+                });
+            }
+
+            await auditEvent(
+                'authority_source_approval_reviewed',
+                req.user._id,
+                'authority_settings',
+                updatedSetting._id,
+                `Authority source authorization APPROVED for ${authorityCode}`,
+                {
+                    authorityCode,
+                    decision: 'APPROVED',
+                    submittedBy: setting.submittedBy,
+                    approvedBy: req.user._id,
+                    evidenceVersion: expectedVer,
+                    identityVerified: true,
+                    identityContractAttestation: attestationData,
+                    notes: notes || null
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: `Authority authorization APPROVED for ${authorityCode}.`,
+                data: {
+                    ...updatedSetting.toObject(),
+                    activationCheck: updatedSetting.checkActivationEligibility(),
+                    effectivelyActive: updatedSetting.isEffectivelyActive()
+                }
+            });
+        } else {
+            // REJECTED: atomic update with expectedEvidenceVersion guard
+            const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                {
+                    _id: setting._id,
+                    tenantId,
+                    permissionStatus: 'PENDING_REVIEW',
+                    reviewStatus: 'UNDER_REVIEW',
+                    evidenceVersion: expectedVer
+                },
+                {
+                    $set: {
+                        permissionStatus: 'NOT_OBTAINED',
+                        reviewStatus: 'REJECTED',
+                        reviewedBy: req.user._id,
+                        reviewedAt: new Date(),
+                        reviewNotes: notes || 'Rejected by independent reviewer',
+                        isEnabled: false,
+                        schedulingEnabled: false
+                    }
+                },
+                { new: true }
+            );
+
+            if (!updatedSetting) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'CONCURRENT_REVIEW_CONFLICT',
+                    message: 'Source settings were modified by another transaction or already reviewed.'
+                });
+            }
+
+            await auditEvent(
+                'authority_source_approval_reviewed',
+                req.user._id,
+                'authority_settings',
+                updatedSetting._id,
+                `Authority source authorization REJECTED for ${authorityCode}`,
+                {
+                    authorityCode,
+                    decision: 'REJECTED',
+                    reviewedBy: req.user._id,
+                    evidenceVersion: setting.evidenceVersion,
+                    notes: notes || null
+                }
+            );
+
+            return res.json({
+                success: true,
+                message: `Authority authorization REJECTED for ${authorityCode}.`,
+                data: {
+                    ...updatedSetting.toObject(),
+                    activationCheck: updatedSetting.checkActivationEligibility(),
+                    effectivelyActive: updatedSetting.isEffectivelyActive()
+                }
+            });
+        }
+    } catch (error) {
+        console.error('reviewSourceApproval error:', error);
+        res.status(500).json({ success: false, message: 'Failed to review source approval' });
+    }
+};
+
+// ============================================================
+// CANONICAL AUTHORITY-GLOBAL QUOTA POLICY (Admin Maker-Checker)
+// ============================================================
+
+/**
+ * GET /api/authority/canonical-policy/:authorityCode
+ * Retrieves the currently active and valid authority-global canonical rate policy.
+ * Permission: authorityVerification.view
+ */
+export const getCanonicalPolicyByCode = async (req, res) => {
+    try {
+        const { authorityCode } = req.params;
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+        const policy = await getCanonicalPolicy(code);
+        if (!policy) {
+            return res.status(404).json({ success: false, message: `No active canonical policy found for ${code}` });
+        }
+        res.json({ success: true, data: policy });
+    } catch (error) {
+        console.error('getCanonicalPolicyByCode error:', error);
+        res.status(500).json({ success: false, message: 'Failed to retrieve canonical policy' });
+    }
+};
+
+/**
+ * POST /api/authority/canonical-policy/:authorityCode/rotate
+ * Privileged admin-only endpoint to register or rotate an authority-global canonical policy.
+ * Enforces independent authenticated maker-checker separation:
+ * - approver is derived directly from req.user
+ * - reviewerId is verified against active User model
+ * - reviewerId !== approverId
+ * - atomic CAS version progression
+ * - mandatory audit logging
+ * Permission: authorityVerification.edit + manageAuthoritySettings approval right
+ */
+export const rotateCanonicalPolicy = async (req, res) => {
+    try {
+        const { authorityCode } = req.params;
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const approverUser = req.user;
+        if (!approverUser || !approverUser._id) {
+            return res.status(401).json({ success: false, message: 'Authentication required' });
+        }
+
+        const { reviewerId, policy, policyVersion, expectedPreviousVersion } = req.body;
+        if (!reviewerId) {
+            return res.status(400).json({
+                success: false,
+                code: 'MISSING_REVIEWER',
+                message: 'reviewerId is required for independent maker-checker verification'
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(reviewerId)) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_REVIEWER_ID',
+                message: 'reviewerId must be a valid ObjectId'
+            });
+        }
+
+        if (String(reviewerId) === String(approverUser._id)) {
+            return res.status(422).json({
+                success: false,
+                code: 'CANONICAL_POLICY_SELF_APPROVAL',
+                message: 'Independent maker-checker separation required: reviewer and approver must be distinct individuals.'
+            });
+        }
+
+        let reviewerUser;
+        try {
+            reviewerUser = await User.findById(reviewerId).populate('role').select('_id fullName name email isActive role department permissions');
+        } catch {
+            reviewerUser = null;
+        }
+
+        if (!reviewerUser || reviewerUser.isActive === false) {
+            return res.status(400).json({
+                success: false,
+                code: 'REVIEWER_NOT_ACTIVE',
+                message: 'Reviewer user not found or inactive.'
+            });
+        }
+
+        // Validate reviewer authorization using the established canonical approval right model with fresh evaluation (Finding P1-B)
+        const isAuthorizedReviewer = await hasApprovalRight(reviewerUser, 'approveAuthorityChanges', { skipCache: true });
+        if (!isAuthorizedReviewer) {
+            return res.status(403).json({
+                success: false,
+                code: 'REVIEWER_NOT_AUTHORIZED',
+                message: 'Reviewer does not possess required approval authority (approveAuthorityChanges).'
+            });
+        }
+
+        // Validate approver authorization using the established canonical approval right model with fresh evaluation (Objective B)
+        const isAuthorizedApprover = await hasApprovalRight(approverUser, 'manageAuthoritySettings', { skipCache: true });
+        if (!isAuthorizedApprover) {
+            return res.status(403).json({
+                success: false,
+                code: 'APPROVER_NOT_AUTHORIZED',
+                message: 'Approver does not possess required authority setting management rights (manageAuthoritySettings).'
+            });
+        }
+
+        const quotaProvider = getQuotaProvider(req);
+
+        const existing = await AuthorityCanonicalPolicy.findOne({ authorityCode: code });
+        const previousDoc = existing ? existing.toObject() : null;
+        const previousVersion = existing?.version || 0;
+        const previousContentHash = existing?.contentHash || null;
+
+        const topologyType = mongoose.connection?.client?.topology?.description?.type;
+        const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+        let session = null;
+        let useTransaction = false;
+        if (supportsTransactions) {
+            try {
+                session = await mongoose.startSession();
+                if (session && typeof session.startTransaction === 'function') {
+                    session.startTransaction();
+                    useTransaction = true;
+                }
+            } catch {
+                session = null;
+                useTransaction = false;
+            }
+        }
+
+        let savedDoc;
+        try {
+            // P1-A & P2-C: Persists policy as pending and un-audited; quotaProvider is NOT passed here so Redis is untouched
+            savedDoc = await registerOrRotateCanonicalPolicy({
+                authorityCode: code,
+                policy,
+                reviewedBy: String(reviewerUser._id),
+                reviewerId: reviewerUser._id,
+                reviewerName: reviewerUser.fullName || reviewerUser.name || 'Reviewer',
+                approvedBy: String(approverUser._id),
+                approverId: approverUser._id,
+                approverName: approverUser.fullName || approverUser.name || 'Approver',
+                policyVersion,
+                expectedPreviousVersion,
+                session: useTransaction ? session : null
+            });
+        } catch (serviceErr) {
+            if (useTransaction) {
+                try { await session.abortTransaction(); await session.endSession(); } catch {}
+            }
+            return res.status(400).json({
+                success: false,
+                code: serviceErr.code || 'CANONICAL_POLICY_ERROR',
+                message: serviceErr.message
+            });
+        }
+
+        // Mandatory audit log: Must succeed, otherwise fail-closed!
+        const auditPayload = {
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: savedDoc._id,
+            userId: approverUser._id,
+            userName: approverUser.fullName || approverUser.name || 'Admin',
+            userEmail: approverUser.email || null,
+            description: `Rotated canonical policy for authority ${code} to version ${savedDoc.version}`,
+            metadata: {
+                authorityCode: code,
+                previousVersion,
+                previousContentHash,
+                newVersion: savedDoc.version,
+                newContentHash: savedDoc.contentHash,
+                policyReference: savedDoc.policyReference,
+                reviewerId: String(reviewerUser._id),
+                reviewerName: reviewerUser.fullName || reviewerUser.name || 'Reviewer',
+                approverId: String(approverUser._id),
+                approverName: approverUser.fullName || approverUser.name || 'Approver',
+                minIntervalMs: savedDoc.minIntervalMs,
+                maxRequestsPerMinute: savedDoc.maxRequestsPerMinute,
+                maxRequestsPerHour: savedDoc.maxRequestsPerHour,
+                maxRequestsPerDay: savedDoc.maxRequestsPerDay,
+                effectiveFrom: savedDoc.effectiveFrom,
+                expiresAt: savedDoc.expiresAt,
+                redisSyncStatus: savedDoc.redisSyncStatus,
+                redisSyncError: savedDoc.redisSyncError || null
+            },
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+            status: 'success'
+        };
+
+        let auditLogEntry;
+        try {
+            if (useTransaction) {
+                const logs = await AuditLog.create([auditPayload], { session });
+                auditLogEntry = logs[0];
+                const auditedDoc = await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id, session });
+                if (!auditedDoc) {
+                    throw new Error('markCanonicalPolicyAudited returned null during transaction');
+                }
+                await session.commitTransaction();
+                await session.endSession();
+                useTransaction = false;
+            } else {
+                auditLogEntry = await AuditLog.create(auditPayload);
+                const auditedDoc = await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id });
+                if (!auditedDoc) {
+                    throw new Error('markCanonicalPolicyAudited returned null in standalone mode');
+                }
+            }
+        } catch (auditErr) {
+            console.error('Failed to log audit event for canonical policy rotation:', auditErr);
+            if (useTransaction) {
+                try { await session.abortTransaction(); await session.endSession(); } catch {}
+            } else {
+                try {
+                    if (previousDoc) {
+                        delete previousDoc._id;
+                        await AuthorityCanonicalPolicy.findOneAndReplace({ authorityCode: code }, previousDoc);
+                    } else {
+                        await markCanonicalPolicyAuditFailed({ policyId: savedDoc._id });
+                    }
+                } catch {}
+            }
+            return res.status(500).json({
+                success: false,
+                code: 'AUDIT_PERSISTENCE_FAILED',
+                message: `Mandatory audit persistence failed; canonical policy was disabled: ${auditErr.message}`
+            });
+        }
+
+        // Re-read durable persisted policy from Mongo after commit/standalone activation (Objective A)
+        let confirmedPolicyDoc;
+        try {
+            confirmedPolicyDoc = await AuthorityCanonicalPolicy.findById(savedDoc._id);
+        } catch (readErr) {
+            confirmedPolicyDoc = null;
+        }
+
+        if (
+            !confirmedPolicyDoc ||
+            !confirmedPolicyDoc.isActive ||
+            !confirmedPolicyDoc.isAudited ||
+            confirmedPolicyDoc.auditStatus !== 'AUDITED' ||
+            !confirmedPolicyDoc.auditLogId ||
+            String(confirmedPolicyDoc.auditLogId) !== String(auditLogEntry?._id)
+        ) {
+            if (!useTransaction && previousDoc) {
+                try {
+                    delete previousDoc._id;
+                    await AuthorityCanonicalPolicy.findOneAndReplace({ authorityCode: code }, previousDoc);
+                } catch {}
+            } else if (!useTransaction) {
+                try {
+                    await markCanonicalPolicyAuditFailed({ policyId: savedDoc._id });
+                } catch {}
+            }
+            return res.status(500).json({
+                success: false,
+                code: 'POLICY_CONFIRMATION_FAILED',
+                message: 'Failed to verify durable audited canonical policy persistence from MongoDB before Redis publication.'
+            });
+        }
+
+        // P2-C: Publish committed and audited policy to Redis AFTER Mongo commit using ONLY the confirmed durable doc
+        if (quotaProvider) {
+            try {
+                const pubResult = await publishCanonicalPolicyToRedis({
+                    authorityCode: code,
+                    quotaProvider,
+                    policyDoc: confirmedPolicyDoc
+                });
+                confirmedPolicyDoc.redisSyncStatus = pubResult.redisSyncStatus;
+                confirmedPolicyDoc.redisSyncError = pubResult.reason || null;
+                confirmedPolicyDoc.lastSyncedAt = pubResult.policy?.lastSyncedAt || new Date();
+            } catch (pubErr) {
+                confirmedPolicyDoc.redisSyncStatus = 'FAILED';
+                confirmedPolicyDoc.redisSyncError = pubErr.message;
+            }
+        }
+
+        const statusCode = confirmedPolicyDoc.redisSyncStatus === 'FAILED' ? 202 : 200;
+        return res.status(statusCode).json({
+            success: true,
+            data: confirmedPolicyDoc,
+            redisSyncStatus: confirmedPolicyDoc.redisSyncStatus,
+            warning: confirmedPolicyDoc.redisSyncStatus === 'FAILED' ? 'Policy committed in DB but Redis sync failed and remains pending.' : null
+        });
+    } catch (error) {
+        console.error('rotateCanonicalPolicy error:', error);
+        res.status(500).json({ success: false, message: 'Failed to rotate canonical policy', error: error.message });
+    }
+};
+
+/**
+ * POST /api/authority/canonical-policy/:authorityCode/sync
+ * Reconciles and synchronizes an existing canonical policy to Redis.
+ * Permission: authorityVerification.edit + manageAuthoritySettings approval right
+ */
+export const syncCanonicalPolicy = async (req, res) => {
+    try {
+        const { authorityCode } = req.params;
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+        const quotaProvider = getQuotaProvider(req);
+        if (!quotaProvider) {
+            return res.status(503).json({ success: false, message: 'Redis quota provider unavailable' });
+        }
+
+        const policyDoc = await getCanonicalPolicy(code);
+        if (!policyDoc) {
+            return res.status(404).json({ success: false, message: `No active, valid canonical policy found for authority ${code}.` });
+        }
+
+        // P2-D: Clarified Idempotency Contract
+        // Each manual sync request can optionally carry a client-supplied operationId or Idempotency-Key.
+        // If provided and an operation with the same operationId has already completed successfully,
+        // return the existing durable result without re-executing Redis sync or duplicate audit logs.
+        // Requests without operationId are treated as distinct, independently audited attempts.
+        const operationId = req.body?.operationId || req.headers?.['idempotency-key'] || null;
+        if (operationId) {
+            const existingCompletedAudit = await AuditLog.findOne({
+                eventType: 'canonical_policy_synced',
+                targetType: 'authority_canonical_policy',
+                targetId: policyDoc._id,
+                'metadata.operationId': String(operationId),
+                'metadata.syncPhase': 'COMPLETED',
+                status: 'success'
+            });
+            if (existingCompletedAudit) {
+                return res.status(200).json({
+                    success: true,
+                    data: policyDoc,
+                    idempotent: true,
+                    operationId: String(operationId)
+                });
+            }
+        }
+
+        // P2-D Step 1: Persist durable audit intent BEFORE initiating Redis sync
+        let auditIntent;
+        try {
+            auditIntent = await AuditLog.create({
+                eventType: 'canonical_policy_synced',
+                targetType: 'authority_canonical_policy',
+                targetId: policyDoc._id,
+                userId: req.user?._id,
+                userName: req.user?.fullName || req.user?.name || 'Admin',
+                userEmail: req.user?.email || null,
+                description: `Manual sync initiated for authority ${code} to Redis (version ${policyDoc.version})`,
+                metadata: {
+                    authorityCode: code,
+                    version: policyDoc.version,
+                    contentHash: policyDoc.contentHash,
+                    redisSyncStatus: 'PENDING',
+                    syncPhase: 'INTENT',
+                    operationId: operationId ? String(operationId) : null
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent'),
+                status: 'warning'
+            });
+        } catch (intentErr) {
+            console.error('Failed to persist audit intent before canonical policy sync:', intentErr);
+            return res.status(500).json({
+                success: false,
+                code: 'AUDIT_PERSISTENCE_FAILED',
+                message: `Failed to persist mandatory audit intent before Redis sync: ${intentErr.message}`
+            });
+        }
+
+        // Objective D: If audit intent returned null, fail closed; Redis is not called
+        if (!auditIntent || !auditIntent._id) {
+            return res.status(500).json({
+                success: false,
+                code: 'AUDIT_PERSISTENCE_FAILED',
+                message: 'Failed to persist mandatory audit intent before Redis sync: AuditLog returned null.'
+            });
+        }
+
+        // P2-D Step 2: Now that audit intent is durably recorded, publish to Redis
+        let syncSuccess = false;
+        let syncError = null;
+        try {
+            await quotaProvider.setCanonicalPolicy({
+                authorityCode: code,
+                policy: {
+                    policyReference: policyDoc.policyReference,
+                    minIntervalMs: policyDoc.minIntervalMs,
+                    maxRequestsPerMinute: policyDoc.maxRequestsPerMinute,
+                    maxRequestsPerHour: policyDoc.maxRequestsPerHour,
+                    maxRequestsPerDay: policyDoc.maxRequestsPerDay,
+                    contentHash: policyDoc.contentHash
+                },
+                approvedBy: policyDoc.approvedBy,
+                policyVersion: policyDoc.version
+            });
+            syncSuccess = true;
+        } catch (err) {
+            syncSuccess = false;
+            syncError = err;
+        }
+
+        // P2-D Step 3: Update audit intent and policy record
+        if (syncSuccess) {
+            let finalizedAudit = null;
+            try {
+                finalizedAudit = await AuditLog.findByIdAndUpdate(
+                    auditIntent._id,
+                    {
+                        $set: {
+                            status: 'success',
+                            description: `Synchronized canonical policy for authority ${code} to Redis (version ${policyDoc.version})`,
+                            'metadata.redisSyncStatus': 'SYNCED',
+                            'metadata.syncPhase': 'COMPLETED',
+                            'metadata.syncedAt': new Date()
+                        }
+                    },
+                    { new: true }
+                );
+            } catch (auditUpdateErr) {
+                console.error('Failed to update audit log after Redis sync:', auditUpdateErr);
+                finalizedAudit = null;
+            }
+
+            // Objective D: If audit finalization returns null or throws, mark PENDING_RECONCILIATION and return 500
+            if (!finalizedAudit) {
+                console.error('AuditLog finalization failed or returned null after Redis sync');
+                policyDoc.redisSyncStatus = 'PENDING_RECONCILIATION';
+                policyDoc.redisSyncError = 'Redis synced but audit status finalization failed or returned null';
+                try {
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: policyDoc._id },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: policyDoc.redisSyncError
+                            }
+                        }
+                    );
+                } catch (markerErr) {
+                    console.error('Failed to write PENDING_RECONCILIATION marker to policy:', markerErr);
+                }
+                return res.status(500).json({
+                    success: false,
+                    code: 'AUDIT_FINALIZATION_FAILED',
+                    message: 'Policy synced to Redis but audit status finalization failed or returned null; policy marked PENDING_RECONCILIATION'
+                });
+            }
+
+            // Objective D: Update policy record and check matchedCount / acknowledged result
+            let policyUpdateResult = null;
+            try {
+                policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
+                    { _id: policyDoc._id },
+                    {
+                        $set: {
+                            redisSyncStatus: 'SYNCED',
+                            redisSyncError: null,
+                            lastSyncedAt: new Date()
+                        }
+                    }
+                );
+            } catch (policyErr) {
+                console.error('Policy updateOne threw error after Redis sync:', policyErr);
+                try {
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: policyDoc._id },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: `DB update threw: ${policyErr.message}`
+                            }
+                        }
+                    );
+                } catch {}
+                return res.status(500).json({
+                    success: false,
+                    code: 'POLICY_UPDATE_FAILED',
+                    message: `Policy synced to Redis but durable policy update threw: ${policyErr.message}`
+                });
+            }
+
+            if (!policyUpdateResult?.acknowledged || (policyUpdateResult.matchedCount !== undefined && policyUpdateResult.matchedCount === 0)) {
+                console.error('Policy updateOne matched 0 records or was unacknowledged:', policyUpdateResult);
+                try {
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: policyDoc._id },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: 'Policy document was not matched during sync confirmation'
+                            }
+                        }
+                    );
+                } catch {}
+                return res.status(500).json({
+                    success: false,
+                    code: 'POLICY_NOT_MATCHED',
+                    message: 'Policy synced to Redis but policy document was not matched in MongoDB for sync confirmation'
+                });
+            }
+
+            policyDoc.redisSyncStatus = 'SYNCED';
+            policyDoc.redisSyncError = null;
+            policyDoc.lastSyncedAt = new Date();
+            return res.json({ success: true, data: policyDoc });
+        } else {
+            try {
+                await AuditLog.findByIdAndUpdate(auditIntent._id, {
+                    $set: {
+                        status: 'failure',
+                        description: `Failed to synchronize canonical policy for authority ${code} to Redis: ${syncError.message}`,
+                        'metadata.redisSyncStatus': 'FAILED',
+                        'metadata.syncPhase': 'FAILED',
+                        'metadata.reason': syncError.message
+                    }
+                });
+            } catch (auditUpdateErr) {
+                console.error('Failed to update audit log after Redis sync failure:', auditUpdateErr);
+            }
+
+            policyDoc.redisSyncStatus = 'FAILED';
+            policyDoc.redisSyncError = syncError.message;
+            await AuthorityCanonicalPolicy.updateOne(
+                { _id: policyDoc._id },
+                { $set: { redisSyncStatus: 'FAILED', redisSyncError: syncError.message } }
+            );
+
+            return res.status(502).json({
+                success: false,
+                message: 'Failed to synchronize canonical policy to Redis',
+                reason: syncError.message
+            });
+        }
+    } catch (error) {
+        console.error('syncCanonicalPolicy error:', error);
+        res.status(500).json({ success: false, message: 'Failed to sync canonical policy' });
     }
 };
 
@@ -376,6 +1398,9 @@ export const createVerificationRun = async (req, res) => {
             inventoryIds: ids,
             runMode,
             isFixtureMode: Boolean(isFixtureMode)
+        }, {
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
         });
 
         if (run.status === 'POLICY_REJECTED') {
@@ -385,7 +1410,11 @@ export const createVerificationRun = async (req, res) => {
                 'authority_run',
                 run._id,
                 `Verification run POLICY_REJECTED for ${authorityCode}: source not activated`,
-                { runId: run._id, authorityCode, blockers: run.policyRejectionReasons }
+                { runId: run._id, authorityCode, blockers: run.policyRejectionReasons },
+                {
+                    ipAddress: req.ip || null,
+                    userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+                }
             );
 
             return res.status(422).json({
@@ -402,13 +1431,20 @@ export const createVerificationRun = async (req, res) => {
             'authority_run',
             run._id,
             `Verification run created for ${authorityCode} (${runMode})`,
-            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode: run.isFixtureMode }
+            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode: run.isFixtureMode },
+            {
+                ipAddress: req.ip || null,
+                userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+            }
         );
 
         if (autoProcess) {
             AuthorityBulkProcessor.processRun(run._id, {
                 tenantId,
-                isFixtureMode: Boolean(isFixtureMode)
+                isFixtureMode: Boolean(isFixtureMode),
+                userId: req.user._id,
+                ipAddress: req.ip || null,
+                userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
             }).catch(err => console.error('[AutoProcess] Run error:', err));
         }
 
@@ -496,7 +1532,9 @@ export const processVerificationRun = async (req, res) => {
             tenantId,
             batchSize: Number(batchSize) || 50,
             isFixtureMode: Boolean(run.isFixtureMode),
-            userId: req.user._id
+            userId: req.user._id,
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
         });
 
         res.json({ success: true, data: outcome });
@@ -518,7 +1556,10 @@ export const pauseVerificationRun = async (req, res) => {
 
         const { runId } = req.params;
         const { reason = 'Paused by user' } = req.body;
-        const run = await AuthorityBulkProcessor.pauseRun(runId, tenantId, req.user._id, reason);
+        const run = await AuthorityBulkProcessor.pauseRun(runId, tenantId, req.user._id, reason, {
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+        });
 
         res.json({ success: true, data: run.toSummary() });
     } catch (error) {
@@ -556,7 +1597,9 @@ export const resumeVerificationRun = async (req, res) => {
 
         const outcome = await AuthorityBulkProcessor.resumeRun(runId, tenantId, {
             isFixtureMode: Boolean(run.isFixtureMode),
-            userId: req.user._id
+            userId: req.user._id,
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
         });
 
         res.json({ success: true, data: outcome });
@@ -579,7 +1622,10 @@ export const cancelVerificationRun = async (req, res) => {
         const { runId } = req.params;
         const { reason = 'Cancelled by user' } = req.body;
 
-        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, reason);
+        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, reason, {
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+        });
 
         res.json({ success: true, data: run.toSummary() });
     } catch (error) {
@@ -770,8 +1816,28 @@ export const compensateApplySaga = async ({
         }
     }
 
-    // 2. Record durable compensation audit record (integrity over silent deletion)
-    if (compensation?.auditId) {
+    // 2. Record durable compensation audit record (R-04: crash window protection)
+    let targetAuditId = compensation?.auditId || null;
+    if (!targetAuditId && claimId) {
+        try {
+            const existingAudit = await AuditLog.findOne({
+                $or: [
+                    { 'changes.claimId': claimId.toString() },
+                    { 'changes.claimId': claimId },
+                    { 'metadata.claimId': claimId.toString() },
+                    { 'metadata.claimId': claimId }
+                ],
+                eventType: 'authority_changes_applied'
+            });
+            if (existingAudit) {
+                targetAuditId = existingAudit._id;
+            }
+        } catch (findErr) {
+            console.warn('[SagaCompensation] Error resolving auditId by claimId:', findErr.message);
+        }
+    }
+
+    if (targetAuditId) {
         try {
             await auditEvent(
                 'authority_changes_apply_compensated',
@@ -782,9 +1848,9 @@ export const compensateApplySaga = async ({
                 {
                     before: {
                         claimId: claimId ? claimId.toString() : null,
-                        originalAuditId: compensation.auditId ? compensation.auditId.toString() : null,
+                        originalAuditId: targetAuditId ? targetAuditId.toString() : null,
                         stage,
-                        revertedChanges: compensation.inventoryBefore
+                        revertedChanges: compensation?.inventoryBefore || {}
                     },
                     after: {
                         status: 'COMPENSATED',
@@ -797,20 +1863,22 @@ export const compensateApplySaga = async ({
             );
 
             // Update original audit record status to compensated
-            try {
-                await AuditLog.updateOne(
-                    { _id: compensation.auditId },
-                    {
-                        $set: {
-                            status: 'compensated',
-                            'metadata.compensated': true,
-                            'metadata.compensationClaimId': claimId ? claimId.toString() : null
-                        }
-                    },
-                    session ? { session } : {}
-                );
-            } catch (origErr) {
-                console.warn(`[SagaCompensation] Warning updating original audit ${compensation.auditId}:`, origErr);
+            if (targetAuditId) {
+                try {
+                    await AuditLog.updateOne(
+                        { _id: targetAuditId },
+                        {
+                            $set: {
+                                status: 'compensated',
+                                'metadata.compensated': true,
+                                'metadata.compensationClaimId': claimId ? claimId.toString() : null
+                            }
+                        },
+                        session ? { session } : {}
+                    );
+                } catch (origErr) {
+                    console.warn(`[SagaCompensation] Warning updating original audit ${targetAuditId}:`, origErr);
+                }
             }
         } catch (auditErr) {
             console.error(`[SagaCompensation] Error recording compensation audit for item ${itemId}:`, auditErr);
@@ -903,20 +1971,22 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
     const reconcilerClaimId = new mongoose.Types.ObjectId();
     const reconcilerExpiry = new Date(now.getTime() + 30000);
 
+    const stageBeforeRec = claim.stageBeforeReconciliation || (claim.stage !== 'RECONCILING' ? claim.stage : 'INVENTORY_MUTATING');
+
     const reservedItem = await PropertyVerificationRunItem.findOneAndUpdate(
         {
             _id: itemId,
             tenantId,
             applyState: 'APPLYING',
             'applyClaim.claimId': claim.claimId,
-            'applyClaim.leaseExpiresAt': { $lt: now },
-            'applyClaim.stage': { $ne: 'RECONCILING' }
+            'applyClaim.leaseExpiresAt': { $lt: now }
         },
         {
             $set: {
                 'applyClaim.stage': 'RECONCILING',
                 'applyClaim.reconcilerClaimId': reconcilerClaimId,
-                'applyClaim.leaseExpiresAt': reconcilerExpiry
+                'applyClaim.leaseExpiresAt': reconcilerExpiry,
+                'applyClaim.stageBeforeReconciliation': stageBeforeRec
             }
         },
         { new: true }
@@ -926,10 +1996,10 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
         return { reconciled: false, reason: 'LOCKED_BY_ANOTHER_RECONCILER_OR_INELIGIBLE' };
     }
 
-    const originalStage = claim.stage;
+    const effectiveStage = reservedItem.applyClaim?.stageBeforeReconciliation || stageBeforeRec;
     let inventoryMutated = false;
 
-    if (['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+    if (['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(effectiveStage)) {
         const inv = await Inventory.findOne({
             _id: reservedItem.inventoryId,
             tenantId,
@@ -940,13 +2010,13 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
         }
     }
 
-    if (inventoryMutated || ['INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+    if (inventoryMutated || ['INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(effectiveStage)) {
         await compensateApplySaga({
             itemId: reservedItem._id,
             tenantId,
             inventoryId: reservedItem.inventoryId,
             claimId: claim.claimId,
-            stage: originalStage,
+            stage: effectiveStage,
             compensation: claim.compensation,
             errorMsg: 'Interrupted apply saga lease expired; compensated by reconciler'
         });
@@ -961,6 +2031,7 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
                     applyState: 'FAILED',
                     'applyClaim.stage': 'COMPENSATED',
                     'applyClaim.leaseExpiresAt': null,
+                    'applyClaim.reconcilerClaimId': null,
                     applyError: 'Lease expired before mutation stage; claim released'
                 }
             }
@@ -1034,6 +2105,18 @@ export const applyApprovedChanges = async (req, res) => {
     try {
         const tenantId = getTenantId(req);
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        // Authenticated Applier Identity Required (Phase 4.4.1 - Finding F-02 Hardening)
+        // Must fail closed if req.user or req.user._id is unavailable.
+        // Never accept client-supplied reviewer or applier IDs from body, params, or headers.
+        if (!req.user || !req.user._id) {
+            return res.status(401).json({
+                success: false,
+                code: 'AUTHENTICATION_REQUIRED',
+                message: 'Authenticated applier identity (req.user._id) is required to apply approved changes'
+            });
+        }
+        const applierUserId = req.user._id.toString();
 
         const { itemId } = req.params;
 
@@ -1312,7 +2395,15 @@ export const applyApprovedChanges = async (req, res) => {
         }
 
         const activationCheck = sourceSettings.checkActivationEligibility ? sourceSettings.checkActivationEligibility() : { canActivate: true, blockers: [] };
-        const nonFieldBlockers = (activationCheck.blockers || []).filter(b => !b.includes('permitted fields'));
+        const nonFieldBlockers = (activationCheck.blockers || []).filter(b => {
+            const msg = typeof b === 'string' ? b : (b.message || b.code || '');
+            return !msg.includes('permitted fields') &&
+                !msg.includes('rate policy') &&
+                !msg.includes('concurrency') &&
+                !msg.includes('identity') &&
+                !msg.includes('contract') &&
+                !msg.includes('terms');
+        });
         if (nonFieldBlockers.length > 0) {
             return res.status(422).json({
                 success: false,
@@ -1385,7 +2476,28 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // 8. Durable Saga Compensation Snapshot & Fencing Initialization (Phase 4.2)
+        // 8. Maker-Checker Separation Gate (Phase 4.4 - Finding F-02 & Phase 4.4.1 Hardening)
+        // The reviewer who approved the changes cannot be the user applying them.
+        // Server-side identity verified strictly via authenticated req.user._id (ignoring any request payload).
+        if (!item.reviewedBy) {
+            return res.status(422).json({
+                success: false,
+                code: 'MAKER_CHECKER_VIOLATION',
+                message: 'Cannot apply changes: run item lacks a verified reviewer identity (maker-checker requirement)'
+            });
+        }
+
+        const reviewerUserId = item.reviewedBy.toString();
+
+        if (applierUserId === reviewerUserId) {
+            return res.status(403).json({
+                success: false,
+                code: 'MAKER_CHECKER_VIOLATION',
+                message: 'Maker-checker policy violation: The user who reviewed and approved these changes cannot apply them'
+            });
+        }
+
+        // 9. Durable Saga Compensation Snapshot & Fencing Initialization (Phase 4.2)
         const topologyType = mongoose.connection?.client?.topology?.description?.type;
         const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
@@ -1537,15 +2649,21 @@ export const applyApprovedChanges = async (req, res) => {
             }
             currentStage = 'INVENTORY_MUTATING';
 
-            // Stage 1b: Mutate Inventory with strict claim fencing
-            if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
-                await Inventory.updateOne(
-                    { _id: item.inventoryId, tenantId },
-                    { $set: { authorityVerification: {} } },
-                    useTransaction ? { session } : {}
-                );
-            }
+            // Ensure authorityVerification subdocument is initialized if null (R-02: conditional initialize prevents PathNotViable while avoiding race conditions)
+            await Inventory.updateOne(
+                {
+                    _id: item.inventoryId,
+                    tenantId,
+                    $or: [
+                        { authorityVerification: null },
+                        { authorityVerification: { $type: 10 } }
+                    ]
+                },
+                { $set: { authorityVerification: {} } },
+                useTransaction ? { session } : {}
+            );
 
+            // Stage 1b: Mutate Inventory with strict claim fencing (R-02: atomic conditional update prevents race conditions)
             const inventoryFilter = {
                 _id: item.inventoryId,
                 tenantId
@@ -1609,7 +2727,11 @@ export const applyApprovedChanges = async (req, res) => {
                     claimId: claimId.toString(),
                     changes: { before: previousValues, after: updateOps }
                 },
-                useTransaction ? { session } : {}
+                {
+                    ...(useTransaction ? { session } : {}),
+                    ipAddress: req.ip || null,
+                    userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+                }
             );
             recordedAuditId = auditRecord?._id || null;
 
