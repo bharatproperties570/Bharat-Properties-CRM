@@ -316,7 +316,7 @@ async function runTests() {
 
         assert.throws(() => {
             LeadTokenGenerator.generate('60c72b2f9b1d8b2bad000001');
-        }, /FATAL: JWT secret not configured/, 'Token generator must throw FATAL error when JWT_SECRET is missing');
+        }, /FATAL: JWT secret not configured/, 'Token generator must throw when JWT_SECRET is missing');
 
         process.env.JWT_SECRET = 'strong_test_secret_123';
         const validToken = LeadTokenGenerator.generate('60c72b2f9b1d8b2bad000001');
@@ -333,7 +333,9 @@ async function runTests() {
 
     record('VariableResolutionService siteVisitLink & feedbackLink fail closed when JWT_SECRET is missing', () => {
         const origJwt = process.env.JWT_SECRET;
+        const origFeedbackJwt = process.env.FEEDBACK_JWT_SECRET;
         delete process.env.JWT_SECRET;
+        delete process.env.FEEDBACK_JWT_SECRET;
 
         const mockLead = { _id: '60c72b2f9b1d8b2bad000001', name: 'Test Lead' };
         const siteVisit = VariableResolutionService.extractValue(mockLead, 'siteVisitLink');
@@ -350,6 +352,11 @@ async function runTests() {
         assert(feedbackValid.includes('https://'), 'Should produce valid URL when JWT_SECRET is set');
 
         process.env.JWT_SECRET = origJwt;
+        if (origFeedbackJwt !== undefined) {
+            process.env.FEEDBACK_JWT_SECRET = origFeedbackJwt;
+        } else {
+            delete process.env.FEEDBACK_JWT_SECRET;
+        }
     });
 
     console.log(`\n========================================`);
