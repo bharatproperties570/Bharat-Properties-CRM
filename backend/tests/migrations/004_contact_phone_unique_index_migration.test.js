@@ -5302,11 +5302,12 @@ while (true) {
         }
     });
 
-    it('121. DEF-13.1: Abandoned displaced artifact recovery when destination absent: Restores via atomic linkSync and cleans staging', () => {
+    it('121. DEF-13.1 & DEF-14.1: Abandoned displaced artifact recovery when destination absent: Restores via atomic linkSync and cleans staging', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc121-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
-        const displacedPath = `${targetPath}.displaced.999991.${Date.now()}.${crypto.randomUUID()}`;
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const displacedPath = `${targetPath}.displaced.999991.1000.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
 
         const displacedData = { token: 'displaced-tok-121', pid: 999991, hostname: os.hostname() };
         fs.writeFileSync(displacedPath, JSON.stringify(displacedData), { mode: 0o600 });
@@ -5329,11 +5330,12 @@ while (true) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('122. DEF-13.1 & DEF-13.2: Displaced conflict reconciliation: Preserves both displaced and destination artifacts when content differs', () => {
+    it('122. DEF-13.1 & DEF-14.1: Displaced conflict reconciliation: Preserves both displaced and destination artifacts when content differs', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc122-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
-        const displacedPath = `${targetPath}.displaced.999992.${Date.now()}.${crypto.randomUUID()}`;
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const displacedPath = `${targetPath}.displaced.999992.1000.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
 
         const displacedData = { token: 'displaced-tok-122', pid: 999992, hostname: os.hostname() };
         fs.writeFileSync(displacedPath, JSON.stringify(displacedData), { mode: 0o600 });
@@ -5356,11 +5358,12 @@ while (true) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('123. DEF-13.1 & DEF-13.2: Redundant displaced artifact cleanup: Unlinks redundant displaced copy when destination is identical', () => {
+    it('123. DEF-13.1 & DEF-14.1: Redundant displaced artifact cleanup: Unlinks redundant displaced copy when destination is identical', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc123-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
-        const displacedPath = `${targetPath}.displaced.999993.${Date.now()}.${crypto.randomUUID()}`;
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const displacedPath = `${targetPath}.displaced.999993.1000.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
 
         const data = { token: 'identical-tok-123', pid: 999993, hostname: os.hostname() };
         fs.writeFileSync(targetPath, JSON.stringify(data), { mode: 0o600 });
@@ -5377,14 +5380,16 @@ while (true) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('124. DEF-13.1: Live displaced owner preservation: Displaced artifact from live process is NEVER touched or deleted', () => {
+    it('124. DEF-13.1 & DEF-14.1: Live displaced owner preservation: Displaced artifact from live process is NEVER touched or deleted', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc124-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
-        const displacedPath = `${targetPath}.displaced.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
-
         const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
-        const liveData = { token: 'live-tok-124', pid: process.pid, processStartTime: ledger._getProcessStartTime(), hostname: os.hostname() };
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const liveStartTime = ledger._getProcessStartTime();
+        const displacedPath = `${targetPath}.displaced.${process.pid}.${liveStartTime}.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+
+        const liveData = { token: 'live-tok-124', pid: process.pid, processStartTime: liveStartTime, hostname: os.hostname() };
         fs.writeFileSync(displacedPath, JSON.stringify(liveData), { mode: 0o600 });
 
         const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
@@ -5397,11 +5402,12 @@ while (true) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('125. DEF-13.1: Remote host and malformed displaced files fail closed without unauthorized cleanup', () => {
+    it('125. DEF-13.1 & DEF-14.1: Remote host and malformed displaced files fail closed without unauthorized cleanup', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc125-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
-        const remoteDisplacedPath = `${targetPath}.displaced.12345.${Date.now()}.${crypto.randomUUID()}`;
+        const remoteHex = Buffer.from('remote-host.internal', 'utf8').toString('hex');
+        const remoteDisplacedPath = `${targetPath}.displaced.12345.1000.${remoteHex}.${Date.now()}.${crypto.randomUUID()}`;
 
         // Remote host
         const remoteData = { token: 'remote-tok-125', pid: 12345, hostname: 'remote-host.internal' };
@@ -5414,7 +5420,174 @@ while (true) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('126. DEF-13.3: Directory fsync propagation: False directory-sync on POSIX throws SECURITY FATAL when requireDirectorySync is true', () => {
+    it('125a. DEF-14.1: Process Identity Binding — Matching PID and processStartTime of live process blocks recovery', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125a-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const liveStartTime = ledger._getProcessStartTime();
+        const displacedPath = `${targetPath}.displaced.${process.pid}.${liveStartTime}.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+
+        const data = { token: 'live-ident-125a', pid: process.pid, processStartTime: liveStartTime, hostname: os.hostname() };
+        fs.writeFileSync(displacedPath, JSON.stringify(data), { mode: 0o600 });
+
+        assert.equal(ledger._hasActiveInFlightRecovery(), true, 'Live process must keep in-flight recovery active');
+        const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(result.resolved, false, 'Recovery must not resolve while displacing owner is alive');
+        assert.equal(result.activeConflicts, 1, 'Live owner must be counted as active conflict');
+        assert.ok(fs.existsSync(displacedPath), 'Displaced artifact must remain untouched');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('125b. DEF-14.1: Process Identity Binding — PID reuse with different processStartTime detects dead owner and recovers', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125b-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        // Use current PID but a mismatched start time simulating PID reuse
+        const reusedPid = process.pid;
+        const oldStartTime = ledger._getProcessStartTime() + 500000;
+        const displacedPath = `${targetPath}.displaced.${reusedPid}.${oldStartTime}.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+
+        const data = { token: 'reused-tok-125b', pid: reusedPid, processStartTime: oldStartTime, hostname: os.hostname() };
+        fs.writeFileSync(displacedPath, JSON.stringify(data), { mode: 0o600 });
+
+        const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(result.restored, 1, 'Mismatched start-time detects dead process and restores coordinator');
+        assert.equal(result.resolved, true, 'Recovery must resolve');
+        assert.ok(fs.existsSync(targetPath), 'Target coordinator must be restored');
+        assert.ok(!fs.existsSync(displacedPath), 'Staging file must be cleaned');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('125c. DEF-14.1: Process Identity Binding — Displacing PID/startTime verified independently of displaced file previous owner', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125c-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const liveStartTime = ledger._getProcessStartTime();
+        // Filename encodes displacing process (current live process)
+        const displacedPath = `${targetPath}.displaced.${process.pid}.${liveStartTime}.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+
+        // Content belongs to previous coordinator owner (which has a dead PID)
+        const previousOwnerData = { token: 'prev-owner-125c', pid: 999995, processStartTime: 1000, hostname: os.hostname() };
+        fs.writeFileSync(displacedPath, JSON.stringify(previousOwnerData), { mode: 0o600 });
+
+        // Since the displacing process is alive, recovery MUST remain blocked, regardless of the content PID!
+        assert.equal(ledger._hasActiveInFlightRecovery(), true, 'Live displacing process must block recovery even if previous owner is dead');
+        const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(result.resolved, false, 'Recovery must not touch artifact while displacing process is alive');
+        assert.ok(fs.existsSync(displacedPath), 'Displaced file must be preserved');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('125d. DEF-14.1: Process Identity Binding — Missing, non-numeric, or zero processStartTime in filename fails closed', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125d-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+
+        // Zero processStartTime in filename
+        const zeroTimePath = `${targetPath}.displaced.999996.0.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+        fs.writeFileSync(zeroTimePath, JSON.stringify({ token: 'zero-time' }), { mode: 0o600 });
+
+        // Legacy format without processStartTime
+        const legacyPath = `${targetPath}.displaced.999996.${Date.now()}.${crypto.randomUUID()}`;
+        fs.writeFileSync(legacyPath, JSON.stringify({ token: 'legacy-fmt' }), { mode: 0o600 });
+
+        const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(result.resolved, false, 'Missing or unprovable identity must fail closed');
+        assert.equal(result.activeConflicts, 2, 'Both unverified files must count as active conflicts');
+        assert.ok(fs.existsSync(zeroTimePath), 'Zero-time file must remain untouched');
+        assert.ok(fs.existsSync(legacyPath), 'Legacy unverified file must remain untouched');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('125e. DEF-14.1: Process Identity Binding — Cross-host ownership in filename or metadata fails closed', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125e-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+
+        // Cross-host in filename
+        const remoteHex = Buffer.from('different-cluster-host-99', 'utf8').toString('hex');
+        const remoteNamePath = `${targetPath}.displaced.999997.1000.${remoteHex}.${Date.now()}.${crypto.randomUUID()}`;
+        fs.writeFileSync(remoteNamePath, JSON.stringify({ token: 'tok-remote-file', hostname: os.hostname() }), { mode: 0o600 });
+
+        // Cross-host in metadata content
+        const localHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const remoteDataPath = `${targetPath}.displaced.999997.1000.${localHex}.${Date.now()}.${crypto.randomUUID()}`;
+        fs.writeFileSync(remoteDataPath, JSON.stringify({ token: 'tok-remote-data', hostname: 'remote-data-host' }), { mode: 0o600 });
+
+        const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(result.resolved, false, 'Cross-host displaced artifacts must fail closed');
+        assert.equal(result.activeConflicts, 2, 'Both cross-host artifacts must count as active conflicts');
+        assert.ok(fs.existsSync(remoteNamePath), 'Cross-host filename artifact must be preserved');
+        assert.ok(fs.existsSync(remoteDataPath), 'Cross-host data artifact must be preserved');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('125f. DEF-14.1: Process Identity Binding — Permission-denied (EPERM) process inspection fails closed', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125f-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const displacedPath = `${targetPath}.displaced.999998.1000.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+        fs.writeFileSync(displacedPath, JSON.stringify({ token: 'eperm-tok', pid: 999998, hostname: os.hostname() }), { mode: 0o600 });
+
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const origKill = process.kill;
+        try {
+            process.kill = function (pid, sig) {
+                if (pid === 999998 && sig === 0) {
+                    const err = new Error('operation not permitted');
+                    err.code = 'EPERM';
+                    throw err;
+                }
+                return origKill.apply(this, arguments);
+            };
+
+            assert.equal(ledger._hasActiveInFlightRecovery(), true, 'EPERM on process inspection must fail closed');
+            const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+            assert.equal(result.resolved, false, 'Recovery must fail closed on EPERM');
+            assert.equal(result.activeConflicts, 1, 'EPERM must count as active conflict');
+            assert.ok(fs.existsSync(displacedPath), 'Artifact must be preserved on disk');
+        } finally {
+            process.kill = origKill;
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    it('125g. DEF-14.1: Process Identity Binding — Malformed displaced metadata fails closed and is preserved on disk', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-sc125g-'));
+        const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const targetPath = path.join(tempDir, 'coordinator.json');
+        const hostHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+        const displacedPath = `${targetPath}.displaced.999999.1000.${hostHex}.${Date.now()}.${crypto.randomUUID()}`;
+
+        // Write corrupt JSON
+        fs.writeFileSync(displacedPath, '{"token": "corrupt-json-truncated...', { mode: 0o600 });
+
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        assert.equal(ledger._hasActiveInFlightRecovery(), true, 'Malformed metadata must fail closed');
+        const result = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(result.resolved, false, 'Recovery must fail closed on malformed metadata');
+        assert.equal(result.activeConflicts, 1, 'Malformed metadata must count as active conflict');
+        assert.ok(fs.existsSync(displacedPath), 'Malformed file must be preserved on disk for forensic analysis');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('126. DEF-13.3 & DEF-14.4: Directory fsync propagation: False directory-sync on POSIX throws SECURITY FATAL when requireDirectorySync is true', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc126-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'meta.json');
@@ -5436,7 +5609,7 @@ while (true) {
                 () => ledger._writeDurableMetadata(targetPath, { token: 'sync-fail' }, { mode: 'create', requireDirectorySync: true }),
                 (err) => {
                     assert.match(err.message, /\[MIGRATION-004\] SECURITY FATAL/);
-                    assert.match(err.message, /Required directory fsync failed on POSIX platform/);
+                    assert.match(err.message, /Strict directory durability required but directory fsync is unsupported on this filesystem driver/);
                     return true;
                 }
             );
@@ -5446,7 +5619,7 @@ while (true) {
         }
     });
 
-    it('127. DEF-13.3: Directory fsync status propagation: Returns explicit durability status without throwing when directory fsync is not required', () => {
+    it('127. DEF-13.3 & DEF-14.4: Directory fsync status propagation: Returns explicit durability status without throwing when directory fsync is not required', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-sc127-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'meta.json');
@@ -5474,8 +5647,8 @@ while (true) {
         }
     });
 
-    it('128. DEF-13.4: Genuine Crash-Boundary A — Crash immediately after displacement (before verification)', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashA-'));
+    it('128. DEF-14.2: Genuine Crash-Boundary A — Crash immediately after displacement (before verification)', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashA-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbA.json');
@@ -5519,6 +5692,7 @@ try {
 
         const child = spawn('node', [childFile, ledgerPath, targetPath, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
         while (!fs.existsSync(readyFile)) {
+            if (child.exitCode !== null) throw new Error(`Child exited prematurely with code ${child.exitCode}`);
             await new Promise(r => setTimeout(r, 10));
         }
 
@@ -5540,14 +5714,15 @@ try {
 
         const restoredStat = fs.statSync(targetPath);
         assert.equal(restoredStat.ino, initStat.ino, 'Restored coordinator must preserve exact original inode');
+        assert.equal(restoredStat.dev, initStat.dev, 'Restored coordinator must preserve exact original device ID');
         const restoredContent = fs.readFileSync(targetPath, 'utf8');
         assert.deepEqual(JSON.parse(restoredContent), initialData, 'Restored coordinator must preserve original content');
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('129. DEF-13.4: Genuine Crash-Boundary B — Crash after displacement and before ownership verification', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashB-'));
+    it('129. DEF-14.2: Genuine Crash-Boundary B — Crash after displacement and before ownership verification', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashB-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbB.json');
@@ -5590,6 +5765,7 @@ try {
 
         const child = spawn('node', [childFile, ledgerPath, targetPath, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
         while (!fs.existsSync(readyFile)) {
+            if (child.exitCode !== null) throw new Error(`Child exited prematurely with code ${child.exitCode}`);
             await new Promise(r => setTimeout(r, 10));
         }
 
@@ -5605,12 +5781,13 @@ try {
 
         const restoredStat = fs.statSync(targetPath);
         assert.equal(restoredStat.ino, initStat.ino, 'Inode must match');
+        assert.equal(restoredStat.dev, initStat.dev, 'Device ID must match');
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('130. DEF-13.4: Genuine Crash-Boundary C — Crash after ownership verification but before publication', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashC-'));
+    it('130. DEF-14.2: Genuine Crash-Boundary C — Crash after ownership verification but before publication', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashC-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbC.json');
@@ -5618,6 +5795,7 @@ try {
 
         const initialData = { token: 'child-tok-130', pid: 10003, hostname: os.hostname() };
         fs.writeFileSync(targetPath, JSON.stringify(initialData), { mode: 0o600 });
+        const initStat = fs.statSync(targetPath);
 
         const childScript = `
 import fs from 'fs';
@@ -5652,6 +5830,7 @@ try {
 
         const child = spawn('node', [childFile, ledgerPath, targetPath, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
         while (!fs.existsSync(readyFile)) {
+            if (child.exitCode !== null) throw new Error(`Child exited prematurely with code ${child.exitCode}`);
             await new Promise(r => setTimeout(r, 10));
         }
 
@@ -5664,14 +5843,16 @@ try {
         assert.equal(recResult.restored, 1, 'Displaced coordinator must be restored');
         assert.ok(fs.existsSync(targetPath), 'Target coordinator must exist');
 
+        const restoredStat = fs.statSync(targetPath);
+        assert.equal(restoredStat.ino, initStat.ino, 'Inode must match original');
         const content = fs.readFileSync(targetPath, 'utf8');
         assert.equal(JSON.parse(content).token, 'child-tok-130', 'Original token must be intact');
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('131. DEF-13.4: Genuine Crash-Boundary D — Crash after competing coordinator creation (Conflict Fail-Closed)', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashD-'));
+    it('131. DEF-14.2: Genuine Crash-Boundary D — Crash after competing coordinator creation (Conflict Fail-Closed)', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashD-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbD.json');
@@ -5713,6 +5894,7 @@ try {
 
         const child = spawn('node', [childFile, ledgerPath, targetPath, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
         while (!fs.existsSync(readyFile)) {
+            if (child.exitCode !== null) throw new Error(`Child exited prematurely with code ${child.exitCode}`);
             await new Promise(r => setTimeout(r, 10));
         }
 
@@ -5743,8 +5925,8 @@ try {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('132. DEF-13.4: Genuine Crash-Boundary E — Crash after hard-link publication but before displaced artifact cleanup', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashE-'));
+    it('132. DEF-14.2: Genuine Crash-Boundary E — Crash after hard-link publication but before displaced artifact cleanup', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashE-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbE.json');
@@ -5786,6 +5968,7 @@ try {
 
         const child = spawn('node', [childFile, ledgerPath, targetPath, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
         while (!fs.existsSync(readyFile)) {
+            if (child.exitCode !== null) throw new Error(`Child exited prematurely with code ${child.exitCode}`);
             await new Promise(r => setTimeout(r, 10));
         }
 
@@ -5796,21 +5979,26 @@ try {
         child.kill('SIGKILL');
         await new Promise((resolve) => child.on('exit', resolve));
 
-        // Independent worker inspects
+        // Independent worker inspects and cleans redundant staging file
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const recResult = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(recResult.cleaned, 1, 'Redundant displaced artifact must be cleaned after identity proof');
+        assert.ok(!fs.existsSync(readyInfo.stagingPath), 'Staging file must be unlinked');
+        assert.ok(fs.existsSync(targetPath), 'Canonical published coordinator must be preserved');
+
         const content = fs.readFileSync(targetPath, 'utf8');
         assert.equal(JSON.parse(content).token, 'updated-132-new', 'Published new coordinator must be preserved');
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('133. DEF-13.4: Genuine Crash-Boundary F — Crash during restoration after EEXIST conflict', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashF-'));
+    it('133. DEF-14.2: Genuine Crash-Boundary F — Crash during restoration after EEXIST conflict', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashF-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbF.json');
         const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
 
-        // Initial file
         const initialData = { token: 'child-tok-133', pid: 10006, hostname: os.hostname() };
         fs.writeFileSync(targetPath, JSON.stringify(initialData), { mode: 0o600 });
 
@@ -5847,7 +6035,6 @@ try {
         fs.writeFileSync(childFile, childScript, { mode: 0o700 });
 
         const child = spawn('node', [childFile, ledgerPath, targetPath, readyFile], { stdio: ['ignore', 'inherit', 'inherit'] });
-
         while (!fs.existsSync(readyFile)) {
             if (child.exitCode !== null) {
                 const errDetail = fs.existsSync(readyFile + '.err') ? fs.readFileSync(readyFile + '.err', 'utf8') : '';
@@ -5870,8 +6057,8 @@ try {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('134. DEF-13.4: Genuine Crash-Boundary G — Crash during directory fsync or immediately after it', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashG-'));
+    it('134. DEF-14.2: Genuine Crash-Boundary G — Crash during directory fsync, with hook execution and platform matrix', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashG-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbG.json');
@@ -5898,8 +6085,12 @@ try {
         expectedToken: 'child-tok-134',
         expectedIno: stat.ino,
         expectedDev: stat.dev,
-        __testHookAfterFsync: (durabilityStatus) => {
-            fs.writeFileSync(readyFile, JSON.stringify({ pid: process.pid, durabilityStatus }));
+        __testHookDuringFsync: (dirFd, dirPath) => {
+            fs.writeFileSync(readyFile, JSON.stringify({
+                pid: process.pid,
+                dirFdValid: (typeof dirFd === 'number' && dirFd > 0),
+                dirPath
+            }));
             while (true) {
                 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
             }
@@ -5923,22 +6114,54 @@ try {
         }
 
         const readyInfo = JSON.parse(fs.readFileSync(readyFile, 'utf8'));
-        if (process.platform !== 'win32') {
-            assert.equal(readyInfo.durabilityStatus, 'DURABLE_POSIX');
-        }
+        assert.equal(readyInfo.dirFdValid, true, 'dirFd must be a valid open file descriptor during hook execution');
+        assert.equal(readyInfo.dirPath, tempDir, 'dirPath must match target directory');
 
         child.kill('SIGKILL');
         await new Promise((resolve) => child.on('exit', resolve));
 
-        assert.ok(fs.existsSync(targetPath), 'Target path must exist');
-        const content = fs.readFileSync(targetPath, 'utf8');
-        assert.equal(JSON.parse(content).token, 'updated-134', 'Content must be updated version');
+        // Independent worker inspects and reconciles
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.ok(fs.existsSync(targetPath), 'Target coordinator must exist');
+
+        // Platform Durability Matrix Assertions (DEF-14.2 & DEF-14.4)
+        // 1. POSIX normal execution
+        if (process.platform !== 'win32') {
+            const posixStatus = ledger._fsyncDirectory(tempDir, { requireDirectorySync: false });
+            assert.equal(posixStatus, true, 'POSIX directory fsync must return true when supported');
+        }
+
+        // 2. Unsupported driver failure on POSIX with strict requirement
+        const origFsync = fs.fsyncSync;
+        try {
+            fs.fsyncSync = function (fd) {
+                const stat = fs.fstatSync(fd);
+                if (stat.isDirectory()) {
+                    const err = new Error('Driver limitation: directory fsync unsupported');
+                    err.code = 'EINVAL';
+                    throw err;
+                }
+                return origFsync.apply(this, arguments);
+            };
+
+            assert.throws(
+                () => ledger._fsyncDirectory(tempDir, { requireDirectorySync: true }),
+                (err) => {
+                    assert.match(err.message, /\[MIGRATION-004\] SECURITY FATAL/);
+                    assert.match(err.message, /Strict directory durability required but directory fsync is unsupported on this filesystem driver/);
+                    return true;
+                }
+            );
+        } finally {
+            fs.fsyncSync = origFsync;
+        }
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('135. DEF-13.4: Genuine Crash-Boundary H — Crash during displaced artifact cleanup', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-crashH-'));
+    it('135. DEF-14.2: Genuine Crash-Boundary H — Crash during displaced artifact cleanup', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-crashH-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
         const targetPath = path.join(tempDir, 'coordinator.json');
         const readyFile = path.join(tempDir, 'ready_cbH.json');
@@ -5995,66 +6218,192 @@ try {
         child.kill('SIGKILL');
         await new Promise((resolve) => child.on('exit', resolve));
 
-        assert.ok(fs.existsSync(targetPath), 'Target path must have newly published file');
+        // Independent worker reconciles abandoned staging artifact
+        const ledger = new DurableApprovalLedger(ledgerPath, { initGracePeriodMs: 0 });
+        const recResult = ledger.recoverAbandonedDisplacedArtifacts(tempDir);
+        assert.equal(recResult.cleaned, 1, 'Redundant displaced artifact must be cleaned after identity proof');
+        assert.ok(!fs.existsSync(readyInfo.stagingPath), 'Staging file must be unlinked');
+        assert.ok(fs.existsSync(targetPath), 'Target path must retain newly published file');
         const content = fs.readFileSync(targetPath, 'utf8');
-        assert.equal(JSON.parse(content).token, 'updated-135');
+        assert.equal(JSON.parse(content).token, 'updated-135', 'Target content must match updated version');
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    it('136. DEF-13.5: Multi-Process Adversarial Stress Test — Concurrent workers with mid-execution SIGKILL crash recovery', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def13-stress-'));
+    it('136. DEF-14.3: Real Multi-Worker Adversarial Stress Test — Deterministic barriers, confirmed lock-holder SIGKILL, and audit log analysis', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'def14-stress-'));
         const ledgerPath = path.join(tempDir, 'ledger.jsonl');
+        const auditLogPath = path.join(tempDir, 'stress_audit.jsonl');
+        const barrier0Path = path.join(tempDir, 'barrier_worker0.json');
+        const barrier1Path = path.join(tempDir, 'barrier_worker1.json');
         const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
 
         const workerScript = `
 import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { DurableApprovalLedger } from '${targetModule}';
 
 const ledgerPath = process.argv[2];
 const workerId = process.argv[3];
-const ledger = new DurableApprovalLedger(ledgerPath, { lockTimeoutMs: 2000, retryIntervalMs: 20 });
+const auditPath = process.argv[4];
+const barrier0 = process.argv[5];
+const barrier1 = process.argv[6];
 
-let attempts = 0;
-while (attempts < 5) {
-    attempts++;
-    try {
-        const token = ledger._acquireLock();
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-        ledger._releaseLock(token);
-        break;
-    } catch (e) {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    }
+const ledger = new DurableApprovalLedger(ledgerPath, { lockTimeoutMs: 1500, retryIntervalMs: 20, initGracePeriodMs: 0 });
+
+function logAudit(action, extra = {}) {
+    const entry = JSON.stringify({ workerId, pid: process.pid, action, time: Date.now(), ...extra }) + String.fromCharCode(10);
+    fs.appendFileSync(auditPath, entry);
 }
-process.exit(0);
+
+if (workerId === 'worker-0') {
+    // Schedule 1: Acquire lock, write barrier confirming PID, hold until SIGKILL
+    const token = ledger._acquireLock();
+    logAudit('ENTER', { token });
+    fs.writeFileSync(barrier0, JSON.stringify({ pid: process.pid, workerId, token }));
+    while (true) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    }
+} else if (workerId === 'worker-1') {
+    // Schedule 2: Compete for lock, start displaced metadata update, write barrier at displacement, hold until SIGKILL
+    let token = null;
+    while (!token) {
+        try {
+            token = ledger._acquireLock();
+        } catch (_) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        }
+    }
+    logAudit('ENTER', { token });
+    const metaPath = path.join(path.dirname(ledgerPath), 'shared_meta.json');
+    fs.writeFileSync(metaPath, JSON.stringify({ token: 'init-meta', pid: process.pid, hostname: os.hostname() }), { mode: 0o600 });
+    const stat = fs.statSync(metaPath);
+    try {
+        ledger._writeDurableMetadata(metaPath, { token: 'worker-1-displaced' }, {
+            mode: 'update',
+            expectedToken: 'init-meta',
+            expectedIno: stat.ino,
+            expectedDev: stat.dev,
+            __testHookAfterDisplace: (stagingPath) => {
+                fs.writeFileSync(barrier1, JSON.stringify({ pid: process.pid, workerId, stagingPath }));
+                while (true) {
+                    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+                }
+            }
+        });
+    } catch (_) {
+        process.exit(1);
+    }
+} else {
+    // Workers 2 and 3: Contend, recover dead locks and displaced artifacts, perform durable operations, release cleanly
+    let completed = false;
+    let attempts = 0;
+    while (!completed && attempts < 50) {
+        attempts++;
+        try {
+            const token = ledger._acquireLock();
+            logAudit('ENTER', { token });
+            // Simulate critical section work
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30);
+            ledger._releaseLock(token);
+            logAudit('EXIT', { token });
+            completed = true;
+            break;
+        } catch (_) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30);
+        }
+    }
+    process.exit(completed ? 0 : 1);
+}
 `;
-        const workerFile = path.join(tempDir, 'worker136.mjs');
+        const workerFile = path.join(tempDir, 'worker_stress.mjs');
         fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
 
-        const workers = [];
-        for (let i = 0; i < 4; i++) {
-            const child = spawn('node', [workerFile, ledgerPath, `worker-${i}`], { stdio: ['ignore', 'inherit', 'inherit'] });
-            workers.push(child);
+        // Phase 1: Launch Worker 0 (Schedule 1: Lock-holder SIGKILL)
+        const child0 = spawn('node', [workerFile, ledgerPath, 'worker-0', auditLogPath, barrier0Path, barrier1Path], { stdio: ['ignore', 'inherit', 'inherit'] });
+        while (!fs.existsSync(barrier0Path)) {
+            if (child0.exitCode !== null) throw new Error(`Worker 0 exited prematurely with code ${child0.exitCode}`);
+            await new Promise(r => setTimeout(r, 10));
         }
 
-        // Kill worker 0 midway with SIGKILL
-        await new Promise(r => setTimeout(r, 60));
-        try {
-            workers[0].kill('SIGKILL');
-        } catch (_) {}
+        // Deterministic assertion: Prove Worker 0 is the confirmed lock holder on disk before killing
+        const b0 = JSON.parse(fs.readFileSync(barrier0Path, 'utf8'));
+        const lockPath = `${ledgerPath}.lock`;
+        assert.ok(fs.existsSync(lockPath), 'Lockfile must exist on disk');
+        const lockOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        assert.equal(lockOnDisk.pid, b0.pid, 'Lockfile PID on disk must match Worker 0 PID');
 
-        // Wait for all workers to finish
-        await Promise.all(workers.map(w => new Promise(resolve => w.on('exit', resolve))));
+        // Kill Worker 0 mid-hold
+        child0.kill('SIGKILL');
+        await new Promise(resolve => child0.on('exit', resolve));
 
-        // Subsequent worker must cleanly acquire and release lock
-        const ledger = new DurableApprovalLedger(ledgerPath, { lockTimeoutMs: 2000, retryIntervalMs: 20, initGracePeriodMs: 0 });
-        let acquiredToken = null;
-        assert.doesNotThrow(() => {
-            acquiredToken = ledger._acquireLock();
-            ledger._releaseLock(acquiredToken);
-        }, 'Subsequent worker must cleanly acquire and release lock after multi-worker contention and crash');
-        assert.ok(acquiredToken, 'Acquired token must be valid');
+        // Phase 2: Launch Worker 1 (Schedule 2: Displaced metadata update SIGKILL)
+        const child1 = spawn('node', [workerFile, ledgerPath, 'worker-1', auditLogPath, barrier0Path, barrier1Path], { stdio: ['ignore', 'inherit', 'inherit'] });
+        while (!fs.existsSync(barrier1Path)) {
+            if (child1.exitCode !== null) throw new Error(`Worker 1 exited prematurely with code ${child1.exitCode}`);
+            await new Promise(r => setTimeout(r, 10));
+        }
+
+        // Deterministic assertion: Prove displaced staging file exists on disk before killing
+        const b1 = JSON.parse(fs.readFileSync(barrier1Path, 'utf8'));
+        assert.ok(fs.existsSync(b1.stagingPath), 'Displaced staging file must exist on disk before Worker 1 crash');
+
+        // Kill Worker 1 mid-displacement
+        child1.kill('SIGKILL');
+        await new Promise(resolve => child1.on('exit', resolve));
+
+        // Phase 3: Launch Workers 2 and 3 concurrently to contend and recover
+        const child2 = spawn('node', [workerFile, ledgerPath, 'worker-2', auditLogPath, barrier0Path, barrier1Path], { stdio: ['ignore', 'inherit', 'inherit'] });
+        const child3 = spawn('node', [workerFile, ledgerPath, 'worker-3', auditLogPath, barrier0Path, barrier1Path], { stdio: ['ignore', 'inherit', 'inherit'] });
+
+        const [code2, code3] = await Promise.all([
+            new Promise(resolve => child2.on('exit', resolve)),
+            new Promise(resolve => child3.on('exit', resolve))
+        ]);
+
+        assert.equal(code2, 0, 'Worker 2 must complete successfully');
+        assert.equal(code3, 0, 'Worker 3 must complete successfully');
+
+        // Phase 4: Forensic Audit of stress_audit.jsonl
+        assert.ok(fs.existsSync(auditLogPath), 'Audit log must exist');
+        const auditLines = fs.readFileSync(auditLogPath, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+        // Check 1: Workers 2 and 3 must have matched ENTER and EXIT
+        const w2Enters = auditLines.filter(l => l.workerId === 'worker-2' && l.action === 'ENTER');
+        const w2Exits = auditLines.filter(l => l.workerId === 'worker-2' && l.action === 'EXIT');
+        const w3Enters = auditLines.filter(l => l.workerId === 'worker-3' && l.action === 'ENTER');
+        const w3Exits = auditLines.filter(l => l.workerId === 'worker-3' && l.action === 'EXIT');
+        assert.equal(w2Enters.length, 1, 'Worker 2 must have exactly 1 ENTER');
+        assert.equal(w2Exits.length, 1, 'Worker 2 must have exactly 1 EXIT');
+        assert.equal(w3Enters.length, 1, 'Worker 3 must have exactly 1 ENTER');
+        assert.equal(w3Exits.length, 1, 'Worker 3 must have exactly 1 EXIT');
+
+        // Check 2: Zero overlapping critical sections between any living workers
+        let activeHolder = null;
+        for (const record of auditLines) {
+            if (record.action === 'ENTER') {
+                if (record.workerId === 'worker-0' || record.workerId === 'worker-1') {
+                    // Crashed workers held lock at crash time
+                    activeHolder = record.workerId;
+                } else {
+                    // For living workers (worker-2, worker-3), no other worker can be holding the lock!
+                    // If previous was worker-0 or worker-1, they were SIGKILLed and their lock was recovered.
+                    activeHolder = record.workerId;
+                }
+            } else if (record.action === 'EXIT') {
+                assert.equal(activeHolder, record.workerId, 'EXIT must match current active lock holder');
+                activeHolder = null;
+            }
+        }
+        assert.equal(activeHolder, null, 'No lock holder can remain active after test completion');
+
+        // Check 3: Subsequent worker cleanly acquires and releases lock
+        const finalLedger = new DurableApprovalLedger(ledgerPath, { lockTimeoutMs: 1500, retryIntervalMs: 20, initGracePeriodMs: 0 });
+        const finalToken = finalLedger._acquireLock();
+        assert.ok(finalToken, 'Subsequent worker must acquire valid lock token');
+        finalLedger._releaseLock(finalToken);
+        assert.ok(!fs.existsSync(lockPath), 'Lockfile must be cleanly released');
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });

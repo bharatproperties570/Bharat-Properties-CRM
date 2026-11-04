@@ -509,3 +509,58 @@ Verified under concurrent contention across 4 independent worker processes with 
 - Exactly one worker holds the lock at any time.
 - Abandoned locks and displaced coordinators are recovered cleanly by subsequent workers.
 - Zero lost coordinators, zero orphaned unmanaged locks, zero split-brain states.
+
+---
+
+## 9. DEF-14 Process Identity Binding, Strict Durability Enforcement & Adversarial Verification
+
+### 9.1 Process Identity Binding Invariant (DEF-14.1)
+The critical identity invariant enforced across Migration 004 is:
+> **The PID and `processStartTime` used for liveness verification MUST belong to the displacing process that created the displaced artifact.**
+
+Under DEF-14.1, temporary staging filenames are structured as a 6-segment strictly-bound naming convention:
+```
+${filePath}.displaced.${process.pid}.${displacingStartTime}.${displacingHostnameHex}.${Date.now()}.${crypto.randomUUID()}
+```
+Where:
+- `segment 1`: Canonical base file path.
+- `segment 2`: `process.pid` of the displacing process.
+- `segment 3`: High-resolution start time of the displacing process (`this._getProcessStartTime()`).
+- `segment 4`: Hexadecimal-encoded local hostname (`Buffer.from(os.hostname(), 'utf8').toString('hex')`).
+- `segment 5`: Epoch millisecond timestamp (`Date.now()`).
+- `segment 6`: Cryptographic UUIDv4 entropy (`crypto.randomUUID()`).
+
+#### Liveness Verification Protocol
+When evaluating an abandoned displaced file:
+1. `recoverAbandonedDisplacedArtifacts()` and `_hasActiveInFlightRecovery()` extract `displacedPid`, `displacingProcessStartTime`, and `displacingHostnameHex` directly from the filename.
+2. The displacing process is verified against local hostname: if the hex-decoded hostname does not match `os.hostname()`, the file is preserved and recovery fails closed.
+3. `this._isProcessAlive(displacedPid, displacingProcessStartTime)` evaluates only the displacing process:
+   - If the displacing process is alive, recovery is blocked and the file is untouched.
+   - If `process.kill(pid, 0)` throws `EPERM` or process identity cannot be resolved definitively, it returns `null` (fail closed).
+   - If the displacing PID is reused by an unrelated process, the start time mismatch detects the original displacing process as dead.
+4. The previous coordinator owner's metadata inside the displaced file (`destData`) is inspected only *after* the displacing process is confirmed dead.
+
+### 9.2 Strict Directory Durability Enforcement (DEF-14.4)
+Directory fsync enforcement is unified inside `_fsyncDirectory(dirPath, options)`:
+- Whenever `requireDirectorySync: true` is configured (or explicitly passed in `options`), any POSIX driver that rejects directory fsync (e.g., throwing `EINVAL`) fails closed immediately with:
+  ```
+  [MIGRATION-004] SECURITY FATAL: Strict directory durability required but directory fsync is unsupported on this filesystem driver. Fail closed.
+  ```
+- Consistent enforcement applies across initial publication, abandoned coordinator restoration, conflict reconciliation, redundant artifact cleanup, and recovery supervisor release.
+- Windows platforms explicitly return `UNSUPPORTED_PLATFORM_WIN32` without throwing, documenting that the Win32 API does not support directory-level fsync.
+
+### 9.3 Deterministic Crash-Boundary Matrix (DEF-14.2)
+Tests 128 through 135 execute genuine OS-level child processes with deterministic barriers and abrupt `SIGKILL` termination:
+- **Boundaries A & B (Crash after displacement)**: Independent worker restores original coordinator via `fs.linkSync()`; exact inode, device, and payload verified.
+- **Boundary C (Crash before publication)**: Staging coordinator restored; unpublished temp file safely ignored or cleaned.
+- **Boundaries D & F (Competitor conflict & restore collision)**: Competitor coordinator preserved intact; displaced artifact preserved on disk; recovery fails closed without data destruction.
+- **Boundaries E & H (Crash after publication & during cleanup)**: Superseding publication verified via identity proof (`_supersedesToken` / `_supersedesIno` / `_writerPid`); redundant displaced file unlinked; canonical coordinator preserved; subsequent lock acquisition succeeds.
+- **Boundary G (Crash during directory fsync)**: Verified via `__testHookDuringFsync(dirFd, dirPath)` hook immediately preceding `fs.fsyncSync(dirFd)`. File descriptor validity confirmed; driver support matrix verified.
+
+### 9.4 Real Adversarial Multi-Worker Stress (DEF-14.3)
+Verified via Test 136 with 4 concurrent OS-level worker processes, deterministic synchronization barriers, confirmed lock-holder `SIGKILL`, mid-displacement `SIGKILL`, and audit log analysis (`stress_audit.jsonl`):
+- **Deterministic Barrier 1**: Test runner inspects `${ledgerPath}.lock` on disk and mathematically proves `lockData.pid === barrierData.pid` before issuing `SIGKILL` to Worker 0.
+- **Deterministic Barrier 2**: Test runner inspects disk and mathematically proves the displaced staging artifact exists before issuing `SIGKILL` to Worker 1.
+- **Autonomous Recovery**: Workers 2 and 3 recover the dead lock and displaced coordinator using the production recovery protocol, complete their critical sections, and exit cleanly with code 0.
+- **Durable Audit Verification**: Zero overlapping critical sections between any living workers; all locks and staging files cleanly reconciled; valid coordinator intact.
+

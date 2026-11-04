@@ -286,20 +286,21 @@ export class DurableApprovalLedger {
             process.kill(pid, 0);
         } catch (err) {
             if (err.code === 'ESRCH') return false; // Process does not exist (dead)
-            if (err.code === 'EPERM') return true;  // Exists, different user
-            return false;
+            if (err.code === 'EPERM') return null;  // Exists, but permission denied to signal: uncertain identity (DEF-14.1)
+            return null; // Unexpected error: fail closed
         }
 
-        // PID reuse detection: verify actual start time for ANY PID (DEF-06)
+        // PID reuse detection: verify actual start time for ANY PID (DEF-06 & DEF-14.1)
         if (typeof processStartTime === 'number' && processStartTime > 0) {
             const actualStartTime = getProcessStartTime(pid);
             if (typeof actualStartTime === 'number' && actualStartTime > 0) {
                 if (Math.abs(actualStartTime - processStartTime) > 3000) {
                     return false; // PID reused by another process; original owner is dead
                 }
+                return true; // Confirmed matching live process
             } else {
                 // If process identity cannot be established reliably, fail closed and do not break the lock
-                return true;
+                return null;
             }
         }
         return true;
@@ -321,7 +322,7 @@ export class DurableApprovalLedger {
         }
     }
 
-    _fsyncDirectory(dirPath) {
+    _fsyncDirectory(dirPath, options = {}) {
         if (!dirPath || typeof dirPath !== 'string') {
             throw new Error('[MIGRATION-004] SECURITY FATAL: Invalid directory path provided for fsync. Fail closed.');
         }
@@ -339,6 +340,11 @@ export class DurableApprovalLedger {
             throw new Error(
                 `[MIGRATION-004] SECURITY FATAL: Failed to open directory descriptor for durability fsync on ${dirPath} (${openErr.code || openErr.message}). Fail closed.`
             );
+        }
+
+        // Test Hook: During fsync before fsyncSync executes (DEF-14.2 Boundary G)
+        if (typeof options.__testHookDuringFsync === 'function') {
+            options.__testHookDuringFsync(dirFd, dirPath);
         }
 
         let fsyncSucceeded = false;
@@ -370,6 +376,17 @@ export class DurableApprovalLedger {
                 }
             }
         }
+
+        const strict = options.requireDirectorySync !== undefined
+            ? options.requireDirectorySync === true
+            : (this.requireDirectorySync === true);
+
+        if (!fsyncSucceeded && strict && process.platform !== 'win32') {
+            throw new Error(
+                `[MIGRATION-004] SECURITY FATAL: Strict directory durability required but directory fsync is unsupported on this filesystem driver. Fail closed.`
+            );
+        }
+
         return fsyncSucceeded;
     }
 
@@ -392,7 +409,19 @@ export class DurableApprovalLedger {
         if (!filePath || typeof filePath !== 'string') {
             throw new Error('[MIGRATION-004] SECURITY FATAL: Invalid file path provided to _writeDurableMetadata. Fail closed.');
         }
-        const payload = typeof data === 'string' ? data : JSON.stringify(data);
+
+        const isUpdateMode = options.mode === 'update' || options.expectedToken !== undefined || options.expectedIno !== undefined;
+        let enrichedData = data;
+        if (isUpdateMode && typeof data === 'object' && data !== null) {
+            enrichedData = {
+                ...data,
+                ...(options.expectedToken ? { _supersedesToken: options.expectedToken } : {}),
+                ...(options.expectedIno ? { _supersedesIno: options.expectedIno } : {}),
+                _writerPid: process.pid,
+                _writerStartTime: this._getProcessStartTime()
+            };
+        }
+        const payload = typeof enrichedData === 'string' ? enrichedData : JSON.stringify(enrichedData);
         const targetDir = path.dirname(filePath);
         const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
 
@@ -429,7 +458,6 @@ export class DurableApprovalLedger {
         }
 
         const isCreateMode = options.mode === 'create' || options.noClobber === true;
-        const isUpdateMode = options.mode === 'update' || options.expectedToken !== undefined || options.expectedIno !== undefined;
 
         if (isCreateMode) {
             // Atomic no-clobber publication (DEF-11.2 & DEF-12.1): destination MUST NOT be overwritten
@@ -461,8 +489,11 @@ export class DurableApprovalLedger {
                 );
             }
 
-            // 1. Atomically displace the target destination into a private staging path
-            const stagingPath = `${filePath}.displaced.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+            // 1. Atomically displace the target destination into a private staging path (DEF-14.1)
+            // Staging filename strictly binds displacing PID, displacing start time, and displacing hostname
+            const displacingStartTime = this._getProcessStartTime();
+            const displacingHostnameHex = Buffer.from(os.hostname(), 'utf8').toString('hex');
+            const stagingPath = `${filePath}.displaced.${process.pid}.${displacingStartTime}.${displacingHostnameHex}.${Date.now()}.${crypto.randomUUID()}`;
             try {
                 fs.renameSync(filePath, stagingPath);
             } catch (displaceErr) {
@@ -495,9 +526,9 @@ export class DurableApprovalLedger {
                 try {
                     fs.linkSync(stagingPath, filePath);
                     restored = true;
-                    this._fsyncDirectory(targetDir);
+                    this._fsyncDirectory(targetDir, options);
                     this._safeUnlink(stagingPath, 'restored displaced metadata file after inspection failure');
-                    this._fsyncDirectory(targetDir);
+                    this._fsyncDirectory(targetDir, options);
                 } catch (restoreErr) {
                     // Restoration failed (EEXIST or error): NEVER delete stagingPath! (DEF-13.2)
                     // Displaced file is preserved on disk for forensic audit / reconciliation!
@@ -526,9 +557,9 @@ export class DurableApprovalLedger {
                 try {
                     fs.linkSync(stagingPath, filePath);
                     restored = true;
-                    this._fsyncDirectory(targetDir);
+                    this._fsyncDirectory(targetDir, options);
                     this._safeUnlink(stagingPath, 'restored displaced competitor metadata file');
-                    this._fsyncDirectory(targetDir);
+                    this._fsyncDirectory(targetDir, options);
                 } catch (restoreErr) {
                     if (restoreErr.code === 'EEXIST') {
                         if (typeof options.__testHookDuringRestoreConflict === 'function') {
@@ -554,12 +585,12 @@ export class DurableApprovalLedger {
                         if (isIdentical) {
                             // Proven identical and redundant: safe to unlink stagingPath
                             this._safeUnlink(stagingPath, 'redundant displaced competitor metadata file');
-                            this._fsyncDirectory(targetDir);
+                            this._fsyncDirectory(targetDir, options);
                         } else {
                             // Conflict! Both filePath and stagingPath exist with DIFFERENT content!
                             // PRESERVE BOTH ARTIFACTS! DO NOT DELETE stagingPath! (DEF-13.2)
                             this._safeUnlink(tempPath, 'unmatched temporary metadata file');
-                            this._fsyncDirectory(targetDir);
+                            this._fsyncDirectory(targetDir, options);
                             throw new Error(
                                 `[MIGRATION-004] SECURITY FATAL: Conflict detected during restoration: destination ${filePath} already exists with differing data. Displaced artifact preserved at ${stagingPath} for reconciliation. Fail closed.`
                             );
@@ -573,7 +604,7 @@ export class DurableApprovalLedger {
                     }
                 }
                 this._safeUnlink(tempPath, 'unmatched temporary metadata file');
-                this._fsyncDirectory(targetDir);
+                this._fsyncDirectory(targetDir, options);
                 throw new Error(
                     `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} has been superseded by a replacement coordinator (token/inode mismatch). Active replacement preserved. Fail closed.`
                 );
@@ -595,7 +626,7 @@ export class DurableApprovalLedger {
                     options.__testHookAfterPublishBeforeCleanup(stagingPath, filePath);
                 }
 
-                this._fsyncDirectory(targetDir);
+                this._fsyncDirectory(targetDir, options);
 
                 if (typeof options.__testHookBeforeDisplacedCleanup === 'function') {
                     options.__testHookBeforeDisplacedCleanup(stagingPath, filePath);
@@ -604,13 +635,13 @@ export class DurableApprovalLedger {
                 // Clean up displaced old file and link source
                 this._safeUnlink(stagingPath, 'superseded old metadata file');
                 this._safeUnlink(tempPath, 'temporary metadata publication link source');
-                this._fsyncDirectory(targetDir);
+                this._fsyncDirectory(targetDir, options);
             } catch (linkErr) {
                 if (linkErr.code === 'EEXIST') {
                     // A competitor acquired filePath during publication!
                     // NEVER CLOBBER COMPETITOR! Clean up temporary file, PRESERVE stagingPath! (DEF-13.2)
                     this._safeUnlink(tempPath, 'uncommitted temporary metadata file');
-                    this._fsyncDirectory(targetDir);
+                    this._fsyncDirectory(targetDir, options);
                     throw new Error(
                         `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} was acquired by a competitor during update publication. Active replacement preserved. Displaced artifact preserved at ${stagingPath} for reconciliation. Fail closed.`
                     );
@@ -640,8 +671,8 @@ export class DurableApprovalLedger {
             }
         }
 
-        // Fsync containing directory where supported (DEF-11.1, DEF-12.2 & DEF-13.3)
-        const dirSynced = this._fsyncDirectory(targetDir);
+        // Fsync containing directory where supported (DEF-11.1, DEF-12.2, DEF-13.3 & DEF-14.4)
+        const dirSynced = this._fsyncDirectory(targetDir, options);
         let durabilityStatus = 'UNKNOWN';
         if (dirSynced) {
             durabilityStatus = 'DURABLE_POSIX';
@@ -875,9 +906,18 @@ export class DurableApprovalLedger {
         }
     }
 
-    _tryRecoverAbandonedDisplacedArtifact(displacedPath, canonicalPath, data, stat) {
+    _tryRecoverAbandonedDisplacedArtifact(displacedPath, canonicalPath, data, stat, context = {}) {
         if (!fs.existsSync(displacedPath)) {
             return { recovered: true, status: 'ALREADY_GONE' };
+        }
+
+        // Malformed metadata validation (DEF-14.1)
+        if (!data || typeof data !== 'object') {
+            return {
+                recovered: false,
+                status: 'MALFORMED_METADATA',
+                message: `Displaced artifact ${displacedPath} contains malformed or unparseable metadata. Preserved for forensic recovery.`
+            };
         }
 
         const targetDir = path.dirname(canonicalPath);
@@ -886,15 +926,19 @@ export class DurableApprovalLedger {
         if (!fs.existsSync(canonicalPath)) {
             try {
                 fs.linkSync(displacedPath, canonicalPath);
-                this._fsyncDirectory(targetDir);
+                const dirSynced1 = this._fsyncDirectory(targetDir);
 
                 // Verify exact hard link match
                 const canStat = fs.statSync(canonicalPath);
                 const dispStat = fs.statSync(displacedPath);
                 if (canStat.ino === dispStat.ino && canStat.dev === dispStat.dev) {
                     this._safeUnlink(displacedPath, 'restored abandoned displaced artifact');
-                    this._fsyncDirectory(targetDir);
-                    return { recovered: true, status: 'RESTORED' };
+                    const dirSynced2 = this._fsyncDirectory(targetDir);
+                    const allSynced = dirSynced1 && dirSynced2;
+                    const durabilityStatus = allSynced
+                        ? 'DURABLE_POSIX'
+                        : (process.platform === 'win32' ? 'UNSUPPORTED_PLATFORM_WIN32' : 'UNSUPPORTED_POSIX_DRIVER');
+                    return { recovered: true, status: 'RESTORED', directorySynced: allSynced, durabilityStatus };
                 } else {
                     return { recovered: false, status: 'VERIFICATION_MISMATCH' };
                 }
@@ -909,8 +953,9 @@ export class DurableApprovalLedger {
             }
         }
 
-        // 2. Destination already exists: verify whether canonicalPath is identical to displacedPath (DEF-13.2)
+        // 2. Destination already exists: verify whether canonicalPath is identical or supersedes displacedPath (DEF-13.2 & DEF-14.2)
         let isIdentical = false;
+        let isSuperseded = false;
         try {
             const canStat = fs.statSync(canonicalPath);
             const dispStat = fs.statSync(displacedPath);
@@ -921,21 +966,42 @@ export class DurableApprovalLedger {
                 const dispContent = fs.readFileSync(displacedPath, 'utf8');
                 if (canContent === dispContent) {
                     isIdentical = true;
+                } else {
+                    // Content differs: check if canonicalPath was authored by the displacing process that superseded displacedPath (DEF-14.2)
+                    let canData = null;
+                    try { canData = JSON.parse(canContent); } catch (_) {}
+                    if (canData && typeof canData === 'object' && context) {
+                        const { displacedPid, displacingProcessStartTime } = context;
+                        const tokenMatches = Boolean(canData._supersedesToken && (canData._supersedesToken === data.token || canData._supersedesToken === data.claimToken || canData._supersedesToken === data.recoveryToken || canData._supersedesToken === data.ownerToken));
+                        const inoMatches = Boolean(canData._supersedesIno && canData._supersedesIno === dispStat.ino);
+                        const writerMatches = Boolean(typeof displacedPid === 'number' && canData._writerPid === displacedPid && typeof displacingProcessStartTime === 'number' && typeof canData._writerStartTime === 'number' && Math.abs(canData._writerStartTime - displacingProcessStartTime) <= 3000);
+                        if (tokenMatches || inoMatches || writerMatches) {
+                            isSuperseded = true;
+                        }
+                    }
                 }
             }
         } catch (_) {
             isIdentical = false;
+            isSuperseded = false;
         }
 
-        if (isIdentical) {
-            // Proven redundant: safe to unlink displacedPath
-            this._safeUnlink(displacedPath, 'redundant abandoned displaced artifact');
-            this._fsyncDirectory(targetDir);
-            return { recovered: true, status: 'REDUNDANT_CLEANED' };
+        if (isIdentical || isSuperseded) {
+            // Proven redundant or superseded: safe to unlink displacedPath
+            this._safeUnlink(displacedPath, isIdentical ? 'redundant abandoned displaced artifact' : 'superseded abandoned displaced artifact after verified publication');
+            const dirSynced = this._fsyncDirectory(targetDir);
+            const durabilityStatus = dirSynced
+                ? 'DURABLE_POSIX'
+                : (process.platform === 'win32' ? 'UNSUPPORTED_PLATFORM_WIN32' : 'UNSUPPORTED_POSIX_DRIVER');
+            return { recovered: true, status: 'REDUNDANT_CLEANED', directorySynced: dirSynced, durabilityStatus };
         } else {
             // CONFLICT: canonicalPath exists with differing content!
             // Both artifacts MUST be preserved! Fail closed! (DEF-13.1 & DEF-13.2)
-            return { recovered: false, status: 'UNRESOLVED_CONFLICT' };
+            return {
+                recovered: false,
+                status: 'UNRESOLVED_CONFLICT',
+                message: `Destination ${canonicalPath} already exists with differing data. Displaced artifact preserved at ${displacedPath} for forensic reconciliation.`
+            };
         }
     }
 
@@ -953,14 +1019,41 @@ export class DurableApprovalLedger {
 
         for (const entry of entries) {
             if (!entry.includes('.displaced.')) continue;
-            const match = entry.match(/^(.+)\.displaced\.(\d+)\.(\d+)\.([a-f0-9\-]+)$/);
+            // Match 6-segment format: base.displaced.pid.processStartTime.hostnameHex.timestamp.uuid (DEF-14.1)
+            const match = entry.match(/^(.+)\.displaced\.(\d+)\.(\d+)\.([a-f0-9]+)\.(\d+)\.([a-f0-9\-]+)$/);
             if (!match) {
+                // Malformed filename or legacy unverified format: cannot prove identity! Fail closed! (DEF-14.1)
                 activeConflicts++;
                 continue;
             }
 
             const canonicalBase = match[1];
             const displacedPid = parseInt(match[2], 10);
+            const displacingProcessStartTime = parseInt(match[3], 10);
+            let displacingHostname = '';
+            try {
+                displacingHostname = Buffer.from(match[4], 'hex').toString('utf8');
+            } catch (_) {
+                displacingHostname = '';
+            }
+
+            if (!displacingProcessStartTime || displacingProcessStartTime <= 0 || isNaN(displacingProcessStartTime)) {
+                activeConflicts++;
+                continue;
+            }
+
+            if (!displacingHostname || displacingHostname !== os.hostname()) {
+                activeConflicts++;
+                continue;
+            }
+
+            // Strictly evaluate liveness of displacing process using displacing process PID + start time (DEF-14.1)
+            const isAlive = this._isProcessAlive(displacedPid, displacingProcessStartTime);
+            if (isAlive === true || isAlive === null) {
+                activeConflicts++;
+                continue;
+            }
+
             const canonicalPath = path.join(targetDir, canonicalBase);
             const fullPath = path.join(targetDir, entry);
 
@@ -985,21 +1078,21 @@ export class DurableApprovalLedger {
             let data = null;
             try {
                 data = JSON.parse(content);
-            } catch (_) {}
+            } catch (_) {
+                data = null;
+            }
 
-            if (data && data.hostname && data.hostname !== os.hostname()) {
+            if (!data || typeof data !== 'object') {
                 activeConflicts++;
                 continue;
             }
 
-            const processStartTime = data ? data.processStartTime : null;
-            const isAlive = this._isProcessAlive(displacedPid, processStartTime);
-            if (isAlive === true || isAlive === null) {
+            if (data.hostname && data.hostname !== os.hostname()) {
                 activeConflicts++;
                 continue;
             }
 
-            const rec = this._tryRecoverAbandonedDisplacedArtifact(fullPath, canonicalPath, data, stat);
+            const rec = this._tryRecoverAbandonedDisplacedArtifact(fullPath, canonicalPath, data, stat, { displacedPid, displacingProcessStartTime });
             if (rec.status === 'RESTORED') {
                 restored++;
             } else if (rec.status === 'REDUNDANT_CLEANED' || rec.status === 'ALREADY_GONE') {
@@ -1036,13 +1129,40 @@ export class DurableApprovalLedger {
 
                 if (isDisplaced) {
                     const fullPath = path.join(dir, entry);
-                    const match = entry.match(/^(.+)\.displaced\.(\d+)\.(\d+)\.([a-f0-9\-]+)$/);
+                    // Match 6-segment format: base.displaced.pid.processStartTime.hostnameHex.timestamp.uuid (DEF-14.1)
+                    const match = entry.match(/^(.+)\.displaced\.(\d+)\.(\d+)\.([a-f0-9]+)\.(\d+)\.([a-f0-9\-]+)$/);
                     if (!match) {
-                        return true; // Malformed displaced filename: fail closed
+                        return true; // Malformed displaced filename: fail closed (DEF-14.1)
                     }
+
                     const canonicalBase = match[1];
                     const displacedPid = parseInt(match[2], 10);
-                    const canonicalPath = path.join(dir, canonicalBase);
+                    const displacingProcessStartTime = parseInt(match[3], 10);
+                    let displacingHostname = '';
+                    try {
+                        displacingHostname = Buffer.from(match[4], 'hex').toString('utf8');
+                    } catch (_) {
+                        displacingHostname = '';
+                    }
+
+                    if (!displacingProcessStartTime || displacingProcessStartTime <= 0 || isNaN(displacingProcessStartTime)) {
+                        return true; // Missing or unprovable displacing start time: fail closed (DEF-14.1)
+                    }
+
+                    if (!displacingHostname || displacingHostname !== os.hostname()) {
+                        return true; // Cross-host displacing owner: fail closed (DEF-14.1)
+                    }
+
+                    // Strictly evaluate liveness of the displacing process using displacing process PID + start time (DEF-14.1)
+                    const isAlive = this._isProcessAlive(displacedPid, displacingProcessStartTime);
+                    if (isAlive === true) {
+                        // Live process actively in displaced update: recovery/lock acquisition blocked
+                        return true;
+                    }
+                    if (isAlive === null) {
+                        // Uncertain ownership / permission denied: fail closed (DEF-14.1)
+                        return true;
+                    }
 
                     let stat;
                     try {
@@ -1063,27 +1183,22 @@ export class DurableApprovalLedger {
                     let data = null;
                     try {
                         data = JSON.parse(content);
-                    } catch (_) {}
+                    } catch (_) {
+                        data = null;
+                    }
 
-                    // Cross-host ownership: fail closed!
+                    if (!data || typeof data !== 'object') {
+                        return true; // Malformed displaced metadata: fail closed (DEF-14.1)
+                    }
+
+                    // Cross-host ownership of previous coordinator: fail closed!
                     if (data && data.hostname && data.hostname !== os.hostname()) {
                         return true;
                     }
 
-                    const processStartTime = data ? data.processStartTime : null;
-                    const isAlive = this._isProcessAlive(displacedPid, processStartTime);
-
-                    if (isAlive === true) {
-                        // Live process actively in displaced update: recovery/lock acquisition blocked
-                        return true;
-                    }
-                    if (isAlive === null) {
-                        // Uncertain ownership: fail closed
-                        return true;
-                    }
-
-                    // Process is dead: attempt atomic no-clobber restoration/reconciliation (DEF-13.1)
-                    const rec = this._tryRecoverAbandonedDisplacedArtifact(fullPath, canonicalPath, data, stat);
+                    const canonicalPath = path.join(dir, canonicalBase);
+                    // Process is dead: attempt atomic no-clobber restoration/reconciliation (DEF-13.1 & DEF-14.1)
+                    const rec = this._tryRecoverAbandonedDisplacedArtifact(fullPath, canonicalPath, data, stat, { displacedPid, displacingProcessStartTime });
                     if (!rec.recovered) {
                         // Unresolved conflict or failed restoration: keep acquisition blocked
                         return true;
