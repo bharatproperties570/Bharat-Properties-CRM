@@ -1180,9 +1180,11 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const tenantId = new mongoose.Types.ObjectId();
         const authorityCode = 'HSVP';
 
-        // Clean up previous Redis keys for HSVP
+        // Clean up previous Redis keys for HSVP and clear Mongo state
         const prevKeys = await redisClient.keys(`*${authorityCode}*`);
         if (prevKeys.length > 0) await redisClient.del(...prevKeys);
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
 
         // 14.1 Canonical policy setup
         const canonicalRef = 'HSVP_CANONICAL_OFFLINE_E2E';
@@ -1456,8 +1458,12 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
         if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
 
-        // Ensure active canonical policy exists
+        // Ensure active canonical policy exists and clear MongoDB collections for HSVP
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
+        await PropertyVerificationSnapshot.deleteMany({ authorityCode });
+        await PropertyVerificationRunItem.deleteMany({ authorityCode });
+        await PropertyAuthorityLink.deleteMany({ authorityCode });
         const auditLogId15 = new mongoose.Types.ObjectId();
         const canonicalPolicyDoc = await AuthorityCanonicalPolicy.create({
             authorityCode,
