@@ -50,11 +50,57 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci --legacy-peer-deps
 
-      - name: Run Backend Test Suites (13 Suites / 126 Tests)
+      - name: Gate 1 & 5: Backend Unit/Integration & Site Visit Security Suites (13 Suites / 126 Tests)
         run: npm run test:backend
 
-      - name: Run Frontend Component Tests (Vitest)
+      - name: Gate 2: Frontend Component Tests (Vitest)
         run: npm run test:frontend
 
-      - name: Run Frontend Build Verification (Vite)
+      - name: Gate 3: Frontend Production Build Verification (Vite)
         run: npm run build
+
+  replica-set-acceptance:
+    name: Site Visit Real MongoDB Replica Set Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      NODE_ENV: test
+      MOCK_MODE: "true"
+      PORT: 5002
+      JWT_SECRET: "ci-replica-gate-test-synthetic-jwt-secret-key-32chars"
+      FEEDBACK_JWT_SECRET: "ci-replica-gate-test-synthetic-jwt-secret-key-32chars"
+      JWT_REFRESH_SECRET: "ci-replica-gate-test-synthetic-refresh-secret-32ch"
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      PUBLIC_APP_URL: "https://bharatproperties.co"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: cd backend && npm ci --legacy-peer-deps
+
+      - name: Gate 4: Real MongoDB Replica Set Acceptance & Concurrency Race Verification
+        run: npm run test:sitevisit:replica
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replica-set-failure-logs
+          path: |
+            backend/tests/*.log
+            ~/.cache/mongodb-binaries

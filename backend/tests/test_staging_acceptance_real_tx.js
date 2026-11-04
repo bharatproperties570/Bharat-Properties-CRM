@@ -898,47 +898,71 @@ async function runConcurrentTokenLifecycleTests() {
     }, agent);
     const actId2 = sched2.activity._id;
 
-    // Establish active token
-    const initialLink2 = await SiteVisitService.getJourneyLink(actId2, agent);
-    assert(initialLink2.safeToken, '3.4a. Initial token created before race');
+    // Establish active token prior to race
+    const preRaceLink = await SiteVisitService.getJourneyLink(actId2, agent);
+    assert(preRaceLink.safeToken, '3.4a. Pre-race active token generated');
 
-    // Fire 5 retrievals racing simultaneously with explicit revocation
-    const raceOps = [
-        SiteVisitService.getJourneyLink(actId2, agent),
-        SiteVisitService.getJourneyLink(actId2, agent),
-        SiteVisitService.revokeJourneyLink(actId2, 'Security revocation: Emergency security block', agent),
-        SiteVisitService.getJourneyLink(actId2, agent),
-        SiteVisitService.getJourneyLink(actId2, agent)
-    ];
+    // Launch concurrent retrievals racing with revocation, capturing timing and individual outcomes
+    const revocationPromise = SiteVisitService.revokeJourneyLink(actId2, 'Security revocation: Emergency security block', agent);
 
-    await Promise.allSettled(raceOps);
+    const retrievalPromises = Array.from({ length: 6 }, async (_, i) => {
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId2, agent);
+            const completedAt = Date.now();
+            return { index: i, success: true, res, completedAt };
+        } catch (err) {
+            const completedAt = Date.now();
+            return { index: i, success: false, err, completedAt };
+        }
+    });
 
-    // Final DB state MUST be revoked
+    // Execute concurrently
+    const [revocationOutcome, ...retrievalOutcomes] = await Promise.all([
+        revocationPromise,
+        ...retrievalPromises
+    ]);
+
+    assert(revocationOutcome.revoked === true, '3.4b. Revocation completed successfully');
+
+    // Final database state check
     const doc2Final = await Activity.findById(actId2).lean();
-    assert(doc2Final.details.journeyRevoked === true, '3.4b. Activity journey is revoked in MongoDB');
-    assert(doc2Final.details.journeyRevokedReason === 'Security revocation: Emergency security block', '3.4c. Revocation reason recorded');
+    assert(doc2Final.details.journeyRevoked === true, '3.4c. Activity journey is revoked in MongoDB');
+    assert(doc2Final.details.journeyRevokedReason.includes('Emergency security block'), '3.4d. Revocation reason recorded in MongoDB');
 
-    // Public access with the token MUST fail closed (HTTP 403 / Revoked)
-    let publicAccessRevoked = false;
-    try {
-        await SiteVisitJourneyService.verifyJourneyToken(initialLink2.safeToken);
-    } catch (err) {
-        if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
-            publicAccessRevoked = true;
+    // Verify every successful token returned (both pre-race and concurrent) is now REJECTED by verifyJourneyToken
+    const tokensToCheck = [preRaceLink.safeToken];
+    for (const r of retrievalOutcomes) {
+        if (r.success) {
+            tokensToCheck.push(r.res.safeToken);
+        } else {
+            assert(r.err.statusCode === 403 && /revoked|revocation/i.test(r.err.message),
+                `3.4e[${r.index}]. Concurrent retrieval rejected due to active revocation`);
         }
     }
-    assert(publicAccessRevoked === true, '3.4d. Public access fails closed after revocation (HTTP 403)');
 
-    // Scoped retrieval on revoked activity MUST fail closed
-    let retrievalRevoked = false;
+    // Every issued token MUST now be rejected with HTTP 403
+    for (let i = 0; i < tokensToCheck.length; i++) {
+        let rejected = false;
+        try {
+            await SiteVisitJourneyService.verifyJourneyToken(tokensToCheck[i]);
+        } catch (err) {
+            if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
+                rejected = true;
+            }
+        }
+        assert(rejected === true, `3.4f[${i}]. Token is strictly rejected as revoked (HTTP 403)`);
+    }
+
+    // Subsequent retrieval after revocation strictly fails closed
+    let subsequentRetrievalBlocked = false;
     try {
         await SiteVisitService.getJourneyLink(actId2, agent);
     } catch (err) {
         if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
-            retrievalRevoked = true;
+            subsequentRetrievalBlocked = true;
         }
     }
-    assert(retrievalRevoked === true, '3.4e. Subsequent getJourneyLink fails closed on revoked visit (HTTP 403)');
+    assert(subsequentRetrievalBlocked === true, '3.4g. Subsequent getJourneyLink strictly fails closed with HTTP 403');
 
     // ------------------------------------------------------------------------
     // 3.5: Retrieval Racing with Cancellation
@@ -958,44 +982,67 @@ async function runConcurrentTokenLifecycleTests() {
     }, agent);
     const actId3 = sched3.activity._id;
 
-    const initialLink3 = await SiteVisitService.getJourneyLink(actId3, agent);
+    // Pre-race active token
+    const preCancelLink = await SiteVisitService.getJourneyLink(actId3, agent);
+    assert(preCancelLink.safeToken, '3.5a. Pre-race active token generated');
 
-    // Fire 5 retrievals racing simultaneously with visit cancellation
-    const cancelRaceOps = [
-        SiteVisitService.getJourneyLink(actId3, agent),
-        SiteVisitService.getJourneyLink(actId3, agent),
-        SiteVisitService.cancel(actId3, 'Customer changed plans', agent),
-        SiteVisitService.getJourneyLink(actId3, agent),
-        SiteVisitService.getJourneyLink(actId3, agent)
-    ];
+    const cancellationPromise = SiteVisitService.cancel(actId3, 'Customer changed plans', agent);
 
-    await Promise.allSettled(cancelRaceOps);
+    const cancelRetrievalPromises = Array.from({ length: 6 }, async (_, i) => {
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId3, agent);
+            const completedAt = Date.now();
+            return { index: i, success: true, res, completedAt };
+        } catch (err) {
+            const completedAt = Date.now();
+            return { index: i, success: false, err, completedAt };
+        }
+    });
+
+    const [cancellationOutcome, ...cancelRetrievalOutcomes] = await Promise.all([
+        cancellationPromise,
+        ...cancelRetrievalPromises
+    ]);
+
+    assert(cancellationOutcome.activity?.status === 'Cancelled' || cancellationOutcome.status === 'Cancelled', '3.5b. Cancellation completed successfully');
 
     // Final DB state MUST be Cancelled
     const doc3Final = await Activity.findById(actId3).lean();
-    assert(doc3Final.status === 'Cancelled', '3.5a. Activity status is Cancelled in MongoDB');
+    assert(doc3Final.status === 'Cancelled', '3.5c. Activity status is Cancelled in MongoDB');
 
-    // Public access with the token MUST return HTTP 410 (Gone)
-    let publicAccessCancelled = false;
-    try {
-        await SiteVisitJourneyService.verifyJourneyToken(initialLink3.safeToken);
-    } catch (err) {
-        if (err.statusCode === 410 && /cancelled/.test(err.message)) {
-            publicAccessCancelled = true;
+    // Verify all tokens (pre-race and any returned during race) are rejected with HTTP 410 (Gone)
+    const cancelTokensToCheck = [preCancelLink.safeToken];
+    for (const r of cancelRetrievalOutcomes) {
+        if (r.success) {
+            cancelTokensToCheck.push(r.res.safeToken);
+        } else {
+            assert(r.err.statusCode === 410 && /cancelled/i.test(r.err.message),
+                `3.5d[${r.index}]. Concurrent retrieval rejected due to visit cancellation`);
         }
     }
-    assert(publicAccessCancelled === true, '3.5b. Public access returns HTTP 410 on cancelled visit');
 
-    // Scoped retrieval on cancelled activity MUST fail closed (HTTP 410)
-    let retrievalCancelled = false;
+    for (let i = 0; i < cancelTokensToCheck.length; i++) {
+        let cancelBlocked = false;
+        try {
+            await SiteVisitJourneyService.verifyJourneyToken(cancelTokensToCheck[i]);
+        } catch (err) {
+            if (err.statusCode === 410 && /cancelled/i.test(err.message)) {
+                cancelBlocked = true;
+            }
+        }
+        assert(cancelBlocked === true, `3.5e[${i}]. Issued token fails with HTTP 410 on cancelled visit`);
+    }
+
+    // Subsequent retrieval on cancelled activity MUST fail closed (HTTP 410)
+    let subsequentCancelBlocked = false;
     try {
         await SiteVisitService.getJourneyLink(actId3, agent);
     } catch (err) {
-        if (err.statusCode === 410 && /cancelled/.test(err.message)) {
-            retrievalCancelled = true;
+        if (err.statusCode === 410 && /cancelled/i.test(err.message)) {
+            subsequentCancelBlocked = true;
         }
     }
-    assert(retrievalCancelled === true, '3.5c. Subsequent getJourneyLink fails closed on cancelled visit (HTTP 410)');
+    assert(subsequentCancelBlocked === true, '3.5f. Subsequent getJourneyLink strictly fails closed with HTTP 410');
 }
 
 async function main() {
