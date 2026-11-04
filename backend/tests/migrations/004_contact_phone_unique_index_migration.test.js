@@ -285,6 +285,16 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     const TEST_DBA_PUBLIC_KEY = TEST_DBA_KEYPAIR.publicKeyPem;
     const TEST_DBA_PRIVATE_KEY = TEST_DBA_KEYPAIR.privateKeyPem;
 
+    const NON_PROD_CLUSTER_ID = 'test-cluster-non-prod-01';
+    const nonProdClusterInfo = {
+        isValid: true,
+        isProductionCluster: false,
+        clusterType: 'LOCAL_TEST',
+        clusterId: NON_PROD_CLUSTER_ID,
+        dbName: 'test',
+        hosts: ['localhost:27017']
+    };
+
     const TEST_TRUST_REGISTRY = {
         'dba.lead@bharatproperties.in': {
             keyId: 'kid-test-lead-2026',
@@ -528,15 +538,6 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     });
 
     it('10c. Production Safety: Rejects forged or invalid cryptographic asymmetric signature', () => {
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
-
         const prevProdFlag = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDbaFlag = process.env.DBA_APPROVED_INDEX_MIGRATION;
 
@@ -548,11 +549,12 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             const attackerKeyPair = generateTestDbaKeyPair();
             const forgedToken = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: AUTHORIZED_DBA_APPROVERS[0]
             }, attackerKeyPair.privateKeyPem);
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: forgedToken,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY, // Checked against authorized public key
                     trustedKeyRegistry: TEST_TRUST_REGISTRY
@@ -737,15 +739,6 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     });
 
     it('11c. Production Safety: Durable Replay Prevention: Rejects replayed approval token across process restarts', () => {
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
-
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
 
@@ -759,11 +752,12 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             const singleUseToken = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: AUTHORIZED_DBA_APPROVERS[0]
             }, TEST_DBA_PRIVATE_KEY);
 
             // First consumption: passes
-            const firstPass = __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+            const firstPass = __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                 runtimeDbaConfirmation: singleUseToken,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                 trustedKeyRegistry: TEST_TRUST_REGISTRY,
@@ -771,11 +765,11 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             });
             assert.equal(firstPass.approved, true);
             assert.equal(firstPass.approver, AUTHORIZED_DBA_APPROVERS[0]);
-            assert.equal(firstPass.approvalSource, 'ASYMMETRIC_DBA_SIGNATURE');
+            assert.equal(firstPass.approvalSource, 'TEST_HARNESS_VERIFIED_SIGNATURE');
 
             // In-process replay: strictly rejected
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: singleUseToken,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: TEST_TRUST_REGISTRY,
@@ -787,13 +781,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             const durableLedgerAfterRestart = new DurableApprovalLedger(tempLedgerPath);
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: singleUseToken,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: TEST_TRUST_REGISTRY,
                     ledger: durableLedgerAfterRestart
                 });
-            }, /Replay detected\. Runtime approval ID.*has already been consumed.*strictly single-use across process restarts/);
+            }, /Replay detected\. Runtime approval ID.*has already been consumed.*Approval tokens are strictly single-use across process restarts/);
         } finally {
             if (prevProd) process.env.ALLOW_PRODUCTION_MIGRATION = prevProd;
             else delete process.env.ALLOW_PRODUCTION_MIGRATION;
@@ -1055,15 +1049,6 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     });
 
     it('16. Valid Operator Approval: Passes verification when cryptographically signed by authorized DBA with bound parameters', () => {
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
-
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
         const tempLedgerPath = path.join(os.tmpdir(), `test-ledger-16-${Date.now()}-${Math.random().toString(36).substring(7)}.jsonl`);
@@ -1077,44 +1062,46 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             // Valid EXECUTE signed by authorized Lead DBA
             const executeToken = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 purpose: 'SCHEDULED_UNIQUE_PHONE_INDEX_CREATION',
                 auditRef: 'RFC-2026-004-EXECUTE'
             }, TEST_DBA_PRIVATE_KEY);
 
-            const approvalExecute = __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+            const approvalExecute = __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                 runtimeDbaConfirmation: executeToken,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                 trustedKeyRegistry: TEST_TRUST_REGISTRY,
                 ledger: testLedger
             });
             assert.equal(approvalExecute.approved, true);
-            assert.equal(approvalExecute.approvalSource, 'ASYMMETRIC_DBA_SIGNATURE');
+            assert.equal(approvalExecute.approvalSource, 'TEST_HARNESS_VERIFIED_SIGNATURE');
             assert.equal(approvalExecute.approver, 'dba.lead@bharatproperties.in');
             assert.equal(approvalExecute.confirmedOperation, 'EXECUTE');
-            assert.equal(approvalExecute.clusterId, PRODUCTION_CLUSTER_ID);
+            assert.equal(approvalExecute.clusterId, NON_PROD_CLUSTER_ID);
             assert.equal(approvalExecute.purpose, 'SCHEDULED_UNIQUE_PHONE_INDEX_CREATION');
             assert.equal(approvalExecute.auditRef, 'RFC-2026-004-EXECUTE');
 
             // Valid ROLLBACK signed by authorized Chief Architect
             const rollbackToken = signTestDbaApprovalToken({
                 operation: 'ROLLBACK',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'chief.architect@bharatproperties.in',
                 purpose: 'EMERGENCY_INDEX_REMOVAL',
                 auditRef: 'INCIDENT-2026-004-ROLLBACK'
             }, TEST_DBA_PRIVATE_KEY);
 
-            const approvalRollback = __testOnly_verifyOperatorApproval('rollback', clusterInfo, {
+            const approvalRollback = __testOnly_verifyOperatorApproval('rollback', nonProdClusterInfo, {
                 runtimeDbaConfirmation: rollbackToken,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                 trustedKeyRegistry: TEST_TRUST_REGISTRY,
                 ledger: testLedger
             });
             assert.equal(approvalRollback.approved, true);
-            assert.equal(approvalRollback.approvalSource, 'ASYMMETRIC_DBA_SIGNATURE');
+            assert.equal(approvalRollback.approvalSource, 'TEST_HARNESS_VERIFIED_SIGNATURE');
             assert.equal(approvalRollback.approver, 'chief.architect@bharatproperties.in');
             assert.equal(approvalRollback.confirmedOperation, 'ROLLBACK');
-            assert.equal(approvalRollback.clusterId, PRODUCTION_CLUSTER_ID);
+            assert.equal(approvalRollback.clusterId, NON_PROD_CLUSTER_ID);
             assert.equal(approvalRollback.purpose, 'EMERGENCY_INDEX_REMOVAL');
             assert.equal(approvalRollback.auditRef, 'INCIDENT-2026-004-ROLLBACK');
         } finally {
@@ -1354,12 +1341,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             const forgedToken = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 keyId: 'kid-test-lead-2026'
             }, attackerKeyPair.privateKeyPem);
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: forgedToken,
                     dbaPublicKeyFile: attackerKeyFile,
                     trustedKeyRegistry: TEST_TRUST_REGISTRY
@@ -1377,20 +1365,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     it('26. DEF-01: Fails closed when approver has no pinned trust anchor in the registry', async () => {
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
 
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
             const token = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'security.admin@bharatproperties.in',
                 keyId: 'kid-test-lead-2026'
             }, TEST_DBA_PRIVATE_KEY);
@@ -1399,7 +1380,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             const emptyRegistry = {};
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: token,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: emptyRegistry
@@ -1416,20 +1397,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     it('27. DEF-01: Revoked key: Rejects approval when approver key status is REVOKED', async () => {
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
 
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
             const token = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 keyId: 'kid-test-lead-2026'
             }, TEST_DBA_PRIVATE_KEY);
@@ -1446,7 +1420,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             };
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: token,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: revokedRegistry
@@ -1463,20 +1437,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     it('28. DEF-01: Expired pinned key: Rejects approval when pinned key validUntil is in the past', async () => {
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
 
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
             const token = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 keyId: 'kid-test-lead-2026'
             }, TEST_DBA_PRIVATE_KEY);
@@ -1494,7 +1461,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             };
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: token,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: expiredRegistry
@@ -1511,26 +1478,19 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     it('29. DEF-01: Key ID mismatch: Rejects approval when keyId in token does not match pinned trust anchor', async () => {
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
 
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
             const token = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 keyId: 'kid-old-unrotated-2025' // Mismatched keyId
             }, TEST_DBA_PRIVATE_KEY);
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: token,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: TEST_TRUST_REGISTRY
@@ -1763,21 +1723,13 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         const tempTokenFile = path.join(os.tmpdir(), `token-secure-0600-${Date.now()}.txt`);
         const tempLedgerPath = path.join(os.tmpdir(), `ledger-37-${Date.now()}.jsonl`);
 
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
-
         try {
             process.env.ALLOW_PRODUCTION_MIGRATION = 'true';
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
 
             const validToken = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 keyId: 'kid-test-lead-2026'
             }, TEST_DBA_PRIVATE_KEY);
@@ -1788,7 +1740,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             const ledger = new DurableApprovalLedger(tempLedgerPath);
 
-            const approval = __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+            const approval = __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                 dbaApprovalFile: tempTokenFile,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                 trustedKeyRegistry: TEST_TRUST_REGISTRY,
@@ -1796,6 +1748,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             });
 
             assert.equal(approval.approved, true);
+            assert.equal(approval.approvalSource, 'TEST_HARNESS_VERIFIED_SIGNATURE');
             assert.equal(approval.tokenSource, 'SECURE_FILE');
             assert.equal(approval.approver, 'dba.lead@bharatproperties.in');
         } finally {
@@ -1812,15 +1765,6 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     it('38. DEF-03: Insecure File Rejection: Token file with insecure permissions (0666 or 0644) fails closed', () => {
         const tempTokenFile = path.join(os.tmpdir(), `token-insecure-${Date.now()}.txt`);
 
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
-
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
 
@@ -1832,7 +1776,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             fs.chmodSync(tempTokenFile, 0o666);
 
             assert.throws(() => {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     dbaApprovalFile: tempTokenFile,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: TEST_TRUST_REGISTRY
@@ -1914,15 +1858,6 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     it('40. DEF-03: Zero Token Logging: Verification errors, approval objects and ledger records NEVER expose raw tokens', () => {
         const prevProd = process.env.ALLOW_PRODUCTION_MIGRATION;
         const prevDba = process.env.DBA_APPROVED_INDEX_MIGRATION;
-        const clusterInfo = {
-            isValid: true,
-            isProductionCluster: true,
-            clusterType: 'PRODUCTION_ATLAS',
-            clusterId: PRODUCTION_CLUSTER_ID,
-            dbName: 'bharatproperties1',
-            hosts: ['cluster0.7dehanz.mongodb.net']
-        };
-
         const tempLedgerPath = path.join(os.tmpdir(), `ledger-40-${Date.now()}.jsonl`);
 
         try {
@@ -1930,6 +1865,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             process.env.DBA_APPROVED_INDEX_MIGRATION = 'true';
             const token = signTestDbaApprovalToken({
                 operation: 'EXECUTE',
+                clusterId: NON_PROD_CLUSTER_ID,
                 approver: 'dba.lead@bharatproperties.in',
                 keyId: 'kid-test-lead-2026'
             }, TEST_DBA_PRIVATE_KEY);
@@ -1938,7 +1874,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             const ledger = new DurableApprovalLedger(tempLedgerPath);
 
-            const result = __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+            const result = __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                 runtimeDbaConfirmation: token,
                 dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                 trustedKeyRegistry: TEST_TRUST_REGISTRY,
@@ -1957,7 +1893,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
 
             // 3. Error message check on replay
             try {
-                __testOnly_verifyOperatorApproval('execute', clusterInfo, {
+                __testOnly_verifyOperatorApproval('execute', nonProdClusterInfo, {
                     runtimeDbaConfirmation: token,
                     dbaPublicKey: TEST_DBA_PUBLIC_KEY,
                     trustedKeyRegistry: TEST_TRUST_REGISTRY,
@@ -2201,6 +2137,64 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         }
     });
 
+    it('50b. DEF-05: Test harness strictly rejects clusterInfo.isProductionCluster === true across all NODE_ENV environments', () => {
+        const prodCluster = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        const envsToTest = ['test', 'development', 'staging', 'production'];
+        const prevNodeEnv = process.env.NODE_ENV;
+
+        try {
+            for (const env of envsToTest) {
+                process.env.NODE_ENV = env;
+                assert.throws(() => {
+                    __testOnly_verifyOperatorApproval('execute', prodCluster, {});
+                }, /(?:Test-only verification harness \(__testOnly_verifyOperatorApproval\) is permanently disabled in production environments|Test harness cannot be invoked with a production cluster context.*Fail closed)/,
+                `NODE_ENV=${env} with production cluster must fail closed`);
+            }
+        } finally {
+            if (prevNodeEnv !== undefined) process.env.NODE_ENV = prevNodeEnv;
+            else delete process.env.NODE_ENV;
+        }
+    });
+
+    it('50c. DEF-05: Direct call to verifyOperatorApproval with __testOnly_isolatedHarnessAuthorized on production cluster throws SECURITY FATAL', () => {
+        const prodCluster = {
+            isValid: true,
+            isProductionCluster: true,
+            clusterType: 'PRODUCTION_ATLAS',
+            clusterId: PRODUCTION_CLUSTER_ID,
+            dbName: 'bharatproperties1',
+            hosts: ['cluster0.7dehanz.mongodb.net']
+        };
+
+        assert.throws(() => {
+            verifyOperatorApproval('execute', prodCluster, {
+                __testOnly_isolatedHarnessAuthorized: true
+            });
+        }, /Test-only verification harness authorization is strictly forbidden on production clusters\. Fail closed\./);
+    });
+
+    it('50d. Section B: getProcessStartTime accurately establishes process identity corresponding to actual process start time', async () => {
+        const child = spawn('node', ['-e', 'setTimeout(() => {}, 5000)']);
+        const approxStart = Date.now();
+        await new Promise(r => setTimeout(r, 100));
+
+        try {
+            const detectedStartTime = getProcessStartTime(child.pid);
+            assert.ok(detectedStartTime, 'Process start time must be resolved for a live child process');
+            assert.ok(Math.abs(detectedStartTime - approxStart) < 3000, `Process start time (${detectedStartTime}) must be within 3s of actual start (${approxStart})`);
+        } finally {
+            child.kill();
+        }
+    });
+
     // ─────────────────────────────────────────────────────────────
     // DEF-03: PRODUCTION TOKEN HARDENING
     // ─────────────────────────────────────────────────────────────
@@ -2241,11 +2235,11 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
     });
 
     // ─────────────────────────────────────────────────────────────
-    // DEF-06: LOCK RECOVERY TOCTOU & CONCURRENCY MULTI-PROCESS SUITE
+    // DEF-06: 12 MANDATORY REAL CONCURRENCY ADVERSARIAL SCENARIOS
     // ─────────────────────────────────────────────────────────────
 
-    it('52. DEF-06: Replacement Lock Protection: TOCTOU race detection preserves replacement lock and aborts recovery', () => {
-        const tempPath = path.join(os.tmpdir(), `test-toctou-${Date.now()}.jsonl`);
+    it('52. DEF-06: Scenario 1 — No-Clobber Recovery Restoration: Worker A renames old lock; Worker B acquires replacement lock; Worker A detects mismatch and cannot overwrite Worker B lock', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen1-${Date.now()}.jsonl`);
         const lockPath = `${tempPath}.lock`;
         const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
 
@@ -2269,7 +2263,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
                 replacementInjected = true;
                 fs.unlinkSync(lockPath);
                 const liveLockData = {
-                    ownerToken: 'live-replacement-owner-token-1111',
+                    ownerToken: 'worker-b-replacement-owner-token-1111',
                     pid: process.pid,
                     processStartTime: Date.now() - Math.floor(process.uptime() * 1000),
                     hostname: os.hostname(),
@@ -2285,7 +2279,7 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
             assert.equal(recovered, false, 'Recovery must return false when replacement lock is captured');
             assert.ok(fs.existsSync(lockPath), 'Replacement lock must exist on disk');
             const dataOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-            assert.equal(dataOnDisk.ownerToken, 'live-replacement-owner-token-1111', 'Replacement lock must remain intact');
+            assert.equal(dataOnDisk.ownerToken, 'worker-b-replacement-owner-token-1111', 'Worker B replacement lock must remain completely intact');
         } finally {
             fs.renameSync = origRename;
             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
@@ -2293,65 +2287,49 @@ describe('Phase 4 — Migration 004: Contact Phone Unique Index Migration Suite'
         }
     });
 
-    it('53. DEF-06: Cross-Process PID Reuse Detection: Recovers dead lock when PID matches but start-time differs', () => {
-        const tempPath = path.join(os.tmpdir(), `test-pid-reuse-${Date.now()}.jsonl`);
+    it('53. DEF-06: Scenario 2 — Delayed Release Protection: Worker A reads its own lock; recovery/replacement occurs before release. Delayed release cannot unlink replacement lock', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen2-${Date.now()}.jsonl`);
         const lockPath = `${tempPath}.lock`;
 
-        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
-        const pidReuseData = {
-            ownerToken: 'pid-reuse-token-1234',
+        const ledgerA = new DurableApprovalLedger(tempPath, { lockTimeoutMs: 1000 });
+        ledgerA._acquireLock();
+        const workerAIno = ledgerA.currentLockIno;
+        assert.ok(workerAIno, 'Worker A must have acquired lock with valid inode');
+
+        // Worker A's lock is superseded by Worker B's replacement lock
+        fs.unlinkSync(lockPath);
+        const workerBLockData = {
+            ownerToken: 'worker-b-active-replacement-token-3333',
             pid: process.pid,
-            processStartTime: Date.now() - 3600000, // 1 hour ago
+            processStartTime: Date.now() - Math.floor(process.uptime() * 1000),
             hostname: os.hostname(),
-            createdAt: Date.now() - 10000
+            createdAt: Date.now()
         };
-        fs.writeFileSync(lockPath, JSON.stringify(pidReuseData), { mode: 0o600 });
-        const past = new Date(Date.now() - 10000);
-        fs.utimesSync(lockPath, past, past);
+        fs.writeFileSync(lockPath, JSON.stringify(workerBLockData), { mode: 0o600 });
+        const workerBStat = fs.statSync(lockPath);
+        assert.notEqual(workerBStat.ino, workerAIno, 'Worker B must have a distinct inode');
 
-        try {
-            const recovered = ledger._tryRecoverDeadLock();
-            assert.equal(recovered, true, 'PID reuse must be detected via start-time mismatch and recovered');
-        } finally {
-            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
-        }
+        // Worker A now attempts delayed release
+        ledgerA._releaseLock();
+
+        // Verify Worker B's replacement lock is STILL intact and was NOT unlinked!
+        assert.ok(fs.existsSync(lockPath), 'Worker B replacement lock must still exist on disk');
+        const contentAfter = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        assert.equal(contentAfter.ownerToken, 'worker-b-active-replacement-token-3333', 'Worker B replacement lock must NOT be deleted by delayed Worker A');
+
+        // Clean up Worker B's lock
+        fs.unlinkSync(lockPath);
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
     });
 
-    it('54. DEF-06: Remote Host Ambiguous Ownership: Fails closed without breaking lock from different hostname', () => {
-        const tempPath = path.join(os.tmpdir(), `test-remote-host-${Date.now()}.jsonl`);
-        const lockPath = `${tempPath}.lock`;
-
-        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
-        const remoteLockData = {
-            ownerToken: 'remote-host-token-8888',
-            pid: 999999,
-            processStartTime: Date.now() - 60000,
-            hostname: 'remote-worker-node-99.internal', // Different host!
-            createdAt: Date.now() - 10000
-        };
-        fs.writeFileSync(lockPath, JSON.stringify(remoteLockData), { mode: 0o600 });
-        const past = new Date(Date.now() - 10000);
-        fs.utimesSync(lockPath, past, past);
-
-        try {
-            const recovered = ledger._tryRecoverDeadLock();
-            assert.equal(recovered, false, 'Remote hostname ownership is ambiguous and must fail closed');
-            assert.ok(fs.existsSync(lockPath), 'Remote lockfile must NOT be removed');
-        } finally {
-            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
-        }
-    });
-
-    it('55. DEF-06: Multi-Process Recovery Race: Two concurrent cleanup worker child processes succeed cleanly', async () => {
+    it('54. DEF-06: Scenario 3 — Concurrent Recovery and Normal Acquisition: Ordinary acquisition respects claim coordinator', async () => {
         const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
-        const tempLedgerPath = path.join(os.tmpdir(), `test-multi-rec-${Date.now()}.jsonl`);
+        const tempLedgerPath = path.join(os.tmpdir(), `test-scen3-${Date.now()}.jsonl`);
         const lockPath = `${tempLedgerPath}.lock`;
 
-        // Create a dead lock on disk
+        // Dead lock on disk
         const deadLockData = {
-            ownerToken: 'dead-owner-9999',
+            ownerToken: 'dead-owner-scen3',
             pid: 999999,
             processStartTime: Date.now() - 60000,
             hostname: os.hostname(),
@@ -2376,15 +2354,15 @@ try {
     process.exit(1);
 }
 `;
-        const workerFile = path.join(os.tmpdir(), `worker-rec-${Date.now()}.mjs`);
+        const workerFile = path.join(os.tmpdir(), `worker-scen3-${Date.now()}.mjs`);
         fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
 
         try {
-            const appId1 = `app-rec-1-${Date.now()}-1111222233334444`;
-            const appId2 = `app-rec-2-${Date.now()}-5555666677778888`;
+            const appId1 = `app-scen3-1-${Date.now()}-1111222233334444`;
+            const appId2 = `app-scen3-2-${Date.now()}-5555666677778888`;
 
-            const p1 = spawn('node', [workerFile, tempLedgerPath, appId1, 'worker-1']);
-            const p2 = spawn('node', [workerFile, tempLedgerPath, appId2, 'worker-2']);
+            const p1 = spawn('node', [workerFile, tempLedgerPath, appId1, 'recovery-worker']);
+            const p2 = spawn('node', [workerFile, tempLedgerPath, appId2, 'normal-worker']);
 
             const [code1, code2] = await Promise.all([
                 new Promise(resolve => p1.on('close', resolve)),
@@ -2395,6 +2373,65 @@ try {
             assert.equal(code2, 0, 'Worker 2 must exit with 0');
 
             const content = fs.readFileSync(tempLedgerPath, 'utf8').trim().split('\n');
+            assert.equal(content.length, 2, 'Both approvals must be durably recorded without deadlock or overwrite');
+        } finally {
+            if (fs.existsSync(workerFile)) fs.unlinkSync(workerFile);
+            if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath);
+            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+        }
+    });
+
+    it('55. DEF-06: Scenario 4 — Two Recovery Processes Race: Two cleanup processes race to recover same dead lock', async () => {
+        const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
+        const tempLedgerPath = path.join(os.tmpdir(), `test-scen4-${Date.now()}.jsonl`);
+        const lockPath = `${tempLedgerPath}.lock`;
+
+        // Dead lock on disk
+        const deadLockData = {
+            ownerToken: 'dead-owner-scen4',
+            pid: 999999,
+            processStartTime: Date.now() - 60000,
+            hostname: os.hostname(),
+            createdAt: Date.now() - 10000
+        };
+        fs.writeFileSync(lockPath, JSON.stringify(deadLockData), { mode: 0o600 });
+        const past = new Date(Date.now() - 10000);
+        fs.utimesSync(lockPath, past, past);
+
+        const workerScript = `
+import { DurableApprovalLedger } from "${targetModule}";
+const ledgerPath = process.argv[2];
+const appId = process.argv[3];
+const workerId = process.argv[4];
+
+const ledger = new DurableApprovalLedger(ledgerPath, { lockTimeoutMs: 5000, initGracePeriodMs: 0 });
+try {
+    ledger.recordConsumedApproval(appId, { workerId });
+    process.exit(0);
+} catch (err) {
+    console.error(err.message);
+    process.exit(1);
+}
+`;
+        const workerFile = path.join(os.tmpdir(), `worker-scen4-${Date.now()}.mjs`);
+        fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
+
+        try {
+            const appId1 = `app-scen4-1-${Date.now()}-1111222233334444`;
+            const appId2 = `app-scen4-2-${Date.now()}-5555666677778888`;
+
+            const p1 = spawn('node', [workerFile, tempLedgerPath, appId1, 'rec-1']);
+            const p2 = spawn('node', [workerFile, tempLedgerPath, appId2, 'rec-2']);
+
+            const [code1, code2] = await Promise.all([
+                new Promise(resolve => p1.on('close', resolve)),
+                new Promise(resolve => p2.on('close', resolve))
+            ]);
+
+            assert.equal(code1, 0, 'Recovery worker 1 must exit with 0');
+            assert.equal(code2, 0, 'Recovery worker 2 must exit with 0');
+
+            const content = fs.readFileSync(tempLedgerPath, 'utf8').trim().split('\n');
             assert.equal(content.length, 2, 'Both approvals must be durably recorded');
         } finally {
             if (fs.existsSync(workerFile)) fs.unlinkSync(workerFile);
@@ -2403,11 +2440,11 @@ try {
         }
     });
 
-    it('56. DEF-06: Multi-Process Replay Prevention: Concurrent identical approval consumption results in exactly 1 success and 1 replay error', async () => {
+    it('56. DEF-06: Scenario 5 — Concurrent Identical Approval ID Consumption: Exactly 1 success, 1 replay error', async () => {
         const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
-        const tempLedgerPath = path.join(os.tmpdir(), `test-replay-proc-${Date.now()}.jsonl`);
+        const tempLedgerPath = path.join(os.tmpdir(), `test-scen5-${Date.now()}.jsonl`);
         const lockPath = `${tempLedgerPath}.lock`;
-        const sharedApprovalId = `shared-approval-${Date.now()}-1111222233334444`;
+        const sharedApprovalId = `shared-scen5-${Date.now()}-1111222233334444`;
 
         const workerScript = `
 import { DurableApprovalLedger } from "${targetModule}";
@@ -2426,7 +2463,7 @@ try {
     process.exit(1);
 }
 `;
-        const workerFile = path.join(os.tmpdir(), `worker-rep-${Date.now()}.mjs`);
+        const workerFile = path.join(os.tmpdir(), `worker-scen5-${Date.now()}.mjs`);
         fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
 
         try {
@@ -2450,9 +2487,9 @@ try {
         }
     });
 
-    it('57. DEF-06: Multi-Process Concurrent Appends: Four independent child processes consume distinct IDs without data loss', async () => {
+    it('57. DEF-06: Scenario 6 — Concurrent Distinct Approval ID Consumption: Multiple child processes consume distinct IDs', async () => {
         const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
-        const tempLedgerPath = path.join(os.tmpdir(), `test-concurrent-appends-${Date.now()}.jsonl`);
+        const tempLedgerPath = path.join(os.tmpdir(), `test-scen6-${Date.now()}.jsonl`);
         const lockPath = `${tempLedgerPath}.lock`;
 
         const workerScript = `
@@ -2469,15 +2506,15 @@ try {
     process.exit(1);
 }
 `;
-        const workerFile = path.join(os.tmpdir(), `worker-appends-${Date.now()}.mjs`);
+        const workerFile = path.join(os.tmpdir(), `worker-scen6-${Date.now()}.mjs`);
         fs.writeFileSync(workerFile, workerScript, { mode: 0o700 });
 
         try {
             const appIds = [
-                `concurrent-app-1-${Date.now()}-1111222233334444`,
-                `concurrent-app-2-${Date.now()}-2222333344445555`,
-                `concurrent-app-3-${Date.now()}-3333444455556666`,
-                `concurrent-app-4-${Date.now()}-4444555566667777`
+                `scen6-app-1-${Date.now()}-1111222233334444`,
+                `scen6-app-2-${Date.now()}-2222333344445555`,
+                `scen6-app-3-${Date.now()}-3333444455556666`,
+                `scen6-app-4-${Date.now()}-4444555566667777`
             ];
 
             const procs = appIds.map((id, idx) => spawn('node', [workerFile, tempLedgerPath, id, `worker-${idx + 1}`]));
@@ -2498,12 +2535,11 @@ try {
         }
     });
 
-    it('58. DEF-06: Multi-Process Crash Recovery: Subprocess crashes during lock acquisition; next worker recovers cleanly', async () => {
+    it('58. DEF-06: Scenario 7 — Crash During Acquisition: Subprocess crashes during lock acquisition; next worker recovers cleanly', async () => {
         const targetModule = path.resolve(__dirname, '../../migrations/004-contact-phone-unique-index-migration.js');
-        const tempLedgerPath = path.join(os.tmpdir(), `test-proc-crash-${Date.now()}.jsonl`);
+        const tempLedgerPath = path.join(os.tmpdir(), `test-scen7-${Date.now()}.jsonl`);
         const lockPath = `${tempLedgerPath}.lock`;
 
-        // Subprocess script that creates lock and crashes immediately
         const crashingScript = `
 import fs from 'fs';
 import os from 'os';
@@ -2520,7 +2556,7 @@ const past = new Date(Date.now() - 5000);
 fs.utimesSync(lockPath, past, past);
 process.exit(1); // Crash abruptly
 `;
-        const crashFile = path.join(os.tmpdir(), `crash-script-${Date.now()}.mjs`);
+        const crashFile = path.join(os.tmpdir(), `crash-script-scen7-${Date.now()}.mjs`);
         fs.writeFileSync(crashFile, crashingScript, { mode: 0o700 });
 
         try {
@@ -2528,15 +2564,131 @@ process.exit(1); // Crash abruptly
             const crashCode = await new Promise(resolve => crashProc.on('close', resolve));
             assert.equal(crashCode, 1, 'Crashing process must exit with 1');
 
-            // Now instantiate ledger and consume approval: it must detect dead PID and recover
             const ledger = new DurableApprovalLedger(tempLedgerPath, { lockTimeoutMs: 2000, initGracePeriodMs: 0 });
-            const approvalId = `crash-recovery-app-${Date.now()}-1111222233334444`;
+            const approvalId = `crash-recovery-scen7-${Date.now()}-1111222233334444`;
             const record = ledger.recordConsumedApproval(approvalId, { worker: 'resilient-worker' });
             assert.equal(record.approvalId, approvalId);
             assert.equal(fs.existsSync(lockPath), false, 'Lock must be cleanly released');
         } finally {
             if (fs.existsSync(crashFile)) fs.unlinkSync(crashFile);
             if (fs.existsSync(tempLedgerPath)) fs.unlinkSync(tempLedgerPath);
+            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+        }
+    });
+
+    it('59. DEF-06: Scenario 8 — Crash During Ledger Append & Ownership Assertion: Exclusive ownership required before any append', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen8-${Date.now()}.jsonl`);
+        const ledger = new DurableApprovalLedger(tempPath);
+
+        // Attempting _assertLockOwnership without acquiring lock must fail closed with SECURITY FATAL
+        assert.throws(() => {
+            ledger._assertLockOwnership();
+        }, /Process \d+ attempted ledger operation without holding an exclusive lock\. Fail closed\./);
+
+        // After acquiring lock, _assertLockOwnership passes
+        ledger._acquireLock();
+        assert.doesNotThrow(() => {
+            ledger._assertLockOwnership();
+        });
+        ledger._releaseLock();
+
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        if (fs.existsSync(`${tempPath}.lock`)) fs.unlinkSync(`${tempPath}.lock`);
+    });
+
+    it('60. DEF-06: Scenario 9 — Live Lock Exceeding 15s Stale Timeout: Active lock held by live process is NEVER broken', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen9-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0, staleTimeoutMs: 15000 });
+
+        // Lock held by CURRENT (live) process, created 20 seconds ago (> 15s)
+        const liveOldLockData = {
+            ownerToken: 'live-old-token-9999',
+            pid: process.pid,
+            processStartTime: Date.now() - Math.floor(process.uptime() * 1000),
+            hostname: os.hostname(),
+            createdAt: Date.now() - 20000
+        };
+        fs.writeFileSync(lockPath, JSON.stringify(liveOldLockData), { mode: 0o600 });
+        const past = new Date(Date.now() - 20000);
+        fs.utimesSync(lockPath, past, past);
+
+        try {
+            const recovered = ledger._tryRecoverDeadLock();
+            assert.equal(recovered, false, 'Lock held by a live process must NEVER be broken regardless of age');
+            assert.ok(fs.existsSync(lockPath), 'Lockfile must remain intact');
+        } finally {
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+        }
+    });
+
+    it('61. DEF-06: Scenario 10 — PID Reused by Another Live Process: Start-time mismatch detects dead original owner', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen10-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
+
+        const pidReuseData = {
+            ownerToken: 'pid-reuse-token-scen10',
+            pid: process.pid,
+            processStartTime: Date.now() - 3600000, // 1 hour ago
+            hostname: os.hostname(),
+            createdAt: Date.now() - 10000
+        };
+        fs.writeFileSync(lockPath, JSON.stringify(pidReuseData), { mode: 0o600 });
+        const past = new Date(Date.now() - 10000);
+        fs.utimesSync(lockPath, past, past);
+
+        try {
+            const recovered = ledger._tryRecoverDeadLock();
+            assert.equal(recovered, true, 'PID reuse must be detected via start-time mismatch and recovered');
+        } finally {
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+        }
+    });
+
+    it('62. DEF-06: Scenario 11 — Corrupted/Partial Lock Metadata: Malformed lockfile past stale timeout is recovered cleanly', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen11-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0, staleTimeoutMs: 50 });
+
+        fs.writeFileSync(lockPath, '{"ownerToken": "incomplete-json...', { mode: 0o600 });
+        const past = new Date(Date.now() - 1000);
+        fs.utimesSync(lockPath, past, past);
+
+        try {
+            const recovered = ledger._tryRecoverDeadLock();
+            assert.equal(recovered, true, 'Corrupt lockfile past stale timeout must be recovered');
+            assert.equal(fs.existsSync(lockPath), false, 'Corrupted lockfile must be removed');
+        } finally {
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+        }
+    });
+
+    it('63. DEF-06: Scenario 12 — Ambiguous Cross-Host Ownership: Fails closed without breaking lock from different hostname', () => {
+        const tempPath = path.join(os.tmpdir(), `test-scen12-${Date.now()}.jsonl`);
+        const lockPath = `${tempPath}.lock`;
+        const ledger = new DurableApprovalLedger(tempPath, { initGracePeriodMs: 0 });
+
+        const remoteLockData = {
+            ownerToken: 'remote-host-token-scen12',
+            pid: 999999,
+            processStartTime: Date.now() - 60000,
+            hostname: 'remote-worker-node-99.internal',
+            createdAt: Date.now() - 10000
+        };
+        fs.writeFileSync(lockPath, JSON.stringify(remoteLockData), { mode: 0o600 });
+        const past = new Date(Date.now() - 10000);
+        fs.utimesSync(lockPath, past, past);
+
+        try {
+            const recovered = ledger._tryRecoverDeadLock();
+            assert.equal(recovered, false, 'Remote hostname ownership is ambiguous and must fail closed');
+            assert.ok(fs.existsSync(lockPath), 'Remote lockfile must NOT be removed');
+        } finally {
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
             if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
         }
     });
