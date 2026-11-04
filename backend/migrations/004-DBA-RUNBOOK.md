@@ -324,3 +324,50 @@ The migration runner maintains a pinned registry of SubjectPublicKeyInfo (SPKI) 
 2. When `status === 'REVOKED'`, the migration runner immediately aborts with:
    `[MIGRATION-004] FATAL: Pinned signing key for approver "..." has been REVOKED. Revocation reason: ... Fail closed.`
 3. Any approval token signed by the revoked key is permanently rejected.
+
+---
+
+## 6. Durable Coordination, Concurrency & Crash Consistency (DEF-06 – DEF-11)
+
+### Four-Tier Coordinator Hierarchy
+To guarantee mutual exclusion, zero-void recovery, and crash consistency across concurrent migration processes without relying on external locking servers, Migration 004 implements a four-tier filesystem coordinator hierarchy:
+
+```
+Tier 1: Canonical Lockfile (004-contact-phone-unique-index-migration.ledger.lock)
+   ▲ Holds exclusive execution right for active migration worker.
+   │
+Tier 2: Dead-Lock Recovery Claim (.lock.claim)
+   ▲ Serializes workers attempting to recover an abandoned Tier 1 lock.
+   │
+Tier 3: Claim-Recovery Coordinator Lock (.lock.claim.recovery)
+   ▲ Serializes recovery workers attempting to recover an abandoned Tier 2 claim.
+   │
+Tier 4: Claim-Recovery Supervisor Coordinator (.lock.claim.recovery.supervisor)
+   ▲ Serializes workers attempting to recover an abandoned Tier 3 coordinator.
+```
+
+### Zero-Void Invariant
+At no point during normal acquisition, dead-lock recovery, or stale coordinator recovery does a void exist where a dead coordinator can disappear without an active higher-tier coordinator or in-flight staging marker being visible to concurrent workers:
+1. Before recovering any coordinator at Tier $N$, the recovering worker must acquire exclusive ownership of Tier $N+1$.
+2. In-flight recovery moves the target file to a private `.recovering.<pid>.<timestamp>.<uuid>` staging path.
+3. Concurrent workers scan for active in-flight staging markers (`_hasActiveInFlightRecovery()`) and fail closed (block/wait) if a live worker is actively recovering or releasing artifacts.
+
+### DEF-11.1: Durable Directory-Entry Persistence (`_fsyncDirectory`)
+On POSIX filesystems (ext4, XFS, APFS), writing data and calling `fsync()` on a file descriptor ensures that file data and metadata blocks are flushed to physical media. However, directory entries (directory blocks pointing inode numbers to filenames created by `linkSync`, `openSync(O_CREAT)`, or `renameSync`) reside in the parent directory's block.
+- **Directory Fsync:** After creating or renaming coordinators, `_fsyncDirectory(dirPath)` opens the parent directory with `O_RDONLY` and issues `fsync()` on the directory descriptor.
+- **Platform Compatibility Guarantees:**
+  - **POSIX:** Directory `fsync()` flushes directory entry allocations to disk. If a filesystem or sandbox returns `EISDIR`, `ENOTSUP`, `EINVAL`, `EBADF`, or `EPERM` on directory descriptors, `_fsyncDirectory` handles the code explicitly without crashing.
+  - **Windows (NTFS):** Opening directories as POSIX descriptors is unsupported (`EISDIR`/`EINVAL`). `_fsyncDirectory` detects `process.platform === 'win32'` and safely bypasses directory `fsync`, as NTFS transactions journal directory metadata automatically.
+  - **Diagnostic Temp File Preservation:** On write or fsync failure during `_writeDurableMetadata()`, the diagnostic temporary file is preserved on disk for forensic inspection, and an actionable `[MIGRATION-004] SECURITY FATAL` error is thrown.
+
+### DEF-11.2: No-Clobber Metadata Replacement Protocol
+To prevent a delayed or desynchronized worker from overwriting a newly acquired coordinator created by a competing worker:
+- **Create Mode (`options.mode === 'create'` / `options.noClobber: true`):** Employs atomic hard linking (`fs.linkSync(tempPath, destPath)`). If the destination file already exists, the kernel atomically rejects the link with `EEXIST`. The temporary file is cleaned up, and the operation fails closed without clobbering the destination.
+- **Exact-Owner Update Mode (`options.mode === 'update'`):** Validates that the destination file matches the caller's expected ownership token, inode number (`ino`), device ID (`dev`), and process PID. If another worker has acquired or superseded the coordinator in the interim, the update is rejected, the temporary staging file is cleaned up, and the active replacement is preserved.
+
+### DEF-11.3: Safe Unlink Semantics (`_safeUnlink`)
+Previous implementations caught and silently swallowed unlink errors with `try { fs.unlinkSync(...); } catch (_) {}`.
+- **Fail Closed on Unexpected Errors:** `_safeUnlink(filePath, contextDesc)` treats `ENOENT` as the only idempotent success case (file already removed).
+- Any unexpected filesystem error (`EPERM`, `EIO`, `ENOSPC`, `EROFS`) halts execution immediately with `[MIGRATION-004] SECURITY FATAL`, preserves the artifact on disk, and fails closed.
+- Before unlinking any recovery or release staging artifact, exact device, inode, and token matches are confirmed.
+

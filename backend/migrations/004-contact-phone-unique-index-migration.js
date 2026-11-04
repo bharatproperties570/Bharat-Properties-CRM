@@ -320,20 +320,179 @@ export class DurableApprovalLedger {
         }
     }
 
-    _writeDurableMetadata(filePath, data) {
-        const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
-        const fd = fs.openSync(tempPath, 'wx', 0o600);
+    _fsyncDirectory(dirPath) {
+        if (!dirPath || typeof dirPath !== 'string') return;
+        if (process.platform === 'win32') {
+            // Windows does not support directory opening or fsync via POSIX descriptors
+            return;
+        }
+        let dirFd = null;
         try {
-            const written = fs.writeSync(fd, payload);
+            dirFd = fs.openSync(dirPath, 'r');
+            try {
+                fs.fsyncSync(dirFd);
+            } catch (fsyncErr) {
+                // Explicitly handle filesystems/platforms that disallow directory fsync:
+                // EISDIR, ENOTSUP, EINVAL, EBADF, EPERM
+                const ignoredCodes = ['EISDIR', 'ENOTSUP', 'EINVAL', 'EBADF', 'EPERM'];
+                if (!ignoredCodes.includes(fsyncErr.code)) {
+                    throw fsyncErr;
+                }
+            }
+        } catch (openErr) {
+            // Some POSIX environments or restricted sandboxes disallow opening directories with openSync
+            const ignoredCodes = ['EISDIR', 'EACCES', 'EPERM', 'ENOTSUP', 'EINVAL'];
+            if (!ignoredCodes.includes(openErr.code)) {
+                throw openErr;
+            }
+        } finally {
+            if (dirFd !== null) {
+                try {
+                    fs.closeSync(dirFd);
+                } catch (_) {}
+            }
+        }
+    }
+
+    _safeUnlink(filePath, contextDesc = 'artifact') {
+        if (!filePath) return;
+        try {
+            fs.unlinkSync(filePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                return; // Expected idempotent condition: file already removed
+            }
+            throw new Error(
+                `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${err.code || err.message}) unlinking ${contextDesc}. ` +
+                `Artifact preserved at ${filePath}. Fail closed.`
+            );
+        }
+    }
+
+    _writeDurableMetadata(filePath, data, options = {}) {
+        if (!filePath || typeof filePath !== 'string') {
+            throw new Error('[MIGRATION-004] SECURITY FATAL: Invalid file path provided to _writeDurableMetadata. Fail closed.');
+        }
+        const payload = typeof data === 'string' ? data : JSON.stringify(data);
+        const targetDir = path.dirname(filePath);
+        const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID()}`;
+
+        let tempFd = null;
+        let writeCompleted = false;
+
+        try {
+            tempFd = fs.openSync(tempPath, 'wx', 0o600);
+            const written = fs.writeSync(tempFd, payload);
             if (written !== Buffer.byteLength(payload)) {
                 throw new Error(`Incomplete write: expected ${Buffer.byteLength(payload)} bytes, wrote ${written}`);
             }
-            fs.fsyncSync(fd);
+            fs.fsyncSync(tempFd);
+            writeCompleted = true;
+        } catch (err) {
+            // On unexpected write/fsync failure: preserve diagnostic temp file if it was created
+            throw new Error(
+                `[MIGRATION-004] SECURITY FATAL: Failed to write durable metadata temp file at ${tempPath}: ${err.message}. ` +
+                `Diagnostic artifact preserved at ${tempPath}. Fail closed.`
+            );
         } finally {
-            fs.closeSync(fd);
+            if (tempFd !== null) {
+                try {
+                    fs.closeSync(tempFd);
+                } catch (closeErr) {
+                    if (writeCompleted) {
+                        throw new Error(
+                            `[MIGRATION-004] SECURITY FATAL: Failed to close metadata temp file descriptor at ${tempPath}: ${closeErr.message}. ` +
+                            `Diagnostic artifact preserved at ${tempPath}. Fail closed.`
+                        );
+                    }
+                }
+            }
         }
-        fs.renameSync(tempPath, filePath);
+
+        const isCreateMode = options.mode === 'create' || options.noClobber === true;
+        const isUpdateMode = options.mode === 'update' || options.expectedToken !== undefined || options.expectedIno !== undefined;
+
+        if (isCreateMode) {
+            // Atomic no-clobber publication (DEF-11.2): destination MUST NOT be overwritten
+            try {
+                fs.linkSync(tempPath, filePath);
+                // Hard link established: safe to unlink tempPath
+                this._safeUnlink(tempPath, 'temporary metadata publication file');
+            } catch (linkErr) {
+                if (linkErr.code === 'EEXIST') {
+                    // Destination already exists: clean up temp file and fail closed
+                    this._safeUnlink(tempPath, 'superseded temporary metadata publication file');
+                    throw new Error(
+                        `[MIGRATION-004] SECURITY FATAL: Destination already exists (${filePath}) during no-clobber metadata creation. Destination preserved. Fail closed.`
+                    );
+                }
+                // Unexpected link error: preserve diagnostic tempPath
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber metadata publication. ` +
+                    `Artifact preserved at ${tempPath}. Fail closed.`
+                );
+            }
+        } else if (isUpdateMode) {
+            // Exact-owner update (DEF-11.2): destination MUST exist and match expected identity
+            if (!fs.existsSync(filePath)) {
+                this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Destination does not exist (${filePath}) during exact-owner metadata update. Fail closed.`
+                );
+            }
+
+            let destStat;
+            let destData = null;
+            try {
+                destStat = fs.statSync(filePath);
+                const content = fs.readFileSync(filePath, 'utf8');
+                try { destData = JSON.parse(content); } catch (_) {}
+            } catch (readErr) {
+                this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Failed to inspect destination metadata at ${filePath}: ${readErr.message}. Fail closed.`
+                );
+            }
+
+            const inoMatches = options.expectedIno ? destStat.ino === options.expectedIno : true;
+            const devMatches = options.expectedDev ? destStat.dev === options.expectedDev : true;
+            const tokenMatches = options.expectedToken
+                ? (destData && (destData.recoveryToken === options.expectedToken || destData.supervisorToken === options.expectedToken || destData.claimToken === options.expectedToken || destData.ownerToken === options.expectedToken))
+                : true;
+            const pidMatches = options.expectedPid ? (destData && destData.pid === options.expectedPid) : true;
+
+            if (!inoMatches || !devMatches || !tokenMatches || !pidMatches) {
+                // Destination coordinator was replaced by another worker!
+                // NEVER overwrite a replacement coordinator!
+                this._safeUnlink(tempPath, 'unmatched temporary metadata file');
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Destination ${filePath} has been superseded by a replacement coordinator (token/inode mismatch). Active replacement preserved. Fail closed.`
+                );
+            }
+
+            // Pre-check passed: atomic rename
+            try {
+                fs.renameSync(tempPath, filePath);
+            } catch (renameErr) {
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Failed to rename metadata temp file to destination (${filePath}): ${renameErr.message}. ` +
+                    `Artifact preserved at ${tempPath}. Fail closed.`
+                );
+            }
+        } else {
+            // Standard atomic rename publication
+            try {
+                fs.renameSync(tempPath, filePath);
+            } catch (renameErr) {
+                throw new Error(
+                    `[MIGRATION-004] SECURITY FATAL: Failed to rename metadata temp file to ${filePath}: ${renameErr.message}. ` +
+                    `Artifact preserved at ${tempPath}. Fail closed.`
+                );
+            }
+        }
+
+        // Fsync containing directory where supported (DEF-11.1)
+        this._fsyncDirectory(targetDir);
     }
 
     _isClaimRecoverySupervisorActive() {
@@ -440,10 +599,10 @@ export class DurableApprovalLedger {
             // Captured replacement supervisor! Restore via no-clobber linkSync
             try {
                 fs.linkSync(stagingPath, this.claimRecoverySupervisorPath);
-                try { fs.unlinkSync(stagingPath); } catch (_) {}
+                this._safeUnlink(stagingPath, 'restored replacement supervisor staging artifact');
             } catch (linkErr) {
                 if (linkErr.code === 'EEXIST') {
-                    try { fs.unlinkSync(stagingPath); } catch (_) {}
+                    this._safeUnlink(stagingPath, 'superseded dead supervisor staging artifact');
                 } else {
                     throw new Error(
                         `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber supervisor restoration. ` +
@@ -451,11 +610,13 @@ export class DurableApprovalLedger {
                     );
                 }
             }
+            this._fsyncDirectory(path.dirname(this.claimRecoverySupervisorPath));
             return false;
         }
 
         // Exact match confirmed: safe to unlink staging supervisor
-        try { fs.unlinkSync(stagingPath); } catch (_) {}
+        this._safeUnlink(stagingPath, 'verified dead supervisor staging artifact');
+        this._fsyncDirectory(path.dirname(this.claimRecoverySupervisorPath));
         return true;
     }
 
@@ -507,15 +668,15 @@ export class DurableApprovalLedger {
                 relData = JSON.parse(relContent);
             } catch (_) {}
             if (relStat.ino === stat.ino && relStat.dev === stat.dev && relData && relData.supervisorToken === supervisorToken) {
-                fs.unlinkSync(releasePath);
+                this._safeUnlink(releasePath, 'verified supervisor release artifact');
             } else {
                 // Captured replacement supervisor! Restore using linkSync
                 try {
                     fs.linkSync(releasePath, this.claimRecoverySupervisorPath);
-                    fs.unlinkSync(releasePath);
+                    this._safeUnlink(releasePath, 'restored replacement supervisor release artifact');
                 } catch (linkErr) {
                     if (linkErr.code === 'EEXIST') {
-                        try { fs.unlinkSync(releasePath); } catch (_) {}
+                        this._safeUnlink(releasePath, 'superseded supervisor release artifact');
                     } else {
                         throw new Error(
                             `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring replacement claim recovery supervisor during release. ` +
@@ -524,6 +685,7 @@ export class DurableApprovalLedger {
                     }
                 }
             }
+            this._fsyncDirectory(path.dirname(this.claimRecoverySupervisorPath));
         } catch (verifyErr) {
             if (verifyErr.message && verifyErr.message.startsWith('[MIGRATION-004] SECURITY FATAL')) {
                 throw verifyErr;
@@ -686,6 +848,7 @@ export class DurableApprovalLedger {
                 }
                 fs.fsyncSync(supFd);
                 supervisorAcquired = true;
+                this._fsyncDirectory(path.dirname(this.claimRecoverySupervisorPath));
             } finally {
                 fs.closeSync(supFd);
             }
@@ -757,10 +920,10 @@ export class DurableApprovalLedger {
                 // Captured replacement recovery lock! Restore via no-clobber linkSync
                 try {
                     fs.linkSync(stagingPath, this.claimRecoveryLockPath);
-                    try { fs.unlinkSync(stagingPath); } catch (_) {}
+                    this._safeUnlink(stagingPath, 'restored replacement recovery lock staging artifact');
                 } catch (linkErr) {
                     if (linkErr.code === 'EEXIST') {
-                        try { fs.unlinkSync(stagingPath); } catch (_) {}
+                        this._safeUnlink(stagingPath, 'superseded dead recovery lock staging artifact');
                     } else {
                         throw new Error(
                             `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) during no-clobber claim recovery lock restoration. ` +
@@ -768,6 +931,7 @@ export class DurableApprovalLedger {
                         );
                     }
                 }
+                this._fsyncDirectory(path.dirname(this.claimRecoveryLockPath));
                 return false;
             }
 
@@ -793,10 +957,10 @@ export class DurableApprovalLedger {
                         // It was a replacement live claim that got renamed! Restore it!
                         try {
                             fs.linkSync(inFlightPath, this.claimPath);
-                            try { fs.unlinkSync(inFlightPath); } catch (_) {}
+                            this._safeUnlink(inFlightPath, 'restored replacement in-flight claim artifact');
                         } catch (linkErr) {
                             if (linkErr.code === 'EEXIST') {
-                                try { fs.unlinkSync(inFlightPath); } catch (_) {}
+                                this._safeUnlink(inFlightPath, 'superseded in-flight claim artifact');
                             } else {
                                 throw new Error(
                                     `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring in-flight claim. ` +
@@ -806,16 +970,17 @@ export class DurableApprovalLedger {
                         }
                     } else {
                         // It was the dead claim: clean it up
-                        try { fs.unlinkSync(inFlightPath); } catch (_) {}
+                        this._safeUnlink(inFlightPath, 'verified dead in-flight claim artifact');
                     }
                 } else {
                     // this.claimPath already exists: clean up the staging inFlightPath
-                    try { fs.unlinkSync(inFlightPath); } catch (_) {}
+                    this._safeUnlink(inFlightPath, 'superseded in-flight claim artifact');
                 }
             }
 
             // Clean up our staging recovery lock file
-            try { fs.unlinkSync(stagingPath); } catch (_) {}
+            this._safeUnlink(stagingPath, 'verified dead recovery lock staging artifact');
+            this._fsyncDirectory(path.dirname(this.claimRecoveryLockPath));
             return true;
         } finally {
             if (supervisorAcquired) {
@@ -869,15 +1034,15 @@ export class DurableApprovalLedger {
             const relContent = fs.readFileSync(releasePath, 'utf8');
             const relData = JSON.parse(relContent);
             if (relStat.ino === stat.ino && relStat.dev === stat.dev && relData.recoveryToken === recoveryToken) {
-                fs.unlinkSync(releasePath);
+                this._safeUnlink(releasePath, 'verified claim recovery lock release artifact');
             } else {
                 // Captured replacement recovery lock! Restore using linkSync
                 try {
                     fs.linkSync(releasePath, this.claimRecoveryLockPath);
-                    fs.unlinkSync(releasePath);
+                    this._safeUnlink(releasePath, 'restored replacement claim recovery lock release artifact');
                 } catch (linkErr) {
                     if (linkErr.code === 'EEXIST') {
-                        try { fs.unlinkSync(releasePath); } catch (_) {}
+                        this._safeUnlink(releasePath, 'superseded claim recovery lock release artifact');
                     } else {
                         throw new Error(
                             `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring replacement claim recovery lock during release. ` +
@@ -886,6 +1051,7 @@ export class DurableApprovalLedger {
                     }
                 }
             }
+            this._fsyncDirectory(path.dirname(this.claimRecoveryLockPath));
         } catch (verifyErr) {
             if (verifyErr.message && verifyErr.message.startsWith('[MIGRATION-004] SECURITY FATAL')) {
                 throw verifyErr;
@@ -1002,6 +1168,7 @@ export class DurableApprovalLedger {
                 }
                 fs.fsyncSync(recFd);
                 recoveryLockAcquired = true;
+                this._fsyncDirectory(path.dirname(this.claimRecoveryLockPath));
             } finally {
                 fs.closeSync(recFd);
             }
@@ -1077,13 +1244,11 @@ export class DurableApprovalLedger {
                 // Restore using atomic no-clobber linkSync (DEF-07 & DEF-08)
                 try {
                     fs.linkSync(claimRecoveryPath, this.claimPath);
-                    try {
-                        fs.unlinkSync(claimRecoveryPath);
-                    } catch (_) {}
+                    this._safeUnlink(claimRecoveryPath, 'restored replacement claim recovery artifact');
                 } catch (linkErr) {
                     if (linkErr.code === 'EEXIST') {
                         // Replacement claim is safe at this.claimPath
-                        try { fs.unlinkSync(claimRecoveryPath); } catch (_) {}
+                        this._safeUnlink(claimRecoveryPath, 'superseded claim recovery artifact');
                     } else {
                         // Unexpected error: NEVER unlink! Preserve artifact and fail closed! (DEF-07)
                         throw new Error(
@@ -1092,19 +1257,13 @@ export class DurableApprovalLedger {
                         );
                     }
                 }
+                this._fsyncDirectory(path.dirname(this.claimPath));
                 return false;
             }
 
             // Exact dead claim verified: safe to unlink
-            try {
-                fs.unlinkSync(claimRecoveryPath);
-            } catch (unlinkErr) {
-                if (unlinkErr.code !== 'ENOENT') {
-                    throw new Error(
-                        `[MIGRATION-004] SECURITY FATAL: Failed to unlink verified dead claim at ${claimRecoveryPath}: ${unlinkErr.message}. Fail closed.`
-                    );
-                }
-            }
+            this._safeUnlink(claimRecoveryPath, 'verified dead claim recovery artifact');
+            this._fsyncDirectory(path.dirname(this.claimPath));
             return true;
         } finally {
             if (recoveryLockAcquired) {
@@ -1172,23 +1331,15 @@ export class DurableApprovalLedger {
                 relData = null;
             }
             if (relStat.ino === stat.ino && relStat.dev === stat.dev && relData && relData.claimToken === claimToken) {
-                try {
-                    fs.unlinkSync(claimReleasePath);
-                } catch (unlinkErr) {
-                    if (unlinkErr.code !== 'ENOENT') {
-                        throw new Error(
-                            `[MIGRATION-004] SECURITY FATAL: Failed to unlink claim release artifact at ${claimReleasePath}: ${unlinkErr.message}. Fail closed.`
-                        );
-                    }
-                }
+                this._safeUnlink(claimReleasePath, 'verified claim release artifact');
             } else {
                 // Captured replacement claim! Restore using linkSync (DEF-07 & DEF-08)
                 try {
                     fs.linkSync(claimReleasePath, this.claimPath);
-                    fs.unlinkSync(claimReleasePath);
+                    this._safeUnlink(claimReleasePath, 'restored replacement claim release artifact');
                 } catch (linkErr) {
                     if (linkErr.code === 'EEXIST') {
-                        try { fs.unlinkSync(claimReleasePath); } catch (_) {}
+                        this._safeUnlink(claimReleasePath, 'superseded claim release artifact');
                     } else {
                         throw new Error(
                             `[MIGRATION-004] SECURITY FATAL: Unexpected filesystem error (${linkErr.code || linkErr.message}) restoring replacement claim during release. ` +
@@ -1197,6 +1348,7 @@ export class DurableApprovalLedger {
                     }
                 }
             }
+            this._fsyncDirectory(path.dirname(this.claimPath));
         } catch (err) {
             if (err.message && err.message.startsWith('[MIGRATION-004] SECURITY FATAL')) {
                 throw err;
@@ -1277,6 +1429,7 @@ export class DurableApprovalLedger {
                     fs.closeSync(fd);
                 }
                 this.currentOwnerToken = ownerToken;
+                this._fsyncDirectory(path.dirname(this.lockPath));
                 return ownerToken;
             } catch (err) {
                 if (err.code === 'EEXIST') {
@@ -1372,6 +1525,7 @@ export class DurableApprovalLedger {
                 fs.writeSync(claimFd, JSON.stringify(claimData));
                 fs.fsyncSync(claimFd);
                 claimAcquired = true;
+                this._fsyncDirectory(path.dirname(this.claimPath));
             } finally {
                 fs.closeSync(claimFd);
             }
@@ -1446,21 +1600,11 @@ export class DurableApprovalLedger {
                 // Use atomic no-clobber publication (fs.linkSync) which fails with EEXIST if destination exists.
                 try {
                     fs.linkSync(recoveryPath, this.lockPath);
-                    // linkSync succeeded: destination now exists as a hard link.
-                    // Safe to unlink the staging copy.
-                    try {
-                        fs.unlinkSync(recoveryPath);
-                    } catch (unlinkErr) {
-                        // Destination lock is already published and intact at this.lockPath.
-                        // Staging link remains. Do NOT touch this.lockPath.
-                    }
+                    this._safeUnlink(recoveryPath, 'restored replacement lock staging artifact');
                 } catch (linkErr) {
                     if (linkErr.code === 'EEXIST') {
                         // Destination already exists: replacement lock is active and safe at this.lockPath.
-                        // Safe to unlink our staging copy since it was superseded.
-                        try {
-                            fs.unlinkSync(recoveryPath);
-                        } catch (_) {}
+                        this._safeUnlink(recoveryPath, 'superseded lock recovery staging artifact');
                     } else {
                         // DEF-07: Unexpected filesystem error (EPERM, EIO, EXDEV, ENOSPC, etc.)!
                         // NEVER unlink recoveryPath! It is the ONLY copy of the lock!
@@ -1471,14 +1615,13 @@ export class DurableApprovalLedger {
                         );
                     }
                 }
+                this._fsyncDirectory(path.dirname(this.lockPath));
                 return false;
             }
 
             // Verified exact dead instance: safe to unlink
-            try {
-                fs.unlinkSync(recoveryPath);
-            } catch (_) {}
-
+            this._safeUnlink(recoveryPath, 'verified dead lock staging artifact');
+            this._fsyncDirectory(path.dirname(this.lockPath));
             return true;
         } finally {
             if (claimAcquired) {
@@ -1545,22 +1688,16 @@ export class DurableApprovalLedger {
         }
 
         if (relStat.ino === inoToRelease && relStat.dev === devToRelease) {
-            try {
-                fs.unlinkSync(releasePath);
-            } catch (err) {
-                if (err.code === 'ENOENT') return;
-            }
+            this._safeUnlink(releasePath, 'verified lock release artifact');
         } else {
             // Captured a replacement lock! Restore using atomic no-clobber linkSync
             try {
                 fs.linkSync(releasePath, this.lockPath);
-                try {
-                    fs.unlinkSync(releasePath);
-                } catch (_) {}
+                this._safeUnlink(releasePath, 'restored replacement lock release artifact');
             } catch (linkErr) {
                 if (linkErr.code === 'EEXIST') {
                     // Replacement lock is active and safe at this.lockPath
-                    try { fs.unlinkSync(releasePath); } catch (_) {}
+                    this._safeUnlink(releasePath, 'superseded lock release artifact');
                 } else {
                     // DEF-07: Unexpected filesystem error (EPERM, EIO, EXDEV, ENOSPC, etc.)!
                     // NEVER unlink releasePath! It is the ONLY copy of the active replacement lock!
@@ -1572,6 +1709,7 @@ export class DurableApprovalLedger {
                 }
             }
         }
+        this._fsyncDirectory(path.dirname(this.lockPath));
     }
 
     _validateLedgerIntegrity() {
@@ -1667,6 +1805,7 @@ export class DurableApprovalLedger {
             }
 
             this._verifyFilePermissions(this.ledgerPath);
+            this._fsyncDirectory(path.dirname(this.ledgerPath));
             return record;
         } finally {
             this._releaseLock();
