@@ -1458,12 +1458,9 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
         if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
 
-        // Ensure active canonical policy exists and clear MongoDB collections for HSVP
+        // Ensure active canonical policy exists and clear authority-global MongoDB collections for HSVP
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
         await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
-        await PropertyVerificationSnapshot.deleteMany({ authorityCode });
-        await PropertyVerificationRunItem.deleteMany({ authorityCode });
-        await PropertyAuthorityLink.deleteMany({ authorityCode });
         const auditLogId15 = new mongoose.Types.ObjectId();
         const canonicalPolicyDoc = await AuthorityCanonicalPolicy.create({
             authorityCode,
