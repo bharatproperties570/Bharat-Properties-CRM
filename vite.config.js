@@ -22,6 +22,8 @@ export default defineConfig(({ mode }) => {
         },
         define: {
             // This ensures process.env is available for both Vite and Metro
+            'process.env.VITE_API_URL': JSON.stringify(env.VITE_API_URL || ''),
+            'process.env.NODE_ENV': JSON.stringify(mode || 'development'),
             'process.env': env
         },
         optimizeDeps: {

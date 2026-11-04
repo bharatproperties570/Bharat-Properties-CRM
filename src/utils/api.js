@@ -4,33 +4,24 @@ import toast from 'react-hot-toast';
 // 🛡️ Senior Implementation: Environment Variable Safety
 // Preserves Vite production build static replacement, React Native / Expo, Node, and browser window injection.
 export const getEnvVar = (name) => {
-    // Priority 1: import.meta.env (Vite standard compile-time & runtime)
-    try {
-        if (name === 'VITE_API_URL') {
-            const val = import.meta.env?.VITE_API_URL;
-            if (typeof val !== 'undefined' && val !== '') return val;
-        }
-        if (name === 'PROD') {
-            const val = import.meta.env?.PROD;
-            if (typeof val !== 'undefined') return val;
-        }
-        if (typeof import.meta !== 'undefined' && import.meta.env) {
-            const val = import.meta.env[name];
-            if (typeof val !== 'undefined' && val !== '') return val;
-        }
-    } catch (_) {
-        // Safe fallback for bundlers/runtimes where import.meta is unavailable
-    }
-
-    // Priority 2: process.env (Node / Expo / Metro / React Native / Vitest)
+    // Priority 1: process.env (Vite compile-time replacement & Metro/Expo/Hermes & Node & Vitest)
+    // Avoids literal import.meta to prevent Hermes AST syntax errors during React Native bundling.
     try {
         if (typeof process !== 'undefined' && process && process.env) {
+            if (name === 'VITE_API_URL') {
+                const val = process.env.VITE_API_URL || process.env.EXPO_PUBLIC_API_URL;
+                if (typeof val !== 'undefined' && val !== '') return val;
+            }
+            if (name === 'PROD') {
+                const val = process.env.NODE_ENV === 'production';
+                return val;
+            }
             const val = process.env[name];
             if (typeof val !== 'undefined' && val !== '') return val;
         }
     } catch (_) {}
 
-    // Priority 3: window._env_ (runtime container / preview injection)
+    // Priority 2: window._env_ (runtime container / preview injection)
     try {
         if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined && window._env_[name] !== '') {
             return window._env_[name];
