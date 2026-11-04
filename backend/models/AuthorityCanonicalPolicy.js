@@ -102,7 +102,7 @@ const AuthorityCanonicalPolicySchema = new mongoose.Schema({
     },
     redisSyncStatus: {
         type: String,
-        enum: ['PENDING', 'SYNCED', 'FAILED'],
+        enum: ['PENDING', 'SYNCED', 'FAILED', 'PENDING_RECONCILIATION'],
         default: 'PENDING',
         index: true
     },
@@ -116,13 +116,13 @@ const AuthorityCanonicalPolicySchema = new mongoose.Schema({
     },
     isAudited: {
         type: Boolean,
-        default: true,
+        default: false,
         index: true
     },
     auditStatus: {
         type: String,
         enum: ['PENDING', 'AUDITED', 'FAILED'],
-        default: 'AUDITED',
+        default: 'PENDING',
         index: true
     },
     auditLogId: {
@@ -132,7 +132,8 @@ const AuthorityCanonicalPolicySchema = new mongoose.Schema({
     },
     isActive: {
         type: Boolean,
-        default: true
+        default: false,
+        index: true
     }
 }, {
     timestamps: true,

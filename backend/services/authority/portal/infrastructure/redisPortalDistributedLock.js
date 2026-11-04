@@ -150,11 +150,15 @@ export class RedisPortalDistributedLock {
                         });
                     }
 
+                    let renewalTicks = 0;
                     return Object.freeze({
                         acquired: true,
                         token: lockToken,
                         fenceToken: Number(fenceToken),
                         ttlMs: Number(ttlMs) || 30000,
+                        get renewalTicks() {
+                            return renewalTicks;
+                        },
                         renew: async (additionalTtlMs = ttlMs) => {
                             try {
                                 const renewScript = `
@@ -166,11 +170,16 @@ export class RedisPortalDistributedLock {
                                 `;
                                 if (typeof this.redisClient.eval === 'function') {
                                     const res = await this.redisClient.eval(renewScript, 1, lockKey, lockToken, additionalTtlMs);
-                                    return Number(res) === 1;
+                                    if (Number(res) === 1) {
+                                        renewalTicks++;
+                                        return true;
+                                    }
+                                    return false;
                                 } else {
                                     const current = await this.redisClient.get(lockKey);
                                     if (current === lockToken) {
                                         await this.redisClient.set(lockKey, lockToken, 'PX', additionalTtlMs);
+                                        renewalTicks++;
                                         return true;
                                     }
                                     return false;
@@ -246,16 +255,21 @@ export class RedisPortalDistributedLock {
 
         const fenceToken = this._nextSequence(seqKey);
 
+        let localRenewalTicks = 0;
         return Object.freeze({
             acquired: true,
             token: lockToken,
             fenceToken: Number(fenceToken),
             ttlMs: Number(ttlMs) || 30000,
+            get renewalTicks() {
+                return localRenewalTicks;
+            },
             renew: async (additionalTtlMs = ttlMs) => {
                 const entries = this._localLocks.get(activeKey) || [];
                 const target = entries.find(e => e.token === lockToken && e.expiresAt > Date.now());
                 if (target) {
                     target.expiresAt = Date.now() + additionalTtlMs;
+                    localRenewalTicks++;
                     return true;
                 }
                 return false;

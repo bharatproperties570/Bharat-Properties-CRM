@@ -59,6 +59,8 @@ export function createConfiguredPortalRuntime(options = {}) {
         auditSink,
         lockTtlMs: options.lockTtlMs,
         renewalIntervalMs: options.renewalIntervalMs,
+        disableHeartbeat: options.disableHeartbeat,
+        onRenewTick: options.onRenewTick,
         fenceWatermarkStore: options.fenceWatermarkStore,
         gateConfig: options.gateConfig || {
             enabled: true,

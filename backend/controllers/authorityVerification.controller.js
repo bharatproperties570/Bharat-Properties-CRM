@@ -24,6 +24,7 @@ import {
     registerOrRotateCanonicalPolicy,
     getCanonicalPolicy,
     syncCanonicalPolicyToRedis,
+    publishCanonicalPolicyToRedis,
     markCanonicalPolicyAudited,
     markCanonicalPolicyAuditFailed
 } from '../services/authority/portal/canonicalPolicyService.js';
@@ -776,8 +777,8 @@ export const rotateCanonicalPolicy = async (req, res) => {
             });
         }
 
-        // Validate reviewer authorization using the established canonical approval right model
-        const isAuthorizedReviewer = await hasApprovalRight(reviewerUser, 'approveAuthorityChanges');
+        // Validate reviewer authorization using the established canonical approval right model with fresh evaluation (Finding P1-B)
+        const isAuthorizedReviewer = await hasApprovalRight(reviewerUser, 'approveAuthorityChanges', { skipCache: true });
         if (!isAuthorizedReviewer) {
             return res.status(403).json({
                 success: false,
@@ -795,6 +796,7 @@ export const rotateCanonicalPolicy = async (req, res) => {
         } catch {}
 
         const existing = await AuthorityCanonicalPolicy.findOne({ authorityCode: code });
+        const previousDoc = existing ? existing.toObject() : null;
         const previousVersion = existing?.version || 0;
         const previousContentHash = existing?.contentHash || null;
 
@@ -817,6 +819,7 @@ export const rotateCanonicalPolicy = async (req, res) => {
 
         let savedDoc;
         try {
+            // P1-A & P2-C: Persists policy as pending and un-audited; quotaProvider is NOT passed here so Redis is untouched
             savedDoc = await registerOrRotateCanonicalPolicy({
                 authorityCode: code,
                 policy,
@@ -828,7 +831,6 @@ export const rotateCanonicalPolicy = async (req, res) => {
                 approverName: approverUser.fullName || approverUser.name || 'Approver',
                 policyVersion,
                 expectedPreviousVersion,
-                quotaProvider,
                 session: useTransaction ? session : null
             });
         } catch (serviceErr) {
@@ -873,7 +875,7 @@ export const rotateCanonicalPolicy = async (req, res) => {
             },
             ipAddress: req.ip,
             userAgent: req.get('user-agent'),
-            status: savedDoc.redisSyncStatus === 'FAILED' ? 'warning' : 'success'
+            status: 'success'
         };
 
         try {
@@ -884,19 +886,27 @@ export const rotateCanonicalPolicy = async (req, res) => {
                 await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id, session });
                 await session.commitTransaction();
                 await session.endSession();
+                useTransaction = false;
             } else {
                 auditLogEntry = await AuditLog.create(auditPayload);
                 await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id });
             }
             savedDoc.isAudited = true;
             savedDoc.auditStatus = 'AUDITED';
+            savedDoc.isActive = true;
+            savedDoc.auditLogId = auditLogEntry._id;
         } catch (auditErr) {
             console.error('Failed to log audit event for canonical policy rotation:', auditErr);
             if (useTransaction) {
                 try { await session.abortTransaction(); await session.endSession(); } catch {}
             } else {
                 try {
-                    await markCanonicalPolicyAuditFailed({ policyId: savedDoc._id });
+                    if (previousDoc) {
+                        delete previousDoc._id;
+                        await AuthorityCanonicalPolicy.findOneAndReplace({ authorityCode: code }, previousDoc);
+                    } else {
+                        await markCanonicalPolicyAuditFailed({ policyId: savedDoc._id });
+                    }
                 } catch {}
             }
             return res.status(500).json({
@@ -904,6 +914,23 @@ export const rotateCanonicalPolicy = async (req, res) => {
                 code: 'AUDIT_PERSISTENCE_FAILED',
                 message: `Mandatory audit persistence failed; canonical policy was disabled: ${auditErr.message}`
             });
+        }
+
+        // P2-C: Publish committed and audited policy to Redis AFTER Mongo commit
+        if (quotaProvider) {
+            try {
+                const pubResult = await publishCanonicalPolicyToRedis({
+                    authorityCode: code,
+                    quotaProvider,
+                    policyDoc: savedDoc
+                });
+                savedDoc.redisSyncStatus = pubResult.redisSyncStatus;
+                savedDoc.redisSyncError = pubResult.reason || null;
+                savedDoc.lastSyncedAt = pubResult.policy?.lastSyncedAt || new Date();
+            } catch (pubErr) {
+                savedDoc.redisSyncStatus = 'FAILED';
+                savedDoc.redisSyncError = pubErr.message;
+            }
         }
 
         const statusCode = savedDoc.redisSyncStatus === 'FAILED' ? 202 : 200;
@@ -943,62 +970,135 @@ export const syncCanonicalPolicy = async (req, res) => {
             return res.status(503).json({ success: false, message: 'Redis quota provider unavailable' });
         }
 
-        const result = await syncCanonicalPolicyToRedis({ authorityCode: code, quotaProvider });
-        if (!result.success) {
-            try {
-                await AuditLog.create({
-                    eventType: 'canonical_policy_synced',
-                    targetType: 'authority_canonical_policy',
-                    targetId: result.policy?._id,
-                    userId: req.user?._id,
-                    userName: req.user?.fullName || req.user?.name || 'Admin',
-                    userEmail: req.user?.email || null,
-                    description: `Failed to synchronize canonical policy for authority ${code} to Redis: ${result.reason}`,
-                    metadata: {
-                        authorityCode: code,
-                        version: result.policy?.version,
-                        redisSyncStatus: 'FAILED',
-                        reason: result.reason
-                    },
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                    status: 'failure'
-                });
-            } catch (auditErr) {
-                console.error('Failed to log audit event for canonical policy sync failure:', auditErr);
-            }
-            return res.status(502).json({ success: false, message: 'Failed to synchronize canonical policy to Redis', reason: result.reason });
+        const policyDoc = await getCanonicalPolicy(code);
+        if (!policyDoc) {
+            return res.status(404).json({ success: false, message: `No active, valid canonical policy found for authority ${code}.` });
         }
 
+        // P2-D Step 1: Persist durable audit intent BEFORE initiating Redis sync
+        let auditIntent;
         try {
-            await AuditLog.create({
+            auditIntent = await AuditLog.create({
                 eventType: 'canonical_policy_synced',
                 targetType: 'authority_canonical_policy',
-                targetId: result.policy?._id,
+                targetId: policyDoc._id,
                 userId: req.user?._id,
                 userName: req.user?.fullName || req.user?.name || 'Admin',
                 userEmail: req.user?.email || null,
-                description: `Synchronized canonical policy for authority ${code} to Redis (version ${result.policy.version})`,
+                description: `Manual sync initiated for authority ${code} to Redis (version ${policyDoc.version})`,
                 metadata: {
                     authorityCode: code,
-                    version: result.policy.version,
-                    contentHash: result.policy.contentHash,
-                    redisSyncStatus: 'SYNCED'
+                    version: policyDoc.version,
+                    contentHash: policyDoc.contentHash,
+                    redisSyncStatus: 'PENDING',
+                    syncPhase: 'INTENT'
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('user-agent'),
-                status: 'success'
+                status: 'warning'
             });
-        } catch (auditErr) {
-            console.error('Failed to log audit event for canonical policy sync:', auditErr);
+        } catch (intentErr) {
+            console.error('Failed to persist audit intent before canonical policy sync:', intentErr);
             return res.status(500).json({
                 success: false,
                 code: 'AUDIT_PERSISTENCE_FAILED',
-                message: `Canonical policy was synced to Redis but mandatory audit persistence failed: ${auditErr.message}`
+                message: `Failed to persist mandatory audit intent before Redis sync: ${intentErr.message}`
             });
         }
 
-        res.json({ success: true, data: result.policy });
+        // P2-D Step 2: Now that audit intent is durably recorded, publish to Redis
+        let syncSuccess = false;
+        let syncError = null;
+        try {
+            await quotaProvider.setCanonicalPolicy({
+                authorityCode: code,
+                policy: {
+                    policyReference: policyDoc.policyReference,
+                    minIntervalMs: policyDoc.minIntervalMs,
+                    maxRequestsPerMinute: policyDoc.maxRequestsPerMinute,
+                    maxRequestsPerHour: policyDoc.maxRequestsPerHour,
+                    maxRequestsPerDay: policyDoc.maxRequestsPerDay,
+                    contentHash: policyDoc.contentHash
+                },
+                approvedBy: policyDoc.approvedBy,
+                policyVersion: policyDoc.version
+            });
+            syncSuccess = true;
+        } catch (err) {
+            syncSuccess = false;
+            syncError = err;
+        }
+
+        // P2-D Step 3: Update audit intent and policy record
+        if (syncSuccess) {
+            try {
+                await AuditLog.findByIdAndUpdate(auditIntent._id, {
+                    $set: {
+                        status: 'success',
+                        description: `Synchronized canonical policy for authority ${code} to Redis (version ${policyDoc.version})`,
+                        'metadata.redisSyncStatus': 'SYNCED',
+                        'metadata.syncPhase': 'COMPLETED',
+                        'metadata.syncedAt': new Date()
+                    }
+                });
+            } catch (auditUpdateErr) {
+                // If post-write audit confirmation fails, mark policy as PENDING_RECONCILIATION
+                console.error('Failed to update audit log after Redis sync:', auditUpdateErr);
+                policyDoc.redisSyncStatus = 'PENDING_RECONCILIATION';
+                policyDoc.redisSyncError = `Redis synced but audit status update failed: ${auditUpdateErr.message}`;
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: policyDoc._id },
+                    {
+                        $set: {
+                            redisSyncStatus: 'PENDING_RECONCILIATION',
+                            redisSyncError: policyDoc.redisSyncError
+                        }
+                    }
+                );
+                return res.status(500).json({
+                    success: false,
+                    code: 'AUDIT_UPDATE_FAILED',
+                    message: `Policy synced to Redis but audit status update failed; policy marked PENDING_RECONCILIATION: ${auditUpdateErr.message}`
+                });
+            }
+
+            policyDoc.redisSyncStatus = 'SYNCED';
+            policyDoc.redisSyncError = null;
+            policyDoc.lastSyncedAt = new Date();
+            await AuthorityCanonicalPolicy.updateOne(
+                { _id: policyDoc._id },
+                { $set: { redisSyncStatus: 'SYNCED', redisSyncError: null, lastSyncedAt: policyDoc.lastSyncedAt } }
+            );
+
+            return res.json({ success: true, data: policyDoc });
+        } else {
+            try {
+                await AuditLog.findByIdAndUpdate(auditIntent._id, {
+                    $set: {
+                        status: 'failure',
+                        description: `Failed to synchronize canonical policy for authority ${code} to Redis: ${syncError.message}`,
+                        'metadata.redisSyncStatus': 'FAILED',
+                        'metadata.syncPhase': 'FAILED',
+                        'metadata.reason': syncError.message
+                    }
+                });
+            } catch (auditUpdateErr) {
+                console.error('Failed to update audit log after Redis sync failure:', auditUpdateErr);
+            }
+
+            policyDoc.redisSyncStatus = 'FAILED';
+            policyDoc.redisSyncError = syncError.message;
+            await AuthorityCanonicalPolicy.updateOne(
+                { _id: policyDoc._id },
+                { $set: { redisSyncStatus: 'FAILED', redisSyncError: syncError.message } }
+            );
+
+            return res.status(502).json({
+                success: false,
+                message: 'Failed to synchronize canonical policy to Redis',
+                reason: syncError.message
+            });
+        }
     } catch (error) {
         console.error('syncCanonicalPolicy error:', error);
         res.status(500).json({ success: false, message: 'Failed to sync canonical policy' });

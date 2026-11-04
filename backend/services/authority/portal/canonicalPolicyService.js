@@ -52,8 +52,8 @@ export async function registerOrRotateCanonicalPolicy({
     expectedPreviousVersion = null,
     quotaProvider = null,
     session = null,
-    isAudited = true,
-    auditStatus = 'AUDITED',
+    isAudited = false,
+    auditStatus = 'PENDING',
     auditLogId = null
 } = {}) {
     const code = String(authorityCode || '').trim().toUpperCase();
@@ -201,10 +201,11 @@ export async function registerOrRotateCanonicalPolicy({
         redisSyncStatus: 'PENDING',
         redisSyncError: null,
         lastSyncedAt: null,
-        isAudited: isAudited ?? true,
-        auditStatus: auditStatus ?? 'AUDITED',
-        auditLogId: auditLogId || null,
-        isActive: true,
+        // P1-A: Policy creation/rotation strictly starts un-audited and inactive unless a valid durable auditLogId is explicitly provided
+        isAudited: Boolean(isAudited && auditLogId),
+        auditStatus: (isAudited && auditLogId) ? (auditStatus === 'AUDITED' ? 'AUDITED' : 'PENDING') : 'PENDING',
+        auditLogId: (isAudited && auditLogId) ? auditLogId : null,
+        isActive: Boolean(isAudited && auditLogId),
         updatedAt: new Date()
     };
 
@@ -223,41 +224,8 @@ export async function registerOrRotateCanonicalPolicy({
         savedDoc = docs[0];
     }
 
-    // Synchronize to Redis quota provider if supplied
-    if (quotaProvider && typeof quotaProvider.setCanonicalPolicy === 'function') {
-        try {
-            await quotaProvider.setCanonicalPolicy({
-                authorityCode: code,
-                policy: {
-                    policyReference: ref,
-                    minIntervalMs,
-                    maxRequestsPerMinute,
-                    maxRequestsPerHour,
-                    maxRequestsPerDay,
-                    contentHash
-                },
-                approvedBy: approver,
-                policyVersion: nextVersion
-            });
-            savedDoc.redisSyncStatus = 'SYNCED';
-            savedDoc.lastSyncedAt = new Date();
-            savedDoc.redisSyncError = null;
-        } catch (syncErr) {
-            savedDoc.redisSyncStatus = 'FAILED';
-            savedDoc.redisSyncError = syncErr.message;
-        }
-
-        await AuthorityCanonicalPolicy.updateOne(
-            { _id: savedDoc._id },
-            {
-                $set: {
-                    redisSyncStatus: savedDoc.redisSyncStatus,
-                    lastSyncedAt: savedDoc.lastSyncedAt,
-                    redisSyncError: savedDoc.redisSyncError
-                }
-            }
-        );
-    }
+    // P2-C: Redis publication is strictly decoupled from Mongo policy creation/rotation.
+    // The controller or caller must invoke publishCanonicalPolicyToRedis only after durable Mongo commit and audit.
 
     return savedDoc;
 }
@@ -310,7 +278,7 @@ export async function syncCanonicalPolicyToRedis({ authorityCode, quotaProvider,
 }
 
 /**
- * Marks a newly rotated canonical policy as audited after durable AuditLog creation.
+ * Marks a newly rotated canonical policy as audited and active after durable AuditLog creation.
  */
 export async function markCanonicalPolicyAudited({ policyId, auditLogId = null, session = null } = {}) {
     return await AuthorityCanonicalPolicy.findByIdAndUpdate(
@@ -319,11 +287,70 @@ export async function markCanonicalPolicyAudited({ policyId, auditLogId = null, 
             $set: {
                 isAudited: true,
                 auditStatus: 'AUDITED',
+                isActive: true,
                 auditLogId: auditLogId || null
             }
         },
         { new: true, session }
     );
+}
+
+/**
+ * Publishes an audited, committed canonical policy to Redis quota provider.
+ * Strictly separates Redis publication from Mongo persistence/audit.
+ *
+ * @param {object} params
+ * @param {string} params.authorityCode
+ * @param {object} params.quotaProvider
+ * @param {object} [params.policyDoc]
+ * @param {object} [params.session]
+ * @returns {Promise<{ success: boolean, redisSyncStatus: string, reason?: string, policy: object }>}
+ */
+export async function publishCanonicalPolicyToRedis({ authorityCode, quotaProvider, policyDoc = null, session = null } = {}) {
+    const code = String(authorityCode || '').trim().toUpperCase();
+    if (!quotaProvider || typeof quotaProvider.setCanonicalPolicy !== 'function') {
+        throw new CanonicalPolicyError('NO_QUOTA_PROVIDER', 'Valid quota provider is required for Redis publication.');
+    }
+
+    const doc = policyDoc || await getCanonicalPolicy(code, { session });
+    if (!doc) {
+        throw new CanonicalPolicyError('CANONICAL_POLICY_NOT_FOUND', `No active, valid audited canonical policy found for authority ${code}.`);
+    }
+
+    try {
+        await quotaProvider.setCanonicalPolicy({
+            authorityCode: code,
+            policy: {
+                policyReference: doc.policyReference,
+                minIntervalMs: doc.minIntervalMs,
+                maxRequestsPerMinute: doc.maxRequestsPerMinute,
+                maxRequestsPerHour: doc.maxRequestsPerHour,
+                maxRequestsPerDay: doc.maxRequestsPerDay,
+                contentHash: doc.contentHash
+            },
+            approvedBy: doc.approvedBy,
+            policyVersion: doc.version
+        });
+
+        doc.redisSyncStatus = 'SYNCED';
+        doc.redisSyncError = null;
+        doc.lastSyncedAt = new Date();
+        await AuthorityCanonicalPolicy.updateOne(
+            { _id: doc._id },
+            { $set: { redisSyncStatus: 'SYNCED', redisSyncError: null, lastSyncedAt: doc.lastSyncedAt } },
+            { session }
+        );
+        return { success: true, redisSyncStatus: 'SYNCED', policy: doc };
+    } catch (syncErr) {
+        doc.redisSyncStatus = 'FAILED';
+        doc.redisSyncError = syncErr.message;
+        await AuthorityCanonicalPolicy.updateOne(
+            { _id: doc._id },
+            { $set: { redisSyncStatus: 'FAILED', redisSyncError: syncErr.message } },
+            { session }
+        );
+        return { success: false, redisSyncStatus: 'FAILED', reason: syncErr.message, policy: doc };
+    }
 }
 
 /**

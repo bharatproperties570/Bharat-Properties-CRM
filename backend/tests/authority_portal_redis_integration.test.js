@@ -1320,13 +1320,14 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             }
         };
 
-        // Create configured portal runtime for Worker A with injectable short lock TTL and renewal interval
+        // P2-E Natural Expiry Scenario: Configured portal runtime with disableHeartbeat: true and short lock TTL (300ms).
+        // Worker A delays beyond TTL without deleting the key manually, allowing natural Redis expiry.
         const configuredRuntimeA = createConfiguredPortalRuntime({
             redisClient,
             transport: fakeOfflineTransport,
             testMode: false,
-            lockTtlMs: 400,
-            renewalIntervalMs: 120
+            lockTtlMs: 300,
+            disableHeartbeat: true
         });
 
         let persistenceHookFired = false;
@@ -1342,20 +1343,18 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             canonicalPolicy: canonicalPolicyDoc,
             beforeTransactionCommit: async ({ candidate }) => {
                 persistenceHookFired = true;
-                // Deliberately delay persistence across renewal interval (180ms > 120ms tick)
-                await new Promise((r) => setTimeout(r, 180));
+                // Wait beyond the 300ms TTL (450ms) WITHOUT deleting the key manually.
+                // Because heartbeat was disabled, Redis naturally expires the lock.
+                await new Promise((r) => setTimeout(r, 450));
 
-                // Force-release worker A's Redis lock key so worker B can acquire
-                await redisClient.del(`portal_lock:${authorityCode}`);
-
-                // Worker B acquires the exact same authority distributed lock using real Redis
+                // Worker B acquires the exact same authority distributed lock naturally in real Redis
                 const lockProviderB = new RedisPortalDistributedLock(redisClient, { testMode: false });
                 const leaseB = await lockProviderB.acquire({
                     authorityCode,
                     maxConcurrent: 1,
                     ttlMs: 30000
                 });
-                assert.equal(leaseB.acquired, true, 'Worker B must acquire lock in real Redis');
+                assert.equal(leaseB.acquired, true, 'Worker B must acquire lock after Worker A lease naturally expires');
                 assert.ok(leaseB.fenceToken > (candidate.fenceToken || 1), 'Worker B must produce a higher real Redis fence sequence');
 
                 // Worker B records its issued fence token into AuthorityGlobalFenceWatermark
@@ -1370,7 +1369,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         });
 
         assert.equal(persistenceHookFired, true, 'Persistence hook must have executed');
-        assert.equal(leaseStolen, true, 'Lease must have been stolen by worker B during persistence');
+        assert.equal(leaseStolen, true, 'Lease must have been stolen by worker B after natural expiry');
         assert.equal(liveNetworkCalls, 1, 'Worker A fake offline transport must have been called');
 
         // Verify fail-closed abortion for Worker A: no snapshot in MongoDB, runItem marked FAILED
@@ -1429,52 +1428,157 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
     });
 
     await t.test('15. Legitimate heartbeat renewal keeps lock alive across intervals and blocks competing worker', async (t15) => {
+        if (!isRedisAvailable) {
+            t15.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
+            return;
+        }
+
         const authorityCode = 'HSVP';
         const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
         if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
 
-        // Worker A acquires lock with 300ms TTL and 100ms renewal interval
-        const lockProviderA = new RedisPortalDistributedLock(redisClient, { testMode: false });
-        const leaseA = await lockProviderA.acquire({
+        // Ensure active canonical policy exists
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        const canonicalPolicyDoc = await AuthorityCanonicalPolicy.create({
             authorityCode,
+            policyReference: 'HSVP/CANONICAL/RENEWAL/01',
+            version: 1,
+            contentHash: 'hash-renewal-e2e',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 20,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
             maxConcurrent: 1,
-            ttlMs: 300
+            effectiveFrom: new Date(Date.now() - 60000),
+            expiresAt: new Date(Date.now() + 86400000),
+            reviewedBy: 'reviewer-user-renew',
+            approvedBy: 'approver-user-renew',
+            isAudited: true,
+            auditStatus: 'AUDITED',
+            isActive: true,
+            redisSyncStatus: 'SYNCED'
         });
-        assert.equal(leaseA.acquired, true, 'Worker A acquires initial lock');
 
-        // Start active renewal interval (tick every 100ms)
-        let renewalTicks = 0;
-        const renewalTimer = setInterval(async () => {
-            const renewed = await leaseA.renew(300);
-            if (renewed) renewalTicks++;
-        }, 100);
+        // Ensure authority source settings are approved
+        await AuthoritySourceSettings.deleteMany({ authorityCode });
+        await AuthoritySourceSettings.create({
+            tenantId,
+            authorityCode,
+            permissionStatus: 'NOT_OBTAINED',
+            reviewStatus: 'APPROVED',
+            isEnabled: false,
+            schedulingEnabled: false,
+            submittedBy: new mongoose.Types.ObjectId(),
+            approvedBy: new mongoose.Types.ObjectId(),
+            approvedAt: new Date(),
+            approvalReference: 'HSVP-WRITTEN-RENEW-01',
+            approvalExpiryDate: new Date(Date.now() + 86400000),
+            ratePolicy: {
+                minIntervalMs: 15000,
+                maxRequestsPerMinute: 20,
+                maxRequestsPerHour: 100,
+                maxRequestsPerDay: 500,
+                maxConcurrent: 1
+            },
+            permittedFields: ['allotmentNumber', 'urbanEstate', 'sector', 'plotNumber']
+        });
 
-        // Sleep 250ms — without renewal, a 300ms lock would be on the verge of expiring or expired.
-        // With renewal, it crosses at least 2 heartbeat renewal ticks.
-        await new Promise((r) => setTimeout(r, 250));
-        clearInterval(renewalTimer);
-        assert.ok(renewalTicks >= 1, `Heartbeat must have executed at least 1 renewal tick (actual: ${renewalTicks})`);
+        const inv = await Inventory.create({
+            tenantId,
+            title: 'Plot 777 Sector 14 Panchkula',
+            propertyType: 'PLOT',
+            authorityDetails: {
+                authority: 'HSVP',
+                urbanEstate: 'Panchkula',
+                sector: '14',
+                plotNumber: '777'
+            }
+        });
 
-        // Worker B attempts to acquire while A's lock was kept alive
+        const link = await PropertyAuthorityLink.create({
+            tenantId,
+            inventoryId: inv._id,
+            authorityCode,
+            status: 'ACTIVE',
+            authorityReference: 'HSVP-LINK-RENEW-777',
+            extractedFields: {}
+        });
+
+        const runItem = await PropertyVerificationRunItem.create({
+            tenantId,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: inv._id,
+            linkId: link._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-offline-heartbeat-A',
+            workerClaimToken: 'claim-token-heartbeat-A',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        let renewalTicksObserved = 0;
+        let workerBBlockedDuringHeartbeat = false;
+        let observedLeaseFromRuntime = null;
+
+        // P2-E 1 & 3: Configured runtime with real Redis, short TTL (400ms), renewalInterval (100ms)
+        const configuredRuntimeA = createConfiguredPortalRuntime({
+            redisClient,
+            transport: fakeOfflineTransport,
+            testMode: false,
+            lockTtlMs: 400,
+            renewalIntervalMs: 100,
+            onRenewTick: (lease) => {
+                renewalTicksObserved++;
+                observedLeaseFromRuntime = lease;
+            }
+        });
+
+        // Worker A processes item with delayed persistence spanning at least two TTL windows (850ms > 2 * 400ms)
+        const resA = await AuthorityBulkProcessor.processItem(runItem, {
+            tenantId,
+            workerId: 'worker-offline-heartbeat-A',
+            claimToken: 'claim-token-heartbeat-A',
+            isFixtureMode: false,
+            portalRuntime: configuredRuntimeA,
+            canonicalPolicy: canonicalPolicyDoc,
+            beforeTransactionCommit: async () => {
+                // At 500ms (> 400ms initial TTL), verify Worker B is blocked by A's active heartbeat lease
+                await new Promise((r) => setTimeout(r, 500));
+                const lockProviderB = new RedisPortalDistributedLock(redisClient, { testMode: false });
+                const leaseBAttempt = await lockProviderB.acquire({
+                    authorityCode,
+                    maxConcurrent: 1,
+                    ttlMs: 400
+                });
+                workerBBlockedDuringHeartbeat = (leaseBAttempt.acquired === false);
+
+                // Delay another 350ms to cross more renewal intervals (total 850ms)
+                await new Promise((r) => setTimeout(r, 350));
+            }
+        });
+
+        assert.equal(resA.success, true, 'Worker A must commit successfully under active heartbeat renewal');
+        assert.equal(workerBBlockedDuringHeartbeat, true, 'Worker B must remain blocked across TTL windows by Worker A heartbeat');
+
+        // P2-E 3: Assert renewalTicks >= 2 from runtime-owned heartbeat
+        const ticks = observedLeaseFromRuntime?.renewalTicks || renewalTicksObserved;
+        assert.ok(ticks >= 2, `Heartbeat must have executed at least 2 runtime-owned renewal ticks (observed: ${ticks})`);
+
+        const finalItemA = await PropertyVerificationRunItem.findById(runItem._id);
+        assert.equal(finalItemA.status, 'SUCCEEDED');
+
+        const snapCountA = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+        assert.equal(snapCountA, 1, 'Worker A must commit exactly 1 snapshot under active renewal');
+
+        // Worker B can now acquire cleanly after Worker A releases
         const lockProviderB = new RedisPortalDistributedLock(redisClient, { testMode: false });
         const leaseB = await lockProviderB.acquire({
             authorityCode,
             maxConcurrent: 1,
-            ttlMs: 300
+            ttlMs: 400
         });
-        assert.equal(leaseB.acquired, false, 'Worker B must be blocked by Worker A active lease');
-
-        // Worker A releases lock
-        await leaseA.release();
-
-        // Worker B can now acquire cleanly
-        const leaseBAfterRelease = await lockProviderB.acquire({
-            authorityCode,
-            maxConcurrent: 1,
-            ttlMs: 300
-        });
-        assert.equal(leaseBAfterRelease.acquired, true, 'Worker B acquires successfully after Worker A releases');
-        await leaseBAfterRelease.release();
+        assert.equal(leaseB.acquired, true, 'Worker B acquires successfully after Worker A releases');
+        await leaseB.release();
 
         // Final cleanup
         const remainingKeys = await redisClient.keys(`*${authorityCode}*`);

@@ -92,6 +92,8 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
         auditSink,
         lockTtlMs = 30000,
         renewalIntervalMs = null,
+        disableHeartbeat = false,
+        onRenewTick = null,
         fenceWatermarkStore = AuthorityGlobalFenceWatermark,
         gateConfig = DEFAULT_APPROVAL_GATE_CONFIG,
         clock = () => new Date()
@@ -248,14 +250,20 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                     });
                 }
 
-                if (typeof lease.renew === 'function') {
+                const shouldDisableHeartbeat = Boolean(overrides.disableHeartbeat ?? disableHeartbeat);
+                if (!shouldDisableHeartbeat && typeof lease.renew === 'function') {
                     const renewPeriodMs = overrides.renewalIntervalMs || renewalIntervalMs || Math.max(50, Math.floor((lease.ttlMs || effectiveLockTtlMs || 30000) / 3));
                     renewalInterval = setInterval(async () => {
                         if (isRenewing || lockLost) return;
                         isRenewing = true;
                         try {
                             const renewed = await lease.renew();
-                            if (!renewed) {
+                            if (renewed) {
+                                const hook = overrides.onRenewTick || onRenewTick;
+                                if (typeof hook === 'function') {
+                                    try { hook(lease); } catch {}
+                                }
+                            } else {
                                 lockLost = true;
                                 lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during processing.', {
                                     authorityCode: code

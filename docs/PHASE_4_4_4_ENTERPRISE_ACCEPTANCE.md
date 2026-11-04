@@ -62,6 +62,10 @@ This document formally reconciles the codebase implementation, container verific
 - Reviewer is verified against active `User` records.
 - Independent maker-checker separation is enforced (`approverId !== reviewerId`).
 - Mandatory audit event `canonical_policy_rotated` is logged via `logMandatoryAuditEvent`.
+- **Audit-Gated Policy Visibility (Finding P1-A):** Policies are created with `isAudited: false`, `auditStatus: 'PENDING'`, `isActive: false`. `getCanonicalPolicy` returns `null` until the audit record is durably committed in MongoDB.
+- **Reviewer Role Revocation (Finding P1-B):** Reviewer authorization is evaluated with `skipCache: true` on fresh User/Role state, ensuring immediate revocation without cache races. In `role.controller.js`, permission cache invalidation is executed after `session.commitTransaction()`.
+- **Decoupled Redis Publication (Finding P2-C):** `registerOrRotateCanonicalPolicy` is fully decoupled from Redis mutation. `publishCanonicalPolicyToRedis` executes only after MongoDB transaction/audit commit. If audit persistence fails, MongoDB and Redis remain strictly at V1.
+- **Manual Sync Audit Ordering (Finding P2-D):** `syncCanonicalPolicy` writes a durable audit intent record before attempting Redis synchronization. If post-sync DB status update fails, the document is marked `redisSyncStatus: 'PENDING_RECONCILIATION'` and returns HTTP 500.
 
 ### 5. Redis Atomic Lua CAS Monotonicity
 - Redis canonical policy key `quota:canonical:<AUTHORITY>` is maintained persistently without TTL (`ttl === -1`).
@@ -71,6 +75,7 @@ This document formally reconciles the codebase implementation, container verific
   - Idempotent re-assertion when version and hash match.
   - Clean update when incoming version is greater than current version.
 - In-memory mock quota provider implements identical monotonic CAS logic.
+- **Natural Expiration & Renewal Tracking (Finding P2-E):** `RedisPortalDistributedLock` tracks `renewalTicks`. Test 14 verifies natural expiration by sleeping past TTL without manual deletion (`del`). Test 15 exercises genuine configured runtime heartbeat renewals across 2 TTL windows, keeping the lock active and verifying competing worker exclusion with `renewalTicks >= 2`.
 
 ### 6. Container & Verification Evidence
 - All unit, gate, and acceptance suites execute locally and in CI:
