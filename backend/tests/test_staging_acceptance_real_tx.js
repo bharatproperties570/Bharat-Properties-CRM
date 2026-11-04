@@ -769,6 +769,29 @@ async function runAcceptanceJourneyTests() {
     assert(expiredBlocked === true, '14k. Expired token is rejected (HTTP 403 / Expired)');
 }
 
+/**
+ * Deterministic synchronization barrier for concurrent test operations.
+ * Holds all participating async tasks until all N parties have called await(),
+ * then releases all tasks simultaneously to maximize race contention.
+ */
+class AsyncBarrier {
+    constructor(parties) {
+        this.parties = parties;
+        this.waiting = 0;
+        this.releasePromise = new Promise((resolve) => {
+            this._resolve = resolve;
+        });
+    }
+
+    async await() {
+        this.waiting++;
+        if (this.waiting === this.parties) {
+            this._resolve();
+        }
+        await this.releasePromise;
+    }
+}
+
 async function runConcurrentTokenLifecycleTests() {
     console.log('\n======================================================');
     console.log('Phase 3: Real WiredTiger Concurrent Token Lifecycle & Race Condition Gate');
@@ -902,67 +925,121 @@ async function runConcurrentTokenLifecycleTests() {
     const preRaceLink = await SiteVisitService.getJourneyLink(actId2, agent);
     assert(preRaceLink.safeToken, '3.4a. Pre-race active token generated');
 
-    // Launch concurrent retrievals racing with revocation, capturing timing and individual outcomes
-    const revocationPromise = SiteVisitService.revokeJourneyLink(actId2, 'Security revocation: Emergency security block', agent);
+    // Introduce explicit synchronization barrier for 4 concurrent retrievals + 1 revocation
+    const revokeBarrier = new AsyncBarrier(5);
 
-    const retrievalPromises = Array.from({ length: 6 }, async (_, i) => {
+    // Launch revocation task synchronized via barrier
+    const revocationPromise = (async () => {
+        await revokeBarrier.await();
+        const start = process.hrtime.bigint();
+        const outcome = await SiteVisitService.revokeJourneyLink(actId2, 'Security revocation: Emergency security block', agent);
+        const end = process.hrtime.bigint();
+        return { outcome, start, end };
+    })();
+
+    // Launch 4 concurrent retrieval tasks released simultaneously with revocation
+    const concurrentRetrievals = Array.from({ length: 4 }, async (_, i) => {
+        await revokeBarrier.await();
+        const start = process.hrtime.bigint();
         try {
             const res = await SiteVisitService.getJourneyLink(actId2, agent);
-            const completedAt = Date.now();
-            return { index: i, success: true, res, completedAt };
+            const end = process.hrtime.bigint();
+            return { index: i, success: true, res, start, end };
         } catch (err) {
-            const completedAt = Date.now();
-            return { index: i, success: false, err, completedAt };
+            const end = process.hrtime.bigint();
+            return { index: i, success: false, err, start, end };
         }
     });
 
-    // Execute concurrently
-    const [revocationOutcome, ...retrievalOutcomes] = await Promise.all([
+    // Launch 2 boundary retrieval tasks synchronized on the revocation commit boundary
+    const postBoundaryRetrievals = Array.from({ length: 2 }, async (_, i) => {
+        await revocationPromise;
+        const start = process.hrtime.bigint();
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId2, agent);
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: true, res, start, end };
+        } catch (err) {
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: false, err, start, end };
+        }
+    });
+
+    // Execute all operations under simultaneous contention
+    const [revocationBoundary, ...retrievalOutcomes] = await Promise.all([
         revocationPromise,
-        ...retrievalPromises
+        ...concurrentRetrievals,
+        ...postBoundaryRetrievals
     ]);
 
-    assert(revocationOutcome.revoked === true, '3.4b. Revocation completed successfully');
+    assert(revocationBoundary.outcome.revoked === true, '3.4b. Revocation completed successfully');
+    assert(revocationBoundary.end > revocationBoundary.start, '3.4c. Revocation commit boundary recorded');
 
-    // Final database state check
+    // Final database state check: journeyRevoked MUST be true in MongoDB
     const doc2Final = await Activity.findById(actId2).lean();
-    assert(doc2Final.details.journeyRevoked === true, '3.4c. Activity journey is revoked in MongoDB');
-    assert(doc2Final.details.journeyRevokedReason.includes('Emergency security block'), '3.4d. Revocation reason recorded in MongoDB');
+    assert(doc2Final.details?.journeyRevoked === true, '3.4d. Final MongoDB state has journeyRevoked=true');
+    assert(doc2Final.details?.journeyRevokedReason.includes('Emergency security block'), '3.4e. Revocation reason recorded in MongoDB');
 
-    // Verify every successful token returned (both pre-race and concurrent) is now REJECTED by verifyJourneyToken
-    const tokensToCheck = [preRaceLink.safeToken];
-    for (const r of retrievalOutcomes) {
-        if (r.success) {
-            tokensToCheck.push(r.res.safeToken);
-        } else {
+    // Categorize retrieval outcomes relative to the revocation completion boundary
+    const completedAfterRevocation = retrievalOutcomes.filter(r => r.end > revocationBoundary.end);
+    const completedBeforeRevocation = retrievalOutcomes.filter(r => r.end <= revocationBoundary.end);
+
+    console.log(`     Contention stats: ${completedBeforeRevocation.length} completed before/at revocation boundary, ${completedAfterRevocation.length} completed after revocation boundary`);
+
+    // 1. A retrieval completing after revocation must not return a usable journey link
+    for (const r of completedAfterRevocation) {
+        if (!r.success) {
             assert(r.err.statusCode === 403 && /revoked|revocation/i.test(r.err.message),
-                `3.4e[${r.index}]. Concurrent retrieval rejected due to active revocation`);
-        }
-    }
-
-    // Every issued token MUST now be rejected with HTTP 403
-    for (let i = 0; i < tokensToCheck.length; i++) {
-        let rejected = false;
-        try {
-            await SiteVisitJourneyService.verifyJourneyToken(tokensToCheck[i]);
-        } catch (err) {
-            if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
-                rejected = true;
+                `3.4f[${r.index}]. Retrieval completing after revocation fails closed with HTTP 403`);
+        } else {
+            // If the retrieval succeeded because it read before revocation commit, its returned token must be unusable
+            let verified = false;
+            let verifyErr = null;
+            try {
+                await SiteVisitJourneyService.verifyJourneyToken(r.res.safeToken);
+                verified = true;
+            } catch (err) {
+                verifyErr = err;
             }
+            assert(verified === false, `3.4f[${r.index}]. Retrieval completing after revocation must not return a usable link`);
+            assert(verifyErr?.statusCode === 403 && /revoked|revocation/i.test(verifyErr?.message),
+                `3.4g[${r.index}]. Token fails public verification with HTTP 403 (Revoked)`);
         }
-        assert(rejected === true, `3.4f[${i}]. Token is strictly rejected as revoked (HTTP 403)`);
     }
 
-    // Subsequent retrieval after revocation strictly fails closed
+    // 2. Any token returned before revocation must fail public verification after revocation
+    const tokensBeforeRevocation = [preRaceLink.safeToken];
+    for (const r of completedBeforeRevocation) {
+        if (r.success && r.res?.safeToken) {
+            tokensBeforeRevocation.push(r.res.safeToken);
+        }
+    }
+    for (let i = 0; i < tokensBeforeRevocation.length; i++) {
+        let verified = false;
+        let verifyErr = null;
+        try {
+            await SiteVisitJourneyService.verifyJourneyToken(tokensBeforeRevocation[i]);
+            verified = true;
+        } catch (err) {
+            verifyErr = err;
+        }
+        assert(verified === false, `3.4h[${i}]. Token returned before revocation must not verify after revocation`);
+        assert(verifyErr?.statusCode === 403 && /revoked|revocation/i.test(verifyErr?.message),
+            `3.4i[${i}]. Token returned before revocation fails public verification with HTTP 403`);
+    }
+
+    // 3. Verify subsequent retrieval returns HTTP 403
     let subsequentRetrievalBlocked = false;
+    let subsequentRetrievalErr = null;
     try {
         await SiteVisitService.getJourneyLink(actId2, agent);
     } catch (err) {
-        if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
-            subsequentRetrievalBlocked = true;
-        }
+        subsequentRetrievalBlocked = true;
+        subsequentRetrievalErr = err;
     }
-    assert(subsequentRetrievalBlocked === true, '3.4g. Subsequent getJourneyLink strictly fails closed with HTTP 403');
+    assert(subsequentRetrievalBlocked === true, '3.4j. Subsequent getJourneyLink strictly fails closed');
+    assert(subsequentRetrievalErr?.statusCode === 403 && /revoked|revocation/i.test(subsequentRetrievalErr?.message),
+        '3.4k. Subsequent getJourneyLink returns HTTP 403 with revocation reason');
 
     // ------------------------------------------------------------------------
     // 3.5: Retrieval Racing with Cancellation
@@ -986,63 +1063,123 @@ async function runConcurrentTokenLifecycleTests() {
     const preCancelLink = await SiteVisitService.getJourneyLink(actId3, agent);
     assert(preCancelLink.safeToken, '3.5a. Pre-race active token generated');
 
-    const cancellationPromise = SiteVisitService.cancel(actId3, 'Customer changed plans', agent);
+    // Introduce explicit synchronization barrier for 4 concurrent retrievals + 1 cancellation
+    const cancelBarrier = new AsyncBarrier(5);
 
-    const cancelRetrievalPromises = Array.from({ length: 6 }, async (_, i) => {
+    // Launch cancellation task synchronized via barrier
+    const cancellationPromise = (async () => {
+        await cancelBarrier.await();
+        const start = process.hrtime.bigint();
+        const outcome = await SiteVisitService.cancel(actId3, 'Customer changed plans', agent);
+        const end = process.hrtime.bigint();
+        return { outcome, start, end };
+    })();
+
+    // Launch 4 concurrent retrieval tasks released simultaneously with cancellation
+    const concurrentCancelRetrievals = Array.from({ length: 4 }, async (_, i) => {
+        await cancelBarrier.await();
+        const start = process.hrtime.bigint();
         try {
             const res = await SiteVisitService.getJourneyLink(actId3, agent);
-            const completedAt = Date.now();
-            return { index: i, success: true, res, completedAt };
+            const end = process.hrtime.bigint();
+            return { index: i, success: true, res, start, end };
         } catch (err) {
-            const completedAt = Date.now();
-            return { index: i, success: false, err, completedAt };
+            const end = process.hrtime.bigint();
+            return { index: i, success: false, err, start, end };
         }
     });
 
-    const [cancellationOutcome, ...cancelRetrievalOutcomes] = await Promise.all([
+    // Launch 2 boundary retrieval tasks synchronized on the cancellation commit boundary
+    const postBoundaryCancelRetrievals = Array.from({ length: 2 }, async (_, i) => {
+        await cancellationPromise;
+        const start = process.hrtime.bigint();
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId3, agent);
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: true, res, start, end };
+        } catch (err) {
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: false, err, start, end };
+        }
+    });
+
+    // Execute all operations under simultaneous contention
+    const [cancellationBoundary, ...cancelRetrievalOutcomes] = await Promise.all([
         cancellationPromise,
-        ...cancelRetrievalPromises
+        ...concurrentCancelRetrievals,
+        ...postBoundaryCancelRetrievals
     ]);
 
-    assert(cancellationOutcome.activity?.status === 'Cancelled' || cancellationOutcome.status === 'Cancelled', '3.5b. Cancellation completed successfully');
+    assert(
+        cancellationBoundary.outcome.activity?.status === 'Cancelled' || cancellationBoundary.outcome.status === 'Cancelled',
+        '3.5b. Cancellation completed successfully'
+    );
+    assert(cancellationBoundary.end > cancellationBoundary.start, '3.5c. Cancellation commit boundary recorded');
 
     // Final DB state MUST be Cancelled
     const doc3Final = await Activity.findById(actId3).lean();
-    assert(doc3Final.status === 'Cancelled', '3.5c. Activity status is Cancelled in MongoDB');
+    assert(doc3Final.status === 'Cancelled', '3.5d. Final MongoDB status is Cancelled');
 
-    // Verify all tokens (pre-race and any returned during race) are rejected with HTTP 410 (Gone)
-    const cancelTokensToCheck = [preCancelLink.safeToken];
-    for (const r of cancelRetrievalOutcomes) {
-        if (r.success) {
-            cancelTokensToCheck.push(r.res.safeToken);
-        } else {
+    // Categorize cancel retrieval outcomes relative to the cancellation completion boundary
+    const cancelCompletedAfter = cancelRetrievalOutcomes.filter(r => r.end > cancellationBoundary.end);
+    const cancelCompletedBefore = cancelRetrievalOutcomes.filter(r => r.end <= cancellationBoundary.end);
+
+    console.log(`     Contention stats: ${cancelCompletedBefore.length} completed before/at cancellation boundary, ${cancelCompletedAfter.length} completed after cancellation boundary`);
+
+    // 1. A retrieval completing after cancellation must not return a usable journey link
+    for (const r of cancelCompletedAfter) {
+        if (!r.success) {
             assert(r.err.statusCode === 410 && /cancelled/i.test(r.err.message),
-                `3.5d[${r.index}]. Concurrent retrieval rejected due to visit cancellation`);
-        }
-    }
-
-    for (let i = 0; i < cancelTokensToCheck.length; i++) {
-        let cancelBlocked = false;
-        try {
-            await SiteVisitJourneyService.verifyJourneyToken(cancelTokensToCheck[i]);
-        } catch (err) {
-            if (err.statusCode === 410 && /cancelled/i.test(err.message)) {
-                cancelBlocked = true;
+                `3.5e[${r.index}]. Retrieval completing after cancellation fails closed with HTTP 410 (Gone)`);
+        } else {
+            // If the retrieval succeeded because it read before cancellation commit, its returned token must be unusable
+            let verified = false;
+            let verifyErr = null;
+            try {
+                await SiteVisitJourneyService.verifyJourneyToken(r.res.safeToken);
+                verified = true;
+            } catch (err) {
+                verifyErr = err;
             }
+            assert(verified === false, `3.5e[${r.index}]. Retrieval completing after cancellation must not return a usable link`);
+            assert(verifyErr?.statusCode === 410 && /cancelled/i.test(verifyErr?.message),
+                `3.5f[${r.index}]. Token fails public verification with HTTP 410 (Gone)`);
         }
-        assert(cancelBlocked === true, `3.5e[${i}]. Issued token fails with HTTP 410 on cancelled visit`);
     }
 
-    // Subsequent retrieval on cancelled activity MUST fail closed (HTTP 410)
+    // 2. All previously issued tokens must fail verification with HTTP 410
+    const tokensBeforeCancellation = [preCancelLink.safeToken];
+    for (const r of cancelCompletedBefore) {
+        if (r.success && r.res?.safeToken) {
+            tokensBeforeCancellation.push(r.res.safeToken);
+        }
+    }
+    for (let i = 0; i < tokensBeforeCancellation.length; i++) {
+        let verified = false;
+        let verifyErr = null;
+        try {
+            await SiteVisitJourneyService.verifyJourneyToken(tokensBeforeCancellation[i]);
+            verified = true;
+        } catch (err) {
+            verifyErr = err;
+        }
+        assert(verified === false, `3.5g[${i}]. Token returned before cancellation must not verify after cancellation`);
+        assert(verifyErr?.statusCode === 410 && /cancelled/i.test(verifyErr?.message),
+            `3.5h[${i}]. Issued token fails verification with HTTP 410 on cancelled visit`);
+    }
+
+    // 3. Subsequent retrieval on cancelled activity MUST fail closed (HTTP 410)
     let subsequentCancelBlocked = false;
+    let subsequentCancelErr = null;
     try {
         await SiteVisitService.getJourneyLink(actId3, agent);
     } catch (err) {
-        if (err.statusCode === 410 && /cancelled/i.test(err.message)) {
-            subsequentCancelBlocked = true;
-        }
+        subsequentCancelBlocked = true;
+        subsequentCancelErr = err;
     }
-    assert(subsequentCancelBlocked === true, '3.5f. Subsequent getJourneyLink strictly fails closed with HTTP 410');
+    assert(subsequentCancelBlocked === true, '3.5i. Subsequent getJourneyLink strictly fails closed with HTTP 410');
+    assert(subsequentCancelErr?.statusCode === 410 && /cancelled/i.test(subsequentCancelErr?.message),
+        '3.5j. Subsequent getJourneyLink error statusCode is 410 and message mentions cancelled');
 }
 
 async function main() {
