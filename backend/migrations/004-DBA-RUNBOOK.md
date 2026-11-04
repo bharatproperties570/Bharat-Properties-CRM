@@ -442,3 +442,70 @@ Before executing Migration 004 on the production Atlas cluster, the following cr
    - Verify approval tokens are generated dynamically per execution with single-use `auditRef` and `nonce`, valid for a maximum of 5 minutes (`MAX_APPROVAL_TOKEN_AGE_MS = 300000`).
 
 
+
+---
+
+## 8. DEF-13 — DISPLACED COORDINATOR RECOVERY & END-TO-END CRASH CONSISTENCY
+
+### 8.1 Displaced Artifact Lifecycle & Discovery (DEF-13.1)
+During metadata update operations (`mode: 'update'`), `_writeDurableMetadata()` safely displaces the existing coordinator file before publishing the updated metadata:
+- **Filename Structure**: `${path.basename(filePath)}.displaced.${process.pid}.${Date.now()}.${crypto.randomUUID()}`
+- **Staging Lifecycle**:
+  1. `renameSync(filePath, stagingPath)` atomically moves the destination file to a displaced staging path.
+  2. The displaced file is inspected for ownership match (`ino`, `dev`, `token`, `pid`).
+  3. The updated metadata is written to a temporary file (`.tmp.`) and fsynced.
+  4. The updated metadata is published to the destination via atomic hard link `fs.linkSync(tempPath, filePath)`.
+  5. The temporary file and displaced staging file are safely unlinked, followed by directory fsync.
+
+If a worker process crashes abruptly (e.g., `SIGKILL`, power failure, OOM) during this window, the displaced file remains in the ledger directory.
+
+`_hasActiveInFlightRecovery()` and `recoverAbandonedDisplacedArtifacts(targetDir)` inspect all `.displaced.` files:
+- **Owner Liveness Assessment**:
+  - Extracts the displacing PID from the filename.
+  - Queries OS process table via `process.kill(pid, 0)` combined with Linux `/proc/<pid>/stat` start-time checks.
+  - **Live Process**: If the displacing process is alive, the displaced file is NEVER touched or deleted. Lock acquisition fails closed until the operation completes.
+  - **Cross-Host Ownership**: If the hostname in the displaced metadata does not match the local hostname, recovery fails closed immediately.
+  - **Uncertain Identity**: If PID reuse or permission barriers prevent definitive confirmation, recovery fails closed.
+
+### 8.2 Atomic No-Clobber Recovery & Conflict Reconciliation (DEF-13.1 & DEF-13.2)
+When the displacing owner is confirmed dead:
+1. **Destination Absent (`ENOENT`)**:
+   - The abandoned displaced artifact is atomically restored to the canonical destination using `fs.linkSync(displacedPath, canonicalPath)`.
+   - The containing directory is fsynced.
+   - Inode and device identity of the restored destination are verified against the displaced artifact.
+   - Upon verified restoration, the redundant displaced staging link is unlinked via `_safeUnlink()`, followed by directory fsync.
+2. **Destination Already Exists (`EEXIST`)**:
+   - If a replacement file already exists at the canonical destination, `_tryRecoverAbandonedDisplacedArtifact()` compares the destination's inode/device and byte content against the displaced file.
+   - **Identical Content**: If the destination and displaced file are identical (redundant copy), the displaced file is safely unlinked.
+   - **Differing Content (Conflict)**: If the destination contains differing data, **BOTH ARTIFACTS ARE STRICTLY PRESERVED ON DISK**. The system flags `activeConflicts`, returns `resolved: false`, and `_hasActiveInFlightRecovery()` fails closed to prevent overwriting or deleting either valid coordinator.
+
+### 8.3 Directory Durability Status Propagation (DEF-13.3)
+Directory fsync operations via `_fsyncDirectory()` capture explicit durability status across platforms:
+- **POSIX Supported Filesystems**: Returns `{ success: true, directorySynced: true, durabilityStatus: 'DURABLE_POSIX' }`.
+- **POSIX Unsupported Filesystem Drivers (e.g., `EINVAL` on certain shared filesystems)**:
+  - If `options.requireDirectorySync: true` (or `this.requireDirectorySync: true`), execution immediately throws:
+    ```
+    [MIGRATION-004] SECURITY FATAL: Strict directory durability required but directory fsync is unsupported on this filesystem driver. Fail closed.
+    ```
+  - If `requireDirectorySync` is not required, returns `{ success: true, directorySynced: false, durabilityStatus: 'UNSUPPORTED_POSIX_DRIVER' }`.
+- **Windows (`win32`)**: Bypasses directory fsync (unsupported by Win32 API) and returns `{ success: true, directorySynced: false, durabilityStatus: 'UNSUPPORTED_PLATFORM_WIN32' }`.
+
+### 8.4 Crash Boundaries A through H Matrix (DEF-13.4)
+The migration suite includes deterministic OS-level `SIGKILL` termination tests verifying zero state corruption across all 8 atomic boundaries:
+
+| Boundary | Crash Location | Recovery Mechanism | Verifiable Invariant |
+|---|---|---|---|
+| **Boundary A** | Immediately after displacement (`renameSync`) | Abandoned displaced recovery via `linkSync` | Original coordinator restored without data loss |
+| **Boundary B** | After displacement, before ownership verification | Abandoned displaced recovery via `linkSync` | Original coordinator restored without data loss |
+| **Boundary C** | After ownership verification, before publication | Abandoned displaced recovery via `linkSync` | Unpublished temp file discarded; original restored |
+| **Boundary D** | After competitor coordinator creation (Conflict) | Conflict reconciliation; both files preserved | Competitor NOT overwritten; displaced NOT deleted; fail-closed |
+| **Boundary E** | After hard-link publication, before cleanup | Redundant displaced cleanup | Newly published coordinator active; redundant copy unlinked |
+| **Boundary F** | During restoration after `EEXIST` conflict | Inode verification before cleanup | Competitor preserved; staging preserved; fail-closed |
+| **Boundary G** | During directory fsync or immediately after | Durability status propagation | Updated coordinator published; directory sync verified |
+| **Boundary H** | During displaced artifact cleanup | Inode verification and idempotent unlink | Published coordinator intact; redundant copy unlinked |
+
+### 8.5 Multi-Worker Adversarial Stress (DEF-13.5)
+Verified under concurrent contention across 4 independent worker processes with randomized mid-execution `SIGKILL` termination:
+- Exactly one worker holds the lock at any time.
+- Abandoned locks and displaced coordinators are recovered cleanly by subsequent workers.
+- Zero lost coordinators, zero orphaned unmanaged locks, zero split-brain states.
