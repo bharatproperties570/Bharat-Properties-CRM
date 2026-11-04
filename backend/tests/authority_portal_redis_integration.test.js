@@ -1270,8 +1270,8 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             linkId: link._id,
             authorityCode,
             status: 'PROCESSING',
-            claimedBy: 'worker-offline-e2e',
-            workerClaimToken: 'claim-token-offline-e2e',
+            claimedBy: 'worker-offline-e2e-A',
+            workerClaimToken: 'claim-token-offline-e2e-A',
             leaseExpiresAt: new Date(Date.now() + 60000)
         });
 
