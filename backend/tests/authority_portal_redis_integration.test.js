@@ -23,7 +23,11 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
 import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
 import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
-import { registerOrRotateCanonicalPolicy } from '../services/authority/portal/canonicalPolicyService.js';
+import {
+    registerOrRotateCanonicalPolicy,
+    publishCanonicalPolicyToRedis,
+    markCanonicalPolicyAudited
+} from '../services/authority/portal/canonicalPolicyService.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
 import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
@@ -784,9 +788,16 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
                 expiresAt: new Date(Date.now() + 86400000)
             },
             reviewedBy: reviewerId,
-            approvedBy: approverId,
-            quotaProvider: new RedisPortalQuotaProvider(redisClient, { testMode: false })
+            approvedBy: approverId
         });
+        const auditLogId12 = new mongoose.Types.ObjectId();
+        await markCanonicalPolicyAudited({ policyId: canonicalPolicyDoc._id, auditLogId: auditLogId12 });
+        canonicalPolicyDoc.isAudited = true;
+        canonicalPolicyDoc.auditStatus = 'AUDITED';
+        canonicalPolicyDoc.isActive = true;
+        canonicalPolicyDoc.auditLogId = auditLogId12;
+        const qp12 = new RedisPortalQuotaProvider(redisClient, { testMode: false });
+        await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp12, policyDoc: canonicalPolicyDoc });
 
         // 12.2 Setup AuthoritySourceSettings for Tenant Alpha
         await AuthoritySourceSettings.deleteMany({ authorityCode });
@@ -1198,9 +1209,16 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
                 expiresAt: new Date(Date.now() + 86400000)
             },
             reviewedBy: reviewerId,
-            approvedBy: approverId,
-            quotaProvider: new RedisPortalQuotaProvider(redisClient, { testMode: false })
+            approvedBy: approverId
         });
+        const auditLogId14 = new mongoose.Types.ObjectId();
+        await markCanonicalPolicyAudited({ policyId: canonicalPolicyDoc._id, auditLogId: auditLogId14 });
+        canonicalPolicyDoc.isAudited = true;
+        canonicalPolicyDoc.auditStatus = 'AUDITED';
+        canonicalPolicyDoc.isActive = true;
+        canonicalPolicyDoc.auditLogId = auditLogId14;
+        const qp14 = new RedisPortalQuotaProvider(redisClient, { testMode: false });
+        await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp14, policyDoc: canonicalPolicyDoc });
 
         // 14.2 Settings for Tenant
         await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode });
@@ -1439,12 +1457,21 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
 
         // Ensure active canonical policy exists
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        const auditLogId15 = new mongoose.Types.ObjectId();
         const canonicalPolicyDoc = await AuthorityCanonicalPolicy.create({
             authorityCode,
             policyReference: 'HSVP/CANONICAL/RENEWAL/01',
             version: 1,
-            contentHash: 'hash-renewal-e2e',
-            minIntervalMs: 15000,
+            contentHash: AuthorityCanonicalPolicy.computeContentHash({
+                policyReference: 'HSVP/CANONICAL/RENEWAL/01',
+                version: 1,
+                minIntervalMs: 50,
+                maxRequestsPerMinute: 20,
+                maxRequestsPerHour: 100,
+                maxRequestsPerDay: 500,
+                maxConcurrent: 1
+            }),
+            minIntervalMs: 50,
             maxRequestsPerMinute: 20,
             maxRequestsPerHour: 100,
             maxRequestsPerDay: 500,
@@ -1456,53 +1483,117 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             isAudited: true,
             auditStatus: 'AUDITED',
             isActive: true,
+            auditLogId: auditLogId15,
             redisSyncStatus: 'SYNCED'
         });
+        const qp15 = new RedisPortalQuotaProvider(redisClient, { testMode: false });
+        await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp15, policyDoc: canonicalPolicyDoc });
 
         // Ensure authority source settings are approved
         await AuthoritySourceSettings.deleteMany({ authorityCode });
         await AuthoritySourceSettings.create({
             tenantId,
             authorityCode,
-            permissionStatus: 'NOT_OBTAINED',
-            reviewStatus: 'APPROVED',
-            isEnabled: false,
-            schedulingEnabled: false,
-            submittedBy: new mongoose.Types.ObjectId(),
-            approvedBy: new mongoose.Types.ObjectId(),
-            approvedAt: new Date(),
+            permissionStatus: 'GRANTED',
+            approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
             approvalReference: 'HSVP-WRITTEN-RENEW-01',
             approvalExpiryDate: new Date(Date.now() + 86400000),
+            commercialUseAuthorized: true,
+            readOnlySearchAuthorized: true,
+            termsReviewed: true,
+            termsReference: 'https://hsvphry.org.in/terms',
+            submittedBy: new mongoose.Types.ObjectId(),
+            approvedBy: new mongoose.Types.ObjectId(),
+            reviewedBy: new mongoose.Types.ObjectId(),
+            permittedFields: [
+                'propertyId', 'sectorNumber', 'urbanEstate', 'propertyCategory',
+                'propertyType', 'area', 'authorityStatus', 'allotmentDate',
+                'allotmentPrice', 'totalPaid', 'currentDues', 'possessionDate',
+                'litigationStatus', 'buildingPlanApproved', 'occupancyCertificate'
+            ],
+            reviewStatus: 'APPROVED',
+            isEnabled: true,
+            contractVerificationStatus: 'VERIFIED_CONTRACT',
+            contractEvidenceReference: 'HSVP/CONTRACT/RENEW',
+            identityRequirements: { verified: true },
             ratePolicy: {
-                minIntervalMs: 15000,
+                minIntervalMs: 50,
+                minimumIntervalMs: 50,
                 maxRequestsPerMinute: 20,
                 maxRequestsPerHour: 100,
                 maxRequestsPerDay: 500,
-                maxConcurrent: 1
-            },
-            permittedFields: ['allotmentNumber', 'urbanEstate', 'sector', 'plotNumber']
+                maxConcurrent: 1,
+                policySource: 'HSVP/CANONICAL/RENEWAL/01'
+            }
         });
 
         const inv = await Inventory.create({
             tenantId,
             title: 'Plot 777 Sector 14 Panchkula',
-            propertyType: 'PLOT',
-            authorityDetails: {
-                authority: 'HSVP',
-                urbanEstate: 'Panchkula',
-                sector: '14',
-                plotNumber: '777'
-            }
+            propertyId: '777',
+            unitNo: '777',
+            sector: '14',
+            city: 'UE001-Panchkula',
+            urbanEstate: 'UE001-Panchkula',
+            status: 'AVAILABLE'
         });
 
         const link = await PropertyAuthorityLink.create({
             tenantId,
             inventoryId: inv._id,
             authorityCode,
+            propertyId: '777',
+            sectorNumber: '14',
+            urbanEstate: 'UE001-Panchkula',
+            compositeKey: 'HSVP:UE001-PANCHKULA:14:777',
+            identityVerified: true,
+            matchEligibility: 'ELIGIBLE',
             status: 'ACTIVE',
             authorityReference: 'HSVP-LINK-RENEW-777',
-            extractedFields: {}
+            extractedFields: {},
+            createdBy: new mongoose.Types.ObjectId()
         });
+
+        const fakeOfflineTransport15 = {
+            async search() {
+                const mockHtml = `<!DOCTYPE html>
+<html>
+<head><title>HSVP - Plot Status Enquiry Details</title></head>
+<body>
+    <form id="enquiryForm" action="/Home/PlotStatusEnquiry" method="post"></form>
+    <div id="detailsPanel">
+        <h3>Plot Status Details</h3>
+        <table class="table table-bordered">
+            <tr><th>Plot No</th><td>777</td></tr>
+            <tr><th>Sector</th><td>Sector 14</td></tr>
+            <tr><th>Urban Estate</th><td>UE001-Panchkula</td></tr>
+            <tr><th>Category</th><td>Residential</td></tr>
+            <tr><th>Sub Category</th><td>14 Marla</td></tr>
+            <tr><th>Area</th><td>350 Sq.Yds</td></tr>
+            <tr><th>Plot Status</th><td>Allotted</td></tr>
+            <tr><th>Allotment Date</th><td>15/08/2012</td></tr>
+            <tr><th>Allotment Price</th><td>2500000</td></tr>
+            <tr><th>Total Amount Paid</th><td>2500000</td></tr>
+            <tr><th>Current Dues</th><td>0</td></tr>
+            <tr><th>Physical Possession Date</th><td>20/12/2014</td></tr>
+            <tr><th>Litigation Status</th><td>Clear / No Case</td></tr>
+            <tr><th>Building Plan Approved</th><td>Yes (2016)</td></tr>
+            <tr><th>Occupancy Certificate</th><td>Issued (2018)</td></tr>
+            <tr><th>Allottee Name</th><td>[REDACTED CITIZEN NAME]</td></tr>
+        </table>
+    </div>
+</body>
+</html>`;
+                return {
+                    status: 200,
+                    headers: { 'content-type': 'text/html' },
+                    finalUrl: 'https://hsvphry.org.in/Home/PlotStatusEnquiry',
+                    redirected: false,
+                    location: '',
+                    body: mockHtml
+                };
+            }
+        };
 
         const runItem = await PropertyVerificationRunItem.create({
             tenantId,
@@ -1523,7 +1614,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         // P2-E 1 & 3: Configured runtime with real Redis, short TTL (400ms), renewalInterval (100ms)
         const configuredRuntimeA = createConfiguredPortalRuntime({
             redisClient,
-            transport: fakeOfflineTransport,
+            transport: fakeOfflineTransport15,
             testMode: false,
             lockTtlMs: 400,
             renewalIntervalMs: 100,
