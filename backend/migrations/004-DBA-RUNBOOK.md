@@ -57,8 +57,17 @@
      - Claims are **NEVER** removed solely because their mtime exceeds `staleTimeoutMs`.
      - The coordinator validates claim owner PID, hostname, and actual process start time. If the claim owner is alive, the claim is preserved regardless of age.
      - If claim owner identity cannot be established with certainty, the system fails closed (assumes alive and yields).
-     - Stale claims are recovered only after proving the owner process is dead (or malformed past stale timeout) via atomic rename to a private recovery path, followed by exact-instance inode/token verification.
-     - Delayed recovery workers cannot delete or supersede newer claims (`_releaseClaim` checks exact claim token and restores replacement claims via no-clobber `linkSync`).
+     - **Atomic Claim Recovery Protocol:**
+       - To prevent races where canonical claim rename leaves a temporary void allowing concurrent replacement claims, dead-claim recovery requires acquiring an exclusive claim recovery coordinator (`${this.claimPath}.recovery_lock`).
+       - Normal claim acquisition and lock acquisition check `_isClaimRecoveryActive()` and `_isClaimActive()`, ensuring normal workers never enter the protected recovery interval.
+       - A recovery worker retains an independently verifiable `recoveryToken` in the recovery lock throughout recovery.
+       - If a replacement claim was created prior to rename, exact-instance verification detects the mismatch and restores the replacement claim via atomic no-clobber `linkSync(claimRecoveryPath, this.claimPath)`.
+       - Unexpected filesystem errors strictly preserve diagnostic artifacts and fail closed.
+       - Crash resilience: If a recovery worker crashes after rename, the dead recovery lock records `claimRecoveryPath`; subsequent workers inspect the in-flight claim, restore it if live, or clean it up if dead, before releasing the stale recovery lock.
+     - **Claim Release Error Propagation:**
+       - `_releaseClaim(claimToken)` validates exact claim token and PID. Delayed recovery workers cannot delete or supersede newer claims.
+       - Expected `ENOENT` is handled safely; all unexpected stat, read, rename, link, or unlink errors throw sanitized `SECURITY FATAL` exceptions and fail closed.
+       - Replacement claims are never removed, and diagnostic artifacts are strictly preserved on disk.
    - **Exact-Instance Inode Inspection & Rename (DEF-06):** Prior to renaming a dead lock, the recovery worker inspects `{ ino, dev, ownerToken, pid }`. The lock is renamed to a unique recovery file (`${this.lockPath}.recovering.${process.pid}.${Date.now()}.${uuid}`).
    - **Correct No-Clobber Error Handling & Artifact Safety (DEF-07):**
      - After renaming, the worker verifies that the renamed file matches the inspected inode and ownerToken. If a replacement lock was created between inspection and rename, the worker NEVER uses `renameSync` (which would clobber active locks). Instead, it uses `fs.linkSync(recoveryPath, this.lockPath)`.
