@@ -73,6 +73,8 @@ ActivitySchema.index({ 'details.dealId': 1, type: 1, status: 1 });
 ActivitySchema.index({ 'details.inventoryId': 1, type: 1, status: 1 });
 ActivitySchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
 ActivitySchema.index({ tenantId: 1, status: 1 }, { background: true });
+// ⏳ Enterprise Auto-Purge TTL Index: Purge WhatsApp delivery logs after 30 days while keeping human CRM activities forever
+ActivitySchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60, partialFilterExpression: { type: 'WhatsApp' } });
 
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);

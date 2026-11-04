@@ -737,6 +737,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             <BuiltupDetailsCard 
                                 inventory={inventory} 
                                 getLookupValue={getLookupValue} 
+                                onEdit={() => setIsBuiltupModalOpen(true)}
                             />
                         </div>
                     ) : (
@@ -994,7 +995,9 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     entityType="Deal"
                     entityId={dealId}
                     entityData={deal}
-                    onSave={() => {}}
+                    onSave={() => {
+                        queryClient.invalidateQueries({ queryKey: ['deal', dealId] });
+                    }}
                 />
             )}
 

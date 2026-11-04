@@ -1,4 +1,4 @@
-import { previewMerge, executeMerge } from '../services/contactMerge.service.js';
+import { previewMerge, executeMerge, rollbackMerge, verifyMergeRollbackAuthorization } from '../services/contactMerge.service.js';
 import mongoose from "mongoose";
 import OutboxEvent from "../models/OutboxEvent.js";
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
@@ -1887,16 +1887,38 @@ export const rollbackContactMerge = async (req, res, next) => {
         if (!mergeOperationId) {
             return res.status(400).json({ success: false, message: 'mergeOperationId is required' });
         }
-        const { rollbackMerge } = await import('../services/contactMerge.service.js');
-        const audit = await rollbackMerge(mergeOperationId);
+
+        // 1. Load and validate MergeAudit record
+        const audit = await MergeAudit.findOne({ mergeOperationId });
+        if (!audit) {
+            return res.status(404).json({ success: false, message: 'Invalid or uncompleted merge operation' });
+        }
+        if (audit.status !== 'COMPLETED' || !audit.rollbackAvailable) {
+            return res.status(400).json({ success: false, message: 'Rollback not available for this merge operation' });
+        }
+
+        // 2. Authorize caller and verify visibility using canonical policy
+        await verifyMergeRollbackAuthorization(audit, req.user);
+
+        // 3. Execute atomic rollback with verified user context
+        const rolledBackAudit = await rollbackMerge(mergeOperationId, { user: req.user });
         res.status(200).json({
             success: true,
             message: `Merge operation ${mergeOperationId} rolled back successfully.`,
-            audit
+            audit: rolledBackAudit
         });
     } catch (error) {
         console.error('[RollbackContactMerge] Error:', error);
-        if (error.message.includes('Invalid or uncompleted') || error.message.includes('not available')) {
+        if (error.statusCode === 401 || error.message?.includes('Not authenticated')) {
+            return res.status(401).json({ success: false, message: error.message });
+        }
+        if (error.statusCode === 403 || error.message?.includes('Forbidden') || error.message?.includes('Insufficient privileges') || error.message?.includes('visibility access')) {
+            return res.status(403).json({ success: false, message: error.message });
+        }
+        if (error.statusCode === 404 || error.message?.includes('not found') || error.message?.includes('Invalid or uncompleted')) {
+            return res.status(404).json({ success: false, message: error.message });
+        }
+        if (error.statusCode === 400 || error.message?.includes('not available')) {
             return res.status(400).json({ success: false, message: error.message });
         }
         next(error);

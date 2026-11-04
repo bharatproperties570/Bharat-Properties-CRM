@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import { fixDriveUrl } from '../../../utils/helpers';
 
-const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
+const BuiltupDetailsCard = ({ inventory, getLookupValue, onEdit }) => {
     const { isDark } = useTheme();
     const [selectedImageUrl, setSelectedImageUrl] = useState(null);
 
@@ -26,37 +26,56 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
                         <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Structure, floors & furnishing status</p>
                     </div>
                 </div>
-                {inventory.builtupVideoUrl && (
-                    <a 
-                        href={fixDriveUrl(inventory.builtupVideoUrl)} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '8px', 
-                            padding: '8px 16px', 
-                            background: 'linear-gradient(135deg, #10b981, #059669)', 
-                            color: '#fff', 
-                            borderRadius: '20px', 
-                            fontSize: '0.8rem', 
-                            fontWeight: 700, 
-                            textDecoration: 'none',
-                            boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)',
-                            transition: 'transform 0.2s, box-shadow 0.2s'
-                        }}
-                        onMouseEnter={e => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 6px 12px -1px rgba(16, 185, 129, 0.3)';
-                        }}
-                        onMouseLeave={e => {
-                            e.currentTarget.style.transform = 'none';
-                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(16, 185, 129, 0.2)';
-                        }}
-                    >
-                        <i className="fas fa-play-circle" style={{ fontSize: '1.1rem' }}></i> Walkthrough Video
-                    </a>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {inventory.builtupVideoUrl && (
+                        <a 
+                            href={fixDriveUrl(inventory.builtupVideoUrl)} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px', 
+                                padding: '8px 16px', 
+                                background: 'linear-gradient(135deg, #10b981, #059669)', 
+                                color: '#fff', 
+                                borderRadius: '20px', 
+                                fontSize: '0.8rem', 
+                                fontWeight: 700, 
+                                textDecoration: 'none',
+                                boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)',
+                                transition: 'transform 0.2s, box-shadow 0.2s'
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 12px -1px rgba(16, 185, 129, 0.3)';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.transform = 'none';
+                                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(16, 185, 129, 0.2)';
+                            }}
+                        >
+                            <i className="fas fa-play-circle" style={{ fontSize: '1.1rem' }}></i> Walkthrough Video
+                        </a>
+                    )}
+                    {onEdit && (
+                        <button 
+                            onClick={onEdit}
+                            title="Edit Built-up Details"
+                            style={{
+                                width: '36px', height: '36px', borderRadius: '10px',
+                                background: 'rgba(79, 70, 229, 0.05)', border: '1px solid rgba(79, 70, 229, 0.1)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--premium-blue)', cursor: 'pointer', transition: 'all 0.2s',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(79, 70, 229, 0.1)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(79, 70, 229, 0.05)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                        >
+                            <i className="fas fa-edit"></i>
+                        </button>
+                    )}
+                </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -154,15 +173,31 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
 
                 {/* Overall Built-up Specs */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                    <InfoItem label="Built-up Type" value={renderValue(getLookupValue('BuiltupType', inventory.builtupType)) || renderValue(inventory.builtupType)} icon="building" />
-                    <InfoItem label="Possession Status" value={renderValue(getLookupValue('Status', inventory.possessionStatus)) || renderValue(inventory.possessionStatus)} icon="key" />
+                    <InfoItem 
+                        label="Built-up Type" 
+                        value={renderValue(getLookupValue('BuiltupType', inventory.builtupType)) || renderValue(inventory.builtupType)} 
+                        icon="building" 
+                    />
+                    <InfoItem 
+                        label="Possession Status" 
+                        value={renderValue(getLookupValue('PossessionStatus', inventory.possessionStatus)) || renderValue(getLookupValue('Status', inventory.possessionStatus)) || renderValue(inventory.possessionStatus)} 
+                        icon="key" 
+                    />
                     <InfoItem 
                         label="Occupation Date" 
                         value={inventory.occupationDate ? new Date(inventory.occupationDate).toLocaleDateString('en-GB') : '-'} 
                         icon="calendar-alt" 
                     />
-                    <InfoItem label="Age of Construction" value={renderValue(inventory.ageOfConstruction)} icon="history" />
-                    <InfoItem label="Furnish Status" value={renderValue(getLookupValue('FurnishType', inventory.furnishType)) || renderValue(inventory.furnishType)} icon="couch" />
+                    <InfoItem 
+                        label="Age of Construction" 
+                        value={renderValue(inventory.ageOfConstruction || inventory.constructionAge)} 
+                        icon="history" 
+                    />
+                    <InfoItem 
+                        label="Furnish Status" 
+                        value={renderValue(getLookupValue('FurnishType', inventory.furnishType || inventory.furnishStatus)) || renderValue(inventory.furnishType || inventory.furnishStatus)} 
+                        icon="couch" 
+                    />
                 </div>
 
                 {/* Furnished Items List */}
@@ -178,6 +213,57 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
                                 </span>
                             ))}
                         </div>
+                    </div>
+                )}
+
+                {/* Empty State Action when no built-up details exist */}
+                {(!inventory.builtupDetails || inventory.builtupDetails.length === 0) && !inventory.builtupType && !inventory.possessionStatus && !inventory.furnishType && onEdit && (
+                    <div style={{
+                        marginTop: '4px',
+                        padding: '14px 18px',
+                        borderRadius: '12px',
+                        background: isDark ? 'rgba(59, 130, 246, 0.08)' : '#f0f9ff',
+                        border: isDark ? '1px dashed rgba(59, 130, 246, 0.3)' : '1px dashed #bae6fd',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        flexWrap: 'wrap'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <i className="fas fa-info-circle" style={{ color: '#0284c7', fontSize: '1rem' }}></i>
+                            <div>
+                                <p style={{ margin: 0, fontSize: '0.82rem', color: isDark ? '#f1f5f9' : '#0369a1', fontWeight: 700 }}>
+                                    Built-up details not yet configured
+                                </p>
+                                <p style={{ margin: 0, fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#0284c7' }}>
+                                    Structure type, floor dimensions, layout plans, and furnishing details can be added here.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onEdit}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '8px',
+                                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                                color: '#fff',
+                                border: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
+                                transition: 'transform 0.15s ease'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <i className="fas fa-plus"></i> Configure Built-up Details
+                        </button>
                     </div>
                 )}
             </div>

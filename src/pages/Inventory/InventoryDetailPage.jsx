@@ -27,6 +27,7 @@ import MatchedLeadsCard from '../../components/MatchedLeadsCard';
 import InventorySidebar from './components/InventorySidebar';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 import PriceIntelligenceCard from '../../components/PriceIntelligenceCard';
+import AuthorityVerificationPanel from './components/AuthorityVerificationPanel';
 
 
 // Modals
@@ -269,7 +270,14 @@ export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, 
                         onUpdateLocation={() => openEditModal('Location')}
                     />
 
-                    <BuiltupDetailsCard inventory={inventory} getLookupValue={getLookupValue} />
+                    <BuiltupDetailsCard 
+                        inventory={inventory} 
+                        getLookupValue={getLookupValue} 
+                        onEdit={() => setIsBuiltupModalOpen(true)}
+                    />
+
+                    {/* ── Government Authority Verification ── */}
+                    <AuthorityVerificationPanel inventory={inventory} onRefresh={refresh} />
 
                     {/* ── Price Intelligence Card ── */}
                     <PriceIntelligenceCard inventoryId={inventoryId} />
@@ -486,7 +494,9 @@ export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, 
                     entityType="Inventory"
                     entityId={inventoryId}
                     entityData={inventory}
-                    onSave={() => {}}
+                    onSave={() => {
+                        refresh();
+                    }}
                 />
             )}
 

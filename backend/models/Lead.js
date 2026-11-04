@@ -182,14 +182,15 @@ const LeadSchema = new mongoose.Schema({
         daysInStage: { type: Number, default: 0 },         // Computed on exit
         triggeredBy: {
             type: String,
-            enum: ['activity', 'manual', 'manual_override', 'bulk_recalc', 'system', 'import'],
+            enum: ['activity', 'manual', 'manual_override', 'bulk_recalc', 'system', 'import', 'revival', 'requirement_qualification'],
             default: 'activity'
         },
         activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },
         activityType: { type: String },                      // 'Call', 'Meeting', 'Site Visit'...
         outcome: { type: String },                      // Outcome string from activity
         triggeredByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        reason: { type: String }                       // Human-readable reason
+        reason: { type: String },                       // Human-readable reason
+        revival: { type: Boolean, default: false }
     }],
     interestedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
     snoozedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],

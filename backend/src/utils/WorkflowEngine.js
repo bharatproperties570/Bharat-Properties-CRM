@@ -252,6 +252,9 @@ export class WorkflowEngine {
                         const mongoose = (await import('mongoose')).default;
                         const Inventory = mongoose.model('Inventory');
                         await Inventory.findByIdAndUpdate(entityData._id || entityData.id, { $set: { status: 'Locked' } }, { new: true });
+                    } else if (autoAction.actionType === 'broadcast_deal' || autoAction.actionType === 'deal_broadcast') {
+                        console.log(`[WorkflowEngine] Executing Automated Action 'broadcast_deal' for ${trigger?.module || 'entity'} ID ${entityData._id || entityData.id}`);
+                        await this.executeBroadcastDealAction(autoAction, entityData, trigger, companyId);
                     }
 
                     // Finalize success with claim fencing
@@ -523,6 +526,9 @@ export class WorkflowEngine {
                 const modelName = modelMap[trigger.module] || trigger.module;
                 const Model = mongoose.model(modelName);
                 await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: { [action.field]: action.value } }, { new: true });
+            } else if (action.type === 'broadcast_deal' || action.type === 'deal_broadcast') {
+                console.log(`[WorkflowEngine] Executing Raw Action 'broadcast_deal' for ${trigger?.module || 'entity'} ID ${entityData._id || entityData.id}`);
+                await this.executeBroadcastDealAction(action, entityData, trigger, companyId);
             }
 
             if (claimAcquired) {
@@ -938,6 +944,273 @@ export class WorkflowEngine {
                 parameter_name: key,
                 text: String(val || '')
             }));
+    }
+
+    /**
+     * 🏢 Broadcast Deal (Omnichannel BNA) Execution
+     * Shared across Automated Actions, Native Triggers, and Drip Sequences.
+     * Enqueues to 'bna-broadcast' so it strictly honors:
+     *  - 5-chat forward limit per batch
+     *  - 3-10m cooldown between batches
+     *  - 8-15s intra-group jitter
+     *  - Single-account dispatch
+     */
+    static async executeBroadcastDealAction(actionConfig, entityData, trigger, companyId) {
+        const mongoose = (await import('mongoose')).default;
+        const Deal = mongoose.model('Deal');
+
+        // 1. Locate Target Deal ID
+        let targetDealId = null;
+        if (entityData && (trigger?.module === 'deals' || entityData.dealCode || entityData.price || entityData.broadcastMetadata)) {
+            targetDealId = entityData._id || entityData.id;
+        } else if (entityData?.dealId) {
+            targetDealId = entityData.dealId;
+        } else if (actionConfig?.configuration?.dealId) {
+            targetDealId = actionConfig.configuration.dealId;
+        } else if (entityData && (trigger?.module === 'inventory' || entityData.inventoryId)) {
+            const invId = entityData.inventoryId?._id || entityData.inventoryId || entityData._id || entityData.id;
+            const linkedDeal = await Deal.findOne({ inventoryId: invId }).sort({ createdAt: -1 }).lean();
+            if (linkedDeal) targetDealId = linkedDeal._id;
+        }
+
+        if (!targetDealId) {
+            console.warn(`[WorkflowEngine] broadcast_deal skipped: No target Deal ID could be identified from entity ${entityData?._id}`);
+            return;
+        }
+
+        // 2. Fetch Deal with full relational population
+        const freshDeal = await Deal.findById(targetDealId)
+            .populate('inventoryId')
+            .populate('owner')
+            .populate('projectId')
+            .populate('partyStructure.owner')
+            .populate('assignedTo')
+            .lean();
+
+        if (!freshDeal) {
+            console.warn(`[WorkflowEngine] broadcast_deal skipped: Deal ${targetDealId} not found in database.`);
+            return;
+        }
+
+        // 3. Build Broadcast Metadata
+        let meta = freshDeal.broadcastMetadata;
+        if (!meta || !meta.isReady) {
+            const p = freshDeal.price || freshDeal.quotePrice || freshDeal.value;
+            const formattedPrice = p ? (p >= 10000000 ? `₹ ${(p / 10000000).toFixed(2)} Cr` : p >= 100000 ? `₹ ${(p / 100000).toFixed(2)} Lac` : `₹ ${p.toLocaleString('en-IN')}`) : 'Price on Request';
+            meta = {
+                title: freshDeal.title || freshDeal.dealCode || 'Exclusive Deal',
+                location: freshDeal.location || freshDeal.locationDetails?.locality || 'Kurukshetra',
+                price: formattedPrice,
+                features: [freshDeal.size ? `${freshDeal.size} ${freshDeal.sizeUnit || 'Sq.Ft'}` : null, freshDeal.unitType].filter(Boolean),
+                description: freshDeal.remarks || freshDeal.description || 'Verified property listing',
+                isReady: true,
+                inventoryId: freshDeal.inventoryId
+            };
+        }
+        const shareableId = freshDeal.shareableId || freshDeal.dealCode || `BP-${String(freshDeal._id).slice(-6).toUpperCase()}`;
+
+        // 4. Resolve Target Audience from audienceConfig
+        const aud = actionConfig.audienceConfig || actionConfig.configuration?.audienceConfig || {};
+        const rawRecipients = [];
+        const normalizePhone = (num) => {
+            if (!num) return '';
+            let cleaned = String(num).replace(/[^0-9+]/g, '');
+            if (cleaned.startsWith('0')) cleaned = cleaned.substring(1);
+            if (!cleaned.startsWith('+') && cleaned.length === 10) cleaned = '91' + cleaned;
+            else if (cleaned.startsWith('+')) cleaned = cleaned.replace('+', '');
+            return cleaned;
+        };
+
+        // A. Broker Groups
+        if (aud.sendToBrokerGroups) {
+            const Company = mongoose.model('Company');
+            const compFilter = {};
+            if (!aud.allBrokerGroups && Array.isArray(aud.selectedGroups) && aud.selectedGroups.length > 0) {
+                compFilter.groups = { $in: aud.selectedGroups };
+            }
+            if (companyId) compFilter.companyId = companyId;
+
+            const companies = await Company.find(compFilter).lean();
+            companies.forEach(c => {
+                const phone = c.phones?.[0]?.phoneNumber || '';
+                const email = c.emails?.[0]?.address || '';
+                if (phone || email) {
+                    rawRecipients.push({
+                        id: c._id,
+                        name: c.name,
+                        mobile: normalizePhone(phone),
+                        email: email,
+                        isVerified: c.isVerifiedBroker,
+                        context: { originalType: 'Company' }
+                    });
+                }
+            });
+        }
+
+        // B. Contact Groups
+        if (aud.includeContactGroups) {
+            const Contact = mongoose.model('Contact');
+            const contactFilter = {};
+            if (!aud.allContactGroups && Array.isArray(aud.selectedContactGroups) && aud.selectedContactGroups.length > 0) {
+                contactFilter.groups = { $in: aud.selectedContactGroups };
+            }
+            if (companyId) contactFilter.companyId = companyId;
+
+            const contacts = await Contact.find(contactFilter).lean();
+            contacts.forEach(c => {
+                const phone = c.phones?.[0]?.number || '';
+                const email = c.emails?.[0]?.address || '';
+                if (phone || email) {
+                    rawRecipients.push({
+                        id: c._id,
+                        name: `${c.name || ''} ${c.surname || ''}`.trim() || 'Valued Client',
+                        mobile: normalizePhone(phone),
+                        email: email,
+                        isVerified: false,
+                        context: { originalType: 'Contact' }
+                    });
+                }
+            });
+        }
+
+        // C. WhatsApp Web Groups (@g.us)
+        if (aud.includeWaGroups) {
+            if (aud.allWaGroups) {
+                try {
+                    const waService = (await import('../../services/WhatsAppService.js')).default;
+                    const allGroups = await waService.getGroups();
+                    // Exclude announce/locked channels where we cannot post
+                    const openGroups = allGroups.filter(g => g.canSend !== false && g.announce !== true);
+                    openGroups.forEach(g => {
+                        rawRecipients.push({
+                            id: g.id,
+                            name: g.subject || g.name || 'WhatsApp Group',
+                            mobile: g.id,
+                            email: '',
+                            isVerified: false,
+                            isGroup: true,
+                            context: { originalType: 'WhatsAppGroup' }
+                        });
+                    });
+                } catch (gErr) {
+                    console.warn('[WorkflowEngine] Failed to auto-fetch WhatsApp groups:', gErr.message);
+                }
+            } else if (Array.isArray(aud.selectedWaGroups) && aud.selectedWaGroups.length > 0) {
+                aud.selectedWaGroups.forEach(jid => {
+                    rawRecipients.push({
+                        id: jid,
+                        name: 'WhatsApp Group',
+                        mobile: jid,
+                        email: '',
+                        isVerified: false,
+                        isGroup: true,
+                        context: { originalType: 'WhatsAppGroup' }
+                    });
+                });
+            }
+        }
+
+        // D. Matched Buyer Leads
+        if (aud.includeMatchedBuyers) {
+            try {
+                const Lead = mongoose.model('Lead');
+                const leadFilter = { status: { $nin: ['Lost', 'Disqualified', 'Junk'] } };
+                if (companyId) leadFilter.companyId = companyId;
+                if (freshDeal.propertyType) {
+                    leadFilter.$or = [
+                        { propertyType: freshDeal.propertyType },
+                        { propertyType: { $exists: false } },
+                        { propertyType: null }
+                    ];
+                }
+                const candidateLeads = await Lead.find(leadFilter).limit(50).lean();
+                candidateLeads.forEach(l => {
+                    const phone = l.mobile || l.primaryPhone || '';
+                    if (phone) {
+                        rawRecipients.push({
+                            id: l._id,
+                            name: `${l.salutation || ''} ${l.firstName || ''} ${l.lastName || ''}`.trim() || 'Buyer',
+                            firstName: l.firstName || 'Customer',
+                            lastName: l.lastName || '',
+                            mobile: normalizePhone(phone),
+                            email: l.email || '',
+                            isVerified: false,
+                            context: { originalType: 'Lead' }
+                        });
+                    }
+                });
+            } catch (mErr) {
+                console.warn('[WorkflowEngine] Failed to fetch matched buyer leads:', mErr.message);
+            }
+        }
+
+        // Deduplicate Recipients
+        const seen = new Set();
+        const recipients = [];
+        for (const r of rawRecipients) {
+            const key = r.mobile ? `m:${r.mobile}` : (r.email ? `e:${String(r.email).toLowerCase()}` : `id:${r.id}`);
+            if (!seen.has(key)) {
+                seen.add(key);
+                recipients.push(r);
+            }
+        }
+
+        if (recipients.length === 0) {
+            console.log(`[WorkflowEngine] broadcast_deal: 0 recipients found matching audience configuration.`);
+            return;
+        }
+
+        // 5. Build channels and payload
+        const notif = actionConfig.notificationConfig || {};
+        const channels = notif.channels
+            ? Object.keys(notif.channels).filter(k => notif.channels[k])
+            : ['whatsapp'];
+        const activeChannels = channels.length > 0 ? channels : ['whatsapp'];
+
+        const isBaileys = (aud.whatsappMode || 'baileys') === 'baileys';
+        const templateId = notif.templates?.whatsapp || 'deal_broadcast';
+
+        const jobData = {
+            name: `Automated Action BNA: ${freshDeal.title || freshDeal.dealCode}`,
+            dealId: freshDeal._id,
+            dealIds: [freshDeal._id],
+            deal: freshDeal,
+            deals: [freshDeal],
+            channels: activeChannels,
+            recipients,
+            meta,
+            templateId,
+            templateText: actionConfig.configuration?.templateText || null,
+            isBaileys,
+            language: 'en',
+            integrationId: actionConfig.configuration?.integrationId || null,
+            shareableId,
+            smsTemplate: notif.templates?.sms ? { id: notif.templates.sms } : null,
+            rcsTemplate: notif.templates?.rcs ? { id: notif.templates.rcs } : null,
+            emailTemplate: notif.templates?.email ? { id: notif.templates.email } : null,
+            forceBroadcast: false,
+            deduplicationWindowHours: 4,
+            performedBy: `Automated Action: ${actionConfig.name || 'System Workflow'}`
+        };
+
+        // 6. Enqueue or Direct Dispatch
+        try {
+            const { marketingQueue } = await import('../queues/marketingQueue.js');
+            const { isRedisOnline } = await import('../config/redis.js');
+
+            if (marketingQueue && isRedisOnline) {
+                const queuedJob = await marketingQueue.add('bna-broadcast', jobData, { removeOnComplete: true });
+                console.log(`[WorkflowEngine] ✅ Queued BNA Broadcast job #${queuedJob.id} for Deal ${freshDeal._id} (${recipients.length} recipients)`);
+            } else {
+                console.warn('[WorkflowEngine] Redis Offline - Fallback to Direct Background BNA Dispatch');
+                const { _dispatchBNADirectly } = await import('../../controllers/marketing.controller.js');
+                _dispatchBNADirectly(jobData).catch(err => console.error('[WorkflowEngine] Direct BNA Error:', err));
+            }
+        } catch (queueErr) {
+            console.error('[WorkflowEngine] Queue dispatch error:', queueErr);
+            const { _dispatchBNADirectly } = await import('../../controllers/marketing.controller.js');
+            _dispatchBNADirectly(jobData).catch(err => console.error('[WorkflowEngine] Fallback Direct BNA Error:', err));
+        }
     }
 
     static async fireEvent(moduleName, eventName, entityData, companyId) {

@@ -2,28 +2,32 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 // 🛡️ Senior Implementation: Environment Variable Safety
+// Preserves Vite production build static replacement, React Native / Expo, Node, and browser window injection.
 export const getEnvVar = (name) => {
-    // Removed import.meta.env to prevent Metro Bundler SyntaxError
-
-    // Priority 1: process.env (Node/Expo/React Native)
+    // Priority 1: process.env (Vite compile-time replacement & Metro/Expo/Hermes & Node & Vitest)
+    // Avoids literal import.meta to prevent Hermes AST syntax errors during React Native bundling.
     try {
         if (typeof process !== 'undefined' && process && process.env) {
+            if (name === 'VITE_API_URL') {
+                const val = process.env.VITE_API_URL || process.env.EXPO_PUBLIC_API_URL;
+                if (typeof val !== 'undefined' && val !== '') return val;
+            }
+            if (name === 'PROD') {
+                const val = process.env.NODE_ENV === 'production';
+                return val;
+            }
             const val = process.env[name];
-            if (typeof val !== 'undefined') return val;
+            if (typeof val !== 'undefined' && val !== '') return val;
         }
-    } catch (e) {
-        // ignore
-    }
+    } catch (_) {}
 
-    // Priority 2: window._env_ (common fallback)
+    // Priority 2: window._env_ (runtime container / preview injection)
     try {
-        if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined) {
+        if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined && window._env_[name] !== '') {
             return window._env_[name];
         }
-    } catch (e) {
-        // ignore
-    }
-    
+    } catch (_) {}
+
     return undefined;
 };
 
@@ -63,43 +67,116 @@ export const getAuthToken = () => {
     return null;
 };
 
-const isProd = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production') || getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
+// ✅ STABLE: Direct backend URL — production backend tunnel
+export const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
 
-// ✅ STABLE: Direct backend URL — no Vercel proxy hop
-const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
+/**
+ * Checks whether a given URL targets the production backend.
+ */
+export const isProductionApiUrl = (url) => {
+    if (!url || typeof url !== 'string') return false;
+    const lower = url.trim().toLowerCase();
+    return lower.includes('api.bharatproperties.co') ||
+           lower.includes('://bharatproperties.co') ||
+           lower.includes('://www.bharatproperties.co') ||
+           lower.includes('://crm.bharatproperties.co') ||
+           lower.includes('://app.bharatproperties.co');
+};
 
-// 🛡️ Vite Static Replacement (Vite requires literal references)
-let VITE_API_URL = '';
-let VITE_API_URL_PROD = '';
-// Removed import.meta.env to prevent Metro Bundler SyntaxError
+/**
+ * Checks whether a hostname represents a Vercel preview deployment.
+ */
+export const isVercelPreviewHost = (host) => {
+    if (!host || typeof host !== 'string') return false;
+    const h = host.trim().toLowerCase();
+    return h.endsWith('.vercel.app') || h === 'vercel.app';
+};
 
-// Fallbacks using dynamic resolution
-const rawViteApiUrl = getEnvVar('VITE_API_URL') || VITE_API_URL;
-const rawProdApiUrl = getEnvVar('VITE_API_URL_PROD') || VITE_API_URL_PROD;
-const FINAL_VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
+/**
+ * Checks whether a hostname represents an authorized production custom domain.
+ */
+export const isExactProductionHost = (host) => {
+    if (!host || typeof host !== 'string') return false;
+    const h = host.trim().toLowerCase();
+    return h === 'bharatproperties.co' ||
+           h === 'www.bharatproperties.co' ||
+           h === 'crm.bharatproperties.co' ||
+           h === 'app.bharatproperties.co';
+};
 
+/**
+ * Deterministic API URL resolution logic.
+ *
+ * Precedence Rules:
+ * 1. Preview Isolation Guard:
+ *    - Preview hostnames (*.vercel.app) MUST NEVER connect to the production API (https://api.bharatproperties.co).
+ *      If a production URL is explicitly provided in Preview, it is strictly rejected.
+ *    - Preview without valid staging configuration fails closed with a clear configuration error.
+ *    - Preview with valid non-production VITE_API_URL routes to that staging API.
+ * 2. Explicit VITE_API_URL strictly respected across non-preview environments.
+ * 3. Exact production custom domains ('bharatproperties.co', 'www.bharatproperties.co', etc.) route to STABLE_TUNNEL_URL.
+ * 4. Staging custom domains ('staging.bharatproperties.co') route to staging backend.
+ * 5. Browser dev environments (localhost, 127.0.0.1, LAN IP) default to '/api' (relying on Vite proxy).
+ * 6. Non-browser production (SSR / Node) routes to STABLE_TUNNEL_URL.
+ * 7. Non-browser development fallback routes to local backend default.
+ */
+export const resolveApiBaseUrl = (options = {}) => {
+    const envApiUrl = ('envApiUrl' in options) ? options.envApiUrl : (getEnvVar('VITE_API_URL') || '');
+    const envProd = ('envProd' in options) ? options.envProd : getEnvVar('PROD');
+    const nodeEnv = ('nodeEnv' in options) ? options.nodeEnv : (typeof process !== 'undefined' && process.env ? process.env.NODE_ENV : undefined);
+    const hostname = ('hostname' in options) ? options.hostname : (typeof window !== 'undefined' && window.location ? window.location.hostname : undefined);
 
-// Detect if running on production host
-let hostProdOverride = false;
-let isLocalhost = false;
-if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-  const hostname = window.location.hostname;
-  hostProdOverride = hostname.includes('bharatproperties.co') || hostname.includes('vercel.app');
-  isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
-}
-const finalProd = isProd || hostProdOverride;
+    const host = typeof hostname === 'string' ? hostname.trim().toLowerCase() : '';
+    const cleanEnvUrl = typeof envApiUrl === 'string' ? envApiUrl.trim() : '';
 
-// URL Resolution Priority:
-// 1. Production: STABLE_TUNNEL_URL directly
-// 2. Web Dev (Browser): '/api' (relies on Vite proxy to route to backend)
-// 3. Mobile/SSR Dev: FINAL_VITE_API_URL or localhost fallback
-const tempApiUrl = finalProd
-    ? STABLE_TUNNEL_URL
-    : (typeof window !== 'undefined' && window.location && window.location.hostname 
-        ? '/api' 
-        : (FINAL_VITE_API_URL || 'http://localhost:4001/api'));
+    // 🛡️ Rule 1: Preview Isolation Guard
+    if (host && isVercelPreviewHost(host)) {
+        if (cleanEnvUrl) {
+            if (isProductionApiUrl(cleanEnvUrl)) {
+                throw new Error(
+                    `[Security Exception] Vercel Preview deployment at '${host}' is prohibited from connecting to production API '${cleanEnvUrl}'. Configure an authorized staging backend URL in VITE_API_URL.`
+                );
+            }
+            return cleanEnvUrl;
+        }
 
-export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
+        // Preview without valid staging configuration must fail closed with a clear configuration error
+        throw new Error(
+            `[Configuration Error] Vercel Preview deployment at '${host}' is missing valid staging API configuration (VITE_API_URL). Silent fallback to production is disabled.`
+        );
+    }
+
+    // Rule 2: Explicit VITE_API_URL respected for all non-preview environments
+    if (cleanEnvUrl) {
+        return cleanEnvUrl;
+    }
+
+    if (host) {
+        // Rule 3: Exact production custom domains continue using production API
+        if (isExactProductionHost(host)) {
+            return STABLE_TUNNEL_URL;
+        }
+
+        // Rule 4: Staging custom domains
+        if (host === 'staging.bharatproperties.co' || host === 'crm-staging.bharatproperties.co') {
+            return 'https://api-staging.bharatproperties.co/api';
+        }
+
+        // Rule 5: Browser dev environments (localhost, 127.0.0.1, LAN IP) default to '/api'
+        return '/api';
+    }
+
+    // Rule 6: Non-browser production environment (SSR / Node)
+    const isProdEnv = nodeEnv === 'production' || envProd === 'true' || envProd === true;
+    if (isProdEnv) {
+        return STABLE_TUNNEL_URL;
+    }
+
+    // Rule 7: Non-browser development fallback (Vitest / testing / local Node)
+    return 'http://localhost:4001/api';
+};
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
@@ -186,6 +263,7 @@ export const socialAPI = {
     startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
     getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),
     getBaileysGroups: (id, params) => api.get(`/social/whatsapp/baileys/groups/${id}`, { params }).then(res => res.data),
+    disconnectBaileys: (id) => api.post(`/social/whatsapp/baileys/disconnect/${id}`).then(res => res.data),
 };
 
 export const automationAPI = {
@@ -936,9 +1014,31 @@ export const jarvisAPI = {
     saveVoiceConfig: (data) => api.post('/jarvis/voice-config', data).then(res => res.data)
 };
 
+// Authority Property Verification API (Phase 4)
+export const authorityAPI = {
+    getSettings: () => api.get('/authority/settings').then(res => res.data),
+    getSettingByCode: (code) => api.get(`/authority/settings/${code}`).then(res => res.data),
+    updateSettings: (code, data) => api.patch(`/authority/settings/${code}`, data).then(res => res.data),
+    getLinks: (inventoryId) => api.get(`/authority/links/${inventoryId}`).then(res => res.data),
+    saveLink: (data) => api.post('/authority/links', data).then(res => res.data),
+    getRuns: (params) => api.get('/authority/runs', { params }).then(res => res.data),
+    getRunById: (runId) => api.get(`/authority/runs/${runId}`).then(res => res.data),
+    getRunProgress: (runId) => api.get(`/authority/runs/${runId}/progress`).then(res => res.data),
+    createRun: (data) => api.post('/authority/runs', data).then(res => res.data),
+    processRun: (runId, data) => api.post(`/authority/runs/${runId}/process`, data).then(res => res.data),
+    pauseRun: (runId) => api.post(`/authority/runs/${runId}/pause`).then(res => res.data),
+    resumeRun: (runId, data) => api.post(`/authority/runs/${runId}/resume`, data).then(res => res.data),
+    cancelRun: (runId, data) => api.post(`/authority/runs/${runId}/cancel`, data).then(res => res.data),
+    getPendingReviews: () => api.get('/authority/review/pending').then(res => res.data),
+    submitReview: (itemId, data) => api.post(`/authority/review/${itemId}`, data).then(res => res.data),
+    applyApprovedChanges: (itemId) => api.post(`/authority/apply/${itemId}`).then(res => res.data),
+    getHistory: (inventoryId) => api.get(`/authority/history/${inventoryId}`).then(res => res.data)
+};
+
 export default {
     auth: authAPI,
     jarvis: jarvisAPI,
+    authority: authorityAPI,
     aiAgents: aiAgentsAPI,
     users: usersAPI,
     roles: rolesAPI,

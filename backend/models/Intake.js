@@ -126,6 +126,29 @@ const intakeSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    assignedTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        index: true
+    },
+    team: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Team',
+        index: true
+    },
+    department: {
+        type: String,
+        default: 'sales'
+    },
+    file_status: {
+        type: String,
+        enum: ['staged', 'ready', 'purging', 'purged', 'failed'],
+        default: null
+    },
+    purgeScheduledAt: { type: Date },
+    purgeFencingToken: { type: Number, default: 0 },
+    purgeLeaseExpiresAt: { type: Date },
+    claimedAt: { type: Date },
     tenantId: {
         type: mongoose.Schema.Types.ObjectId,
         index: true
@@ -136,6 +159,8 @@ const intakeSchema = new mongoose.Schema({
 
 intakeSchema.index({ receivedAt: -1 });
 intakeSchema.index({ status: 1 });
+// ⏳ Enterprise Auto-Purge TTL Index (30-day retention to prevent quota exhaustion)
+intakeSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 const Intake = mongoose.model('Intake', intakeSchema);
 

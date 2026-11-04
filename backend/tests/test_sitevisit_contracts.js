@@ -1,14 +1,11 @@
 import assert from 'assert';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import { autoTriggerStageChange } from '../controllers/activity.controller.js';
 import { submitWaSiteVisit } from '../controllers/public.controller.js';
 import Activity from '../models/Activity.js';
 import Lead from '../models/Lead.js';
-import SystemSetting from '../models/SystemSetting.js';
-import Lookup from '../models/Lookup.js';
 
 console.log('=== Phase 2: Runtime Reliability & Contract Fixes Suite ===\n');
 
@@ -30,8 +27,6 @@ function createMockRes() {
 async function runContractTests() {
     let passed = 0;
     let failed = 0;
-    const mongod = await MongoMemoryServer.create();
-    await mongoose.connect(mongod.getUri());
 
     async function recordAsync(name, fn) {
         try {
@@ -80,8 +75,6 @@ async function runContractTests() {
         const origLeadFindById = Lead.findById;
         const origLeadFindOneAndUpdate = Lead.findOneAndUpdate;
         const origLeadFindByIdAndUpdate = Lead.findByIdAndUpdate;
-        const origSystemSettingFindOne = SystemSetting.findOne;
-        const origLookupFindOne = Lookup.findOne;
 
         let queriedId = null;
 
@@ -117,8 +110,6 @@ async function runContractTests() {
         Lead.find = () => createQueryMock([mockLeadDoc]);
         Lead.findOneAndUpdate = () => createQueryMock(mockLeadDoc);
         Lead.findByIdAndUpdate = () => createQueryMock(mockLeadDoc);
-        SystemSetting.findOne = () => createQueryMock(null);
-        Lookup.findOne = () => createQueryMock(null);
 
         try {
             // Test 1: Passing ID string
@@ -147,8 +138,6 @@ async function runContractTests() {
             Lead.findById = origLeadFindById;
             Lead.findOneAndUpdate = origLeadFindOneAndUpdate;
             Lead.findByIdAndUpdate = origLeadFindByIdAndUpdate;
-            SystemSetting.findOne = origSystemSettingFindOne;
-            Lookup.findOne = origLookupFindOne;
         }
     });
 
@@ -201,13 +190,6 @@ async function runContractTests() {
             process.env.JWT_SECRET = origJwt;
         }
     });
-
-    if (mongoose.connection.readyState !== 0) {
-        await mongoose.disconnect();
-    }
-    if (mongod) {
-        await mongod.stop();
-    }
 
     console.log(`\n========================================`);
     console.log(`Results: ${passed} passed, ${failed} failed`);

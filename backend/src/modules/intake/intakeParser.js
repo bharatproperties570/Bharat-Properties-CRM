@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import ParsingRule from '../parsing/parsingRule.model.js';
 
 // --- DEFAULT PATTERNS (Fallback) ---
@@ -44,6 +45,22 @@ export const getDynamicPatterns = async (bypassCache = false, tenantId = null) =
     const now = Date.now();
     if (!bypassCache && patternsCache.has(cacheKey) && (now - (patternsCacheTime.get(cacheKey) || 0) < CACHE_TTL_MS)) {
         return patternsCache.get(cacheKey);
+    }
+
+    if (mongoose.connection?.readyState === 0) {
+        const finalCities = DEFAULT_CITIES;
+        const finalLocs = DEFAULT_LOCATIONS;
+        const cityPattern = new RegExp(`(${finalCities.join('|')})`, 'i');
+        const dynamicLocs = finalLocs.filter(l => l.toLowerCase() !== 'sector').join('|');
+        const locPattern = new RegExp(`(?:sector|sec|sec-|sector-)\\s?(\\d+[a-z]?)|(${dynamicLocs})`, 'i');
+        const patternObj = {
+            CITY: cityPattern,
+            LOCATION: locPattern,
+            TYPE_KEYWORDS: DEFAULT_TYPES
+        };
+        patternsCache.set(cacheKey, patternObj);
+        patternsCacheTime.set(cacheKey, now);
+        return patternObj;
     }
     try {
         const query = {

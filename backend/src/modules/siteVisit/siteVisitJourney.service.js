@@ -31,19 +31,42 @@ export class SiteVisitJourneyService {
     }
 
     /**
-     * Generate a signed, time-limited, revocable client journey token.
-     * Tokens are valid for 72 hours (3 days) to accommodate pre-visit itinerary viewing.
+     * Resolves optional secondary secret for dual-key rotation.
+     * When FEEDBACK_JWT_SECRET is introduced and differs from JWT_SECRET,
+     * JWT_SECRET serves as fallback for in-flight tokens issued before rotation.
      */
-    static generateJourneyToken(activity) {
+    static getSecondarySecret() {
+        const primary = process.env.FEEDBACK_JWT_SECRET;
+        const fallback = process.env.JWT_SECRET;
+        if (primary && fallback && primary !== fallback) {
+            return fallback;
+        }
+        return null;
+    }
+
+    /**
+     * Generate or reconstruct a signed, time-limited, revocable client journey token.
+     * Tokens are valid for 72 hours (3 days) to accommodate pre-visit itinerary viewing.
+     * When options.jti and options.iat are passed, reconstructs the identical active token
+     * deterministically without generating a new JTI or altering the active token hash.
+     */
+    static generateJourneyToken(activity, options = {}) {
         if (!activity || !activity._id) {
             throw new Error('Valid activity is required to generate journey token');
         }
 
-        const secret = this.getSecret();
-        const jti = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+        const secret = options.secret || this.getSecret();
         const activityId = String(activity._id);
         const leadId = String(activity.entityId || activity.lead || '');
         const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
+
+        const isReconstruction = Boolean(options.jti && typeof options.iat === 'number');
+        const jti = options.jti || (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex'));
+        const iat = isReconstruction ? options.iat : Math.floor(Date.now() / 1000);
+        const exp = isReconstruction && typeof options.exp === 'number'
+            ? options.exp
+            : (options.expiresAt ? Math.floor(new Date(options.expiresAt).getTime() / 1000) : (iat + 72 * 3600));
+        const expiresAt = new Date(exp * 1000);
 
         const token = jwt.sign(
             {
@@ -51,26 +74,79 @@ export class SiteVisitJourneyService {
                 leadId,
                 activityId,
                 purpose: 'client_site_visit_journey',
-                jti
+                jti,
+                iat,
+                exp
             },
-            secret,
-            { expiresIn: '72h' }
+            secret
         );
 
         // Safe tilde replacement for WhatsApp URL preview preservation (. -> ~)
         const safeToken = token.replace(/\./g, '~');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const journeyUrl = `${baseUrl}/journey/${safeToken}`;
-        const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
 
         return {
             token,
             safeToken,
             tokenHash,
             jti,
+            iat,
+            exp,
             journeyUrl,
-            expiresAt
+            expiresAt,
+            isReconstructed: isReconstruction
         };
+    }
+
+    /**
+     * Reconstruct active journey token from stored metadata if not expired and not revoked.
+     * Returns null if no active token exists or if token is expired/revoked.
+     */
+    static reconstructActiveToken(activity) {
+        if (!activity || !activity.details) return null;
+        const { journeyTokenHash, journeyTokenJti, journeyTokenIat, journeyExpiresAt, journeyRevoked } = activity.details;
+
+        if (journeyRevoked === true || activity.status === 'Cancelled') {
+            return null;
+        }
+
+        if (!journeyTokenHash || !journeyTokenJti || typeof journeyTokenIat !== 'number' || !journeyExpiresAt) {
+            return null;
+        }
+
+        const expTime = new Date(journeyExpiresAt).getTime();
+        if (Number.isNaN(expTime) || expTime <= Date.now()) {
+            return null; // Expired
+        }
+
+        const expSec = Math.floor(expTime / 1000);
+        const reconstructed = this.generateJourneyToken(activity, {
+            jti: journeyTokenJti,
+            iat: journeyTokenIat,
+            exp: expSec
+        });
+
+        // Safety assertion: reconstructed hash MUST match stored hash
+        if (reconstructed.tokenHash !== journeyTokenHash) {
+            // Dual-key rotation check: attempt reconstruction with secondary secret
+            const secondarySecret = this.getSecondarySecret();
+            if (secondarySecret) {
+                const secondaryReconstructed = this.generateJourneyToken(activity, {
+                    jti: journeyTokenJti,
+                    iat: journeyTokenIat,
+                    exp: expSec,
+                    secret: secondarySecret
+                });
+                if (secondaryReconstructed.tokenHash === journeyTokenHash) {
+                    return secondaryReconstructed;
+                }
+            }
+            console.error('[SiteVisitJourneyService] Reconstructed token hash mismatch with stored hash');
+            return null;
+        }
+
+        return reconstructed;
     }
 
     /**
@@ -78,17 +154,37 @@ export class SiteVisitJourneyService {
      */
     static async verifyJourneyToken(rawToken, options = {}) {
         if (!rawToken || typeof rawToken !== 'string') {
-            throw new Error('Journey token is required');
+            const err = new Error('Journey token is required');
+            err.statusCode = 400;
+            throw err;
         }
 
         const normalizedToken = rawToken.replace(/~/g, '.');
-        const secret = this.getSecret();
+        const primarySecret = this.getSecret();
+        const secondarySecret = this.getSecondarySecret();
 
         let decoded;
         try {
-            decoded = jwt.verify(normalizedToken, secret);
+            decoded = jwt.verify(normalizedToken, primarySecret);
         } catch (err) {
-            const error = new Error('Invalid or expired journey token');
+            if (secondarySecret) {
+                try {
+                    decoded = jwt.verify(normalizedToken, secondarySecret);
+                } catch (_) {
+                    const error = new Error('Invalid or expired journey token');
+                    error.statusCode = 403;
+                    throw error;
+                }
+            } else {
+                const error = new Error('Invalid or expired journey token');
+                error.statusCode = 403;
+                throw error;
+            }
+        }
+
+        // 6. Verify token issuer and purpose
+        if (decoded.iss !== 'bharat-properties-crm') {
+            const error = new Error('Unauthorized token issuer');
             error.statusCode = 403;
             throw error;
         }
@@ -99,7 +195,12 @@ export class SiteVisitJourneyService {
             throw error;
         }
 
-        const tokenHash = crypto.createHash('sha256').update(normalizedToken).digest('hex');
+        if (!decoded.activityId) {
+            const error = new Error('Token is missing activityId claim');
+            error.statusCode = 403;
+            throw error;
+        }
+
         const ActivityModel = mongoose.models.Activity || Activity;
 
         let activity = null;
@@ -113,26 +214,57 @@ export class SiteVisitJourneyService {
             throw error;
         }
 
+        // 4. Verify decoded activityId matches the loaded activity ID
+        if (String(activity._id) !== String(decoded.activityId)) {
+            const error = new Error('Token activity ID does not match target activity');
+            error.statusCode = 403;
+            throw error;
+        }
+
+        // 5. Verify decoded leadId matches the activity's actual lead/entity ID
+        const activityLeadId = String(activity.entityId || activity.lead || activity.leadId || '');
+        if (!decoded.leadId || String(decoded.leadId) !== activityLeadId) {
+            const error = new Error('Token lead ID does not match target activity entity');
+            error.statusCode = 403;
+            throw error;
+        }
+
         if (activity.type !== 'Site Visit') {
             const error = new Error('Activity is not a Site Visit');
             error.statusCode = 400;
             throw error;
         }
 
+        // 7. Enforce cancellation
         if (activity.status === 'Cancelled') {
             const error = new Error('This site visit has been cancelled');
             error.statusCode = 410; // Gone
             throw error;
         }
 
+        // 7. Enforce explicit revocation
         if (activity.details?.journeyRevoked === true) {
             const error = new Error(activity.details?.journeyRevokedReason || 'This site visit journey link has been revoked');
             error.statusCode = 403;
             throw error;
         }
 
-        // Verify stored hash matches (prevent replay of obsolete revoked tokens)
-        if (activity.details?.journeyTokenHash && activity.details.journeyTokenHash !== tokenHash) {
+        // 1 & 2. Require activity.details.journeyTokenHash to exist and be a valid SHA-256 hash
+        const storedHash = activity.details?.journeyTokenHash;
+        const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/i;
+
+        if (!storedHash || typeof storedHash !== 'string' || !SHA256_HEX_REGEX.test(storedHash)) {
+            const error = new Error('Journey link has missing or malformed security token hash');
+            error.statusCode = 403;
+            throw error;
+        }
+
+        // 3. Compare the computed token hash using constant-time comparison
+        const computedTokenHash = crypto.createHash('sha256').update(normalizedToken).digest('hex');
+        const storedBuf = Buffer.from(storedHash.toLowerCase(), 'hex');
+        const computedBuf = Buffer.from(computedTokenHash.toLowerCase(), 'hex');
+
+        if (storedBuf.length !== computedBuf.length || !crypto.timingSafeEqual(storedBuf, computedBuf)) {
             const error = new Error('Journey link has been superseded or refreshed');
             error.statusCode = 403;
             throw error;
@@ -141,7 +273,7 @@ export class SiteVisitJourneyService {
         return {
             activity,
             claims: decoded,
-            tokenHash
+            tokenHash: computedTokenHash
         };
     }
 
@@ -165,6 +297,15 @@ export class SiteVisitJourneyService {
 
         const cleanAddress = addressParts.join(', ') || property?.project || 'Site Location';
         return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddress)}&travelmode=driving`;
+    }
+
+    /**
+     * Provider-backed route optimization abstraction with graceful fallback.
+     * Respects P1 requirements: Never invent travel times or claim a route is optimal without a real routing result.
+     */
+    static async optimizeRoute(properties, options = {}) {
+        const { GoogleMapsRoutingService } = await import('./googleMapsRouting.service.js');
+        return await GoogleMapsRoutingService.optimizeItinerary(properties, options);
     }
 
     /**
@@ -504,6 +645,7 @@ export class SiteVisitJourneyService {
             inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
             department: activity.department,
             teams: activity.teams,
+            assignedTo: activity.assignedTo || null,
             rating: numRating,
             idempotencyKey,
             responses: {
@@ -514,7 +656,9 @@ export class SiteVisitJourneyService {
                 revisitRequested: Boolean(revisitRequested),
                 expectedPrice: expectedPrice ? Number(expectedPrice) : null,
                 project: property.project,
-                unit: property.property
+                unit: property.property,
+                executive: activity.performedBy || null,
+                executiveId: activity.assignedTo ? String(activity.assignedTo) : null
             },
             sourceMeta: options.sourceMeta || {}
         };

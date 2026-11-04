@@ -343,8 +343,8 @@ async function runSecurityDeliveryTests() {
 
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(res.body.success, true);
-        assert.strictEqual(String(res.body.data.leadInfo._id), String(leadA));
-        assert.strictEqual(res.body.data.leadInfo.firstName, 'Aditya');
+        assert.strictEqual(res.body.data.leadInfo.greetingName, 'Aditya');
+        assert.strictEqual(res.body.data.leadInfo._id, undefined, 'Raw leadId must be stripped for PII protection');
         assert.strictEqual(String(res.body.data.activityInfo._id), String(actA));
         assert.strictEqual(res.body.data.activityInfo.projectName, 'DLF Phase 5');
     });
@@ -679,7 +679,7 @@ async function runSecurityDeliveryTests() {
         assert.strictEqual(res.body.success, true);
         assert(createdSubmission, 'FeedbackSubmission must be created');
         assert.strictEqual(createdSubmission.lead, null, 'Lead should be null for anonymous feedback');
-        assert.strictEqual(createdSubmission.activity, undefined, 'Activity should NOT be bound for general feedback');
+        assert.strictEqual(createdSubmission.activity == null, true, 'Activity should NOT be bound for general feedback');
         assert.strictEqual(activityTouched, false, 'No Activity record should be mutated by anonymous feedback');
     });
 

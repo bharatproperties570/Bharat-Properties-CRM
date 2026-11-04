@@ -220,5 +220,10 @@ git_state*.json
 test.json
 test_file
 *.bak
+*.ledger
+*.jsonl
+*.lock
+.dba_approval_ledger.jsonl
+.dba_approval_ledger.jsonl.lock
 
 

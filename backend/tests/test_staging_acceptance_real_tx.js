@@ -17,7 +17,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'staging_acceptance_jwt_secret_999';
-process.env.FRONTEND_URL = process.env.FRONTEND_URL || 'https://crm.bharatproperties.co';
+process.env.FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 
 // Models
 import Activity from '../models/Activity.js';
@@ -203,7 +203,9 @@ async function runRealTransactionTests() {
     assert(committedActivity !== null, 'Atomic commit: Activity permanently persisted in database');
     assert(committedActivity.status === 'Pending', 'Committed activity has status Pending');
     assert(committedActivity.details.visitedProperties.length === 2, 'Committed activity has 2 properties in itinerary');
-    assert(Boolean(committedActivity.details.journeyToken), 'Committed activity has cryptographically signed journey token');
+    assert(committedActivity.details.journeyToken === undefined, 'Raw journeyToken bearer credential is NOT persisted in MongoDB');
+    assert(committedActivity.details.journeyUrl === undefined, 'Raw journeyUrl bearer credential is NOT persisted in MongoDB');
+    assert(Boolean(committedActivity.details.journeyTokenHash), 'Committed activity has safely persisted token hash');
 
     const scheduledStage = await Lookup.findOne({ lookup_type: 'Stage', lookup_value: 'Site Visit Scheduled' });
     const committedLead = await Lead.findById(lead1._id);
@@ -357,8 +359,9 @@ async function runAcceptanceJourneyTests() {
     assert(persistedAct.details.visitedProperties.length === 2, '2b. Itinerary contains 2 properties');
     assert(persistedAct.details.visitedProperties[0].status === 'READY', '2c. Property 1 is READY');
     assert(persistedAct.details.visitedProperties[1].status === 'LOCKED', '2d. Property 2 is LOCKED');
-    assert(Boolean(persistedAct.details.journeyToken), '2e. Cryptographic client journey token generated');
-    assert(Boolean(persistedAct.details.clientJourneyUrl), '2f. Public client journey link generated');
+    assert(persistedAct.details.journeyToken === undefined, '2e. Raw bearer token is NOT stored in MongoDB');
+    assert(persistedAct.details.journeyUrl === undefined, '2f. Raw journey URL is NOT stored in MongoDB');
+    assert(Boolean(persistedAct.details.journeyTokenHash), '2g. Cryptographic journey token hash persisted');
 
     // 3. Duplicate scheduling handled correctly (idempotency)
     console.log('\n--- 2.3 Duplicate Scheduling Idempotency ---');
@@ -394,14 +397,29 @@ async function runAcceptanceJourneyTests() {
     const eligibleValidation = SiteVisitAutomationService.validateRecipient(lead);
     assert(eligibleValidation.valid === true && (eligibleValidation.normalized === '9811223344' || eligibleValidation.normalizedMobile === '9811223344'), '4b. Eligible customer validated with normalized 10-digit number');
 
-    // 5. Client journey token verification & security guards
-    console.log('\n--- 2.5 Client Journey Token Validation & Security ---');
-    const journeyToken = persistedAct.details.journeyToken;
+    // 5. Client journey token verification & security guards via scoped internal path
+    console.log('\n--- 2.5 Client Journey Token Validation & Scoped Delivery Path ---');
+    const journeyLinkRes = await SiteVisitService.getJourneyLink(activityId, agent);
+    assert(Boolean(journeyLinkRes.journeyUrl), '5a. Authorized agent retrieved customer journey URL via scoped path');
+    assert(Boolean(journeyLinkRes.safeToken), '5b. Authorized agent retrieved customer safe token via scoped path');
+    assert(journeyLinkRes.isRotated === false, '5c. Initial retrieval of active token reports isRotated: false');
+    const journeyToken = journeyLinkRes.safeToken;
+
+    // Stable Lifecycle: Repeated retrieval must return identical token and not invalidate active link
+    const journeyLinkRes2 = await SiteVisitService.getJourneyLink(activityId, agent);
+    assert(journeyLinkRes2.safeToken === journeyToken, '5d. Repeated retrieval returns exact same token without generating new JTI or modifying DB');
+    assert(journeyLinkRes2.journeyUrl === journeyLinkRes.journeyUrl, '5e. Repeated retrieval returns exact same customer URL');
+
+    // Concurrency Safety: 5 concurrent retrievals must all return the exact same token
+    const concurrentResults = await Promise.all([1, 2, 3, 4, 5].map(() => SiteVisitService.getJourneyLink(activityId, agent)));
+    const allMatch = concurrentResults.every(r => r.safeToken === journeyToken && r.journeyUrl === journeyLinkRes.journeyUrl);
+    assert(allMatch === true, '5f. Concurrent retrievals return consistent, identical token and URL with zero race conditions');
+
     const verifiedData = await SiteVisitJourneyService.verifyJourneyToken(journeyToken);
-    assert(String(verifiedData.activity._id) === String(activityId), '5a. Valid token resolves correct activity');
+    assert(String(verifiedData.activity._id) === String(activityId), '5g. Valid token resolves correct activity');
     const itinerary = await SiteVisitJourneyService.getSanitizedItinerary(verifiedData.activity);
-    assert(itinerary.properties.length === 2, '5b. Sanitized itinerary returned');
-    assert(itinerary.properties[1].isLocked === true, '5c. Property 2 unit details strictly masked/locked');
+    assert(itinerary.properties.length === 2, '5h. Sanitized itinerary returned');
+    assert(itinerary.properties[1].isLocked === true, '5i. Property 2 unit details strictly masked/locked');
 
     // Tampered token check
     let tamperedRejected = false;
@@ -410,7 +428,7 @@ async function runAcceptanceJourneyTests() {
     } catch (err) {
         tamperedRejected = true;
     }
-    assert(tamperedRejected === true, '5d. Tampered token rejected');
+    assert(tamperedRejected === true, '5j. Tampered token rejected');
 
     // 6. Feedback submission persists and is visible to CRM user
     console.log('\n--- 2.6 Feedback Submission & CRM Visibility ---');
@@ -434,15 +452,22 @@ async function runAcceptanceJourneyTests() {
 
     // 7. Cancellation/revocation blocks further access (HTTP 410)
     console.log('\n--- 2.7 Cancellation & Access Revocation ---');
-    const cancelLead = await createTestLead({ firstName: 'Cancel', lastName: 'Test Lead', mobile: '9998887776' });
+    const cancelLead = await createTestLead({
+        firstName: 'Cancel',
+        lastName: 'Test Lead',
+        mobile: '9998887776',
+        assignedTo: agent._id,
+        department: 'sales'
+    });
     const cancelSched = await SiteVisitService.schedule({
         leadId: cancelLead._id,
         date: '2026-11-25',
         time: '10:00',
         properties: [{ project: 'DLF Crest' }]
-    });
+    }, agent);
     const cancelActId = cancelSched.activity._id;
-    const cancelToken = cancelSched.activity.details.journeyToken;
+    const cancelLinkRes = await SiteVisitService.getJourneyLink(cancelActId, agent);
+    const cancelToken = cancelLinkRes.safeToken;
 
     await SiteVisitService.cancel(cancelActId, { reason: 'Client requested postponement' }, agent);
     const cancelledAct = await Activity.findById(cancelActId);
@@ -457,6 +482,16 @@ async function runAcceptanceJourneyTests() {
         }
     }
     assert(accessBlocked === true, '7b. Public journey access blocked (HTTP 410 / Cancelled)');
+
+    let newLinkBlocked = false;
+    try {
+        await SiteVisitService.getJourneyLink(cancelActId, agent);
+    } catch (err) {
+        if (err.statusCode === 410 || err.message.includes('cancelled')) {
+            newLinkBlocked = true;
+        }
+    }
+    assert(newLinkBlocked === true, '7c. Generating journey link on cancelled site visit blocked (HTTP 410)');
 
     // 8. Lead/Deal association, attribution and closed-loop ROI
     console.log('\n--- 2.8 Deal Association & Attribution Inheritance ---');
@@ -513,6 +548,638 @@ async function runAcceptanceJourneyTests() {
 
     const evalMock = SiteVisitAutomationService.evaluateProviderDispatch({ mock: true }, 'sms');
     assert(evalMock.success === false && evalMock.status === 'SIMULATED', '10b. Mock provider distinguishes simulation from delivery');
+
+    // 11. Multi-Property Itinerary (5+ Properties) & Sequential Gate Unlocking
+    console.log('\n--- 2.11 Multi-Property Itinerary (5 Properties) & Sequential Gate Unlocking ---');
+    const multiLead = await createTestLead({
+        firstName: 'Multi',
+        lastName: 'Tour Buyer',
+        mobile: '9877001122',
+        assignedTo: agent._id,
+        department: 'sales'
+    });
+    const fiveProperties = [
+        { project: 'M3M Golfestate', block: 'Tower 1', property: 'Unit 101', city: 'Gurugram', lat: 28.4121, lng: 77.0654 },
+        { project: 'DLF Magnolias', block: 'Tower 4', property: 'Unit 402', city: 'Gurugram', lat: 28.4682, lng: 77.0984 },
+        { project: 'Puri The Aravallis', block: 'Tower A', property: 'Unit 503', city: 'Gurugram', lat: 28.4215, lng: 77.0423 },
+        { project: 'Central Park Resorts', block: 'Tower B', property: 'Unit 604', city: 'Gurugram', lat: 28.4325, lng: 77.0512 },
+        { project: 'Tata Primanti', block: 'Villa 7', property: 'Villa 7', city: 'Gurugram', lat: 28.4011, lng: 77.0321 }
+    ];
+
+    const fiveSched = await SiteVisitService.schedule({
+        leadId: multiLead._id,
+        date: '2026-11-28',
+        time: '11:00',
+        properties: fiveProperties
+    }, agent);
+    const fiveActId = fiveSched.activity._id;
+
+    const fiveAct = await Activity.findById(fiveActId);
+    assert(fiveAct.details.visitedProperties.length === 5, '11a. 5 properties scheduled in single itinerary');
+    assert(fiveAct.details.visitedProperties[0].status === 'READY', '11b. Property 1 (index 0) is READY');
+    for (let pIdx = 1; pIdx < 5; pIdx++) {
+        assert(fiveAct.details.visitedProperties[pIdx].status === 'LOCKED', `11c. Property ${pIdx + 1} is initially LOCKED`);
+    }
+
+    const fiveLinkRes = await SiteVisitService.getJourneyLink(fiveActId, agent);
+    const fiveToken = fiveLinkRes.safeToken;
+    const verifiedFive = await SiteVisitJourneyService.verifyJourneyToken(fiveToken);
+    const sanitizedFive = await SiteVisitJourneyService.getSanitizedItinerary(verifiedFive.activity);
+    assert(sanitizedFive.totalProperties === 5, '11d. Sanitized itinerary reports exactly 5 total properties');
+    assert(sanitizedFive.properties[0].isLocked === false, '11e. Property 1 is unlocked');
+    assert(sanitizedFive.properties[1].isLocked === true && sanitizedFive.properties[1].unit === 'Unit Details Locked', '11f. Property 2 unit masked');
+    assert(sanitizedFive.properties[4].isLocked === true && sanitizedFive.properties[4].location.navigationUrl === null, '11g. Property 5 navigation URL is null while locked');
+
+    // Attempting to bypass gate by submitting feedback for property 2 directly
+    let skipGateBlocked = false;
+    try {
+        await SiteVisitJourneyService.submitPropertyFeedback(fiveActId, 2, { rating: 5 });
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('Please submit feedback')) {
+            skipGateBlocked = true;
+        }
+    }
+    assert(skipGateBlocked === true, '11h. Gate bypass attempt blocked: Cannot submit feedback on later locked properties');
+
+    // Sequential feedback on Property 0 unlocks Property 1
+    await SiteVisitJourneyService.submitPropertyFeedback(fiveActId, 0, { rating: 5, responses: { interest: 'Interested' } });
+    const postProp0Act = await Activity.findById(fiveActId);
+    assert(postProp0Act.details.visitedProperties[0].status === 'FEEDBACK_SUBMITTED', '11i. Property 0 advanced to FEEDBACK_SUBMITTED');
+    assert(postProp0Act.details.visitedProperties[1].status === 'READY', '11j. Property 1 sequentially unlocked to READY');
+    assert(postProp0Act.details.visitedProperties[2].status === 'LOCKED', '11k. Property 2 remains LOCKED');
+
+    // 12. Provider-Backed Route Optimization Abstraction with Fallback & No Fabricated Times
+    console.log('\n--- 2.12 Route Optimization Abstraction & Travel Time Integrity ---');
+    const routeOptResult = await SiteVisitJourneyService.optimizeRoute(fiveProperties);
+    assert(routeOptResult.optimized === false, '12a. Fallback to scheduled order when provider not configured');
+    assert(routeOptResult.status === 'CREDENTIAL_BLOCKED', '12b. Optimization status explicitly reports CREDENTIAL_BLOCKED');
+    assert(routeOptResult.estimatedTravelTimes === null, '12c. Travel times strictly null (never fabricated)');
+    assert(routeOptResult.claimedOptimal === false, '12d. Claimed optimal is false without provider routing matrix');
+
+    // Provider mock execution (verifies full Routes API response parsing & waypoint reordering)
+    const mockTransport = async (payload) => ({
+        routes: [{
+            optimizedIntermediateWaypointIndex: [2, 0, 1], // Puri (2), DLF (0), Central Park (1)
+            duration: '3200s',
+            distanceMeters: 24500
+        }]
+    });
+    const providerOptResult = await SiteVisitJourneyService.optimizeRoute(fiveProperties, {
+        apiKey: 'test_key',
+        mockTransport
+    });
+    assert(providerOptResult.optimized === true, '12e. Provider Routes API optimizes waypoint order');
+    assert(providerOptResult.isProviderOptimized === true, '12f. isProviderOptimized is true for Routes API');
+    assert(providerOptResult.optimizationSource === 'GOOGLE_ROUTES_API', '12g. Source is GOOGLE_ROUTES_API');
+    assert(providerOptResult.claimedOptimal === true, '12h. Provider-optimized route is marked optimal');
+    assert(providerOptResult.estimatedTravelTimes.totalDuration === '3200s', '12i. Real provider duration recorded');
+    assert(providerOptResult.properties[1].project === 'Central Park Resorts', '12j. Waypoints reordered based on provider indices');
+
+    // Geometric coordinate proximity test
+    const geoProps = [
+        { project: 'Origin', lat: 28.4595, lng: 77.0266 },
+        { project: 'Far Property', lat: 28.5200, lng: 77.1000 },
+        { project: 'Near Property', lat: 28.4600, lng: 77.0270 }
+    ];
+    const geoOptResult = await SiteVisitJourneyService.optimizeRoute(geoProps, { heuristicProximity: true });
+    assert(geoOptResult.optimized === true, '12k. Heuristic proximity sorts nearest-neighbor coordinates');
+    assert(geoOptResult.properties[1].project === 'Near Property', '12l. Nearest property placed second in sequence');
+    assert(geoOptResult.estimatedTravelTimes === null, '12m. Geometric sort preserves estimatedTravelTimes as null');
+
+    // 13. Scoped Journey Link RBAC Fail-Closed Enforcement
+    console.log('\n--- 2.13 Scoped Journey Link RBAC / Tenant Isolation ---');
+    let linkDenied = false;
+    const mockLinkReq = {
+        params: { id: activityId },
+        user: unauthorizedUser
+    };
+    const mockLinkRes = {
+        statusCode: 200,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) {
+            if (this.statusCode === 403 || this.statusCode === 404 || payload.success === false) {
+                linkDenied = true;
+            }
+            return this;
+        }
+    };
+    await SiteVisitController.getSiteVisitJourneyLink(mockLinkReq, mockLinkRes);
+    assert(linkDenied === true || mockLinkRes.statusCode === 403 || mockLinkRes.statusCode === 404, '13. Unauthorized user cannot retrieve journey link for other department\'s visit');
+
+    // 14. Token Lifecycle: Explicit Rotation, Revocation, and Expiry
+    console.log('\n--- 2.14 Token Lifecycle: Explicit Rotation, Revocation, and Expiry ---');
+    const lifecycleLead = await createTestLead({
+        firstName: 'Lifecycle',
+        lastName: 'Token Lead',
+        mobile: '9888112233',
+        assignedTo: agent._id,
+        department: 'sales'
+    });
+
+    const lifecycleSched = await SiteVisitService.schedule({
+        leadId: lifecycleLead._id,
+        date: '2026-11-29',
+        time: '12:00',
+        properties: [{ project: 'The Camellias' }]
+    }, agent);
+    const lifecycleActId = lifecycleSched.activity._id;
+
+    // Initial Token
+    const initialLink = await SiteVisitService.getJourneyLink(lifecycleActId, agent);
+    const initialToken = initialLink.safeToken;
+    assert(initialLink.isRotated === false, '14a. Initial link isRotated is false');
+
+    const verifyInitial = await SiteVisitJourneyService.verifyJourneyToken(initialToken);
+    assert(String(verifyInitial.activity._id) === String(lifecycleActId), '14b. Initial token verifies successfully');
+
+    // Repeated retrieval returns exact same token
+    const repeatLink = await SiteVisitService.getJourneyLink(lifecycleActId, agent);
+    assert(repeatLink.safeToken === initialToken, '14c. Repeated retrieval does NOT change or invalidate token');
+
+    // Explicit Rotation
+    const rotatedLink = await SiteVisitService.getJourneyLink(lifecycleActId, agent, {
+        rotate: true,
+        rotationReason: 'Agent requested URL refresh'
+    });
+    assert(rotatedLink.isRotated === true, '14d. Explicit rotation returns isRotated: true');
+    assert(rotatedLink.safeToken !== initialToken, '14e. Rotated token is distinct from initial token');
+
+    // Old token is now superseded (HTTP 403)
+    let oldTokenBlocked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(initialToken);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('superseded') || err.message.includes('refreshed')) {
+            oldTokenBlocked = true;
+        }
+    }
+    assert(oldTokenBlocked === true, '14f. Old token is immediately superseded and rejected (HTTP 403)');
+
+    // New token works
+    const verifyRotated = await SiteVisitJourneyService.verifyJourneyToken(rotatedLink.safeToken);
+    assert(String(verifyRotated.activity._id) === String(lifecycleActId), '14g. Newly rotated token verifies successfully');
+
+    // Explicit Revocation (without cancelling visit)
+    const revokeRes = await SiteVisitService.revokeJourneyLink(lifecycleActId, 'Security pause requested', agent);
+    assert(revokeRes.revoked === true, '14h. Explicit revocation marks link revoked');
+
+    // Verified public access blocked with HTTP 403
+    let revokedBlocked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(rotatedLink.safeToken);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('revoked')) {
+            revokedBlocked = true;
+        }
+    }
+    assert(revokedBlocked === true, '14i. Public access with revoked token is blocked (HTTP 403 / Revoked)');
+
+    // Scoped retrieval on revoked activity fails closed
+    let retrievalOnRevokedBlocked = false;
+    try {
+        await SiteVisitService.getJourneyLink(lifecycleActId, agent);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('revoked')) {
+            retrievalOnRevokedBlocked = true;
+        }
+    }
+    assert(retrievalOnRevokedBlocked === true, '14j. Internal retrieval on revoked activity fails closed (HTTP 403)');
+
+    // Token Expiry check
+    const expiredToken = jwt.sign(
+        {
+            iss: 'bharat-properties-crm',
+            leadId: String(lifecycleLead._id),
+            activityId: String(lifecycleActId),
+            purpose: 'client_site_visit_journey',
+            jti: 'expired-jti',
+            iat: Math.floor(Date.now() / 1000) - 100000,
+            exp: Math.floor(Date.now() / 1000) - 50000
+        },
+        SiteVisitJourneyService.getSecret()
+    );
+    let expiredBlocked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(expiredToken);
+    } catch (err) {
+        if (err.statusCode === 403 || err.message.includes('expired')) {
+            expiredBlocked = true;
+        }
+    }
+    assert(expiredBlocked === true, '14k. Expired token is rejected (HTTP 403 / Expired)');
+}
+
+/**
+ * Deterministic synchronization barrier for concurrent test operations.
+ * Holds all participating async tasks until all N parties have called await(),
+ * then releases all tasks simultaneously to maximize race contention.
+ */
+class AsyncBarrier {
+    constructor(parties) {
+        this.parties = parties;
+        this.waiting = 0;
+        this.releasePromise = new Promise((resolve) => {
+            this._resolve = resolve;
+        });
+    }
+
+    async await() {
+        this.waiting++;
+        if (this.waiting === this.parties) {
+            this._resolve();
+        }
+        await this.releasePromise;
+    }
+}
+
+async function runConcurrentTokenLifecycleTests() {
+    console.log('\n======================================================');
+    console.log('Phase 3: Real WiredTiger Concurrent Token Lifecycle & Race Condition Gate');
+    console.log('======================================================');
+
+    const agent = {
+        _id: new mongoose.Types.ObjectId(),
+        name: 'Concurrent Agent',
+        role: 'admin'
+    };
+
+    // ------------------------------------------------------------------------
+    // 3.1: 10 Concurrent Initial Link Requests
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.1 Ten Concurrent Initial Link Requests on Fresh Visit ---');
+    const lead1 = await createTestLead({
+        firstName: 'Concurrent1',
+        lastName: 'Lead',
+        mobile: '9899112233'
+    });
+
+    const sched1 = await SiteVisitService.schedule({
+        leadId: lead1._id,
+        date: '2026-12-01',
+        time: '11:00',
+        properties: [{ project: 'Godrej Palm Retreat' }]
+    }, agent);
+    const actId1 = sched1.activity._id;
+
+    // Concurrently trigger 10 initial link retrievals on the document with 0 initial tokens
+    const initialCalls = Array.from({ length: 10 }, () =>
+        SiteVisitService.getJourneyLink(actId1, agent)
+    );
+    const initialResults = await Promise.all(initialCalls);
+
+    // Fetch the raw document directly from MongoDB to verify actual database state
+    const doc1 = await Activity.findById(actId1).lean();
+    assert(doc1.details?.journeyToken === undefined, '3.1a. Raw journeyToken is strictly NOT persisted in MongoDB');
+    assert(doc1.details?.journeyUrl === undefined, '3.1b. Raw journeyUrl is strictly NOT persisted in MongoDB');
+    assert(typeof doc1.details?.journeyTokenHash === 'string', '3.1c. Exactly one active token hash exists in MongoDB');
+    assert(doc1.details.journeyTokenHash.length === 64, '3.1d. Token hash is valid SHA-256');
+
+    // Every returned token must match the single active token hash in MongoDB
+    for (let i = 0; i < initialResults.length; i++) {
+        const res = initialResults[i];
+        assert(res.safeToken, `3.1e[${i}]. Safe token must be returned`);
+        const verified = await SiteVisitJourneyService.verifyJourneyToken(res.safeToken);
+        assert(String(verified.activity._id) === String(actId1), `3.1f[${i}]. Verified activity ID matches`);
+        assert(verified.tokenHash === doc1.details.journeyTokenHash, `3.1g[${i}]. Returned token hash matches MongoDB active hash`);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3.2: 10 Concurrent Ordinary Retrievals
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.2 Ten Concurrent Ordinary Retrievals (Zero DB Writes & Idempotency) ---');
+    const hashBeforeRetrievals = doc1.details.journeyTokenHash;
+    const iatBeforeRetrievals = doc1.details.journeyTokenIat;
+
+    const retrievalCalls = Array.from({ length: 10 }, () =>
+        SiteVisitService.getJourneyLink(actId1, agent)
+    );
+    const retrievalResults = await Promise.all(retrievalCalls);
+
+    // Re-fetch raw document from MongoDB to verify zero writes occurred
+    const doc1After = await Activity.findById(actId1).lean();
+    assert(doc1After.details.journeyTokenHash === hashBeforeRetrievals, '3.2a. Active hash unchanged across concurrent retrievals');
+    assert(doc1After.details.journeyTokenIat === iatBeforeRetrievals, '3.2b. Active iat unchanged across concurrent retrievals');
+
+    for (let i = 0; i < retrievalResults.length; i++) {
+        assert(retrievalResults[i].safeToken === initialResults[0].safeToken, `3.2c[${i}]. All concurrent retrievals return identical token`);
+        assert(retrievalResults[i].isRotated === false, `3.2d[${i}]. Retrieval indicates isRotated: false`);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3.3: 5 Concurrent Rotation Requests
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.3 Five Concurrent Rotation Requests (CAS Atomic Winner Selection) ---');
+    const oldSafeToken = initialResults[0].safeToken;
+
+    const rotationCalls = Array.from({ length: 5 }, (_, i) =>
+        SiteVisitService.getJourneyLink(actId1, agent, {
+            rotate: true,
+            rotationReason: `Concurrent rotation request #${i + 1}`
+        })
+    );
+    const rotationResults = await Promise.all(rotationCalls);
+
+    // Fetch database state after all 5 rotations complete
+    const doc1Rotated = await Activity.findById(actId1).lean();
+    assert(doc1Rotated.details.journeyTokenHash !== hashBeforeRetrievals, '3.3a. Final hash is distinct from pre-rotation hash');
+    assert(typeof doc1Rotated.details.journeyTokenHash === 'string' && doc1Rotated.details.journeyTokenHash.length === 64, '3.3b. Exactly one active token hash exists in MongoDB');
+
+    // Verify old token is now invalidated
+    let oldTokenRejected = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(oldSafeToken);
+    } catch (err) {
+        if (err.statusCode === 403 && /superseded or refreshed/.test(err.message)) {
+            oldTokenRejected = true;
+        }
+    }
+    assert(oldTokenRejected === true, '3.3c. Pre-rotation token is rejected as superseded (HTTP 403)');
+
+    // Verify all 5 callers received a token matching the final active database state
+    for (let i = 0; i < rotationResults.length; i++) {
+        const res = rotationResults[i];
+        assert(res.isRotated === true, `3.3d[${i}]. Result indicates isRotated: true`);
+        const verified = await SiteVisitJourneyService.verifyJourneyToken(res.safeToken);
+        assert(verified.tokenHash === doc1Rotated.details.journeyTokenHash, `3.3e[${i}]. Caller received token matching final DB state`);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3.4: Retrieval Racing with Explicit Revocation
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.4 Retrieval Racing with Explicit Revocation ---');
+    const lead2 = await createTestLead({
+        firstName: 'RevokeRace',
+        lastName: 'Lead',
+        mobile: '9899334455'
+    });
+
+    const sched2 = await SiteVisitService.schedule({
+        leadId: lead2._id,
+        date: '2026-12-02',
+        time: '14:00',
+        properties: [{ project: 'Sobha City' }]
+    }, agent);
+    const actId2 = sched2.activity._id;
+
+    // Establish active token prior to race
+    const preRaceLink = await SiteVisitService.getJourneyLink(actId2, agent);
+    assert(preRaceLink.safeToken, '3.4a. Pre-race active token generated');
+
+    // Introduce explicit synchronization barrier for 4 concurrent retrievals + 1 revocation
+    const revokeBarrier = new AsyncBarrier(5);
+
+    // Launch revocation task synchronized via barrier
+    const revocationPromise = (async () => {
+        await revokeBarrier.await();
+        const start = process.hrtime.bigint();
+        const outcome = await SiteVisitService.revokeJourneyLink(actId2, 'Security revocation: Emergency security block', agent);
+        const end = process.hrtime.bigint();
+        return { outcome, start, end };
+    })();
+
+    // Launch 4 concurrent retrieval tasks released simultaneously with revocation
+    const concurrentRetrievals = Array.from({ length: 4 }, async (_, i) => {
+        await revokeBarrier.await();
+        const start = process.hrtime.bigint();
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId2, agent);
+            const end = process.hrtime.bigint();
+            return { index: i, success: true, res, start, end };
+        } catch (err) {
+            const end = process.hrtime.bigint();
+            return { index: i, success: false, err, start, end };
+        }
+    });
+
+    // Launch 2 boundary retrieval tasks synchronized on the revocation commit boundary
+    const postBoundaryRetrievals = Array.from({ length: 2 }, async (_, i) => {
+        await revocationPromise;
+        const start = process.hrtime.bigint();
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId2, agent);
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: true, res, start, end };
+        } catch (err) {
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: false, err, start, end };
+        }
+    });
+
+    // Execute all operations under simultaneous contention
+    const [revocationBoundary, ...retrievalOutcomes] = await Promise.all([
+        revocationPromise,
+        ...concurrentRetrievals,
+        ...postBoundaryRetrievals
+    ]);
+
+    assert(revocationBoundary.outcome.revoked === true, '3.4b. Revocation completed successfully');
+    assert(revocationBoundary.end > revocationBoundary.start, '3.4c. Revocation commit boundary recorded');
+
+    // Final database state check: journeyRevoked MUST be true in MongoDB
+    const doc2Final = await Activity.findById(actId2).lean();
+    assert(doc2Final.details?.journeyRevoked === true, '3.4d. Final MongoDB state has journeyRevoked=true');
+    assert(doc2Final.details?.journeyRevokedReason.includes('Emergency security block'), '3.4e. Revocation reason recorded in MongoDB');
+
+    // Categorize retrieval outcomes relative to the revocation completion boundary
+    const completedAfterRevocation = retrievalOutcomes.filter(r => r.end > revocationBoundary.end);
+    const completedBeforeRevocation = retrievalOutcomes.filter(r => r.end <= revocationBoundary.end);
+
+    console.log(`     Contention stats: ${completedBeforeRevocation.length} completed before/at revocation boundary, ${completedAfterRevocation.length} completed after revocation boundary`);
+
+    // 1. A retrieval completing after revocation must not return a usable journey link
+    for (const r of completedAfterRevocation) {
+        if (!r.success) {
+            assert(r.err.statusCode === 403 && /revoked|revocation/i.test(r.err.message),
+                `3.4f[${r.index}]. Retrieval completing after revocation fails closed with HTTP 403`);
+        } else {
+            // If the retrieval succeeded because it read before revocation commit, its returned token must be unusable
+            let verified = false;
+            let verifyErr = null;
+            try {
+                await SiteVisitJourneyService.verifyJourneyToken(r.res.safeToken);
+                verified = true;
+            } catch (err) {
+                verifyErr = err;
+            }
+            assert(verified === false, `3.4f[${r.index}]. Retrieval completing after revocation must not return a usable link`);
+            assert(verifyErr?.statusCode === 403 && /revoked|revocation/i.test(verifyErr?.message),
+                `3.4g[${r.index}]. Token fails public verification with HTTP 403 (Revoked)`);
+        }
+    }
+
+    // 2. Any token returned before revocation must fail public verification after revocation
+    const tokensBeforeRevocation = [preRaceLink.safeToken];
+    for (const r of completedBeforeRevocation) {
+        if (r.success && r.res?.safeToken) {
+            tokensBeforeRevocation.push(r.res.safeToken);
+        }
+    }
+    for (let i = 0; i < tokensBeforeRevocation.length; i++) {
+        let verified = false;
+        let verifyErr = null;
+        try {
+            await SiteVisitJourneyService.verifyJourneyToken(tokensBeforeRevocation[i]);
+            verified = true;
+        } catch (err) {
+            verifyErr = err;
+        }
+        assert(verified === false, `3.4h[${i}]. Token returned before revocation must not verify after revocation`);
+        assert(verifyErr?.statusCode === 403 && /revoked|revocation/i.test(verifyErr?.message),
+            `3.4i[${i}]. Token returned before revocation fails public verification with HTTP 403`);
+    }
+
+    // 3. Verify subsequent retrieval returns HTTP 403
+    let subsequentRetrievalBlocked = false;
+    let subsequentRetrievalErr = null;
+    try {
+        await SiteVisitService.getJourneyLink(actId2, agent);
+    } catch (err) {
+        subsequentRetrievalBlocked = true;
+        subsequentRetrievalErr = err;
+    }
+    assert(subsequentRetrievalBlocked === true, '3.4j. Subsequent getJourneyLink strictly fails closed');
+    assert(subsequentRetrievalErr?.statusCode === 403 && /revoked|revocation/i.test(subsequentRetrievalErr?.message),
+        '3.4k. Subsequent getJourneyLink returns HTTP 403 with revocation reason');
+
+    // ------------------------------------------------------------------------
+    // 3.5: Retrieval Racing with Cancellation
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.5 Retrieval Racing with Visit Cancellation ---');
+    const lead3 = await createTestLead({
+        firstName: 'CancelRace',
+        lastName: 'Lead',
+        mobile: '9899556677'
+    });
+
+    const sched3 = await SiteVisitService.schedule({
+        leadId: lead3._id,
+        date: '2026-12-03',
+        time: '16:00',
+        properties: [{ project: 'Experion The Heartsong' }]
+    }, agent);
+    const actId3 = sched3.activity._id;
+
+    // Pre-race active token
+    const preCancelLink = await SiteVisitService.getJourneyLink(actId3, agent);
+    assert(preCancelLink.safeToken, '3.5a. Pre-race active token generated');
+
+    // Introduce explicit synchronization barrier for 4 concurrent retrievals + 1 cancellation
+    const cancelBarrier = new AsyncBarrier(5);
+
+    // Launch cancellation task synchronized via barrier
+    const cancellationPromise = (async () => {
+        await cancelBarrier.await();
+        const start = process.hrtime.bigint();
+        const outcome = await SiteVisitService.cancel(actId3, 'Customer changed plans', agent);
+        const end = process.hrtime.bigint();
+        return { outcome, start, end };
+    })();
+
+    // Launch 4 concurrent retrieval tasks released simultaneously with cancellation
+    const concurrentCancelRetrievals = Array.from({ length: 4 }, async (_, i) => {
+        await cancelBarrier.await();
+        const start = process.hrtime.bigint();
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId3, agent);
+            const end = process.hrtime.bigint();
+            return { index: i, success: true, res, start, end };
+        } catch (err) {
+            const end = process.hrtime.bigint();
+            return { index: i, success: false, err, start, end };
+        }
+    });
+
+    // Launch 2 boundary retrieval tasks synchronized on the cancellation commit boundary
+    const postBoundaryCancelRetrievals = Array.from({ length: 2 }, async (_, i) => {
+        await cancellationPromise;
+        const start = process.hrtime.bigint();
+        try {
+            const res = await SiteVisitService.getJourneyLink(actId3, agent);
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: true, res, start, end };
+        } catch (err) {
+            const end = process.hrtime.bigint();
+            return { index: i + 4, success: false, err, start, end };
+        }
+    });
+
+    // Execute all operations under simultaneous contention
+    const [cancellationBoundary, ...cancelRetrievalOutcomes] = await Promise.all([
+        cancellationPromise,
+        ...concurrentCancelRetrievals,
+        ...postBoundaryCancelRetrievals
+    ]);
+
+    assert(
+        cancellationBoundary.outcome.activity?.status === 'Cancelled' || cancellationBoundary.outcome.status === 'Cancelled',
+        '3.5b. Cancellation completed successfully'
+    );
+    assert(cancellationBoundary.end > cancellationBoundary.start, '3.5c. Cancellation commit boundary recorded');
+
+    // Final DB state MUST be Cancelled
+    const doc3Final = await Activity.findById(actId3).lean();
+    assert(doc3Final.status === 'Cancelled', '3.5d. Final MongoDB status is Cancelled');
+
+    // Categorize cancel retrieval outcomes relative to the cancellation completion boundary
+    const cancelCompletedAfter = cancelRetrievalOutcomes.filter(r => r.end > cancellationBoundary.end);
+    const cancelCompletedBefore = cancelRetrievalOutcomes.filter(r => r.end <= cancellationBoundary.end);
+
+    console.log(`     Contention stats: ${cancelCompletedBefore.length} completed before/at cancellation boundary, ${cancelCompletedAfter.length} completed after cancellation boundary`);
+
+    // 1. A retrieval completing after cancellation must not return a usable journey link
+    for (const r of cancelCompletedAfter) {
+        if (!r.success) {
+            assert(r.err.statusCode === 410 && /cancelled/i.test(r.err.message),
+                `3.5e[${r.index}]. Retrieval completing after cancellation fails closed with HTTP 410 (Gone)`);
+        } else {
+            // If the retrieval succeeded because it read before cancellation commit, its returned token must be unusable
+            let verified = false;
+            let verifyErr = null;
+            try {
+                await SiteVisitJourneyService.verifyJourneyToken(r.res.safeToken);
+                verified = true;
+            } catch (err) {
+                verifyErr = err;
+            }
+            assert(verified === false, `3.5e[${r.index}]. Retrieval completing after cancellation must not return a usable link`);
+            assert(verifyErr?.statusCode === 410 && /cancelled/i.test(verifyErr?.message),
+                `3.5f[${r.index}]. Token fails public verification with HTTP 410 (Gone)`);
+        }
+    }
+
+    // 2. All previously issued tokens must fail verification with HTTP 410
+    const tokensBeforeCancellation = [preCancelLink.safeToken];
+    for (const r of cancelCompletedBefore) {
+        if (r.success && r.res?.safeToken) {
+            tokensBeforeCancellation.push(r.res.safeToken);
+        }
+    }
+    for (let i = 0; i < tokensBeforeCancellation.length; i++) {
+        let verified = false;
+        let verifyErr = null;
+        try {
+            await SiteVisitJourneyService.verifyJourneyToken(tokensBeforeCancellation[i]);
+            verified = true;
+        } catch (err) {
+            verifyErr = err;
+        }
+        assert(verified === false, `3.5g[${i}]. Token returned before cancellation must not verify after cancellation`);
+        assert(verifyErr?.statusCode === 410 && /cancelled/i.test(verifyErr?.message),
+            `3.5h[${i}]. Issued token fails verification with HTTP 410 on cancelled visit`);
+    }
+
+    // 3. Subsequent retrieval on cancelled activity MUST fail closed (HTTP 410)
+    let subsequentCancelBlocked = false;
+    let subsequentCancelErr = null;
+    try {
+        await SiteVisitService.getJourneyLink(actId3, agent);
+    } catch (err) {
+        subsequentCancelBlocked = true;
+        subsequentCancelErr = err;
+    }
+    assert(subsequentCancelBlocked === true, '3.5i. Subsequent getJourneyLink strictly fails closed with HTTP 410');
+    assert(subsequentCancelErr?.statusCode === 410 && /cancelled/i.test(subsequentCancelErr?.message),
+        '3.5j. Subsequent getJourneyLink error statusCode is 410 and message mentions cancelled');
 }
 
 async function main() {
@@ -523,6 +1190,7 @@ async function main() {
         await setupDatabase();
         await runRealTransactionTests();
         await runAcceptanceJourneyTests();
+        await runConcurrentTokenLifecycleTests();
 
         console.log('\n======================================================');
         console.log(`STAGING ACCEPTANCE RESULTS: Passed: ${testPassed}, Failed: ${testFailed}`);

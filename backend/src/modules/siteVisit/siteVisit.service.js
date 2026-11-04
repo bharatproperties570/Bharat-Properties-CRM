@@ -120,12 +120,11 @@ export class SiteVisitService {
                 pickupAddress: pickupAddress || '',
                 visitedProperties: normalizedProperties,
                 rescheduleHistory: [],
-                journeyToken: journeyInfo?.token || null,
                 journeyTokenHash: journeyInfo?.tokenHash || null,
                 journeyTokenJti: journeyInfo?.jti || null,
+                journeyTokenIat: journeyInfo?.iat || null,
                 journeyExpiresAt: journeyInfo?.expiresAt || null,
-                journeyUrl: journeyInfo?.journeyUrl || null,
-                clientJourneyUrl: journeyInfo?.journeyUrl || null
+                journeyRevoked: false
             }
         };
 
@@ -159,9 +158,6 @@ export class SiteVisitService {
         return {
             alreadyScheduled: false,
             activity,
-            journeyToken: journeyInfo?.token || null,
-            journeyUrl: journeyInfo?.journeyUrl || null,
-            clientJourneyUrl: journeyInfo?.journeyUrl || null,
             message: 'Site visit scheduled successfully'
         };
     }
@@ -682,6 +678,218 @@ export class SiteVisitService {
                 limit,
                 pages: Math.ceil(total / limit)
             }
+        };
+    }
+
+    /**
+     * Scoped Internal Delivery Path: Deliver signed customer journey link on demand
+     * to authorized CRM user. Does NOT persist raw token in database.
+     * Enforces a stable lifecycle: Repeated retrieval returns the active unexpired link
+     * without invalidating existing customer URLs. Explicit rotation requires rotate: true.
+     */
+    static async getJourneyLink(activityId, user = null, options = {}) {
+        if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
+            const err = new Error('Invalid or missing Site Visit ID');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const activity = await this.getById(activityId, user);
+        if (!activity) {
+            const err = new Error('Site visit not found');
+            err.statusCode = 404;
+            throw err;
+        }
+
+        if (activity.status === 'Cancelled') {
+            const err = new Error('Cannot generate journey link for cancelled site visit');
+            err.statusCode = 410;
+            throw err;
+        }
+
+        if (activity.details?.journeyRevoked === true) {
+            const err = new Error(activity.details?.journeyRevokedReason || 'Site visit journey link has been revoked');
+            err.statusCode = 403;
+            throw err;
+        }
+
+        const { SiteVisitJourneyService } = await import('./siteVisitJourney.service.js');
+        const shouldRotate = Boolean(options.rotate === true || options.forceRotate === true);
+
+        // 1. Stable Lifecycle: Return active unexpired token if not rotating (zero database writes)
+        if (!shouldRotate) {
+            const active = SiteVisitJourneyService.reconstructActiveToken(activity);
+            if (active) {
+                return {
+                    journeyUrl: active.journeyUrl,
+                    safeToken: active.safeToken,
+                    expiresAt: active.expiresAt,
+                    isRotated: false
+                };
+            }
+        }
+
+        // 2. Token Generation / Atomic Rotation with CAS
+        const journeyInfo = SiteVisitJourneyService.generateJourneyToken(activity);
+        const ActivityModel = mongoose.models.Activity || Activity;
+        const oldHash = activity.details?.journeyTokenHash;
+
+        const updateSet = {
+            'details.journeyTokenHash': journeyInfo.tokenHash,
+            'details.journeyTokenJti': journeyInfo.jti,
+            'details.journeyTokenIat': journeyInfo.iat,
+            'details.journeyExpiresAt': journeyInfo.expiresAt,
+            'details.journeyRevoked': false
+        };
+
+        if (shouldRotate) {
+            updateSet['details.journeyRotatedAt'] = new Date();
+            updateSet['details.journeyRotatedBy'] = user?._id || user?.id || null;
+            if (options.rotationReason) {
+                updateSet['details.journeyRotationReason'] = String(options.rotationReason).trim();
+            }
+        }
+
+        // Compare-And-Set filter to protect against concurrent creation & rotation races
+        const casFilter = {
+            _id: activity._id,
+            status: { $ne: 'Cancelled' },
+            'details.journeyRevoked': { $ne: true }
+        };
+
+        if (oldHash) {
+            casFilter['details.journeyTokenHash'] = oldHash;
+        } else {
+            casFilter.$or = [
+                { 'details.journeyTokenHash': { $exists: false } },
+                { 'details.journeyTokenHash': null },
+                { 'details.journeyTokenHash': '' }
+            ];
+        }
+
+        if (typeof ActivityModel.findOneAndUpdate === 'function') {
+            const updated = await ActivityModel.findOneAndUpdate(
+                casFilter,
+                { $set: updateSet },
+                { new: true, ...(options.session ? { session: options.session } : {}) }
+            );
+
+            // If CAS matched nothing because of concurrent initial creation or rotation,
+            // reload from database and return the winning active valid token
+            if (!updated) {
+                const latest = await ActivityModel.findById(activity._id, null, options.session ? { session: options.session } : undefined);
+                if (!latest) {
+                    const err = new Error('Site visit not found');
+                    err.statusCode = 404;
+                    throw err;
+                }
+                if (latest.status === 'Cancelled') {
+                    const err = new Error('Cannot generate journey link for cancelled site visit');
+                    err.statusCode = 410;
+                    throw err;
+                }
+                if (latest.details?.journeyRevoked === true) {
+                    const err = new Error(latest.details?.journeyRevokedReason || 'Site visit journey link has been revoked');
+                    err.statusCode = 403;
+                    throw err;
+                }
+
+                const latestActive = SiteVisitJourneyService.reconstructActiveToken(latest);
+                if (latestActive) {
+                    return {
+                        journeyUrl: latestActive.journeyUrl,
+                        safeToken: latestActive.safeToken,
+                        expiresAt: latestActive.expiresAt,
+                        isRotated: shouldRotate
+                    };
+                }
+
+                const err = new Error('Concurrent token modification in progress. Please retry.');
+                err.statusCode = 409;
+                throw err;
+            }
+        } else if (activity.save) {
+            if (activity.status === 'Cancelled') {
+                const err = new Error('Cannot generate journey link for cancelled site visit');
+                err.statusCode = 410;
+                throw err;
+            }
+            if (activity.details?.journeyRevoked === true) {
+                const err = new Error(activity.details?.journeyRevokedReason || 'Site visit journey link has been revoked');
+                err.statusCode = 403;
+                throw err;
+            }
+            if (!activity.details) activity.details = {};
+            activity.details.journeyTokenHash = journeyInfo.tokenHash;
+            activity.details.journeyTokenJti = journeyInfo.jti;
+            activity.details.journeyTokenIat = journeyInfo.iat;
+            activity.details.journeyExpiresAt = journeyInfo.expiresAt;
+            activity.details.journeyRevoked = false;
+            if (shouldRotate) {
+                activity.details.journeyRotatedAt = new Date();
+                activity.details.journeyRotatedBy = user?._id || user?.id || null;
+                if (options.rotationReason) {
+                    activity.details.journeyRotationReason = String(options.rotationReason).trim();
+                }
+            }
+            await activity.save(options.session ? { session: options.session } : undefined);
+        }
+
+        return {
+            journeyUrl: journeyInfo.journeyUrl,
+            safeToken: journeyInfo.safeToken,
+            expiresAt: journeyInfo.expiresAt,
+            isRotated: shouldRotate
+        };
+    }
+
+    /**
+     * Explicitly revoke an active customer journey link without cancelling the entire site visit.
+     */
+    static async revokeJourneyLink(activityId, reason = '', user = null, options = {}) {
+        if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
+            const err = new Error('Invalid or missing Site Visit ID');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const activity = await this.getById(activityId, user);
+        if (!activity) {
+            const err = new Error('Site visit not found');
+            err.statusCode = 404;
+            throw err;
+        }
+
+        const trimmedReason = typeof reason === 'string' && reason.trim() ? reason.trim() : 'Revoked by CRM administrator';
+        const userId = user?._id || user?.id || null;
+        const ActivityModel = mongoose.models.Activity || Activity;
+
+        if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+            await ActivityModel.findByIdAndUpdate(
+                activity._id,
+                {
+                    $set: {
+                        'details.journeyRevoked': true,
+                        'details.journeyRevokedAt': new Date(),
+                        'details.journeyRevokedBy': userId,
+                        'details.journeyRevokedReason': trimmedReason
+                    }
+                },
+                options.session ? { session: options.session } : undefined
+            );
+        } else if (activity.save) {
+            if (!activity.details) activity.details = {};
+            activity.details.journeyRevoked = true;
+            activity.details.journeyRevokedAt = new Date();
+            activity.details.journeyRevokedBy = userId;
+            activity.details.journeyRevokedReason = trimmedReason;
+            await activity.save(options.session ? { session: options.session } : undefined);
+        }
+
+        return {
+            success: true,
+            revoked: true,
+            reason: trimmedReason
         };
     }
 }

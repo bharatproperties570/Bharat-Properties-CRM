@@ -26,13 +26,13 @@
  *   - The API returns { shouldChange, newStage, requiredFields, missingFields } for the frontend
  */
 
+import mongoose from 'mongoose';
 import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
 
-import DealSyncEngine from './DealSyncEngine.js';
 import AuditLog from '../../models/AuditLog.js';
 import StageTransitionLog from '../../models/StageTransitionLog.js';
 import { safeRedisCall } from '../config/redis.js';
@@ -339,24 +339,67 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         .lean();
     if (!lead) throw new Error(`StageTransitionEngine: Lead ${leadId} not found`);
 
-    const prevStageName = lead.stage?.lookup_value || lead.stage || 'Unknown';
+    let prevStageName = lead.stage?.lookup_value || '';
+    if (!prevStageName && lead.stage) {
+        if (mongoose.Types.ObjectId.isValid(lead.stage)) {
+            const lookup = await Lookup.findById(lead.stage).select('lookup_value').lean();
+            prevStageName = lookup?.lookup_value || String(lead.stage);
+        } else {
+            prevStageName = String(lead.stage);
+        }
+    }
+    if (!prevStageName) prevStageName = 'Unknown';
+
+    let currentStatusName = lead.status?.lookup_value || '';
+    if (!currentStatusName && lead.status && mongoose.Types.ObjectId.isValid(lead.status)) {
+        const lookup = await Lookup.findById(lead.status).select('lookup_value').lean();
+        currentStatusName = lookup?.lookup_value || '';
+    }
 
     // Skip if already in the target stage
     if (prevStageName.toLowerCase() === newStageName.toLowerCase()) {
         return { success: true, prevStage: prevStageName, newStage: newStageName, skipped: true };
     }
 
+    // 🛡️ TERMINAL STAGE LOCKING & CONTROLLED REVIVAL
+    const TERMINAL_STAGES = ['closed', 'lost', 'unqualified', 'won', 'booked', 'dormant'];
+    const ACTIVE_PIPELINE_STAGES = ['incoming', 'prospect', 'working', 'opportunity', 'negotiation'];
+
+    const prevStageLower = prevStageName.toLowerCase();
+    const currentStatusLower = currentStatusName.toLowerCase();
+    const isPrevTerminal = TERMINAL_STAGES.includes(prevStageLower) || TERMINAL_STAGES.includes(currentStatusLower);
+    const isTargetActive = ACTIVE_PIPELINE_STAGES.includes(newStageName.toLowerCase());
+
+    let isControlledRevival = false;
+    if (isPrevTerminal && isTargetActive) {
+        isControlledRevival = options.revivalAllowed === true ||
+                              triggeredBy === 'manual_override' ||
+                              triggeredBy === 'revival' ||
+                              (prevStageLower === 'dormant' && newStageName.toLowerCase() === 'prospect');
+        if (!isControlledRevival) {
+            console.warn(`[StageEngine] Terminal stage lock blocked transition: ${prevStageName} → ${newStageName}`);
+            return {
+                success: false,
+                blocked: true,
+                terminalLocked: true,
+                reason: `Lead is in terminal stage "${prevStageName}". Controlled revival or manual override required.`,
+                prevStage: prevStageName,
+                newStage: newStageName
+            };
+        }
+    }
+
     // 🚀 [FEATURE] Stage Regression Guard (Forward-only enforcement)
     const STAGE_ORDER = {
-        'incoming': 0, 'prospect': 1,
+        'incoming': 0, 'prospect': 1, 'working': 2,
         'opportunity': 3, 'negotiation': 4, 'booked': 5, 'closed': 6
     };
 
     const currentOrder = STAGE_ORDER[prevStageName.toLowerCase()] ?? -1;
     const targetOrder = STAGE_ORDER[newStageName.toLowerCase()] ?? -1;
 
-    // Block if trying to move backward, unless triggered by manual_override
-    if (targetOrder > -1 && currentOrder > -1 && targetOrder < currentOrder && triggeredBy !== 'manual_override') {
+    // Block if trying to move backward, unless triggered by manual_override or controlled revival
+    if (targetOrder > -1 && currentOrder > -1 && targetOrder < currentOrder && triggeredBy !== 'manual_override' && !isControlledRevival) {
         console.warn(`[StageEngine] Regression blocked: ${prevStageName} → ${newStageName}`);
         return { success: false, blocked: true, reason: 'Stage regression not allowed', prevStage: prevStageName, newStage: newStageName };
     }
@@ -365,8 +408,6 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     let targetStageName = newStageName;
     let targetStatusName = null;
     const terminalStatuses = ['Won', 'Lost', 'Unqualified'];
-    
-    const currentStatusName = lead.status?.lookup_value || '';
 
     if (terminalStatuses.includes(newStageName)) {
         targetStageName = 'Closed';
@@ -411,7 +452,8 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         activityType: activityType || undefined,
         outcome: outcome || undefined,
         reason: reason || (targetStatusName ? `Moved to terminal status: ${targetStatusName}` : undefined),
-        triggeredByUser: triggeredByUser || undefined
+        triggeredByUser: triggeredByUser || undefined,
+        ...(isControlledRevival ? { revival: true } : {})
     };
 
     // Merge stageFormData fields into lead update
@@ -450,7 +492,31 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     }
 
     console.log(`[StageEngine] Executing transition for Lead ${leadId}: ${prevStageName} -> ${newStageName}`);
-    await Lead.findByIdAndUpdate(leadId, updatePayload, { session: options.session });
+
+    // 🛡️ ATOMIC CONCURRENCY PROTECTION
+    // Ensure the lead stage has not been concurrently updated by another process
+    const expectedStage = lead.stage?._id || lead.stage;
+    let stageFilter = expectedStage;
+    if (expectedStage && mongoose.Types.ObjectId.isValid(expectedStage)) {
+        stageFilter = { $in: [new mongoose.Types.ObjectId(String(expectedStage)), String(expectedStage)] };
+    }
+    const atomicFilter = {
+        _id: leadId,
+        stage: stageFilter
+    };
+
+    const updatedLead = await Lead.findOneAndUpdate(atomicFilter, updatePayload, { new: true, session: options.session });
+    if (!updatedLead) {
+        console.warn(`[StageEngine] Concurrency conflict: Lead ${leadId} stage was modified concurrently`);
+        return {
+            success: false,
+            blocked: true,
+            concurrencyConflict: true,
+            reason: 'CONCURRENCY_CONFLICT: Lead stage was modified by another operation.',
+            prevStage: prevStageName,
+            newStage: newStageName
+        };
+    }
 
     // Audit log
     try {
@@ -463,17 +529,35 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
             { before: prevStageName, after: newStageName },
             `Stage: "${prevStageName}" → "${newStageName}" via ${activityType} [${outcome}${reason ? ` / ${reason}` : ''}] (${triggeredBy})`
         );
+
+        if (isControlledRevival) {
+            await AuditLog.logEntityUpdate(
+                'lead_revived',
+                'lead',
+                leadId,
+                `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                triggeredByUser,
+                { before: prevStageName, after: newStageName },
+                `Lead revived from "${prevStageName}" to "${newStageName}" via ${activityType} (${triggeredBy})`
+            );
+        }
     } catch (_) { /* Non-critical */ }
 
     // 🚀 LEAD REVIVAL AUTOMATION
     let triggerRevivalSync = false;
-    if (prevStageName.toLowerCase() === 'dormant' && newStageName.toLowerCase() === 'prospect') {
+    if (isControlledRevival || (prevStageName.toLowerCase() === 'dormant' && newStageName.toLowerCase() === 'prospect')) {
         triggerRevivalSync = true;
     }
     
     // 🚀 DEAL SYNC ENGINE (Phase 4)
-    DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser, visitedProperties).catch(err => {
-        console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
+    import('./DealSyncEngine.js').then(({ default: DealSyncEngine }) => {
+        if (DealSyncEngine?.syncLeadToDeal) {
+            DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser, visitedProperties).catch(err => {
+                console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
+            });
+        }
+    }).catch(err => {
+        console.error('[StageTransitionEngine] Dynamic import of DealSyncEngine failed:', err.message);
     });
 
     return { success: true, prevStage: prevStageName, newStage: newStageName, triggerRevivalSync };

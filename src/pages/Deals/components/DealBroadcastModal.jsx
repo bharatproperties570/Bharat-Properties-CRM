@@ -95,6 +95,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
     }, []);
 
     const [sending, setSending] = useState(false);
+    const [skipRecentDuplicates, setSkipRecentDuplicates] = useState(true);
 
     // 1. WhatsApp Templates State
     const [templates, setTemplates] = useState([]);
@@ -316,7 +317,12 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
 
                 const rawAccounts = accountsRes.data || [];
                 setAccounts(rawAccounts);
-                const defaultOrFirst = rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') || rawAccounts.find(a => a.status === 'ACTIVE') || rawAccounts[0];
+                const defaultOrFirst = 
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE') ||
+                    rawAccounts[0];
                 if (defaultOrFirst) {
                     const accId = defaultOrFirst.id || defaultOrFirst._id;
                     setSelectedAccountId(accId);
@@ -953,8 +959,10 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         ? (selectedWebTemplate?.name || selectedWebTemplate?.id || undefined)
                         : selectedTemplate?.name)
                     : undefined,
-                templateText: channels.whatsapp && isBaileys && selectedWebTemplate 
-                    ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
+                templateText: channels.whatsapp && isBaileys 
+                    ? (selectedWebTemplate 
+                        ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
+                        : (richPreviewText || undefined))
                     : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
@@ -977,14 +985,16 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                     name: selectedEmailTemplate?.name || 'Default Corporate Deal Bulletin HTML',
                     subject: emailPreviewData.subject,
                     html: emailPreviewData.customHtml || undefined
-                } : undefined
+                } : undefined,
+                forceBroadcast: !skipRecentDuplicates,
+                deduplicationWindowHours: 4
             };
 
             const res = await api.post('/marketing/broadcast/bna', payload);
 
             if (res.data?.success) {
                 toast.success(`🎉 Broadcast successfully dispatched to ${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients!`);
-                if (onSuccess) onSuccess();
+                if (onSuccess) onSuccess(res.data.campaignId);
                 onClose();
             } else {
                 toast.error(res.data?.error || "Broadcast could not be dispatched");
@@ -1004,6 +1014,11 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         if (!waGroupSearch) return true;
         const q = waGroupSearch.toLowerCase();
         return (g.subject || g.name || '').toLowerCase().includes(q);
+    }).sort((a, b) => {
+        const aCan = a.canSend !== false;
+        const bCan = b.canSend !== false;
+        if (aCan !== bCan) return aCan ? -1 : 1;
+        return (b.participantsCount || 0) - (a.participantsCount || 0);
     });
 
     const preferredMatchedLeadsCount = matchedLeads.filter(l => l.isPreferredMatch || (l.score || 0) >= 75).length;
@@ -1385,11 +1400,14 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                         {accounts.map(acc => {
                                                             const accId = acc.id || acc._id;
                                                             const isWAWeb = acc.provider === 'BAILEYS';
+                                                            const label = acc.accountLabel || acc.name || (acc.displayPhoneNumber ? `+${String(acc.displayPhoneNumber).replace(/^\+/, '')}` : 'WhatsApp Line');
+                                                            const phone = acc.displayPhoneNumber || acc.phoneNumber || acc.phoneNumberId || '';
                                                             return (
                                                                 <option key={accId} value={accId}>
                                                                     {isWAWeb ? '🟢 [WhatsApp Web] ' : '🔵 [Meta Cloud API] '}
-                                                                    {acc.name || acc.phoneNumber || 'WhatsApp Line'}
-                                                                    {acc.phoneNumber ? ` (+${acc.phoneNumber.replace(/^\+/, '')})` : ''}
+                                                                    {label}
+                                                                    {phone && !label.includes(phone) ? ` (${phone})` : ''}
+                                                                    {acc.isDefault ? ' ⭐ Default' : ''}
                                                                 </option>
                                                             );
                                                         })}
@@ -2130,6 +2148,9 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                                         key={g.id}
                                                                         type="button"
                                                                         onClick={() => {
+                                                                            if (g.canSend === false) {
+                                                                                toast.warning(`"${g.subject}" is an Admin-only Announcement channel. Only community admins can post here.`);
+                                                                            }
                                                                             if (isSelected) setSelectedWaGroups(selectedWaGroups.filter(id => id !== g.id));
                                                                             else setSelectedWaGroups([...selectedWaGroups, g.id]);
                                                                         }}
@@ -2139,11 +2160,16 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                                             background: isSelected ? '#10b981' : (isDark ? '#1e293b' : '#fff'),
                                                                             color: isSelected ? '#fff' : (isDark ? '#f8fafc' : '#334155'),
                                                                             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
-                                                                            maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                                                                            maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                                            opacity: g.canSend === false ? 0.75 : 1
                                                                         }}
+                                                                        title={g.canSend === false ? `${g.subject} (Admin-only Channel)` : g.subject}
                                                                     >
                                                                         <i className="fab fa-whatsapp" style={{ fontSize: '11px', color: isSelected ? '#fff' : '#10b981' }}></i>
                                                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.subject || g.name || 'Group'}</span>
+                                                                        {g.canSend === false && (
+                                                                            <span style={{ fontSize: '10px' }} title="Admin-only channel">🔒</span>
+                                                                        )}
                                                                         <span style={{
                                                                             fontSize: '0.62rem', fontWeight: 800, padding: '1px 5px', borderRadius: '8px',
                                                                             background: isSelected ? 'rgba(255,255,255,0.22)' : (isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9'),
@@ -2605,6 +2631,41 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                             <i className="fas fa-users" style={{ marginRight: '5px' }}></i>
                             Broadcast Audience: {audienceStats.totalAudienceReach} People ({audienceStats.totalDirectRecipients} Dispatches)
                         </span>
+                        {channels.whatsapp && (
+                            <span style={{
+                                padding: '3px 10px', borderRadius: '8px',
+                                background: isDark ? 'rgba(5, 150, 105, 0.15)' : '#ecfdf5',
+                                color: isDark ? '#34d399' : '#059669',
+                                border: isDark ? '1px solid rgba(5, 150, 105, 0.3)' : '1px solid #a7f3d0',
+                                fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '5px'
+                            }}>
+                                <i className="fas fa-shield-alt"></i>
+                                <span>5 Chats / Batch (3-10m Cooldown • Anti-Ban)</span>
+                            </span>
+                        )}
+                        <label style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                            padding: '3px 10px',
+                            borderRadius: '8px',
+                            background: skipRecentDuplicates ? (isDark ? 'rgba(99, 102, 241, 0.15)' : '#eef2ff') : (isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2'),
+                            color: skipRecentDuplicates ? (isDark ? '#a5b4fc' : '#4f46e5') : (isDark ? '#f87171' : '#dc2626'),
+                            border: skipRecentDuplicates ? (isDark ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid #c7d2fe') : (isDark ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid #fecaca'),
+                            fontSize: '0.74rem',
+                            fontWeight: 800,
+                            userSelect: 'none'
+                        }} title="Skip any groups or contacts that already received this deal in the last 4 hours">
+                            <input
+                                type="checkbox"
+                                checked={skipRecentDuplicates}
+                                onChange={(e) => setSkipRecentDuplicates(e.target.checked)}
+                                style={{ accentColor: '#4f46e5', cursor: 'pointer' }}
+                            />
+                            <i className="fas fa-filter"></i>
+                            <span>{skipRecentDuplicates ? 'Anti-Duplicate: 4h Protection Active' : 'Force All (Duplicates Allowed)'}</span>
+                        </label>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -186,8 +186,8 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             assert.equal(keyedResult.code, 'DURABLE_LEDGER_UNAVAILABLE');
             assert.ok(keyedResult.error.includes('fail-closed'));
 
-            // Un-keyed send must continue unblocked
-            const unkeyedResult = await WhatsAppService.sendMessage(mobile, 'Standard notification');
+            // Un-keyed send with verified opt-out override must continue unblocked by durable ledger
+            const unkeyedResult = await WhatsAppService.sendMessage(mobile, 'Standard notification', { overrideOptOut: true });
             assert.equal(unkeyedResult.success, true);
         } finally {
             delete mongoose.connection.readyState;

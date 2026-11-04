@@ -92,7 +92,13 @@ async function test() {
     console.log("SCENARIO 5 PASS: Associates object array rewritten perfectly");
 
     console.log("Rolling back...");
-    await rollbackMerge(audit.mergeOperationId);
+    const testAdminUser = {
+        _id: new mongoose.Types.ObjectId(),
+        email: 'bharatproperties570@gmail.com',
+        dataScope: 'all',
+        role: { name: 'super admin' }
+    };
+    await rollbackMerge(audit.mergeOperationId, { user: testAdminUser });
 
     // Verify Rollback
     const r1 = await Inventory.findById(inv1._id).lean();

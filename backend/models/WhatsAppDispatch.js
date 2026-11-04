@@ -43,6 +43,17 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
         default: 1,
         index: true
     },
+    reconcileGeneration: {
+        type: Number,
+        default: 0,
+        index: true
+    },
+    reconcileLockWorkerId: {
+        type: String
+    },
+    reconcileClaimedAt: {
+        type: Date
+    },
     claimedAt: {
         type: Date,
         default: Date.now,

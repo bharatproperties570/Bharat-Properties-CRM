@@ -30,6 +30,7 @@ const InventoryToolbar = ({
     handleFeedbackClick,
     handleDelete,
     handleBulkUpdateClick,
+    handleBulkVerifyClick,
     inventoryItems,
     sortConfig,
     setSortConfig,
@@ -102,6 +103,19 @@ const InventoryToolbar = ({
                         <button className="action-btn" title="Add Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
                         <button className="action-btn" title="Bulk Update" onClick={handleBulkUpdateClick}><i className="fas fa-layer-group"></i> Update</button>
                     </PermissionGate>
+                    {handleBulkVerifyClick && (
+                        <PermissionGate module="authorityVerification" action="create">
+                            <button
+                                type="button"
+                                className="action-btn"
+                                title="Verify with Authority"
+                                onClick={handleBulkVerifyClick}
+                                style={{ color: '#4f46e5', fontWeight: 600 }}
+                            >
+                                <i className="fas fa-shield-alt"></i> Verify Authority
+                            </button>
+                        </PermissionGate>
+                    )}
                     <div style={{ marginLeft: 'auto' }}>
                         <PermissionGate module="inventory" action="delete">
                             <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>

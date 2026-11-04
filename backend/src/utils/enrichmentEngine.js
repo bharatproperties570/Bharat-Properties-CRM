@@ -175,7 +175,7 @@ export const generateAIDeepIntentPure = async (leadId, lead, notes, interactionT
         Do not include markdown code fences, only return raw JSON. Do not include unknown fields.
     `;
     try {
-        const response = await unifiedAIService.generate(prompt);
+        const response = await unifiedAIService.generate(prompt, { capability: 'AI_LEAD_ENRICHMENT' });
         let cleanResponse = response.trim();
         cleanResponse = cleanResponse.replace(/^\s*```(?:json)?\n?/i, '').replace(/\n?```\s*$/i, '').trim();
         const parsedJson = JSON.parse(cleanResponse);

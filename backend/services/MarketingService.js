@@ -1,4 +1,5 @@
 import unifiedAIService from './UnifiedAIService.js';
+import AIGovernance from './ai/AIGovernance.js';
 import AiAgent from '../models/AiAgent.js';
 import Deal from '../models/Deal.js';
 // Assuming CampaignEngine or a worker queue is available
@@ -68,7 +69,7 @@ class MarketingService {
             - If YouTube: Separate Title, Description, and Script sections.
         `;
 
-        return await unifiedAIService.generate(prompt, { provider });
+        return await unifiedAIService.generate(prompt, { provider, capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION });
     }
 
     /**
@@ -102,7 +103,7 @@ class MarketingService {
             }
         `;
 
-        const response = await unifiedAIService.generate(prompt, { provider });
+        const response = await unifiedAIService.generate(prompt, { provider, capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION });
         try {
             return JSON.parse(response);
         } catch (e) {

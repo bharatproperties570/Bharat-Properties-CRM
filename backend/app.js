@@ -77,6 +77,7 @@ import scoringRuleRoutes from "./routes/scoringRule.routes.js";
 import adminQueueRoutes from "./src/routes/admin.queue.routes.js";
 import jarvisRoutes from "./routes/jarvis.routes.js";
 import outboxRoutes from "./routes/outbox.routes.js";
+import authorityVerificationRoutes from "./routes/authorityVerification.routes.js";
 
 const app = express();
 
@@ -314,6 +315,7 @@ app.use("/api/scoring-rules", scoringRuleRoutes);
 app.use("/api/admin/queues", adminQueueRoutes);
 app.use("/api/outbox", outboxRoutes);
 app.use("/api/jarvis", jarvisRoutes);
+app.use("/api/authority", authorityVerificationRoutes);
 import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/uploads", express.static(os.tmpdir()));

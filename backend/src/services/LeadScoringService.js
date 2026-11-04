@@ -256,11 +256,50 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
 
     // ── B. ACTIVITY SCORE (dynamic — ONLY counted here, NOT in enrichment) ──
     let activityScore = 0;
+    const activityContributions = [];
+    const seenActivityIds = new Set();
+    const seenExternalIds = new Set();
+    const seenSignatures = new Map(); // signature -> timestamp of first scored occurrence
+    const DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
     const activityBehaviouralEnabled = scoringConfig?.behavioural?.enabled !== false;
 
     if (activityBehaviouralEnabled && Array.isArray(activities)) {
-        activities.forEach(act => {
-            if (act.status !== 'Completed') return; // Only completed activities score
+        // Sort activities chronologically to evaluate replay order deterministically
+        const sortedActivities = [...activities].sort((a, b) => {
+            const rawA = a.completedAt || a.createdAt;
+            const dateA = rawA ? new Date(rawA).getTime() : 0;
+            const timeA = isNaN(dateA) ? 0 : dateA;
+
+            const rawB = b.completedAt || b.createdAt;
+            const dateB = rawB ? new Date(rawB).getTime() : 0;
+            const timeB = isNaN(dateB) ? 0 : dateB;
+
+            return timeA - timeB;
+        });
+
+        sortedActivities.forEach(act => {
+            const normalizedStatus = String(act.status || '').trim().toLowerCase();
+            if (normalizedStatus !== 'completed') return; // Only completed activities score
+
+            // 1. Deduplicate by explicit activity _id
+            const actIdStr = act._id ? String(act._id) : null;
+            if (actIdStr) {
+                if (seenActivityIds.has(actIdStr)) {
+                    return; // Skip duplicate activity document
+                }
+                seenActivityIds.add(actIdStr);
+            }
+
+            // 2. Deduplicate by external event / message / call identifier if present
+            const extId = act.externalId || act.details?.externalId || act.details?.eventId || act.details?.callSid || act.details?.messageId || act.details?.idempotencyKey;
+            if (extId) {
+                const extKey = `${(act.type || '').toLowerCase()}:${String(extId).trim()}`;
+                if (seenExternalIds.has(extKey)) {
+                    return; // Skip duplicate external event
+                }
+                seenExternalIds.add(extKey);
+            }
 
             const actName = (act.type || '').toLowerCase();
             const actDef = activityMasterFields?.activities?.find(
@@ -297,23 +336,58 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
                     .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0] || '';
             }
 
-            const outcomeDef = purpDef.outcomes?.find(o => {
-                const ol = (o.label || '').toLowerCase();
-                return ol === outcomeLabel || outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
-            });
+            // 3. Safe timestamp normalization (handles missing, null, and invalid date formats safely)
+            const rawDate = act.completedAt || act.createdAt;
+            let actDate = rawDate ? new Date(rawDate) : null;
+            if (!actDate || isNaN(actDate.getTime())) {
+                actDate = new Date();
+            }
+            const actTimestamp = actDate.getTime();
 
+            // 4. Signature Deduplication for Unpersisted / Transient Activities:
+            // Activities without a persistent _id lack a stable database identity.
+            // Deduplicate unpersisted replays sharing the same activity signature within DUPLICATE_WINDOW_MS (5 min).
+            // Persisted activities with distinct _id values are never suppressed by timestamp/signature similarity alone.
+            const signature = `${actName}:${purpName}:${outcomeLabel}`;
+            if (!actIdStr && seenSignatures.has(signature)) {
+                const prevTimestamp = seenSignatures.get(signature);
+                const timeDiff = Math.abs(actTimestamp - prevTimestamp);
+                if (timeDiff < DUPLICATE_WINDOW_MS) {
+                    return; // Unpersisted replay within 5 minutes on same lead ignored
+                }
+            }
+            seenSignatures.set(signature, actTimestamp);
+
+            const outcomeDef = purpDef.outcomes?.find(o => (o.label || '').toLowerCase() === outcomeLabel)
+                || purpDef.outcomes?.find(o => {
+                    const ol = (o.label || '').toLowerCase();
+                    return outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
+                });
+
+            let scoredPoints = 0;
             if (outcomeDef) {
-                activityScore += (Number(outcomeDef.score) || 0);
+                scoredPoints = Number(outcomeDef.score) || 0;
             } else {
                 // Safeguard: Hardcoded penalty for negative/missed outcomes if not in config
                 const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed', 'not interested'].some(s => outcomeLabel.includes(s));
                 if (isMissed) {
-                    activityScore -= 3; // Standard penalty for unsuccessful attempt
+                    scoredPoints = -3; // Standard penalty for unsuccessful attempt
                 }
             }
+
+            activityScore += scoredPoints;
+            activityContributions.push({
+                activityId: actIdStr,
+                type: act.type,
+                purpose: act.details?.purpose || purpName,
+                outcome: outcomeLabel,
+                points: scoredPoints,
+                timestamp: new Date(actTimestamp)
+            });
         });
     }
     breakdown.activityScore = activityScore;
+    breakdown.activityContributions = activityContributions;
 
     // ── C. SOURCE QUALITY SCORE ──────────────────────────────────────────────
     let sourceScore = 0;
