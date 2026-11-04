@@ -2,28 +2,41 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 // 🛡️ Senior Implementation: Environment Variable Safety
+// Preserves Vite production build static replacement, React Native / Expo, Node, and browser window injection.
 export const getEnvVar = (name) => {
-    // Removed import.meta.env to prevent Metro Bundler SyntaxError
+    // Priority 1: import.meta.env (Vite standard compile-time & runtime)
+    try {
+        if (name === 'VITE_API_URL') {
+            const val = import.meta.env?.VITE_API_URL;
+            if (typeof val !== 'undefined' && val !== '') return val;
+        }
+        if (name === 'PROD') {
+            const val = import.meta.env?.PROD;
+            if (typeof val !== 'undefined') return val;
+        }
+        if (typeof import.meta !== 'undefined' && import.meta.env) {
+            const val = import.meta.env[name];
+            if (typeof val !== 'undefined' && val !== '') return val;
+        }
+    } catch (_) {
+        // Safe fallback for bundlers/runtimes where import.meta is unavailable
+    }
 
-    // Priority 1: process.env (Node/Expo/React Native)
+    // Priority 2: process.env (Node / Expo / Metro / React Native / Vitest)
     try {
         if (typeof process !== 'undefined' && process && process.env) {
             const val = process.env[name];
-            if (typeof val !== 'undefined') return val;
+            if (typeof val !== 'undefined' && val !== '') return val;
         }
-    } catch (e) {
-        // ignore
-    }
+    } catch (_) {}
 
-    // Priority 2: window._env_ (common fallback)
+    // Priority 3: window._env_ (runtime container / preview injection)
     try {
-        if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined) {
+        if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined && window._env_[name] !== '') {
             return window._env_[name];
         }
-    } catch (e) {
-        // ignore
-    }
-    
+    } catch (_) {}
+
     return undefined;
 };
 
@@ -67,15 +80,54 @@ export const getAuthToken = () => {
 export const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
 
 /**
+ * Checks whether a given URL targets the production backend.
+ */
+export const isProductionApiUrl = (url) => {
+    if (!url || typeof url !== 'string') return false;
+    const lower = url.trim().toLowerCase();
+    return lower.includes('api.bharatproperties.co') ||
+           lower.includes('://bharatproperties.co') ||
+           lower.includes('://www.bharatproperties.co') ||
+           lower.includes('://crm.bharatproperties.co') ||
+           lower.includes('://app.bharatproperties.co');
+};
+
+/**
+ * Checks whether a hostname represents a Vercel preview deployment.
+ */
+export const isVercelPreviewHost = (host) => {
+    if (!host || typeof host !== 'string') return false;
+    const h = host.trim().toLowerCase();
+    return h.endsWith('.vercel.app') || h === 'vercel.app';
+};
+
+/**
+ * Checks whether a hostname represents an authorized production custom domain.
+ */
+export const isExactProductionHost = (host) => {
+    if (!host || typeof host !== 'string') return false;
+    const h = host.trim().toLowerCase();
+    return h === 'bharatproperties.co' ||
+           h === 'www.bharatproperties.co' ||
+           h === 'crm.bharatproperties.co' ||
+           h === 'app.bharatproperties.co';
+};
+
+/**
  * Deterministic API URL resolution logic.
  *
  * Precedence Rules:
- * 1. Explicit VITE_API_URL takes highest priority in all environments.
- * 2. Exact production domains ('bharatproperties.co', 'www.bharatproperties.co', 'crm.bharatproperties.co') route to STABLE_TUNNEL_URL.
- * 3. Vercel Preview (*.vercel.app) MUST NEVER silently connect to production backend. If no explicit VITE_API_URL is configured, it fails closed to relative '/api' proxy.
- * 4. Browser dev environments (localhost, 127.0.0.1, LAN IP) default to '/api' (relying on Vite proxy).
- * 5. Non-browser production (SSR / Node) routes to STABLE_TUNNEL_URL.
- * 6. Non-browser development fallback routes to local backend default.
+ * 1. Preview Isolation Guard:
+ *    - Preview hostnames (*.vercel.app) MUST NEVER connect to the production API (https://api.bharatproperties.co).
+ *      If a production URL is explicitly provided in Preview, it is strictly rejected.
+ *    - Preview without valid staging configuration fails closed with a clear configuration error.
+ *    - Preview with valid non-production VITE_API_URL routes to that staging API.
+ * 2. Explicit VITE_API_URL strictly respected across non-preview environments.
+ * 3. Exact production custom domains ('bharatproperties.co', 'www.bharatproperties.co', etc.) route to STABLE_TUNNEL_URL.
+ * 4. Staging custom domains ('staging.bharatproperties.co') route to staging backend.
+ * 5. Browser dev environments (localhost, 127.0.0.1, LAN IP) default to '/api' (relying on Vite proxy).
+ * 6. Non-browser production (SSR / Node) routes to STABLE_TUNNEL_URL.
+ * 7. Non-browser development fallback routes to local backend default.
  */
 export const resolveApiBaseUrl = (options = {}) => {
     const envApiUrl = ('envApiUrl' in options) ? options.envApiUrl : (getEnvVar('VITE_API_URL') || '');
@@ -83,38 +135,53 @@ export const resolveApiBaseUrl = (options = {}) => {
     const nodeEnv = ('nodeEnv' in options) ? options.nodeEnv : (typeof process !== 'undefined' && process.env ? process.env.NODE_ENV : undefined);
     const hostname = ('hostname' in options) ? options.hostname : (typeof window !== 'undefined' && window.location ? window.location.hostname : undefined);
 
-    // Rule 1: Explicit VITE_API_URL strictly respected across all environments
-    if (typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
-        return envApiUrl.trim();
+    const host = typeof hostname === 'string' ? hostname.trim().toLowerCase() : '';
+    const cleanEnvUrl = typeof envApiUrl === 'string' ? envApiUrl.trim() : '';
+
+    // 🛡️ Rule 1: Preview Isolation Guard
+    if (host && isVercelPreviewHost(host)) {
+        if (cleanEnvUrl) {
+            if (isProductionApiUrl(cleanEnvUrl)) {
+                throw new Error(
+                    `[Security Exception] Vercel Preview deployment at '${host}' is prohibited from connecting to production API '${cleanEnvUrl}'. Configure an authorized staging backend URL in VITE_API_URL.`
+                );
+            }
+            return cleanEnvUrl;
+        }
+
+        // Preview without valid staging configuration must fail closed with a clear configuration error
+        throw new Error(
+            `[Configuration Error] Vercel Preview deployment at '${host}' is missing valid staging API configuration (VITE_API_URL). Silent fallback to production is disabled.`
+        );
     }
 
-    const host = typeof hostname === 'string' ? hostname.trim().toLowerCase() : '';
+    // Rule 2: Explicit VITE_API_URL respected for all non-preview environments
+    if (cleanEnvUrl) {
+        return cleanEnvUrl;
+    }
 
     if (host) {
-        const isExactProdHost = host === 'bharatproperties.co' || host === 'www.bharatproperties.co' || host === 'crm.bharatproperties.co';
-        const isVercelPreview = host.endsWith('.vercel.app') || host === 'vercel.app';
-
-        // Rule 2: Strict production custom domains
-        if (isExactProdHost) {
+        // Rule 3: Exact production custom domains continue using production API
+        if (isExactProductionHost(host)) {
             return STABLE_TUNNEL_URL;
         }
 
-        // Rule 3: Vercel Preview deployments fail-closed to '/api' without silent leak to production
-        if (isVercelPreview) {
-            return '/api';
+        // Rule 4: Staging custom domains
+        if (host === 'staging.bharatproperties.co' || host === 'crm-staging.bharatproperties.co') {
+            return 'https://api-staging.bharatproperties.co/api';
         }
 
-        // Rule 4: Localhost or LAN dev browser -> relative '/api'
+        // Rule 5: Browser dev environments (localhost, 127.0.0.1, LAN IP) default to '/api'
         return '/api';
     }
 
-    // Rule 5: Non-browser production environment
+    // Rule 6: Non-browser production environment (SSR / Node)
     const isProdEnv = nodeEnv === 'production' || envProd === 'true' || envProd === true;
     if (isProdEnv) {
         return STABLE_TUNNEL_URL;
     }
 
-    // Rule 6: Non-browser development fallback
+    // Rule 7: Non-browser development fallback (Vitest / testing / local Node)
     return 'http://localhost:4001/api';
 };
 

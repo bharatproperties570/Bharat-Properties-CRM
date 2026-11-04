@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const FeedbackSubmissionSchema = new mongoose.Schema({
     form: { type: mongoose.Schema.Types.ObjectId, ref: 'FeedbackForm', required: true },
     lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' }, // Optional: link to existing lead
-    activity: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', index: true }, // 🛡️ CRITICAL-01: Linked Activity
+    activity: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' }, // 🛡️ CRITICAL-01: Linked Activity
     inventory: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }, // 🌟 NEW: Link to inventory
     department: { type: String, index: true }, 
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],

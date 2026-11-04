@@ -141,6 +141,11 @@ jobs:
           cd backend
           npm run test:sitevisit
 
+      - name: Run Feedback Security Regression Tests (61 Tests)
+        run: |
+          cd backend
+          npm run test:feedback-security
+
   replica-set-acceptance:
     name: Site Visit Real MongoDB Replica Set Acceptance
     runs-on: ubuntu-latest

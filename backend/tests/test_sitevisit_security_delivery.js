@@ -679,7 +679,7 @@ async function runSecurityDeliveryTests() {
         assert.strictEqual(res.body.success, true);
         assert(createdSubmission, 'FeedbackSubmission must be created');
         assert.strictEqual(createdSubmission.lead, null, 'Lead should be null for anonymous feedback');
-        assert.strictEqual(createdSubmission.activity, undefined, 'Activity should NOT be bound for general feedback');
+        assert.strictEqual(createdSubmission.activity == null, true, 'Activity should NOT be bound for general feedback');
         assert.strictEqual(activityTouched, false, 'No Activity record should be mutated by anonymous feedback');
     });
 
