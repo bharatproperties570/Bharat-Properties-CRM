@@ -58,37 +58,54 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
     let mongoServer = null;
 
     t.before(async () => {
-        try {
-            redisClient = new Redis({
-                host: REDIS_HOST,
-                port: REDIS_PORT,
-                connectTimeout: 1000,
-                maxRetriesPerRequest: 1,
-                retryStrategy: () => null,
-                lazyConnect: true
-            });
-            redisClient.on('error', () => {});
-            await redisClient.connect();
-            const pong = await redisClient.ping();
-            if (pong === 'PONG') {
-                isRedisAvailable = true;
-                redisClient2 = new Redis({
-                    host: REDIS_HOST,
-                    port: REDIS_PORT,
-                    connectTimeout: 1000,
-                    maxRetriesPerRequest: 1,
-                    retryStrategy: () => null,
-                    lazyConnect: true
-                });
-                redisClient2.on('error', () => {});
-                await redisClient2.connect();
+        const isCI = Boolean(process.env.CI);
+        const maxAttempts = isCI ? 5 : 2;
+        const connectTimeout = isCI ? 5000 : 2000;
+        const retryDelayMs = 1000;
 
-                // Clean up any stale keys from previous runs
-                const initialKeys = await redisClient.keys('*portal*');
-                if (initialKeys.length > 0) await redisClient.del(...initialKeys);
-                const initialQuotaKeys = await redisClient.keys('quota:*');
-                if (initialQuotaKeys.length > 0) await redisClient.del(...initialQuotaKeys);
+        const connectWithRetry = async (clientIndex = 1) => {
+            let lastErr = null;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                let client = null;
+                try {
+                    client = new Redis({
+                        host: REDIS_HOST,
+                        port: REDIS_PORT,
+                        connectTimeout,
+                        maxRetriesPerRequest: 1,
+                        retryStrategy: () => null,
+                        lazyConnect: true
+                    });
+                    client.on('error', () => {});
+                    await client.connect();
+                    const pong = await client.ping();
+                    if (pong === 'PONG') {
+                        return client;
+                    }
+                    try { client.disconnect(); } catch {}
+                } catch (err) {
+                    lastErr = err;
+                    if (client) {
+                        try { client.disconnect(); } catch {}
+                    }
+                    if (attempt < maxAttempts) {
+                        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+                    }
+                }
             }
+            throw lastErr || new Error(`Failed to connect Redis client ${clientIndex} at ${REDIS_HOST}:${REDIS_PORT}`);
+        };
+
+        try {
+            redisClient = await connectWithRetry(1);
+            isRedisAvailable = true;
+            redisClient2 = await connectWithRetry(2);
+
+            // Clean up any stale keys from previous runs
+            const initialKeys = await redisClient.keys('*portal*');
+            if (initialKeys.length > 0) await redisClient.del(...initialKeys);
+            const initialQuotaKeys = await redisClient.keys('quota:*');
+            if (initialQuotaKeys.length > 0) await redisClient.del(...initialQuotaKeys);
         } catch {
             isRedisAvailable = false;
         }
