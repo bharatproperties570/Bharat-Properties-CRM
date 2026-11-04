@@ -12,7 +12,9 @@
  * - Synchronization with Redis quota provider
  */
 
+import mongoose from 'mongoose';
 import { AuthorityCanonicalPolicy } from '../../../models/AuthorityCanonicalPolicy.js';
+import AuditLog from '../../../models/AuditLog.js';
 
 const VALID_AUTHORITIES = new Set(['HSVP', 'CHD', 'GMADA']);
 
@@ -52,10 +54,18 @@ export async function registerOrRotateCanonicalPolicy({
     expectedPreviousVersion = null,
     quotaProvider = null,
     session = null,
-    isAudited = false,
-    auditStatus = 'PENDING',
-    auditLogId = null
+    isAudited,
+    auditStatus,
+    auditLogId
 } = {}) {
+    // P1-A Objective A: Activation parameters are strictly forbidden on policy registration/rotation.
+    // Policies must always be initialized as inactive, un-audited, and pending without exception.
+    if (isAudited !== undefined || auditStatus !== undefined || auditLogId !== undefined) {
+        throw new CanonicalPolicyError(
+            'CANONICAL_POLICY_AUDIT_PARAM_FORBIDDEN',
+            'Cannot set isAudited, auditStatus, or auditLogId during policy registration/rotation. Activation requires markCanonicalPolicyAudited with durable AuditLog proof.'
+        );
+    }
     const code = String(authorityCode || '').trim().toUpperCase();
     if (!VALID_AUTHORITIES.has(code)) {
         throw new CanonicalPolicyError(
@@ -201,11 +211,11 @@ export async function registerOrRotateCanonicalPolicy({
         redisSyncStatus: 'PENDING',
         redisSyncError: null,
         lastSyncedAt: null,
-        // P1-A: Policy creation/rotation strictly starts un-audited and inactive unless a valid durable auditLogId is explicitly provided
-        isAudited: Boolean(isAudited && auditLogId),
-        auditStatus: (isAudited && auditLogId) ? (auditStatus === 'AUDITED' ? 'AUDITED' : 'PENDING') : 'PENDING',
-        auditLogId: (isAudited && auditLogId) ? auditLogId : null,
-        isActive: Boolean(isAudited && auditLogId),
+        // P1-A Objective A: Creation/rotation always starts un-audited, pending, and inactive with null auditLogId
+        isAudited: false,
+        auditStatus: 'PENDING',
+        auditLogId: null,
+        isActive: false,
         updatedAt: new Date()
     };
 
@@ -279,20 +289,61 @@ export async function syncCanonicalPolicyToRedis({ authorityCode, quotaProvider,
 
 /**
  * Marks a newly rotated canonical policy as audited and active after durable AuditLog creation.
+ * Enforces referential integrity with the durable AuditLog entry.
  */
 export async function markCanonicalPolicyAudited({ policyId, auditLogId = null, session = null } = {}) {
-    return await AuthorityCanonicalPolicy.findByIdAndUpdate(
-        policyId,
+    if (!policyId || !mongoose.Types.ObjectId.isValid(policyId)) {
+        throw new CanonicalPolicyError('INVALID_POLICY_ID', 'policyId is required and must be a valid ObjectId.');
+    }
+    if (!auditLogId || !mongoose.Types.ObjectId.isValid(auditLogId)) {
+        throw new CanonicalPolicyError('INVALID_AUDIT_LOG_ID', 'auditLogId is mandatory and must be a valid ObjectId.');
+    }
+
+    // P1-A Objective A: Verify the referenced AuditLog is the expected successful canonical_policy_rotated record
+    const auditRecord = await AuditLog.findOne({
+        _id: auditLogId,
+        targetType: 'authority_canonical_policy',
+        targetId: policyId,
+        eventType: { $in: ['canonical_policy_rotated', 'authority_canonical_policy_rotated'] },
+        status: 'success'
+    }).session(session);
+
+    if (!auditRecord) {
+        throw new CanonicalPolicyError(
+            'AUDIT_LOG_NOT_FOUND_OR_MISMATCHED',
+            'Referenced AuditLog does not exist, is not successful, or does not match the target policy and event type.'
+        );
+    }
+
+    // Update the policy ONLY from pending/inactive state and verify a document was actually updated
+    const updatedDoc = await AuthorityCanonicalPolicy.findOneAndUpdate(
+        {
+            _id: policyId,
+            $or: [
+                { isAudited: false },
+                { auditStatus: 'PENDING' },
+                { isActive: false }
+            ]
+        },
         {
             $set: {
                 isAudited: true,
                 auditStatus: 'AUDITED',
                 isActive: true,
-                auditLogId: auditLogId || null
+                auditLogId: auditRecord._id
             }
         },
         { new: true, session }
     );
+
+    if (!updatedDoc) {
+        throw new CanonicalPolicyError(
+            'POLICY_ACTIVATION_FAILED',
+            'No matching pending/inactive canonical policy was found to activate with audit proof.'
+        );
+    }
+
+    return updatedDoc;
 }
 
 /**
@@ -372,19 +423,37 @@ export async function markCanonicalPolicyAuditFailed({ policyId, session = null 
 
 /**
  * Retrieves the currently active and valid canonical policy for an authority.
- * Fails closed if missing, inactive, unaudited, audit-failed, future-effective, or expired.
+ * Fails closed if missing, inactive, unaudited, audit-failed, future-effective, expired,
+ * or if durable AuditLog proof is missing or unverified.
  */
-export async function getCanonicalPolicy(authorityCode, { session = null, now = Date.now() } = {}) {
+export async function getCanonicalPolicy(authorityCode, { session = null, now = Date.now(), verifyAuditLog = true } = {}) {
     const code = String(authorityCode || '').trim().toUpperCase();
     const doc = await AuthorityCanonicalPolicy.findOne({
         authorityCode: code,
         isActive: true,
         isAudited: true,
-        auditStatus: { $nin: ['PENDING', 'FAILED'] }
+        auditStatus: 'AUDITED',
+        auditLogId: { $ne: null }
     }).session(session);
-    if (!doc) {
+    if (!doc || !doc.auditLogId) {
         return null;
     }
+
+    // P1-A Objective A: Explicit referential check to verify durable AuditLog existence
+    if (verifyAuditLog) {
+        const auditRecord = await AuditLog.findOne({
+            _id: doc.auditLogId,
+            targetType: 'authority_canonical_policy',
+            targetId: doc._id,
+            eventType: { $in: ['canonical_policy_rotated', 'authority_canonical_policy_rotated'] },
+            status: 'success'
+        }).session(session);
+
+        if (!auditRecord) {
+            return null; // Audit log referential check failed — fail closed
+        }
+    }
+
     const currentMs = typeof now === 'number' ? now : (now instanceof Date ? now.getTime() : Date.now());
     if (doc.effectiveFrom && doc.effectiveFrom.getTime() > currentMs) {
         return null; // Future-effective policy cannot be used yet

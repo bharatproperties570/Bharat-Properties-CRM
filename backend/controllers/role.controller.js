@@ -195,8 +195,9 @@ export const updateRole = async (req, res) => {
             defaultDataScope: role.defaultDataScope
         };
 
-        // Update role
+        // Update role and increment permissionsVersion within transaction
         Object.assign(role, updates);
+        role.permissionsVersion = (Number(role.permissionsVersion) || 1) + 1;
         await role.save({ session });
 
         // Find affected users for audit and post-commit cache invalidation
@@ -222,11 +223,13 @@ export const updateRole = async (req, res) => {
                         moduleAccess: role.moduleAccess,
                         financialPermissions: role.financialPermissions,
                         approvalRights: role.approvalRights,
-                        defaultDataScope: role.defaultDataScope
+                        defaultDataScope: role.defaultDataScope,
+                        permissionsVersion: role.permissionsVersion
                     }
                 },
                 metadata: {
-                    affectedUsers: usersWithRole.length
+                    affectedUsers: usersWithRole.length,
+                    permissionsVersion: role.permissionsVersion
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('user-agent')
@@ -236,6 +239,7 @@ export const updateRole = async (req, res) => {
         await session.commitTransaction();
 
         // P1-B: Invalidate caches AFTER successful transaction commit so concurrent checks cannot repopulate stale state
+        let cacheInvalidationWarning = null;
         try {
             await invalidateAllRoleCaches(id);
             for (const user of usersWithRole) {
@@ -243,12 +247,14 @@ export const updateRole = async (req, res) => {
             }
         } catch (cacheErr) {
             console.error('Post-commit cache invalidation error:', cacheErr);
+            cacheInvalidationWarning = `Post-commit cache invalidation failed: ${cacheErr.message}`;
         }
 
         res.status(200).json({
             success: true,
             message: 'Role updated successfully',
-            data: role
+            data: role,
+            ...(cacheInvalidationWarning ? { warning: cacheInvalidationWarning } : {})
         });
     } catch (error) {
         await session.abortTransaction();

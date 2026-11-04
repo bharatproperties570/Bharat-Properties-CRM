@@ -44,6 +44,28 @@ function getTenantId(req) {
     return req.user?.tenantId || req.user?._id?.toString() || null;
 }
 
+let customQuotaProvider = null;
+
+export function setTestQuotaProvider(provider) {
+    customQuotaProvider = provider;
+}
+
+export function getQuotaProvider(req = null) {
+    if (customQuotaProvider !== null) {
+        return customQuotaProvider;
+    }
+    if (req?.app?.get && typeof req.app.get === 'function' && req.app.get('quotaProvider')) {
+        return req.app.get('quotaProvider');
+    }
+    try {
+        const redisClient = getApplicationRedisClient();
+        if (redisClient) {
+            return new RedisPortalQuotaProvider(redisClient);
+        }
+    } catch {}
+    return null;
+}
+
 function auditEvent(eventType, userId, targetType, targetId, description, metadata = {}, options = {}) {
     return AuditLog.logEntityUpdate(
         eventType,
@@ -787,13 +809,17 @@ export const rotateCanonicalPolicy = async (req, res) => {
             });
         }
 
-        let quotaProvider = null;
-        try {
-            const redisClient = getApplicationRedisClient();
-            if (redisClient) {
-                quotaProvider = new RedisPortalQuotaProvider(redisClient);
-            }
-        } catch {}
+        // Validate approver authorization using the established canonical approval right model with fresh evaluation (Objective B)
+        const isAuthorizedApprover = await hasApprovalRight(approverUser, 'manageAuthoritySettings', { skipCache: true });
+        if (!isAuthorizedApprover) {
+            return res.status(403).json({
+                success: false,
+                code: 'APPROVER_NOT_AUTHORIZED',
+                message: 'Approver does not possess required authority setting management rights (manageAuthoritySettings).'
+            });
+        }
+
+        const quotaProvider = getQuotaProvider(req);
 
         const existing = await AuthorityCanonicalPolicy.findOne({ authorityCode: code });
         const previousDoc = existing ? existing.toObject() : null;
@@ -878,23 +904,25 @@ export const rotateCanonicalPolicy = async (req, res) => {
             status: 'success'
         };
 
+        let auditLogEntry;
         try {
-            let auditLogEntry;
             if (useTransaction) {
                 const logs = await AuditLog.create([auditPayload], { session });
                 auditLogEntry = logs[0];
-                await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id, session });
+                const auditedDoc = await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id, session });
+                if (!auditedDoc) {
+                    throw new Error('markCanonicalPolicyAudited returned null during transaction');
+                }
                 await session.commitTransaction();
                 await session.endSession();
                 useTransaction = false;
             } else {
                 auditLogEntry = await AuditLog.create(auditPayload);
-                await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id });
+                const auditedDoc = await markCanonicalPolicyAudited({ policyId: savedDoc._id, auditLogId: auditLogEntry._id });
+                if (!auditedDoc) {
+                    throw new Error('markCanonicalPolicyAudited returned null in standalone mode');
+                }
             }
-            savedDoc.isAudited = true;
-            savedDoc.auditStatus = 'AUDITED';
-            savedDoc.isActive = true;
-            savedDoc.auditLogId = auditLogEntry._id;
         } catch (auditErr) {
             console.error('Failed to log audit event for canonical policy rotation:', auditErr);
             if (useTransaction) {
@@ -916,29 +944,62 @@ export const rotateCanonicalPolicy = async (req, res) => {
             });
         }
 
-        // P2-C: Publish committed and audited policy to Redis AFTER Mongo commit
+        // Re-read durable persisted policy from Mongo after commit/standalone activation (Objective A)
+        let confirmedPolicyDoc;
+        try {
+            confirmedPolicyDoc = await AuthorityCanonicalPolicy.findById(savedDoc._id);
+        } catch (readErr) {
+            confirmedPolicyDoc = null;
+        }
+
+        if (
+            !confirmedPolicyDoc ||
+            !confirmedPolicyDoc.isActive ||
+            !confirmedPolicyDoc.isAudited ||
+            confirmedPolicyDoc.auditStatus !== 'AUDITED' ||
+            !confirmedPolicyDoc.auditLogId ||
+            String(confirmedPolicyDoc.auditLogId) !== String(auditLogEntry?._id)
+        ) {
+            if (!useTransaction && previousDoc) {
+                try {
+                    delete previousDoc._id;
+                    await AuthorityCanonicalPolicy.findOneAndReplace({ authorityCode: code }, previousDoc);
+                } catch {}
+            } else if (!useTransaction) {
+                try {
+                    await markCanonicalPolicyAuditFailed({ policyId: savedDoc._id });
+                } catch {}
+            }
+            return res.status(500).json({
+                success: false,
+                code: 'POLICY_CONFIRMATION_FAILED',
+                message: 'Failed to verify durable audited canonical policy persistence from MongoDB before Redis publication.'
+            });
+        }
+
+        // P2-C: Publish committed and audited policy to Redis AFTER Mongo commit using ONLY the confirmed durable doc
         if (quotaProvider) {
             try {
                 const pubResult = await publishCanonicalPolicyToRedis({
                     authorityCode: code,
                     quotaProvider,
-                    policyDoc: savedDoc
+                    policyDoc: confirmedPolicyDoc
                 });
-                savedDoc.redisSyncStatus = pubResult.redisSyncStatus;
-                savedDoc.redisSyncError = pubResult.reason || null;
-                savedDoc.lastSyncedAt = pubResult.policy?.lastSyncedAt || new Date();
+                confirmedPolicyDoc.redisSyncStatus = pubResult.redisSyncStatus;
+                confirmedPolicyDoc.redisSyncError = pubResult.reason || null;
+                confirmedPolicyDoc.lastSyncedAt = pubResult.policy?.lastSyncedAt || new Date();
             } catch (pubErr) {
-                savedDoc.redisSyncStatus = 'FAILED';
-                savedDoc.redisSyncError = pubErr.message;
+                confirmedPolicyDoc.redisSyncStatus = 'FAILED';
+                confirmedPolicyDoc.redisSyncError = pubErr.message;
             }
         }
 
-        const statusCode = savedDoc.redisSyncStatus === 'FAILED' ? 202 : 200;
+        const statusCode = confirmedPolicyDoc.redisSyncStatus === 'FAILED' ? 202 : 200;
         return res.status(statusCode).json({
             success: true,
-            data: savedDoc,
-            redisSyncStatus: savedDoc.redisSyncStatus,
-            warning: savedDoc.redisSyncStatus === 'FAILED' ? 'Policy committed in DB but Redis sync failed and remains pending.' : null
+            data: confirmedPolicyDoc,
+            redisSyncStatus: confirmedPolicyDoc.redisSyncStatus,
+            warning: confirmedPolicyDoc.redisSyncStatus === 'FAILED' ? 'Policy committed in DB but Redis sync failed and remains pending.' : null
         });
     } catch (error) {
         console.error('rotateCanonicalPolicy error:', error);
@@ -958,14 +1019,7 @@ export const syncCanonicalPolicy = async (req, res) => {
         if (!['HSVP', 'CHD', 'GMADA'].includes(code)) {
             return res.status(400).json({ success: false, message: 'Invalid authority code' });
         }
-        let quotaProvider = null;
-        try {
-            const redisClient = getApplicationRedisClient();
-            if (redisClient) {
-                quotaProvider = new RedisPortalQuotaProvider(redisClient);
-            }
-        } catch {}
-
+        const quotaProvider = getQuotaProvider(req);
         if (!quotaProvider) {
             return res.status(503).json({ success: false, message: 'Redis quota provider unavailable' });
         }
@@ -973,6 +1027,31 @@ export const syncCanonicalPolicy = async (req, res) => {
         const policyDoc = await getCanonicalPolicy(code);
         if (!policyDoc) {
             return res.status(404).json({ success: false, message: `No active, valid canonical policy found for authority ${code}.` });
+        }
+
+        // P2-D: Clarified Idempotency Contract
+        // Each manual sync request can optionally carry a client-supplied operationId or Idempotency-Key.
+        // If provided and an operation with the same operationId has already completed successfully,
+        // return the existing durable result without re-executing Redis sync or duplicate audit logs.
+        // Requests without operationId are treated as distinct, independently audited attempts.
+        const operationId = req.body?.operationId || req.headers?.['idempotency-key'] || null;
+        if (operationId) {
+            const existingCompletedAudit = await AuditLog.findOne({
+                eventType: 'canonical_policy_synced',
+                targetType: 'authority_canonical_policy',
+                targetId: policyDoc._id,
+                'metadata.operationId': String(operationId),
+                'metadata.syncPhase': 'COMPLETED',
+                status: 'success'
+            });
+            if (existingCompletedAudit) {
+                return res.status(200).json({
+                    success: true,
+                    data: policyDoc,
+                    idempotent: true,
+                    operationId: String(operationId)
+                });
+            }
         }
 
         // P2-D Step 1: Persist durable audit intent BEFORE initiating Redis sync
@@ -991,7 +1070,8 @@ export const syncCanonicalPolicy = async (req, res) => {
                     version: policyDoc.version,
                     contentHash: policyDoc.contentHash,
                     redisSyncStatus: 'PENDING',
-                    syncPhase: 'INTENT'
+                    syncPhase: 'INTENT',
+                    operationId: operationId ? String(operationId) : null
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('user-agent'),
@@ -1003,6 +1083,15 @@ export const syncCanonicalPolicy = async (req, res) => {
                 success: false,
                 code: 'AUDIT_PERSISTENCE_FAILED',
                 message: `Failed to persist mandatory audit intent before Redis sync: ${intentErr.message}`
+            });
+        }
+
+        // Objective D: If audit intent returned null, fail closed; Redis is not called
+        if (!auditIntent || !auditIntent._id) {
+            return res.status(500).json({
+                success: false,
+                code: 'AUDIT_PERSISTENCE_FAILED',
+                message: 'Failed to persist mandatory audit intent before Redis sync: AuditLog returned null.'
             });
         }
 
@@ -1031,45 +1120,107 @@ export const syncCanonicalPolicy = async (req, res) => {
 
         // P2-D Step 3: Update audit intent and policy record
         if (syncSuccess) {
+            let finalizedAudit = null;
             try {
-                await AuditLog.findByIdAndUpdate(auditIntent._id, {
-                    $set: {
-                        status: 'success',
-                        description: `Synchronized canonical policy for authority ${code} to Redis (version ${policyDoc.version})`,
-                        'metadata.redisSyncStatus': 'SYNCED',
-                        'metadata.syncPhase': 'COMPLETED',
-                        'metadata.syncedAt': new Date()
-                    }
-                });
+                finalizedAudit = await AuditLog.findByIdAndUpdate(
+                    auditIntent._id,
+                    {
+                        $set: {
+                            status: 'success',
+                            description: `Synchronized canonical policy for authority ${code} to Redis (version ${policyDoc.version})`,
+                            'metadata.redisSyncStatus': 'SYNCED',
+                            'metadata.syncPhase': 'COMPLETED',
+                            'metadata.syncedAt': new Date()
+                        }
+                    },
+                    { new: true }
+                );
             } catch (auditUpdateErr) {
-                // If post-write audit confirmation fails, mark policy as PENDING_RECONCILIATION
                 console.error('Failed to update audit log after Redis sync:', auditUpdateErr);
+                finalizedAudit = null;
+            }
+
+            // Objective D: If audit finalization returns null or throws, mark PENDING_RECONCILIATION and return 500
+            if (!finalizedAudit) {
+                console.error('AuditLog finalization failed or returned null after Redis sync');
                 policyDoc.redisSyncStatus = 'PENDING_RECONCILIATION';
-                policyDoc.redisSyncError = `Redis synced but audit status update failed: ${auditUpdateErr.message}`;
-                await AuthorityCanonicalPolicy.updateOne(
+                policyDoc.redisSyncError = 'Redis synced but audit status finalization failed or returned null';
+                try {
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: policyDoc._id },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: policyDoc.redisSyncError
+                            }
+                        }
+                    );
+                } catch (markerErr) {
+                    console.error('Failed to write PENDING_RECONCILIATION marker to policy:', markerErr);
+                }
+                return res.status(500).json({
+                    success: false,
+                    code: 'AUDIT_FINALIZATION_FAILED',
+                    message: 'Policy synced to Redis but audit status finalization failed or returned null; policy marked PENDING_RECONCILIATION'
+                });
+            }
+
+            // Objective D: Update policy record and check matchedCount / acknowledged result
+            let policyUpdateResult = null;
+            try {
+                policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
                     { _id: policyDoc._id },
                     {
                         $set: {
-                            redisSyncStatus: 'PENDING_RECONCILIATION',
-                            redisSyncError: policyDoc.redisSyncError
+                            redisSyncStatus: 'SYNCED',
+                            redisSyncError: null,
+                            lastSyncedAt: new Date()
                         }
                     }
                 );
+            } catch (policyErr) {
+                console.error('Policy updateOne threw error after Redis sync:', policyErr);
+                try {
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: policyDoc._id },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: `DB update threw: ${policyErr.message}`
+                            }
+                        }
+                    );
+                } catch {}
                 return res.status(500).json({
                     success: false,
-                    code: 'AUDIT_UPDATE_FAILED',
-                    message: `Policy synced to Redis but audit status update failed; policy marked PENDING_RECONCILIATION: ${auditUpdateErr.message}`
+                    code: 'POLICY_UPDATE_FAILED',
+                    message: `Policy synced to Redis but durable policy update threw: ${policyErr.message}`
+                });
+            }
+
+            if (!policyUpdateResult?.acknowledged || (policyUpdateResult.matchedCount !== undefined && policyUpdateResult.matchedCount === 0)) {
+                console.error('Policy updateOne matched 0 records or was unacknowledged:', policyUpdateResult);
+                try {
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: policyDoc._id },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: 'Policy document was not matched during sync confirmation'
+                            }
+                        }
+                    );
+                } catch {}
+                return res.status(500).json({
+                    success: false,
+                    code: 'POLICY_NOT_MATCHED',
+                    message: 'Policy synced to Redis but policy document was not matched in MongoDB for sync confirmation'
                 });
             }
 
             policyDoc.redisSyncStatus = 'SYNCED';
             policyDoc.redisSyncError = null;
             policyDoc.lastSyncedAt = new Date();
-            await AuthorityCanonicalPolicy.updateOne(
-                { _id: policyDoc._id },
-                { $set: { redisSyncStatus: 'SYNCED', redisSyncError: null, lastSyncedAt: policyDoc.lastSyncedAt } }
-            );
-
             return res.json({ success: true, data: policyDoc });
         } else {
             try {

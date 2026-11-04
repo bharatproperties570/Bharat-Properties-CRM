@@ -41,6 +41,11 @@ import User from '../models/User.js';
 import Role from '../models/Role.js';
 import AuditLog from '../models/AuditLog.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
+import {
+    rotateCanonicalPolicy,
+    syncCanonicalPolicy,
+    setTestQuotaProvider
+} from '../controllers/authorityVerification.controller.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT) || 6379;
@@ -790,12 +795,18 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             reviewedBy: reviewerId,
             approvedBy: approverId
         });
-        const auditLogId12 = new mongoose.Types.ObjectId();
-        await markCanonicalPolicyAudited({ policyId: canonicalPolicyDoc._id, auditLogId: auditLogId12 });
+        const auditLog12 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: canonicalPolicyDoc._id,
+            description: 'Rotated canonical policy for GMADA Test 12',
+            status: 'success'
+        });
+        await markCanonicalPolicyAudited({ policyId: canonicalPolicyDoc._id, auditLogId: auditLog12._id });
         canonicalPolicyDoc.isAudited = true;
         canonicalPolicyDoc.auditStatus = 'AUDITED';
         canonicalPolicyDoc.isActive = true;
-        canonicalPolicyDoc.auditLogId = auditLogId12;
+        canonicalPolicyDoc.auditLogId = auditLog12._id;
         const qp12 = new RedisPortalQuotaProvider(redisClient, { testMode: false });
         await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp12, policyDoc: canonicalPolicyDoc });
 
@@ -1213,12 +1224,18 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             reviewedBy: reviewerId,
             approvedBy: approverId
         });
-        const auditLogId14 = new mongoose.Types.ObjectId();
-        await markCanonicalPolicyAudited({ policyId: canonicalPolicyDoc._id, auditLogId: auditLogId14 });
+        const auditLog14 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: canonicalPolicyDoc._id,
+            description: 'Rotated canonical policy for HSVP Test 14',
+            status: 'success'
+        });
+        await markCanonicalPolicyAudited({ policyId: canonicalPolicyDoc._id, auditLogId: auditLog14._id });
         canonicalPolicyDoc.isAudited = true;
         canonicalPolicyDoc.auditStatus = 'AUDITED';
         canonicalPolicyDoc.isActive = true;
-        canonicalPolicyDoc.auditLogId = auditLogId14;
+        canonicalPolicyDoc.auditLogId = auditLog14._id;
         const qp14 = new RedisPortalQuotaProvider(redisClient, { testMode: false });
         await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp14, policyDoc: canonicalPolicyDoc });
 
@@ -1461,8 +1478,16 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         // Ensure active canonical policy exists and clear authority-global MongoDB collections for HSVP
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
         await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
-        const auditLogId15 = new mongoose.Types.ObjectId();
+        const policyId15 = new mongoose.Types.ObjectId();
+        const auditLog15 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: policyId15,
+            description: 'Rotated canonical policy for HSVP Test 15',
+            status: 'success'
+        });
         const canonicalPolicyDoc = await AuthorityCanonicalPolicy.create({
+            _id: policyId15,
             authorityCode,
             policyReference: 'HSVP/CANONICAL/RENEWAL/01',
             version: 1,
@@ -1487,7 +1512,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             isAudited: true,
             auditStatus: 'AUDITED',
             isActive: true,
-            auditLogId: auditLogId15,
+            auditLogId: auditLog15._id,
             redisSyncStatus: 'SYNCED'
         });
         const qp15 = new RedisPortalQuotaProvider(redisClient, { testMode: false });
@@ -1678,5 +1703,256 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         // Final cleanup
         const remainingKeys = await redisClient.keys(`*${authorityCode}*`);
         if (remainingKeys.length > 0) await redisClient.del(...remainingKeys);
+    });
+
+    await t.test('16. Real Redis Canonical Policy Publication Ordering & Audit Failure Rollback (Objective C)', async (t) => {
+        if (!isRedisAvailable) {
+            t.skip('Redis service container not available; skipping real Redis publication ordering test.');
+            return;
+        }
+
+        const authorityCode = 'HSVP';
+        const redisKey = `quota:canonical:${authorityCode}`;
+
+        // Ensure cleanly reset state
+        await redisClient.del(redisKey);
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
+
+        // Setup authorized approver and reviewer users
+        const approverRole = await Role.create({
+            name: `Approver Role Real Redis ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: { manageAuthoritySettings: true }
+        });
+        const reviewerRole = await Role.create({
+            name: `Reviewer Role Real Redis ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: { approveAuthorityChanges: true }
+        });
+
+        const approverUser = await User.create({
+            fullName: 'Admin Approver Real Redis',
+            email: `approver-redis-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: approverRole._id,
+            department: 'inventory',
+            isActive: true
+        });
+        const reviewerUser = await User.create({
+            fullName: 'Reviewer Real Redis',
+            email: `reviewer-redis-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: reviewerRole._id,
+            department: 'inventory',
+            isActive: true
+        });
+
+        const realQuotaProvider = new RedisPortalQuotaProvider(redisClient, { testMode: false });
+        setTestQuotaProvider(realQuotaProvider);
+
+        try {
+            // 16.1: Seed V1 in MongoDB and publish to Real Redis
+            const v1Doc = await registerOrRotateCanonicalPolicy({
+                authorityCode,
+                policy: {
+                    policyReference: 'HSVP/OFFICIAL/V1',
+                    minIntervalMs: 100,
+                    maxRequestsPerMinute: 10,
+                    maxRequestsPerHour: 100,
+                    maxRequestsPerDay: 500,
+                    maxConcurrent: 1,
+                    expiresAt: new Date(Date.now() + 86400000)
+                },
+                reviewedBy: reviewerUser._id.toString(),
+                approvedBy: approverUser._id.toString()
+            });
+
+            const auditLogV1 = await AuditLog.create({
+                eventType: 'canonical_policy_rotated',
+                targetType: 'authority_canonical_policy',
+                targetId: v1Doc._id,
+                description: 'Initial V1 Canonical Policy Rotation',
+                status: 'success'
+            });
+
+            await markCanonicalPolicyAudited({ policyId: v1Doc._id, auditLogId: auditLogV1._id });
+            const pubV1 = await publishCanonicalPolicyToRedis({
+                authorityCode,
+                quotaProvider: realQuotaProvider,
+                policyDoc: await getCanonicalPolicy(authorityCode)
+            });
+            assert.equal(pubV1.success, true);
+
+            // Capture actual V1 hash from real Redis
+            const v1Hash = await redisClient.hgetall(redisKey);
+            assert.ok(v1Hash && v1Hash.version === '1', 'Redis hash must be initialized at version 1');
+            const v1HashJson = JSON.stringify(v1Hash);
+
+            // 16.2: Force AuditLog.create to throw during V2 rotation
+            const origAuditCreate = AuditLog.create;
+            AuditLog.create = async () => {
+                throw new Error('SIMULATED_AUDIT_LOG_DATABASE_CRASH');
+            };
+
+            try {
+                let statusCode = null;
+                let jsonBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get(h) { return h === 'user-agent' ? 'test-agent' : null; },
+                    body: {
+                        reviewerId: reviewerUser._id.toString(),
+                        policyVersion: 2,
+                        policy: {
+                            policyReference: 'HSVP/OFFICIAL/V2_FAILED',
+                            minIntervalMs: 50,
+                            maxRequestsPerMinute: 20,
+                            maxRequestsPerHour: 200,
+                            maxRequestsPerDay: 1000,
+                            expiresAt: new Date(Date.now() + 86400000)
+                        }
+                    }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(payload) { jsonBody = payload; return this; }
+                };
+
+                await rotateCanonicalPolicy(req, res);
+                assert.equal(statusCode, 500, 'Must return HTTP 500 when mandatory audit fails');
+                assert.equal(jsonBody.code, 'AUDIT_PERSISTENCE_FAILED');
+
+                // Assert MongoDB remains at V1
+                const mongoDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
+                assert.equal(mongoDoc.version, 1, 'MongoDB must remain at V1 after audit failure');
+
+                // Assert real Redis hash is byte-for-byte identical to V1
+                const hashAfterFail = await redisClient.hgetall(redisKey);
+                assert.equal(JSON.stringify(hashAfterFail), v1HashJson, 'Real Redis hash must remain byte-for-byte unchanged at V1');
+            } finally {
+                AuditLog.create = origAuditCreate;
+            }
+
+            // 16.3: Successful V2 rotation with paused Mongo audit transaction
+            let unpauseAudit = null;
+            const auditPausedPromise = new Promise((resolve) => {
+                AuditLog.create = async (...args) => {
+                    resolve();
+                    await new Promise((r) => { unpauseAudit = r; });
+                    return origAuditCreate.apply(AuditLog, args);
+                };
+            });
+
+            try {
+                let statusCode2 = null;
+                let jsonBody2 = null;
+                const req2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get(h) { return h === 'user-agent' ? 'test-agent' : null; },
+                    body: {
+                        reviewerId: reviewerUser._id.toString(),
+                        policyVersion: 2,
+                        policy: {
+                            policyReference: 'HSVP/OFFICIAL/V2_SUCCESS',
+                            minIntervalMs: 50,
+                            maxRequestsPerMinute: 20,
+                            maxRequestsPerHour: 200,
+                            maxRequestsPerDay: 1000,
+                            expiresAt: new Date(Date.now() + 86400000)
+                        }
+                    }
+                };
+                const res2 = {
+                    status(code) { statusCode2 = code; return this; },
+                    json(payload) { jsonBody2 = payload; return this; }
+                };
+
+                const rotatePromise = rotateCanonicalPolicy(req2, res2);
+
+                // Wait until AuditLog creation is in-flight / paused
+                await auditPausedPromise;
+
+                // While audit/transaction is paused, check real Redis hash: MUST still be V1!
+                const hashDuringPause = await redisClient.hgetall(redisKey);
+                assert.equal(hashDuringPause.version, '1', 'Real Redis hash must remain V1 while audit is uncommitted');
+
+                // Unpause audit and await completion
+                unpauseAudit();
+                await rotatePromise;
+
+                assert.ok(statusCode2 === 200 || statusCode2 === 202);
+                assert.equal(jsonBody2.success, true);
+                assert.equal(jsonBody2.data.version, 2);
+
+                // Now verify real Redis hash has transitioned to V2
+                const hashAfterCommit = await redisClient.hgetall(redisKey);
+                assert.equal(hashAfterCommit.version, '2', 'Real Redis hash must transition to V2 after durable commit');
+                assert.equal(hashAfterCommit.ref, 'HSVP/OFFICIAL/V2_SUCCESS');
+            } finally {
+                AuditLog.create = origAuditCreate;
+            }
+
+            // 16.4: Standalone fallback behavior (without replica-set transactions)
+            const origClient = mongoose.connection.client;
+            try {
+                // Temporarily stub topology description to simulate standalone MongoDB
+                mongoose.connection.client = {
+                    topology: { description: { type: 'Single' } }
+                };
+
+                // Simulate audit failure in standalone mode
+                AuditLog.create = async () => {
+                    throw new Error('STANDALONE_AUDIT_LOG_FAILURE');
+                };
+
+                let statusCode3 = null;
+                let jsonBody3 = null;
+                const req3 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get(h) { return h === 'user-agent' ? 'test-agent' : null; },
+                    body: {
+                        reviewerId: reviewerUser._id.toString(),
+                        policyVersion: 3,
+                        policy: {
+                            policyReference: 'HSVP/OFFICIAL/V3_STANDALONE_FAIL',
+                            minIntervalMs: 50,
+                            maxRequestsPerMinute: 20,
+                            maxRequestsPerHour: 200,
+                            maxRequestsPerDay: 1000,
+                            expiresAt: new Date(Date.now() + 86400000)
+                        }
+                    }
+                };
+                const res3 = {
+                    status(code) { statusCode3 = code; return this; },
+                    json(payload) { jsonBody3 = payload; return this; }
+                };
+
+                await rotateCanonicalPolicy(req3, res3);
+                assert.equal(statusCode3, 500);
+
+                // Verify MongoDB policy was rolled back to previous (version 2)
+                const docAfterFail = await AuthorityCanonicalPolicy.findOne({ authorityCode });
+                assert.equal(docAfterFail.version, 2, 'Standalone mode must roll back to previous doc on audit failure');
+
+                // Verify Redis hash remains at version 2
+                const hashAfterStandaloneFail = await redisClient.hgetall(redisKey);
+                assert.equal(hashAfterStandaloneFail.version, '2', 'Redis hash must remain at V2 on standalone audit failure');
+            } finally {
+                mongoose.connection.client = origClient;
+                AuditLog.create = origAuditCreate;
+            }
+        } finally {
+            setTestQuotaProvider(null);
+            await redisClient.del(redisKey);
+            await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        }
     });
 });

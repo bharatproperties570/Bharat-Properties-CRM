@@ -30,8 +30,10 @@ import {
     reviewSourceApproval,
     rotateCanonicalPolicy,
     getCanonicalPolicyByCode,
-    syncCanonicalPolicy
+    syncCanonicalPolicy,
+    setTestQuotaProvider
 } from '../controllers/authorityVerification.controller.js';
+import { checkApprovalRight } from '../middlewares/permission.middleware.js';
 import AuditLog from '../models/AuditLog.js';
 import { invalidateUserPermissionCache, cacheUserPermissions } from '../services/cache.service.js';
 import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
@@ -1877,7 +1879,14 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         assert.equal(v2Doc.version, 2);
 
         // 26.11 getCanonicalPolicy returns active policy only after audit
-        await markCanonicalPolicyAudited({ policyId: v2Doc._id, auditLogId: new mongoose.Types.ObjectId() });
+        const auditLog26 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: v2Doc._id,
+            description: 'Rotated canonical policy for HSVP V2',
+            status: 'success'
+        });
+        await markCanonicalPolicyAudited({ policyId: v2Doc._id, auditLogId: auditLog26._id });
         const activePol = await getCanonicalPolicy('HSVP');
         assert.ok(activePol);
         assert.equal(activePol.version, 2);
@@ -2474,11 +2483,17 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         }
 
         // 32.2: Same actor for reviewer and approver returns 422 CANONICAL_POLICY_SELF_APPROVAL
+        const authorizedApproverRole = await Role.create({
+            name: `Authorized Approver Role ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: { manageAuthoritySettings: true },
+            moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+        });
         const approverUser = await User.create({
             fullName: 'Admin Approver',
             email: `approver-${Date.now()}@test.internal`,
             password: 'hashed-password-123',
-            role: new mongoose.Types.ObjectId(),
+            role: authorizedApproverRole._id,
             department: 'inventory',
             isActive: true
         });
@@ -2662,6 +2677,166 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             await invalidateUserPermissionCache(activeReviewer._id);
         }
 
+        // 32.4b2: Approver role revocation & cache-race immunity (Objective B)
+        {
+            // Revoke manageAuthoritySettings on approver role
+            await Role.updateOne({ _id: authorizedApproverRole._id }, { $set: { 'approvalRights.manageAuthoritySettings': false } });
+            await invalidateUserPermissionCache(approverUser._id);
+
+            // Simulate concurrent request injecting stale cache
+            await cacheUserPermissions(approverUser._id.toString(), authorizedApproverRole._id.toString(), {
+                approvalRights: { manageAuthoritySettings: true }
+            });
+
+            let approverStatusCode = null;
+            let approverJsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                body: {
+                    reviewerId: activeReviewer._id.toString(),
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { approverStatusCode = code; return this; },
+                json(payload) { approverJsonBody = payload; return this; }
+            };
+
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(approverStatusCode, 403, 'Must return 403 when approver lacks manageAuthoritySettings even if cache had stale entry');
+            assert.equal(approverJsonBody.code, 'APPROVER_NOT_AUTHORIZED');
+
+            // Restore approver role
+            await Role.updateOne({ _id: authorizedApproverRole._id }, { $set: { 'approvalRights.manageAuthoritySettings': true } });
+            await invalidateUserPermissionCache(approverUser._id);
+        }
+
+        // 32.4b3: Outer approver permission cache race with failed Redis invalidation (Objective B)
+        {
+            // Seed cached manageAuthoritySettings: true
+            await cacheUserPermissions(approverUser._id.toString(), authorizedApproverRole._id.toString(), {
+                approvalRights: { manageAuthoritySettings: true }
+            });
+
+            // Revoke role permission in MongoDB
+            await Role.updateOne({ _id: authorizedApproverRole._id }, { $set: { 'approvalRights.manageAuthoritySettings': false } });
+
+            // Simulate Redis cache invalidation failure / delay (cache key remains present)
+            // Middleware with fresh evaluation (skipCache: true) must query Mongo and deny access
+            const middleware = checkApprovalRight('manageAuthoritySettings', { skipCache: true });
+            let middlewareStatusCode = null;
+            let middlewareJson = null;
+            let nextCalled = false;
+
+            const mReq = {
+                user: approverUser,
+                ip: '127.0.0.1',
+                originalUrl: `/api/authority/canonical-policy/${authorityCode}/rotate`,
+                method: 'POST',
+                get: () => 'test-agent'
+            };
+            const mRes = {
+                status(c) { middlewareStatusCode = c; return this; },
+                json(j) { middlewareJson = j; return this; }
+            };
+            const mNext = () => { nextCalled = true; };
+
+            await middleware(mReq, mRes, mNext);
+            assert.equal(nextCalled, false, 'Middleware must not call next() for revoked approver');
+            assert.equal(middlewareStatusCode, 403, 'Middleware must return 403 despite stale Redis cache');
+            assert.ok(middlewareJson.message.includes('Insufficient approval rights: manageAuthoritySettings'));
+
+            // Restore approver role
+            await Role.updateOne({ _id: authorizedApproverRole._id }, { $set: { 'approvalRights.manageAuthoritySettings': true } });
+            await invalidateUserPermissionCache(approverUser._id);
+        }
+
+        // 32.4d: Audit proof referential integrity & activation rejection (Objective A)
+        {
+            // Test 1: Calling registerOrRotateCanonicalPolicy with activation flags must throw CANONICAL_POLICY_AUDIT_PARAM_FORBIDDEN
+            await assert.rejects(
+                async () => {
+                    await registerOrRotateCanonicalPolicy({
+                        authorityCode,
+                        policy: {
+                            policyReference: 'HSVP/FORBIDDEN/01',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerDay: 500,
+                            expiresAt: new Date(Date.now() + 86400000)
+                        },
+                        reviewedBy: activeReviewer._id.toString(),
+                        approvedBy: approverUser._id.toString(),
+                        isAudited: true,
+                        auditLogId: new mongoose.Types.ObjectId()
+                    });
+                },
+                (err) => err.code === 'CANONICAL_POLICY_AUDIT_PARAM_FORBIDDEN'
+            );
+
+            // Test 2: markCanonicalPolicyAudited without auditLogId must reject
+            const dummyDoc = await registerOrRotateCanonicalPolicy({
+                authorityCode,
+                policy: {
+                    policyReference: 'HSVP/PENDING/01',
+                    minIntervalMs: 15000,
+                    maxRequestsPerMinute: 10,
+                    maxRequestsPerDay: 500,
+                    expiresAt: new Date(Date.now() + 86400000)
+                },
+                reviewedBy: activeReviewer._id.toString(),
+                approvedBy: approverUser._id.toString()
+            });
+
+            await assert.rejects(
+                async () => {
+                    await markCanonicalPolicyAudited({ policyId: dummyDoc._id });
+                },
+                (err) => err.code === 'INVALID_AUDIT_LOG_ID'
+            );
+
+            // Verify policy remains inactive and unaudited
+            const unauditedCheck = await AuthorityCanonicalPolicy.findById(dummyDoc._id);
+            assert.equal(unauditedCheck.isAudited, false);
+            assert.equal(unauditedCheck.auditStatus, 'PENDING');
+            assert.equal(unauditedCheck.isActive, false);
+
+            // Test 3: Random/non-existent auditLogId must reject
+            const nonExistentAuditId = new mongoose.Types.ObjectId();
+            await assert.rejects(
+                async () => {
+                    await markCanonicalPolicyAudited({ policyId: dummyDoc._id, auditLogId: nonExistentAuditId });
+                },
+                (err) => err.code === 'AUDIT_LOG_NOT_FOUND_OR_MISMATCHED'
+            );
+
+            // Test 4: Mismatched targetId in AuditLog must reject
+            const mismatchedAudit = await AuditLog.create({
+                eventType: 'canonical_policy_rotated',
+                targetType: 'authority_canonical_policy',
+                targetId: new mongoose.Types.ObjectId(), // completely different policy target!
+                description: 'Mismatched audit record',
+                status: 'success'
+            });
+
+            await assert.rejects(
+                async () => {
+                    await markCanonicalPolicyAudited({ policyId: dummyDoc._id, auditLogId: mismatchedAudit._id });
+                },
+                (err) => err.code === 'AUDIT_LOG_NOT_FOUND_OR_MISMATCHED'
+            );
+
+            // Clean up dummy doc
+            await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        }
+
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
 
         // 32.4c: No policy visible before mandatory audit exists (Finding P1-A)
@@ -2808,129 +2983,205 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(syncedPolicy.policyVersion, 1);
         }
 
-        // 32.7: Redis publication ordering & Audit Failure Rollback / Divergence Guard (Finding P2-C)
+        // 32.7: Redis publication ordering & Audit Failure Rollback / Divergence Guard (Objective C)
         {
             // Seed Redis / quotaProvider with Canonical V1
             const inMemoryQuotaProvider = new RedisPortalQuotaProvider(null, { testMode: true });
-            const v1Doc = await getCanonicalPolicy(authorityCode);
-            await inMemoryQuotaProvider.setCanonicalPolicy({
-                authorityCode,
-                policy: {
-                    policyReference: v1Doc.policyReference,
-                    minIntervalMs: v1Doc.minIntervalMs,
-                    maxRequestsPerMinute: v1Doc.maxRequestsPerMinute,
-                    maxRequestsPerHour: v1Doc.maxRequestsPerHour,
-                    maxRequestsPerDay: v1Doc.maxRequestsPerDay,
-                    contentHash: v1Doc.contentHash
-                },
-                approvedBy: v1Doc.approvedBy,
-                policyVersion: 1
-            });
-
-            // Capture initial V1 state in Redis
-            const initialRedisV1 = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
-            assert.ok(initialRedisV1);
-            assert.equal(Number(initialRedisV1.version), 1);
-            const initialRedisJson = JSON.stringify(initialRedisV1);
-
-            // Attempt V2 rotation with AuditLog persistence forced to fail
-            const origAuditCreate = AuditLog.create;
-            AuditLog.create = async () => {
-                throw new Error('MOCK_AUDIT_LOG_DATABASE_CRASH');
-            };
+            setTestQuotaProvider(inMemoryQuotaProvider);
 
             try {
-                let statusCode = null;
-                let jsonBody = null;
-                const req = {
-                    params: { authorityCode },
-                    user: approverUser,
-                    ip: '127.0.0.1',
-                    get(header) { return header === 'user-agent' ? 'test-agent' : null; },
-                    body: {
-                        reviewerId: activeReviewer._id.toString(),
-                        policyVersion: 2,
-                        policy: {
-                            policyReference: 'HSVP/CANONICAL/02',
-                            minIntervalMs: 15000,
-                            maxRequestsPerMinute: 20,
-                            maxRequestsPerHour: 200,
-                            maxRequestsPerDay: 1000,
-                            expiresAt: new Date(Date.now() + 86400000)
+                const v1Doc = await getCanonicalPolicy(authorityCode);
+                await inMemoryQuotaProvider.setCanonicalPolicy({
+                    authorityCode,
+                    policy: {
+                        policyReference: v1Doc.policyReference,
+                        minIntervalMs: v1Doc.minIntervalMs,
+                        maxRequestsPerMinute: v1Doc.maxRequestsPerMinute,
+                        maxRequestsPerHour: v1Doc.maxRequestsPerHour,
+                        maxRequestsPerDay: v1Doc.maxRequestsPerDay,
+                        contentHash: v1Doc.contentHash
+                    },
+                    approvedBy: v1Doc.approvedBy,
+                    policyVersion: 1
+                });
+
+                // Capture initial V1 state in Redis
+                const initialRedisV1 = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
+                assert.ok(initialRedisV1);
+                assert.equal(Number(initialRedisV1.version), 1);
+                const initialRedisJson = JSON.stringify(initialRedisV1);
+
+                // Attempt V2 rotation with AuditLog persistence forced to fail
+                const origAuditCreate = AuditLog.create;
+                AuditLog.create = async () => {
+                    throw new Error('MOCK_AUDIT_LOG_DATABASE_CRASH');
+                };
+
+                try {
+                    let statusCode = null;
+                    let jsonBody = null;
+                    const req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get(header) { return header === 'user-agent' ? 'test-agent' : null; },
+                        body: {
+                            reviewerId: activeReviewer._id.toString(),
+                            policyVersion: 2,
+                            policy: {
+                                policyReference: 'HSVP/CANONICAL/02',
+                                minIntervalMs: 15000,
+                                maxRequestsPerMinute: 20,
+                                maxRequestsPerHour: 200,
+                                maxRequestsPerDay: 1000,
+                                expiresAt: new Date(Date.now() + 86400000)
+                            }
                         }
-                    }
-                };
-                const res = {
-                    status(code) { statusCode = code; return this; },
-                    json(payload) { jsonBody = payload; return this; }
-                };
+                    };
+                    const res = {
+                        status(code) { statusCode = code; return this; },
+                        json(payload) { jsonBody = payload; return this; }
+                    };
 
-                await rotateCanonicalPolicy(req, res);
-                assert.equal(statusCode, 500, 'Must return 500 when mandatory audit persistence fails');
-                assert.equal(jsonBody.success, false);
-                assert.equal(jsonBody.code, 'AUDIT_PERSISTENCE_FAILED');
+                    await rotateCanonicalPolicy(req, res);
+                    assert.equal(statusCode, 500, 'Must return 500 when mandatory audit persistence fails');
+                    assert.equal(jsonBody.success, false);
+                    assert.equal(jsonBody.code, 'AUDIT_PERSISTENCE_FAILED');
 
-                // P2-C Assertion 1: DB remains at V1!
-                const dbDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
-                assert.equal(dbDoc.version, 1, 'DB must remain at V1 when audit fails');
+                    // P2-C Assertion 1: DB remains at V1!
+                    const dbDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
+                    assert.equal(dbDoc.version, 1, 'DB must remain at V1 when audit fails');
 
-                // P2-C Assertion 2: Redis hash remains byte-for-byte V1!
-                const currentRedisV1 = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
-                assert.equal(JSON.stringify(currentRedisV1), initialRedisJson, 'Redis trust hash must remain byte-for-byte identical to V1');
+                    // P2-C Assertion 2: Redis hash remains byte-for-byte V1!
+                    const currentRedisV1 = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
+                    assert.equal(JSON.stringify(currentRedisV1), initialRedisJson, 'Redis trust hash must remain byte-for-byte identical to V1');
 
-                // P2-C Assertion 3: getCanonicalPolicy returns only V1!
-                const activePolicy = await getCanonicalPolicy(authorityCode);
-                assert.ok(activePolicy);
-                assert.equal(activePolicy.version, 1);
+                    // P2-C Assertion 3: getCanonicalPolicy returns only V1!
+                    const activePolicy = await getCanonicalPolicy(authorityCode);
+                    assert.ok(activePolicy);
+                    assert.equal(activePolicy.version, 1);
+                } finally {
+                    AuditLog.create = origAuditCreate;
+                }
+
+                // Simulate successful V2 rotation with paused Mongo audit transaction
+                let unpauseV2 = null;
+                const v2AuditPausedPromise = new Promise((resolve) => {
+                    AuditLog.create = async (...args) => {
+                        resolve();
+                        await new Promise((r) => { unpauseV2 = r; });
+                        return origAuditCreate.apply(AuditLog, args);
+                    };
+                });
+
+                try {
+                    let statusCode = null;
+                    let jsonBody = null;
+                    const req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get(header) { return header === 'user-agent' ? 'test-agent' : null; },
+                        body: {
+                            reviewerId: activeReviewer._id.toString(),
+                            policyVersion: 2,
+                            policy: {
+                                policyReference: 'HSVP/CANONICAL/02',
+                                minIntervalMs: 15000,
+                                maxRequestsPerMinute: 20,
+                                maxRequestsPerHour: 200,
+                                maxRequestsPerDay: 1000,
+                                expiresAt: new Date(Date.now() + 86400000)
+                            }
+                        }
+                    };
+                    const res = {
+                        status(code) { statusCode = code; return this; },
+                        json(payload) { jsonBody = payload; return this; }
+                    };
+
+                    const rotatePromise = rotateCanonicalPolicy(req, res);
+
+                    // Wait until audit transaction is paused in-flight
+                    await v2AuditPausedPromise;
+
+                    // Assert Redis hash remains strictly V1 while audit transaction is uncommitted
+                    const redisDuringPause = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
+                    assert.equal(Number(redisDuringPause.version), 1, 'Redis must remain at V1 while audit is uncommitted');
+
+                    // Release audit transaction to commit
+                    unpauseV2();
+                    await rotatePromise;
+
+                    assert.ok(statusCode === 200 || statusCode === 202);
+                    assert.equal(jsonBody.success, true);
+                    assert.equal(jsonBody.data.version, 2);
+
+                    // Redis provider received V2 only after durable commit
+                    const redisAfterCommit = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
+                    assert.equal(Number(redisAfterCommit.version), 2, 'Redis must be updated to V2 after audit transaction commits');
+
+                    const activeV2 = await getCanonicalPolicy(authorityCode);
+                    assert.ok(activeV2);
+                    assert.equal(activeV2.version, 2);
+                } finally {
+                    AuditLog.create = origAuditCreate;
+                }
+
+                // Objective A Test 5: Simulate policy re-read confirmation failure after commit
+                // If persisted document cannot be confirmed, fail closed with 500 and do NOT publish to Redis
+                const origFindById = AuthorityCanonicalPolicy.findById;
+                AuthorityCanonicalPolicy.findById = async () => null; // Simulate confirmation failure
+
+                try {
+                    let confirmFailCode = null;
+                    let confirmFailJson = null;
+                    const reqFail = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: {
+                            reviewerId: activeReviewer._id.toString(),
+                            policyVersion: 3,
+                            policy: {
+                                policyReference: 'HSVP/CANONICAL/03',
+                                minIntervalMs: 15000,
+                                maxRequestsPerMinute: 20,
+                                maxRequestsPerHour: 200,
+                                maxRequestsPerDay: 1000,
+                                expiresAt: new Date(Date.now() + 86400000)
+                            }
+                        }
+                    };
+                    const resFail = {
+                        status(code) { confirmFailCode = code; return this; },
+                        json(payload) { confirmFailJson = payload; return this; }
+                    };
+
+                    await rotateCanonicalPolicy(reqFail, resFail);
+                    assert.equal(confirmFailCode, 500, 'Must return 500 when durable confirmation fails');
+                    assert.equal(confirmFailJson.code, 'POLICY_CONFIRMATION_FAILED');
+
+                    // Assert Redis provider was NOT updated to V3
+                    const redisAfterConfirmFail = inMemoryQuotaProvider._canonicalPolicies.get(authorityCode);
+                    assert.equal(Number(redisAfterConfirmFail.version), 2, 'Redis must remain at V2 when confirmation fails');
+                } finally {
+                    AuthorityCanonicalPolicy.findById = origFindById;
+                }
             } finally {
-                AuditLog.create = origAuditCreate;
-            }
-
-            // Repeat for successful V2 audit where Redis publication then succeeds
-            {
-                let statusCode = null;
-                let jsonBody = null;
-                const req = {
-                    params: { authorityCode },
-                    user: approverUser,
-                    ip: '127.0.0.1',
-                    get(header) { return header === 'user-agent' ? 'test-agent' : null; },
-                    body: {
-                        reviewerId: activeReviewer._id.toString(),
-                        policyVersion: 2,
-                        policy: {
-                            policyReference: 'HSVP/CANONICAL/02',
-                            minIntervalMs: 15000,
-                            maxRequestsPerMinute: 20,
-                            maxRequestsPerHour: 200,
-                            maxRequestsPerDay: 1000,
-                            expiresAt: new Date(Date.now() + 86400000)
-                        }
-                    }
-                };
-                const res = {
-                    status(code) { statusCode = code; return this; },
-                    json(payload) { jsonBody = payload; return this; }
-                };
-
-                await rotateCanonicalPolicy(req, res);
-                assert.ok(statusCode === 200 || statusCode === 202);
-                assert.equal(jsonBody.success, true);
-                assert.equal(jsonBody.data.version, 2);
-
-                const activeV2 = await getCanonicalPolicy(authorityCode);
-                assert.ok(activeV2);
-                assert.equal(activeV2.version, 2);
+                setTestQuotaProvider(null);
             }
         }
 
-        // 32.8: Manual Sync Audit Ordering & Pending Reconciliation (Finding P2-D)
+        // 32.8: Manual Sync Audit Ordering & Pending Reconciliation (Objective D)
         {
             const req = {
                 params: { authorityCode },
                 user: approverUser,
                 ip: '127.0.0.1',
-                get(header) { return header === 'user-agent' ? 'test-agent' : null; }
+                get(header) { return header === 'user-agent' ? 'test-agent' : null; },
+                body: {}
             };
 
             // P2-D Case 1: Force audit persistence failure BEFORE sync -> zero Redis change
@@ -2952,6 +3203,22 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 AuditLog.create = origAuditCreate;
             }
 
+            // P2-D Case 1b: Pre-sync audit creation returns null -> fails closed without calling Redis
+            AuditLog.create = async () => null;
+            try {
+                let nullCode = null;
+                let nullBody = null;
+                const nullRes = {
+                    status(c) { nullCode = c; return this; },
+                    json(b) { nullBody = b; return this; }
+                };
+                await syncCanonicalPolicy(req, nullRes);
+                assert.equal(nullCode, 500);
+                assert.equal(nullBody.code, 'AUDIT_PERSISTENCE_FAILED');
+            } finally {
+                AuditLog.create = origAuditCreate;
+            }
+
             // P2-D Case 2: Force audit status-update failure AFTER Redis sync -> marks PENDING_RECONCILIATION
             const origFindByIdAndUpdate = AuditLog.findByIdAndUpdate;
             AuditLog.findByIdAndUpdate = async () => {
@@ -2966,35 +3233,140 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 };
                 await syncCanonicalPolicy(req, postFailRes);
                 assert.equal(postFailCode, 500);
-                assert.equal(postFailBody.code, 'AUDIT_UPDATE_FAILED');
+                assert.equal(postFailBody.code, 'AUDIT_FINALIZATION_FAILED');
 
                 const recondDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
                 assert.equal(recondDoc.redisSyncStatus, 'PENDING_RECONCILIATION', 'Must retain explicit pending reconciliation status');
-                assert.ok(recondDoc.redisSyncError.includes('MOCK_POST_SYNC_AUDIT_UPDATE_FAILURE'));
+                assert.ok(recondDoc.redisSyncError.includes('audit status finalization failed'));
             } finally {
                 AuditLog.findByIdAndUpdate = origFindByIdAndUpdate;
             }
 
-            // P2-D Case 3: Normal successful sync produces exactly one idempotent audit record
+            // P2-D Case 2b: AuditLog.findByIdAndUpdate returns null -> marks PENDING_RECONCILIATION
+            AuditLog.findByIdAndUpdate = async () => null;
+            try {
+                let postNullCode = null;
+                let postNullBody = null;
+                const postNullRes = {
+                    status(c) { postNullCode = c; return this; },
+                    json(b) { postNullBody = b; return this; }
+                };
+                await syncCanonicalPolicy(req, postNullRes);
+                assert.equal(postNullCode, 500);
+                assert.equal(postNullBody.code, 'AUDIT_FINALIZATION_FAILED');
+
+                const recondDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
+                assert.equal(recondDoc.redisSyncStatus, 'PENDING_RECONCILIATION');
+            } finally {
+                AuditLog.findByIdAndUpdate = origFindByIdAndUpdate;
+            }
+
+            // P2-D Case 2c: Policy status updateOne throws after Redis sync -> marks PENDING_RECONCILIATION
+            const origUpdateOne = AuthorityCanonicalPolicy.updateOne;
+            let updateOneCallCount = 0;
+            AuthorityCanonicalPolicy.updateOne = async function (...args) {
+                updateOneCallCount++;
+                if (updateOneCallCount === 1) {
+                    throw new Error('MOCK_POLICY_UPDATE_ONE_CRASH');
+                }
+                return origUpdateOne.apply(this, args);
+            };
+
+            try {
+                let updateFailCode = null;
+                let updateFailBody = null;
+                const updateFailRes = {
+                    status(c) { updateFailCode = c; return this; },
+                    json(b) { updateFailBody = b; return this; }
+                };
+                await syncCanonicalPolicy(req, updateFailRes);
+                assert.equal(updateFailCode, 500);
+                assert.equal(updateFailBody.code, 'POLICY_UPDATE_FAILED');
+
+                const recondDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
+                assert.equal(recondDoc.redisSyncStatus, 'PENDING_RECONCILIATION');
+            } finally {
+                AuthorityCanonicalPolicy.updateOne = origUpdateOne;
+            }
+
+            // P2-D Case 2d: Policy status updateOne matches 0 documents -> marks PENDING_RECONCILIATION
+            AuthorityCanonicalPolicy.updateOne = async function (...args) {
+                if (args[1]?.$set?.redisSyncStatus === 'SYNCED') {
+                    return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
+                }
+                return origUpdateOne.apply(this, args);
+            };
+
+            try {
+                let zeroMatchCode = null;
+                let zeroMatchBody = null;
+                const zeroMatchRes = {
+                    status(c) { zeroMatchCode = c; return this; },
+                    json(b) { zeroMatchBody = b; return this; }
+                };
+                await syncCanonicalPolicy(req, zeroMatchRes);
+                assert.equal(zeroMatchCode, 500);
+                assert.equal(zeroMatchBody.code, 'POLICY_NOT_MATCHED');
+
+                const recondDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
+                assert.equal(recondDoc.redisSyncStatus, 'PENDING_RECONCILIATION');
+            } finally {
+                AuthorityCanonicalPolicy.updateOne = origUpdateOne;
+            }
+
+            // P2-D Case 3: Successful sync with idempotency contract enforcement
             await AuditLog.deleteMany({ eventType: 'canonical_policy_synced', 'metadata.authorityCode': authorityCode });
+            const idempotentReq = {
+                params: { authorityCode },
+                user: approverUser,
+                ip: '127.0.0.1',
+                get: () => 'test-agent',
+                body: { operationId: 'sync-contract-op-42' }
+            };
+
             let okCode = null;
             let okBody = null;
             const okRes = {
                 status(code) { okCode = code; return this; },
                 json(payload) { okBody = payload; return this; }
             };
-            await syncCanonicalPolicy(req, okRes);
+
+            // First call: executes sync and records completed audit log with operationId
+            await syncCanonicalPolicy(idempotentReq, okRes);
             assert.ok(!okCode || okCode === 200);
             assert.equal(okBody.success, true);
             assert.equal(okBody.data.redisSyncStatus, 'SYNCED');
 
-            const auditEntries = await AuditLog.find({
+            const auditEntries1 = await AuditLog.find({
                 eventType: 'canonical_policy_synced',
-                'metadata.authorityCode': authorityCode
+                'metadata.authorityCode': authorityCode,
+                'metadata.operationId': 'sync-contract-op-42'
             });
-            assert.equal(auditEntries.length, 1, 'Must produce exactly one idempotent audit trail');
-            assert.equal(auditEntries[0].status, 'success');
-            assert.equal(auditEntries[0].metadata.syncPhase, 'COMPLETED');
+            assert.equal(auditEntries1.length, 1, 'Must produce exactly one initial audit trail');
+            assert.equal(auditEntries1[0].status, 'success');
+            assert.equal(auditEntries1[0].metadata.syncPhase, 'COMPLETED');
+
+            // Second call with same operationId: returns idempotent response without creating duplicate audit log
+            let idempCode = null;
+            let idempBody = null;
+            const idempRes = {
+                status(c) { idempCode = c; return this; },
+                json(b) { idempBody = b; return this; }
+            };
+
+            await syncCanonicalPolicy(idempotentReq, idempRes);
+            assert.equal(idempCode, 200);
+            assert.equal(idempBody.success, true);
+            assert.equal(idempBody.idempotent, true);
+            assert.equal(idempBody.operationId, 'sync-contract-op-42');
+
+            // Audit log count must strictly remain 1!
+            const auditEntries2 = await AuditLog.find({
+                eventType: 'canonical_policy_synced',
+                'metadata.authorityCode': authorityCode,
+                'metadata.operationId': 'sync-contract-op-42'
+            });
+            assert.equal(auditEntries2.length, 1, 'Idempotent retry must not create duplicate audit record');
         }
     });
 
@@ -3005,7 +3377,16 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         const now = Date.now();
 
         // 33.1: getCanonicalPolicy rejects future-effective policy
+        const polId33_1 = new mongoose.Types.ObjectId();
+        const audit33_1 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: polId33_1,
+            description: 'Future audit',
+            status: 'success'
+        });
         await AuthorityCanonicalPolicy.create({
+            _id: polId33_1,
             authorityCode,
             policyReference: 'CHD/FUTURE/01',
             version: 1,
@@ -3021,7 +3402,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             approvedBy: 'approver-1',
             isAudited: true,
             auditStatus: 'AUDITED',
-            isActive: true
+            isActive: true,
+            auditLogId: audit33_1._id
         });
 
         const futureLookup = await getCanonicalPolicy(authorityCode, { now });
@@ -3029,7 +3411,16 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
         // 33.2: getCanonicalPolicy rejects expired policy
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        const polId33_2 = new mongoose.Types.ObjectId();
+        const audit33_2 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: polId33_2,
+            description: 'Expired audit',
+            status: 'success'
+        });
         await AuthorityCanonicalPolicy.create({
+            _id: polId33_2,
             authorityCode,
             policyReference: 'CHD/EXPIRED/01',
             version: 1,
@@ -3045,7 +3436,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             approvedBy: 'approver-1',
             isAudited: true,
             auditStatus: 'AUDITED',
-            isActive: true
+            isActive: true,
+            auditLogId: audit33_2._id
         });
 
         const expiredLookup = await getCanonicalPolicy(authorityCode, { now });
@@ -3053,7 +3445,16 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
         // 33.3: getCanonicalPolicy accepts policy within validity window [effectiveFrom <= now < expiresAt]
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        const polId33_3 = new mongoose.Types.ObjectId();
+        const audit33_3 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: polId33_3,
+            description: 'Valid audit',
+            status: 'success'
+        });
         await AuthorityCanonicalPolicy.create({
+            _id: polId33_3,
             authorityCode,
             policyReference: 'CHD/VALID/01',
             version: 1,
@@ -3069,7 +3470,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             approvedBy: 'approver-1',
             isAudited: true,
             auditStatus: 'AUDITED',
-            isActive: true
+            isActive: true,
+            auditLogId: audit33_3._id
         });
 
         const validLookup = await getCanonicalPolicy(authorityCode, { now });
@@ -3102,7 +3504,16 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         // 33.5: Boundary time condition: exactly at expiresAt must be rejected
         const exactExpiresAt = new Date(now + 5000);
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode: 'GMADA' });
+        const polId33_5 = new mongoose.Types.ObjectId();
+        const audit33_5 = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            targetId: polId33_5,
+            description: 'Boundary audit',
+            status: 'success'
+        });
         await AuthorityCanonicalPolicy.create({
+            _id: polId33_5,
             authorityCode: 'GMADA',
             policyReference: 'GMADA/BOUNDARY/01',
             version: 1,
@@ -3118,7 +3529,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             approvedBy: 'approver-1',
             isAudited: true,
             auditStatus: 'AUDITED',
-            isActive: true
+            isActive: true,
+            auditLogId: audit33_5._id
         });
 
         const atExpiryLookup = await getCanonicalPolicy('GMADA', { now: exactExpiresAt.getTime() });

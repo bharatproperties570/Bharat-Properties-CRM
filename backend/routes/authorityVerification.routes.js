@@ -43,22 +43,25 @@ router.get('/settings/:authorityCode',
     checkPermission('authorityVerification', 'view'),
     getSourceSettingByCode
 );
-// Update settings — requires admin approval right
+// Update settings — requires admin approval right with fresh permission evaluation (skipCache: true)
 router.patch('/settings/:authorityCode',
     checkPermission('authorityVerification', 'edit'),
-    checkApprovalRight('manageAuthoritySettings'),
+    // checkApprovalRight('manageAuthoritySettings')
+    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
     updateSourceSettings
 );
 // Submit authority-specific authorization evidence for review
 router.post('/settings/:authorityCode/submit-approval',
     checkPermission('authorityVerification', 'edit'),
-    checkApprovalRight('manageAuthoritySettings'),
+    // checkApprovalRight('manageAuthoritySettings')
+    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
     submitSourceApproval
 );
 // Review authority authorization (independent maker-checker)
 router.post('/settings/:authorityCode/review-approval',
     checkPermission('authorityVerification', 'edit'),
-    checkApprovalRight('manageAuthoritySettings'),
+    // checkApprovalRight('manageAuthoritySettings')
+    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
     reviewSourceApproval
 );
 
@@ -71,12 +74,14 @@ router.get('/canonical-policy/:authorityCode',
 );
 router.post('/canonical-policy/:authorityCode/rotate',
     checkPermission('authorityVerification', 'edit'),
-    checkApprovalRight('manageAuthoritySettings'),
+    // checkApprovalRight('manageAuthoritySettings')
+    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
     rotateCanonicalPolicy
 );
 router.post('/canonical-policy/:authorityCode/sync',
     checkPermission('authorityVerification', 'edit'),
-    checkApprovalRight('manageAuthoritySettings'),
+    // checkApprovalRight('manageAuthoritySettings')
+    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
     syncCanonicalPolicy
 );
 
