@@ -1452,6 +1452,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         }
 
         const authorityCode = 'HSVP';
+        const tenantId = new mongoose.Types.ObjectId();
         const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
         if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
 
