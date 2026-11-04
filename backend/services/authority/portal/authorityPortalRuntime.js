@@ -90,6 +90,9 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
         transport,
         parserRegistry,
         auditSink,
+        lockTtlMs = 30000,
+        renewalIntervalMs = null,
+        fenceWatermarkStore = AuthorityGlobalFenceWatermark,
         gateConfig = DEFAULT_APPROVAL_GATE_CONFIG,
         clock = () => new Date()
     } = dependencies;
@@ -205,11 +208,13 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
             const maxConcurrent = approval.ratePolicy?.maxConcurrentRequests
                 || approval.ratePolicy?.maxConcurrent
                 || 1;
+            const effectiveLockTtlMs = overrides.lockTtlMs || lockTtlMs || 30000;
             const lease = await lockProvider.acquire({
                 key: `portal_lock:${code}`,
                 authorityCode: code,
                 maxConcurrent,
-                tenantId: correlation.tenantId
+                tenantId: correlation.tenantId,
+                ttlMs: effectiveLockTtlMs
             });
             if (!lease || lease.acquired !== true || typeof lease.release !== 'function') {
                 throw makeError('PORTAL_SOURCE_BUSY', 'Another worker owns this source or a distributed lock could not be acquired.', {
@@ -217,49 +222,58 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 });
             }
 
-            // Durably record issued fence token to establish the issued-but-not-yet-committed watermark window
-            if (lease.fenceToken) {
-                try {
-                    await AuthorityGlobalFenceWatermark.recordIssuedFenceToken({
-                        authorityCode: code,
-                        fenceToken: lease.fenceToken
-                    });
-                } catch {}
-            }
-
             let isRenewing = false;
             let renewalInterval = null;
             let lockLost = false;
             let lockLostError = null;
 
-            if (typeof lease.renew === 'function') {
-                const renewPeriodMs = Math.max(50, Math.floor((lease.ttlMs || 30000) / 3));
-                renewalInterval = setInterval(async () => {
-                    if (isRenewing || lockLost) return;
-                    isRenewing = true;
-                    try {
-                        const renewed = await lease.renew();
-                        if (!renewed) {
+            try {
+                // Durably record issued fence token to establish the issued-but-not-yet-committed watermark window.
+                // Fail-closed: Must return a valid persisted record. If it throws, returns null, or returns malformed state,
+                // abort before quota reservation and transport. Do not swallow it.
+                if (!lease.fenceToken || !Number.isInteger(Number(lease.fenceToken)) || Number(lease.fenceToken) < 1) {
+                    throw makeError('PORTAL_FENCE_TOKEN_INVALID', 'Distributed lock returned an invalid or missing fence token.', {
+                        authorityCode: code
+                    });
+                }
+
+                const watermarkDoc = await fenceWatermarkStore.recordIssuedFenceToken({
+                    authorityCode: code,
+                    fenceToken: lease.fenceToken
+                });
+
+                if (!watermarkDoc || typeof watermarkDoc !== 'object' || watermarkDoc.highestIssuedFenceToken < Number(lease.fenceToken)) {
+                    throw makeError('PORTAL_FENCE_WATERMARK_PERSISTENCE_FAILED', 'Failed to durably record issued fence token in watermark.', {
+                        authorityCode: code
+                    });
+                }
+
+                if (typeof lease.renew === 'function') {
+                    const renewPeriodMs = overrides.renewalIntervalMs || renewalIntervalMs || Math.max(50, Math.floor((lease.ttlMs || effectiveLockTtlMs || 30000) / 3));
+                    renewalInterval = setInterval(async () => {
+                        if (isRenewing || lockLost) return;
+                        isRenewing = true;
+                        try {
+                            const renewed = await lease.renew();
+                            if (!renewed) {
+                                lockLost = true;
+                                lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during processing.', {
+                                    authorityCode: code
+                                });
+                            }
+                        } catch (err) {
                             lockLost = true;
-                            lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost during processing.', {
+                            lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', `Distributed portal lock renewal failed: ${err.message}`, {
                                 authorityCode: code
                             });
+                        } finally {
+                            isRenewing = false;
                         }
-                    } catch (err) {
-                        lockLost = true;
-                        lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', `Distributed portal lock renewal failed: ${err.message}`, {
-                            authorityCode: code
-                        });
-                    } finally {
-                        isRenewing = false;
+                    }, renewPeriodMs);
+                    if (renewalInterval && typeof renewalInterval.unref === 'function') {
+                        renewalInterval.unref();
                     }
-                }, renewPeriodMs);
-                if (renewalInterval && typeof renewalInterval.unref === 'function') {
-                    renewalInterval.unref();
                 }
-            }
-
-            try {
                 if (lockLost) {
                     throw lockLostError || makeError('PORTAL_LOCK_OWNERSHIP_LOST', 'Distributed portal lock ownership was lost.', { authorityCode: code });
                 }
@@ -431,7 +445,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                             }
                         }
                         try {
-                            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                            const isSuperseded = await fenceWatermarkStore.isFenceTokenSuperseded({
                                 authorityCode: code,
                                 fenceToken: lease.fenceToken
                             });
@@ -439,7 +453,10 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                                 lockLost = true;
                                 return false;
                             }
-                        } catch {}
+                        } catch (err) {
+                            lockLost = true;
+                            throw err;
+                        }
                         return !lockLost;
                     },
                     isLeaseValid: async () => {
@@ -464,7 +481,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                             }
                         }
                         try {
-                            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                            const isSuperseded = await fenceWatermarkStore.isFenceTokenSuperseded({
                                 authorityCode: code,
                                 fenceToken: lease.fenceToken
                             });
@@ -472,7 +489,10 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                                 lockLost = true;
                                 return false;
                             }
-                        } catch {}
+                        } catch (err) {
+                            lockLost = true;
+                            throw err;
+                        }
                         return !lockLost;
                     },
                     checkLeaseValid: async () => {
@@ -503,7 +523,7 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                             }
                         }
                         try {
-                            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                            const isSuperseded = await fenceWatermarkStore.isFenceTokenSuperseded({
                                 authorityCode: code,
                                 fenceToken: lease.fenceToken
                             });
@@ -513,7 +533,13 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                                 throw lockLostError;
                             }
                         } catch (wmErr) {
+                            lockLost = true;
                             if (wmErr.code === 'PORTAL_LOCK_OWNERSHIP_LOST') throw wmErr;
+                            lockLostError = makeError('PORTAL_LOCK_OWNERSHIP_LOST', `Portal fence watermark validation failed: ${wmErr.message}`, {
+                                authorityCode: code,
+                                cause: wmErr
+                            });
+                            throw lockLostError;
                         }
                     },
                     provenance: 'LIVE',

@@ -33,6 +33,7 @@ import {
     syncCanonicalPolicy
 } from '../controllers/authorityVerification.controller.js';
 import AuditLog from '../models/AuditLog.js';
+import { invalidateUserPermissionCache } from '../services/cache.service.js';
 import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
 import { portalHttpTransport } from '../services/authority/portal/infrastructure/portalHttpTransport.js';
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
@@ -2541,15 +2542,101 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(jsonBody.code, 'REVIEWER_NOT_ACTIVE');
         }
 
+        // 32.3b: Active but unauthorized reviewer (lacking approveAuthorityChanges right) is rejected with 403
+        const unauthorizedReviewerRole = await Role.create({
+            name: `Unauthorized Reviewer Role ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: {
+                approveAuthorityChanges: false,
+                manageAuthoritySettings: false
+            }
+        });
+        const unauthorizedReviewer = await User.create({
+            fullName: 'Unauthorized Reviewer',
+            email: `unauthorized-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: unauthorizedReviewerRole._id,
+            department: 'inventory',
+            isActive: true
+        });
+
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                body: {
+                    reviewerId: unauthorizedReviewer._id.toString(),
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(statusCode, 403);
+            assert.equal(jsonBody.code, 'REVIEWER_NOT_AUTHORIZED');
+        }
+
         // 32.4: Distinct authorized actors rotate canonical policy successfully and log audit
+        const authorizedReviewerRole = await Role.create({
+            name: `Authorized Reviewer Role ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: {
+                approveAuthorityChanges: true,
+                manageAuthoritySettings: false
+            }
+        });
         const activeReviewer = await User.create({
             fullName: 'Active Reviewer',
             email: `reviewer-${Date.now()}@test.internal`,
             password: 'hashed-password-123',
-            role: new mongoose.Types.ObjectId(),
+            role: authorizedReviewerRole._id,
             department: 'inventory',
             isActive: true
         });
+
+        // 32.4b: Role revocation/reload takes effect immediately
+        {
+            await Role.updateOne({ _id: authorizedReviewerRole._id }, { $set: { 'approvalRights.approveAuthorityChanges': false } });
+            await invalidateUserPermissionCache(activeReviewer._id);
+
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                body: {
+                    reviewerId: activeReviewer._id.toString(),
+                    policy: {
+                        policyReference: 'HSVP/CANONICAL/01',
+                        minIntervalMs: 15000,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    }
+                }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+            await rotateCanonicalPolicy(req, res);
+            assert.equal(statusCode, 403);
+            assert.equal(jsonBody.code, 'REVIEWER_NOT_AUTHORIZED');
+
+            // Restore authorization
+            await Role.updateOne({ _id: authorizedReviewerRole._id }, { $set: { 'approvalRights.approveAuthorityChanges': true } });
+            await invalidateUserPermissionCache(activeReviewer._id);
+        }
 
         await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
 
@@ -2582,6 +2669,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(jsonBody.success, true);
             assert.equal(jsonBody.data.version, 1);
             assert.equal(jsonBody.data.authorityCode, 'HSVP');
+            assert.equal(jsonBody.data.isAudited, true);
+            assert.equal(jsonBody.data.auditStatus, 'AUDITED');
 
             // Verify AuditLog entry was persisted
             const auditEntry = await AuditLog.findOne({
@@ -2593,6 +2682,12 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(auditEntry.metadata.policyReference, 'HSVP/CANONICAL/01');
             assert.equal(auditEntry.metadata.reviewerId, activeReviewer._id.toString());
             assert.equal(auditEntry.metadata.approverId, approverUser._id.toString());
+
+            // Verify policy is immediately active and retrievable by runtime
+            const activePolicy = await getCanonicalPolicy('HSVP');
+            assert.ok(activePolicy);
+            assert.equal(activePolicy.version, 1);
+            assert.equal(activePolicy.isAudited, true);
         }
 
         // 32.5: Duplicate / lower version sequence rotation is rejected with 400
@@ -2673,6 +2768,106 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(reconcileRes.policy.redisSyncStatus, 'SYNCED');
             assert.ok(syncedPolicy);
             assert.equal(syncedPolicy.policyVersion, 2);
+        }
+
+        // 32.7: Mandatory Audit Persistence Failure aborts rotation and prevents policy use
+        {
+            const origAuditCreate = AuditLog.create;
+            AuditLog.create = async () => {
+                throw new Error('MOCK_AUDIT_LOG_DATABASE_CRASH');
+            };
+
+            try {
+                let statusCode = null;
+                let jsonBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get(header) { return header === 'user-agent' ? 'test-agent' : null; },
+                    body: {
+                        reviewerId: activeReviewer._id.toString(),
+                        policyVersion: 3,
+                        policy: {
+                            policyReference: 'HSVP/CANONICAL/03',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerDay: 500,
+                            expiresAt: new Date(Date.now() + 86400000)
+                        }
+                    }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(payload) { jsonBody = payload; return this; }
+                };
+
+                await rotateCanonicalPolicy(req, res);
+                assert.equal(statusCode, 500, 'Must return 500 when mandatory audit persistence fails');
+                assert.equal(jsonBody.success, false);
+                assert.equal(jsonBody.code, 'AUDIT_PERSISTENCE_FAILED');
+
+                // Verify policy v3 is not usable
+                const dbPolicyV3 = await AuthorityCanonicalPolicy.findOne({ authorityCode, version: 3 });
+                if (dbPolicyV3) {
+                    assert.equal(dbPolicyV3.auditStatus, 'FAILED');
+                    assert.equal(dbPolicyV3.isActive, false);
+                    assert.equal(dbPolicyV3.isAudited, false);
+                }
+
+                // getCanonicalPolicy must NOT return unaudited policy v3
+                const activePolicy = await getCanonicalPolicy(authorityCode);
+                assert.ok(!activePolicy || activePolicy.version !== 3, 'Unaudited policy v3 must never be returned');
+            } finally {
+                AuditLog.create = origAuditCreate;
+            }
+        }
+
+        // 32.8: Sync Canonical Policy Audits Operation and Fails Closed on Audit Failure
+        {
+            let statusCode = null;
+            let jsonBody = null;
+            const req = {
+                params: { authorityCode },
+                user: approverUser,
+                ip: '127.0.0.1',
+                get(header) { return header === 'user-agent' ? 'test-agent' : null; }
+            };
+            const res = {
+                status(code) { statusCode = code; return this; },
+                json(payload) { jsonBody = payload; return this; }
+            };
+
+            await AuthorityCanonicalPolicy.updateOne(
+                { authorityCode },
+                { $set: { isActive: true, isAudited: true, auditStatus: 'AUDITED' } }
+            );
+
+            await syncCanonicalPolicy(req, res);
+            const syncAudit = await AuditLog.findOne({
+                eventType: 'canonical_policy_synced',
+                'metadata.authorityCode': authorityCode
+            });
+            assert.ok(syncAudit, 'Sync canonical policy must write an AuditLog record');
+
+            // If audit persistence throws during sync, it must fail closed with 500
+            const origAuditCreate = AuditLog.create;
+            AuditLog.create = async () => {
+                throw new Error('MOCK_SYNC_AUDIT_FAILURE');
+            };
+            try {
+                let syncFailCode = null;
+                let syncFailBody = null;
+                const failRes = {
+                    status(code) { syncFailCode = code; return this; },
+                    json(payload) { syncFailBody = payload; return this; }
+                };
+                await syncCanonicalPolicy(req, failRes);
+                assert.equal(syncFailCode, 500);
+                assert.equal(syncFailBody.code, 'AUDIT_PERSISTENCE_FAILED');
+            } finally {
+                AuditLog.create = origAuditCreate;
+            }
         }
     });
 
@@ -2948,5 +3143,440 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             }
         });
         assert.equal(resOk.allowed, true);
+    });
+
+    await t.test('35. Fail-Closed Fence Watermark & Pre-Commit Invariants (Objective A)', async () => {
+        const authorityCode = 'HSVP';
+        const tenantId = new mongoose.Types.ObjectId();
+
+        // 35.1: Issued-token Mongo write failure aborts BEFORE transport and releases lock
+        {
+            await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
+            const origRecord = AuthorityGlobalFenceWatermark.recordIssuedFenceToken;
+            AuthorityGlobalFenceWatermark.recordIssuedFenceToken = async () => {
+                throw new Error('MONGO_WRITE_CONNECTION_LOST');
+            };
+
+            let transportCalled = false;
+            let lockReleased = false;
+
+            const fakeLock = {
+                acquired: true,
+                fenceToken: 1,
+                ttlMs: 30000,
+                async release() { lockReleased = true; },
+                async renew() { return true; }
+            };
+
+            const mockLockProvider = {
+                async acquire() { return fakeLock; },
+                async isCurrentFenceToken() { return true; }
+            };
+
+            const mockQuota = {
+                async reserve() { return { allowed: true, reservationId: 'res-1' }; }
+            };
+
+            const mockTransport = {
+                async search() {
+                    transportCalled = true;
+                    return { status: 200, headers: {}, body: '<html></html>' };
+                }
+            };
+
+            const mockAudit = {
+                async write() {}
+            };
+
+            const testRuntime = createAuthorityPortalRuntime({
+                lockProvider: mockLockProvider,
+                quotaProvider: mockQuota,
+                circuitBreakerStore: { isPaused: async () => false, pause: async () => {} },
+                transport: mockTransport,
+                parserRegistry: {
+                    HSVP: { parse: async () => [] }
+                },
+                auditSink: mockAudit,
+                gateConfig: { enabled: true, readOnly: true }
+            });
+
+            const validApproval = {
+                authorityCode: 'HSVP',
+                status: 'GRANTED',
+                accessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                writtenPermissionReference: 'HSVP/IT/2026/001',
+                commercialUseAuthorized: true,
+                readOnlySearchAuthorized: true,
+                termsReviewed: true,
+                termsReference: 'https://hsvphry.org.in/Terms#review',
+                approvedBy: 'approver-1',
+                reviewedBy: 'reviewer-2',
+                expiresAt: '2028-01-01T00:00:00.000Z',
+                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+                ratePolicy: {
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 500,
+                    minimumIntervalMs: 30000,
+                    maxConcurrentRequests: 1,
+                    policyReference: 'HSVP/RATE/01'
+                }
+            };
+
+            try {
+                await assert.rejects(
+                    async () => {
+                        await testRuntime.search({
+                            authorityCode,
+                            approval: validApproval,
+                            inventory: { city: 'Kurukshetra', sector: '7', unitNo: '101' },
+                            authorityLink: { urbanEstate: 'Kurukshetra', sectorNumber: '7', plotNumber: '101' }
+                        });
+                    },
+                    (err) => err.message.includes('MONGO_WRITE_CONNECTION_LOST') || err.code === 'PORTAL_FENCE_WATERMARK_PERSISTENCE_FAILED'
+                );
+
+                assert.equal(transportCalled, false, 'Transport search must NEVER be called if watermark persistence fails');
+                assert.equal(lockReleased, true, 'Lock lease must be cleanly released in finally');
+            } finally {
+                AuthorityGlobalFenceWatermark.recordIssuedFenceToken = origRecord;
+            }
+        }
+
+        // 35.2: Missing watermark document fails closed during pre-commit
+        {
+            await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
+
+            // Direct check of isFenceTokenSuperseded
+            await assert.rejects(
+                async () => {
+                    await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 1 });
+                },
+                (err) => err.code === 'WATERMARK_RECORD_MISSING'
+            );
+
+            // Verify processItem fails closed when watermark document is missing
+            const inv = await Inventory.create({
+                tenantId,
+                title: 'Missing Watermark Plot',
+                propertyId: 'PLOT-999',
+                status: 'AVAILABLE'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId,
+                inventoryId: inv._id,
+                authorityCode,
+                propertyId: 'PLOT-999',
+                sectorNumber: '14',
+                compositeKey: 'HSVP:FARIDABAD:14:PLOT-999',
+                identityVerified: true,
+                matchEligibility: 'ELIGIBLE',
+                createdBy: new mongoose.Types.ObjectId()
+            });
+
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode,
+                status: 'PROCESSING',
+                claimedBy: 'worker-missing-wm',
+                workerClaimToken: 'claim-missing-wm',
+                leaseExpiresAt: new Date(Date.now() + 60000)
+            });
+
+            const candidateWithMissingWatermark = {
+                status: 'READY_FOR_REVIEW',
+                normalizedRecord: { plotNo: 'PLOT-999' },
+                contentHash: 'hash-missing-wm',
+                sourceReferenceUrl: 'https://hsvphry.org.in',
+                fenceToken: 1,
+                isCurrentFence: async () => {
+                    return !(await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 1 }));
+                },
+                checkLeaseValid: async () => {
+                    await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 1 });
+                },
+                proposedChanges: [],
+                matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' }
+            };
+
+            const res = await AuthorityBulkProcessor._persistItemSnapshotAndFinalize({
+                item: runItem,
+                inventory: inv,
+                link,
+                candidate: candidateWithMissingWatermark,
+                tenantId,
+                effectiveWorkerId: 'worker-missing-wm',
+                isFixtureMode: false,
+                supportsTransactions: false
+            });
+
+            assert.equal(res.success, false, 'Missing watermark must fail closed');
+            const finalItem = await PropertyVerificationRunItem.findById(runItem._id);
+            assert.equal(finalItem.status, 'FAILED');
+
+            const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+            assert.equal(snapCount, 0, 'No snapshot must survive when watermark document is missing');
+        }
+
+        // 35.3: Watermark database read failure during pre-commit fails closed
+        {
+            await AuthorityGlobalFenceWatermark.findOneAndUpdate(
+                { authorityCode },
+                { $set: { highestIssuedFenceToken: 1, lastCommittedFenceToken: 0 } },
+                { upsert: true }
+            );
+
+            const origFindOne = AuthorityGlobalFenceWatermark.findOne;
+            AuthorityGlobalFenceWatermark.findOne = () => {
+                throw new Error('MONGO_PRECOMMIT_READ_FAILURE');
+            };
+
+            try {
+                const inv = await Inventory.create({
+                    tenantId,
+                    title: 'Read Failure Plot',
+                    propertyId: 'PLOT-888',
+                    status: 'AVAILABLE'
+                });
+
+                const link = await PropertyAuthorityLink.create({
+                    tenantId,
+                    inventoryId: inv._id,
+                    authorityCode,
+                    propertyId: 'PLOT-888',
+                    sectorNumber: '14',
+                    compositeKey: 'HSVP:FARIDABAD:14:PLOT-888',
+                    identityVerified: true,
+                    matchEligibility: 'ELIGIBLE',
+                    createdBy: new mongoose.Types.ObjectId()
+                });
+
+                const runItem = await PropertyVerificationRunItem.create({
+                    tenantId,
+                    runId: new mongoose.Types.ObjectId(),
+                    inventoryId: inv._id,
+                    linkId: link._id,
+                    authorityCode,
+                    status: 'PROCESSING',
+                    claimedBy: 'worker-read-err',
+                    workerClaimToken: 'claim-read-err',
+                    leaseExpiresAt: new Date(Date.now() + 60000)
+                });
+
+                const candidateWithReadFailure = {
+                    status: 'READY_FOR_REVIEW',
+                    normalizedRecord: { plotNo: 'PLOT-888' },
+                    contentHash: 'hash-read-err',
+                    sourceReferenceUrl: 'https://hsvphry.org.in',
+                    fenceToken: 1,
+                    isCurrentFence: async () => {
+                        return !(await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 1 }));
+                    },
+                    checkLeaseValid: async () => {
+                        await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 1 });
+                    },
+                    proposedChanges: [],
+                    matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' }
+                };
+
+                const res = await AuthorityBulkProcessor._persistItemSnapshotAndFinalize({
+                    item: runItem,
+                    inventory: inv,
+                    link,
+                    candidate: candidateWithReadFailure,
+                    tenantId,
+                    effectiveWorkerId: 'worker-read-err',
+                    isFixtureMode: false,
+                    supportsTransactions: false
+                });
+
+                assert.equal(res.success, false, 'Read failure must fail closed');
+                const finalItem = await PropertyVerificationRunItem.findById(runItem._id);
+                assert.equal(finalItem.status, 'FAILED');
+
+                const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+                assert.equal(snapCount, 0, 'No snapshot must survive when watermark read fails');
+            } finally {
+                AuthorityGlobalFenceWatermark.findOne = origFindOne;
+            }
+        }
+
+        // 35.4: Stale lower token is rejected after higher token issued
+        {
+            await AuthorityGlobalFenceWatermark.findOneAndUpdate(
+                { authorityCode },
+                { $set: { highestIssuedFenceToken: 15, lastCommittedFenceToken: 5 } },
+                { upsert: true }
+            );
+
+            // Token 10 is lower than highestIssuedFenceToken 15 -> must be superseded
+            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                authorityCode,
+                fenceToken: 10
+            });
+            assert.equal(isSuperseded, true, 'Token 10 must be superseded when highest issued token is 15');
+
+            const inv = await Inventory.create({
+                tenantId,
+                title: 'Stale Lower Token Plot',
+                propertyId: 'PLOT-777',
+                status: 'AVAILABLE'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId,
+                inventoryId: inv._id,
+                authorityCode,
+                propertyId: 'PLOT-777',
+                sectorNumber: '14',
+                compositeKey: 'HSVP:FARIDABAD:14:PLOT-777',
+                identityVerified: true,
+                matchEligibility: 'ELIGIBLE',
+                createdBy: new mongoose.Types.ObjectId()
+            });
+
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode,
+                status: 'PROCESSING',
+                claimedBy: 'worker-stale-token',
+                workerClaimToken: 'claim-stale-token',
+                leaseExpiresAt: new Date(Date.now() + 60000)
+            });
+
+            const candidateStale = {
+                status: 'READY_FOR_REVIEW',
+                normalizedRecord: { plotNo: 'PLOT-777' },
+                contentHash: 'hash-stale-token',
+                sourceReferenceUrl: 'https://hsvphry.org.in',
+                fenceToken: 10,
+                isCurrentFence: async () => {
+                    return !(await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 10 }));
+                },
+                checkLeaseValid: async () => {
+                    const superseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 10 });
+                    if (superseded) {
+                        const err = new Error('Portal lock fence token is stale');
+                        err.code = 'PORTAL_LOCK_OWNERSHIP_LOST';
+                        throw err;
+                    }
+                },
+                proposedChanges: [],
+                matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' }
+            };
+
+            const res = await AuthorityBulkProcessor._persistItemSnapshotAndFinalize({
+                item: runItem,
+                inventory: inv,
+                link,
+                candidate: candidateStale,
+                tenantId,
+                effectiveWorkerId: 'worker-stale-token',
+                isFixtureMode: false,
+                supportsTransactions: false
+            });
+
+            assert.equal(res.success, false, 'Stale token must fail closed');
+            const finalItem = await PropertyVerificationRunItem.findById(runItem._id);
+            assert.equal(finalItem.status, 'FAILED');
+
+            const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+            assert.equal(snapCount, 0, 'No snapshot must survive for stale lower token');
+        }
+
+        // 35.5: Monotonic higher token succeeds and commits
+        {
+            await AuthorityGlobalFenceWatermark.findOneAndUpdate(
+                { authorityCode },
+                { $set: { highestIssuedFenceToken: 15, lastCommittedFenceToken: 5 } },
+                { upsert: true }
+            );
+
+            // Token 15 is equal to highestIssuedFenceToken 15 and > lastCommittedFenceToken 5 -> valid!
+            const isSuperseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({
+                authorityCode,
+                fenceToken: 15
+            });
+            assert.equal(isSuperseded, false, 'Token 15 must NOT be superseded');
+
+            const inv = await Inventory.create({
+                tenantId,
+                title: 'Valid Higher Token Plot',
+                propertyId: 'PLOT-666',
+                status: 'AVAILABLE'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId,
+                inventoryId: inv._id,
+                authorityCode,
+                propertyId: 'PLOT-666',
+                sectorNumber: '14',
+                compositeKey: 'HSVP:FARIDABAD:14:PLOT-666',
+                identityVerified: true,
+                matchEligibility: 'ELIGIBLE',
+                createdBy: new mongoose.Types.ObjectId()
+            });
+
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode,
+                status: 'PROCESSING',
+                claimedBy: 'worker-valid-token',
+                workerClaimToken: 'claim-valid-token',
+                leaseExpiresAt: new Date(Date.now() + 60000)
+            });
+
+            const candidateValid = {
+                status: 'READY_FOR_REVIEW',
+                normalizedRecord: { plotNo: 'PLOT-666' },
+                contentHash: 'hash-valid-token',
+                sourceReferenceUrl: 'https://hsvphry.org.in',
+                fenceToken: 15,
+                isCurrentFence: async () => {
+                    return !(await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 15 }));
+                },
+                checkLeaseValid: async () => {
+                    const superseded = await AuthorityGlobalFenceWatermark.isFenceTokenSuperseded({ authorityCode, fenceToken: 15 });
+                    if (superseded) {
+                        const err = new Error('Portal lock fence token is stale');
+                        err.code = 'PORTAL_LOCK_OWNERSHIP_LOST';
+                        throw err;
+                    }
+                },
+                proposedChanges: [],
+                matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' }
+            };
+
+            const res = await AuthorityBulkProcessor._persistItemSnapshotAndFinalize({
+                item: runItem,
+                inventory: inv,
+                link,
+                candidate: candidateValid,
+                tenantId,
+                effectiveWorkerId: 'worker-valid-token',
+                isFixtureMode: false,
+                supportsTransactions: false
+            });
+
+            assert.equal(res.success, true, 'Valid token must commit snapshot successfully');
+            const finalItem = await PropertyVerificationRunItem.findById(runItem._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+
+            const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+            assert.equal(snapCount, 1, 'Exactly one snapshot must survive for valid token');
+
+            const committedWm = await AuthorityGlobalFenceWatermark.findOne({ authorityCode });
+            assert.equal(committedWm.lastCommittedFenceToken, 15);
+        }
     });
 });

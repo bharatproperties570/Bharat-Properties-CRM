@@ -57,6 +57,9 @@ export function createConfiguredPortalRuntime(options = {}) {
         transport,
         parserRegistry,
         auditSink,
+        lockTtlMs: options.lockTtlMs,
+        renewalIntervalMs: options.renewalIntervalMs,
+        fenceWatermarkStore: options.fenceWatermarkStore,
         gateConfig: options.gateConfig || {
             enabled: true,
             readOnly: true,

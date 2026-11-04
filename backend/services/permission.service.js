@@ -31,7 +31,7 @@ export const calculateUserPermissions = async (user) => {
 
     // Populate role if it's just an ID
     let role = user.role;
-    if (typeof role === 'string' || role._id) {
+    if (typeof role === 'string' || role._id || (role && !role.moduleAccess)) {
         const Role = (await import('../models/Role.js')).default;
         role = await Role.findById(user.role._id || user.role);
     }

@@ -28,12 +28,26 @@ const approved = () => ({
 
 function makeRuntime(overrides = {}) {
     const calls = { transport: 0, audit: [], paused: [], quota: 0, acquired: 0, released: 0 };
+    let fenceSeq = 0;
     const deps = {
         gateConfig: { ...DEFAULT_APPROVAL_GATE_CONFIG, enabled: true },
         lockProvider: {
             async acquire() {
                 calls.acquired += 1;
-                return { acquired: true, async release() { calls.released += 1; } };
+                fenceSeq += 1;
+                return { acquired: true, fenceToken: fenceSeq, async release() { calls.released += 1; } };
+            }
+        },
+        fenceWatermarkStore: {
+            async recordIssuedFenceToken({ authorityCode, fenceToken }) {
+                return {
+                    authorityCode,
+                    highestIssuedFenceToken: Number(fenceToken),
+                    lastCommittedFenceToken: 0
+                };
+            },
+            async isFenceTokenSuperseded({ authorityCode, fenceToken }) {
+                return false;
             }
         },
         quotaProvider: {

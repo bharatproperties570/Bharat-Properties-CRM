@@ -1320,55 +1320,164 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             }
         };
 
-        // Create configured portal runtime wired with real Redis and fake offline transport
-        const configuredRuntime = createConfiguredPortalRuntime({
+        // Create configured portal runtime for Worker A with injectable short lock TTL and renewal interval
+        const configuredRuntimeA = createConfiguredPortalRuntime({
+            redisClient,
+            transport: fakeOfflineTransport,
+            testMode: false,
+            lockTtlMs: 400,
+            renewalIntervalMs: 120
+        });
+
+        let persistenceHookFired = false;
+        let leaseStolen = false;
+        let workerBLease = null;
+
+        const resA = await AuthorityBulkProcessor.processItem(runItem, {
+            tenantId,
+            workerId: 'worker-offline-e2e-A',
+            claimToken: 'claim-token-offline-e2e-A',
+            isFixtureMode: false,
+            portalRuntime: configuredRuntimeA,
+            canonicalPolicy: canonicalPolicyDoc,
+            beforeTransactionCommit: async ({ candidate }) => {
+                persistenceHookFired = true;
+                // Deliberately delay persistence across renewal interval (180ms > 120ms tick)
+                await new Promise((r) => setTimeout(r, 180));
+
+                // Force-release worker A's Redis lock key so worker B can acquire
+                await redisClient.del(`portal_lock:${authorityCode}`);
+
+                // Worker B acquires the exact same authority distributed lock using real Redis
+                const lockProviderB = new RedisPortalDistributedLock(redisClient, { testMode: false });
+                const leaseB = await lockProviderB.acquire({
+                    authorityCode,
+                    maxConcurrent: 1,
+                    ttlMs: 30000
+                });
+                assert.equal(leaseB.acquired, true, 'Worker B must acquire lock in real Redis');
+                assert.ok(leaseB.fenceToken > (candidate.fenceToken || 1), 'Worker B must produce a higher real Redis fence sequence');
+
+                // Worker B records its issued fence token into AuthorityGlobalFenceWatermark
+                await AuthorityGlobalFenceWatermark.recordIssuedFenceToken({
+                    authorityCode,
+                    fenceToken: leaseB.fenceToken
+                });
+
+                leaseStolen = true;
+                workerBLease = leaseB;
+            }
+        });
+
+        assert.equal(persistenceHookFired, true, 'Persistence hook must have executed');
+        assert.equal(leaseStolen, true, 'Lease must have been stolen by worker B during persistence');
+        assert.equal(liveNetworkCalls, 1, 'Worker A fake offline transport must have been called');
+
+        // Verify fail-closed abortion for Worker A: no snapshot in MongoDB, runItem marked FAILED
+        assert.equal(resA.success, false, 'Stale worker A must fail closed');
+        assert.equal(resA.reason, 'PORTAL_LOCK_OWNERSHIP_LOST');
+        assert.equal(resA.ownershipLost, true);
+
+        const finalItemA = await PropertyVerificationRunItem.findById(runItem._id);
+        assert.equal(finalItemA.status, 'FAILED');
+
+        const snapCountA = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+        assert.equal(snapCountA, 0, 'No snapshot must survive when lease is stolen during persistence');
+
+        // Worker B now completes its item under the new token and commits successfully
+        if (workerBLease) {
+            await workerBLease.release();
+        }
+
+        const runItemB = await PropertyVerificationRunItem.create({
+            tenantId,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: inv._id,
+            linkId: link._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-offline-e2e-B',
+            workerClaimToken: 'claim-token-offline-e2e-B',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        const configuredRuntimeB = createConfiguredPortalRuntime({
             redisClient,
             transport: fakeOfflineTransport,
             testMode: false
         });
 
-        let persistenceHookFired = false;
-        let leaseStolen = false;
-
-        const res = await AuthorityBulkProcessor.processItem(runItem, {
+        const resB = await AuthorityBulkProcessor.processItem(runItemB, {
             tenantId,
-            workerId: 'worker-offline-e2e',
-            claimToken: 'claim-token-offline-e2e',
+            workerId: 'worker-offline-e2e-B',
+            claimToken: 'claim-token-offline-e2e-B',
             isFixtureMode: false,
-            portalRuntime: configuredRuntime,
-            canonicalPolicy: canonicalPolicyDoc,
-            beforeTransactionCommit: async ({ candidate }) => {
-                persistenceHookFired = true;
-                // Deliberately delay persistence across renewal interval
-                await new Promise((r) => setTimeout(r, 100));
-
-                // Simulate competing lease acquisition by another worker advancing the global watermark
-                const currentFence = candidate.fenceToken || 1;
-                await AuthorityGlobalFenceWatermark.recordIssuedFenceToken({
-                    authorityCode,
-                    fenceToken: currentFence + 10
-                });
-                leaseStolen = true;
-            }
+            portalRuntime: configuredRuntimeB,
+            canonicalPolicy: canonicalPolicyDoc
         });
 
-        assert.equal(persistenceHookFired, true, 'Persistence hook must have executed');
-        assert.equal(leaseStolen, true, 'Lease must have been stolen during persistence');
-        assert.equal(liveNetworkCalls, 1, 'Only fake offline transport must have been called');
+        assert.equal(resB.success, true, 'Worker B must succeed under valid new lease token');
+        const finalItemB = await PropertyVerificationRunItem.findById(runItemB._id);
+        assert.equal(finalItemB.status, 'SUCCEEDED');
 
-        // Verify fail-closed abortion: no snapshot in MongoDB, runItem marked FAILED
-        assert.equal(res.success, false, 'Stale worker must fail closed');
-        assert.equal(res.reason, 'PORTAL_LOCK_OWNERSHIP_LOST');
-        assert.equal(res.ownershipLost, true);
-
-        const finalItem = await PropertyVerificationRunItem.findById(runItem._id);
-        assert.equal(finalItem.status, 'FAILED');
-
-        const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
-        assert.equal(snapCount, 0, 'No snapshot must survive when lease is stolen during persistence');
+        const snapCountB = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItemB._id });
+        assert.equal(snapCountB, 1, 'Worker B must commit exactly 1 snapshot');
 
         // Cleanup
         const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
         if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
+    });
+
+    await t.test('15. Legitimate heartbeat renewal keeps lock alive across intervals and blocks competing worker', async (t15) => {
+        const authorityCode = 'HSVP';
+        const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
+        if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
+
+        // Worker A acquires lock with 300ms TTL and 100ms renewal interval
+        const lockProviderA = new RedisPortalDistributedLock(redisClient, { testMode: false });
+        const leaseA = await lockProviderA.acquire({
+            authorityCode,
+            maxConcurrent: 1,
+            ttlMs: 300
+        });
+        assert.equal(leaseA.acquired, true, 'Worker A acquires initial lock');
+
+        // Start active renewal interval (tick every 100ms)
+        let renewalTicks = 0;
+        const renewalTimer = setInterval(async () => {
+            const renewed = await leaseA.renew(300);
+            if (renewed) renewalTicks++;
+        }, 100);
+
+        // Sleep 250ms — without renewal, a 300ms lock would be on the verge of expiring or expired.
+        // With renewal, it crosses at least 2 heartbeat renewal ticks.
+        await new Promise((r) => setTimeout(r, 250));
+        clearInterval(renewalTimer);
+        assert.ok(renewalTicks >= 1, `Heartbeat must have executed at least 1 renewal tick (actual: ${renewalTicks})`);
+
+        // Worker B attempts to acquire while A's lock was kept alive
+        const lockProviderB = new RedisPortalDistributedLock(redisClient, { testMode: false });
+        const leaseB = await lockProviderB.acquire({
+            authorityCode,
+            maxConcurrent: 1,
+            ttlMs: 300
+        });
+        assert.equal(leaseB.acquired, false, 'Worker B must be blocked by Worker A active lease');
+
+        // Worker A releases lock
+        await leaseA.release();
+
+        // Worker B can now acquire cleanly
+        const leaseBAfterRelease = await lockProviderB.acquire({
+            authorityCode,
+            maxConcurrent: 1,
+            ttlMs: 300
+        });
+        assert.equal(leaseBAfterRelease.acquired, true, 'Worker B acquires successfully after Worker A releases');
+        await leaseBAfterRelease.release();
+
+        // Final cleanup
+        const remainingKeys = await redisClient.keys(`*${authorityCode}*`);
+        if (remainingKeys.length > 0) await redisClient.del(...remainingKeys);
     });
 });

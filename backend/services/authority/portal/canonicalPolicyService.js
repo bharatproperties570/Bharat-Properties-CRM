@@ -51,7 +51,10 @@ export async function registerOrRotateCanonicalPolicy({
     policyVersion = null,
     expectedPreviousVersion = null,
     quotaProvider = null,
-    session = null
+    session = null,
+    isAudited = true,
+    auditStatus = 'AUDITED',
+    auditLogId = null
 } = {}) {
     const code = String(authorityCode || '').trim().toUpperCase();
     if (!VALID_AUTHORITIES.has(code)) {
@@ -198,6 +201,9 @@ export async function registerOrRotateCanonicalPolicy({
         redisSyncStatus: 'PENDING',
         redisSyncError: null,
         lastSyncedAt: null,
+        isAudited: isAudited ?? true,
+        auditStatus: auditStatus ?? 'AUDITED',
+        auditLogId: auditLogId || null,
         isActive: true,
         updatedAt: new Date()
     };
@@ -304,12 +310,51 @@ export async function syncCanonicalPolicyToRedis({ authorityCode, quotaProvider,
 }
 
 /**
+ * Marks a newly rotated canonical policy as audited after durable AuditLog creation.
+ */
+export async function markCanonicalPolicyAudited({ policyId, auditLogId = null, session = null } = {}) {
+    return await AuthorityCanonicalPolicy.findByIdAndUpdate(
+        policyId,
+        {
+            $set: {
+                isAudited: true,
+                auditStatus: 'AUDITED',
+                auditLogId: auditLogId || null
+            }
+        },
+        { new: true, session }
+    );
+}
+
+/**
+ * Fails closed and disables a policy if mandatory audit log creation threw an error.
+ */
+export async function markCanonicalPolicyAuditFailed({ policyId, session = null } = {}) {
+    return await AuthorityCanonicalPolicy.findByIdAndUpdate(
+        policyId,
+        {
+            $set: {
+                isAudited: false,
+                auditStatus: 'FAILED',
+                isActive: false
+            }
+        },
+        { new: true, session }
+    );
+}
+
+/**
  * Retrieves the currently active and valid canonical policy for an authority.
- * Fails closed if missing, inactive, future-effective, or expired.
+ * Fails closed if missing, inactive, unaudited, audit-failed, future-effective, or expired.
  */
 export async function getCanonicalPolicy(authorityCode, { session = null, now = Date.now() } = {}) {
     const code = String(authorityCode || '').trim().toUpperCase();
-    const doc = await AuthorityCanonicalPolicy.findOne({ authorityCode: code, isActive: true }).session(session);
+    const doc = await AuthorityCanonicalPolicy.findOne({
+        authorityCode: code,
+        isActive: true,
+        isAudited: true,
+        auditStatus: { $nin: ['PENDING', 'FAILED'] }
+    }).session(session);
     if (!doc) {
         return null;
     }

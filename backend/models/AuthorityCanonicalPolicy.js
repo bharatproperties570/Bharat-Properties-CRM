@@ -114,6 +114,22 @@ const AuthorityCanonicalPolicySchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    isAudited: {
+        type: Boolean,
+        default: true,
+        index: true
+    },
+    auditStatus: {
+        type: String,
+        enum: ['PENDING', 'AUDITED', 'FAILED'],
+        default: 'AUDITED',
+        index: true
+    },
+    auditLogId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'AuditLog',
+        default: null
+    },
     isActive: {
         type: Boolean,
         default: true

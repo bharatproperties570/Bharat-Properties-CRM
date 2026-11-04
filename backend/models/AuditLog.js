@@ -183,7 +183,9 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_portal_parse_failed',
             'authority_portal_source_paused',
             'canonical_policy_rotated',
-            'authority_canonical_policy_rotated'
+            'authority_canonical_policy_rotated',
+            'canonical_policy_synced',
+            'authority_canonical_policy_synced'
         ],
         index: true
     },
