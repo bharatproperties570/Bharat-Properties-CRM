@@ -1210,6 +1210,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             permissionStatus: 'GRANTED',
             approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
             approvalReference: 'HSVP/AUTH/OFFLINE/2026',
+            approvalExpiryDate: new Date(Date.now() + 86400000),
             commercialUseAuthorized: true,
             readOnlySearchAuthorized: true,
             termsReviewed: true,
