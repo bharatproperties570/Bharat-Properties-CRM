@@ -74,8 +74,28 @@ test('(0, 0) coordinates fail validation', () => {
     assert.strictEqual(validateCoordinates({ lat: 0, lng: 0 }).valid, false);
 });
 
-// 2. Credential-Blocked & Default Fallback
-console.log('\n--- 2. Credential-Blocked & Default Fallback ---');
+// 2. Two-Property No-Op & Credential-Blocked Fallback
+console.log('\n--- 2. Two-Property No-Op & Credential-Blocked Fallback ---');
+
+await testAsync('Two properties: returns NO_OPTIMIZATION_REQUIRED and does not claim optimization', async () => {
+    const props = [
+        { project: 'Prop A', lat: 28.45, lng: 77.02 },
+        { project: 'Prop B', lat: 28.50, lng: 77.08 }
+    ];
+
+    const result = await GoogleMapsRoutingService.optimizeItinerary(props, {
+        apiKey: 'mock_api_key_valid'
+    });
+
+    assert.strictEqual(result.optimized, false);
+    assert.strictEqual(result.isProviderOptimized, false);
+    assert.strictEqual(result.optimizationSource, 'SCHEDULED_ORDER');
+    assert.strictEqual(result.claimedOptimal, false);
+    assert.strictEqual(result.estimatedTravelTimes, null);
+    assert.strictEqual(result.status, 'NO_OPTIMIZATION_REQUIRED');
+    assert.strictEqual(result.properties[0].project, 'Prop A');
+    assert.strictEqual(result.properties[1].project, 'Prop B');
+});
 
 await testAsync('When GOOGLE_MAPS_ROUTES_API_KEY is unset, returns CREDENTIAL_BLOCKED and preserves scheduled order', async () => {
     const originalKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY;
@@ -107,7 +127,44 @@ await testAsync('When GOOGLE_MAPS_ROUTES_API_KEY is unset, returns CREDENTIAL_BL
 // 3. Provider Success (Mock Transport)
 console.log('\n--- 3. Google Maps Routes API Provider Success ---');
 
-await testAsync('Provider response with optimizedIntermediateWaypointIndex reorders waypoints correctly', async () => {
+await testAsync('Three-property real provider response through mock transport validates and attributes correctly', async () => {
+    const props = [
+        { project: 'Origin', lat: 28.40, lng: 77.00 },
+        { project: 'Intermediate 1', lat: 28.50, lng: 77.10 },
+        { project: 'Destination', lat: 28.60, lng: 77.20 }
+    ];
+
+    const mockTransport = async (payload) => {
+        assert.strictEqual(payload.intermediates.length, 1);
+        return {
+            routes: [
+                {
+                    optimizedIntermediateWaypointIndex: [0],
+                    duration: '1200s',
+                    distanceMeters: 12000
+                }
+            ]
+        };
+    };
+
+    const result = await GoogleMapsRoutingService.optimizeItinerary(props, {
+        apiKey: 'mock_test_key_123',
+        mockTransport
+    });
+
+    assert.strictEqual(result.optimized, true);
+    assert.strictEqual(result.isProviderOptimized, true);
+    assert.strictEqual(result.optimizationSource, 'GOOGLE_ROUTES_API');
+    assert.strictEqual(result.claimedOptimal, true);
+    assert.strictEqual(result.providerDuration, '1200s');
+    assert.strictEqual(result.providerDistanceMeters, 12000);
+    assert.strictEqual(result.estimatedTravelTimes.totalDuration, '1200s');
+    assert.strictEqual(result.properties[0].project, 'Origin');
+    assert.strictEqual(result.properties[1].project, 'Intermediate 1');
+    assert.strictEqual(result.properties[2].project, 'Destination');
+});
+
+await testAsync('Four-property provider response with optimizedIntermediateWaypointIndex reorders waypoints correctly', async () => {
     const props = [
         { project: 'Anchor Start', lat: 28.40, lng: 77.00 },
         { project: 'Waypoint A', lat: 28.50, lng: 77.10 },
@@ -150,6 +207,118 @@ await testAsync('Provider response with optimizedIntermediateWaypointIndex reord
     assert.strictEqual(result.properties[1].project, 'Waypoint B');
     assert.strictEqual(result.properties[2].project, 'Waypoint A');
     assert.strictEqual(result.properties[3].project, 'Anchor End');
+});
+
+// 4. Malformed Provider Responses & Waypoint Validation
+console.log('\n--- 4. Malformed Provider Response & Waypoint Validation ---');
+
+await testAsync('Invalid waypoint indices (out of bounds or non-integer) fall back to scheduled order without fabricating times', async () => {
+    const props = [
+        { project: 'Start', lat: 28.40, lng: 77.00 },
+        { project: 'Mid 1', lat: 28.45, lng: 77.05 },
+        { project: 'Mid 2', lat: 28.50, lng: 77.10 },
+        { project: 'End', lat: 28.60, lng: 77.20 }
+    ];
+
+    const mockTransport = async () => ({
+        routes: [
+            {
+                optimizedIntermediateWaypointIndex: [99, 0], // Out of range!
+                duration: '1800s'
+            }
+        ]
+    });
+
+    const result = await GoogleMapsRoutingService.optimizeItinerary(props, {
+        apiKey: 'mock_test_key_123',
+        mockTransport
+    });
+
+    assert.strictEqual(result.optimized, false);
+    assert.strictEqual(result.isProviderOptimized, false);
+    assert.strictEqual(result.optimizationSource, 'SCHEDULED_ORDER');
+    assert.strictEqual(result.claimedOptimal, false);
+    assert.strictEqual(result.estimatedTravelTimes, null);
+    assert.strictEqual(result.properties[1].project, 'Mid 1');
+    assert.strictEqual(result.properties[2].project, 'Mid 2');
+});
+
+await testAsync('Duplicate waypoint indices fall back to scheduled order', async () => {
+    const props = [
+        { project: 'Start', lat: 28.40, lng: 77.00 },
+        { project: 'Mid 1', lat: 28.45, lng: 77.05 },
+        { project: 'Mid 2', lat: 28.50, lng: 77.10 },
+        { project: 'End', lat: 28.60, lng: 77.20 }
+    ];
+
+    const mockTransport = async () => ({
+        routes: [
+            {
+                optimizedIntermediateWaypointIndex: [0, 0], // Duplicate index!
+                duration: '1800s'
+            }
+        ]
+    });
+
+    const result = await GoogleMapsRoutingService.optimizeItinerary(props, {
+        apiKey: 'mock_test_key_123',
+        mockTransport
+    });
+
+    assert.strictEqual(result.optimized, false);
+    assert.strictEqual(result.isProviderOptimized, false);
+    assert.strictEqual(result.optimizationSource, 'SCHEDULED_ORDER');
+    assert.strictEqual(result.claimedOptimal, false);
+    assert.strictEqual(result.estimatedTravelTimes, null);
+});
+
+await testAsync('Missing provider route falls back to scheduled order', async () => {
+    const props = [
+        { project: 'Start', lat: 28.40, lng: 77.00 },
+        { project: 'Mid', lat: 28.45, lng: 77.05 },
+        { project: 'End', lat: 28.60, lng: 77.20 }
+    ];
+
+    const mockTransport = async () => ({
+        routes: [] // Empty routes array!
+    });
+
+    const result = await GoogleMapsRoutingService.optimizeItinerary(props, {
+        apiKey: 'mock_test_key_123',
+        mockTransport
+    });
+
+    assert.strictEqual(result.optimized, false);
+    assert.strictEqual(result.isProviderOptimized, false);
+    assert.strictEqual(result.optimizationSource, 'SCHEDULED_ORDER');
+    assert.strictEqual(result.claimedOptimal, false);
+    assert.strictEqual(result.estimatedTravelTimes, null);
+});
+
+await testAsync('Provider timeout falls back to scheduled order gracefully', async () => {
+    const props = [
+        { project: 'Start', lat: 28.40, lng: 77.00 },
+        { project: 'Mid', lat: 28.45, lng: 77.05 },
+        { project: 'End', lat: 28.60, lng: 77.20 }
+    ];
+
+    const mockTransport = async () => {
+        const err = new Error('Google Maps Routes API request timed out after 5000ms');
+        err.name = 'AbortError';
+        throw err;
+    };
+
+    const result = await GoogleMapsRoutingService.optimizeItinerary(props, {
+        apiKey: 'mock_test_key_123',
+        mockTransport,
+        maxRetries: 0
+    });
+
+    assert.strictEqual(result.optimized, false);
+    assert.strictEqual(result.isProviderOptimized, false);
+    assert.strictEqual(result.optimizationSource, 'SCHEDULED_ORDER');
+    assert.strictEqual(result.claimedOptimal, false);
+    assert.strictEqual(result.estimatedTravelTimes, null);
 });
 
 // 4. Provider Error Handling & Retry

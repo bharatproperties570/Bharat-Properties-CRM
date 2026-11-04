@@ -750,13 +750,21 @@ export class SiteVisitService {
             }
         }
 
-        // Compare-And-Set filter to protect against concurrent rotation races
+        // Compare-And-Set filter to protect against concurrent creation & rotation races
         const casFilter = {
             _id: activity._id,
-            status: { $ne: 'Cancelled' }
+            status: { $ne: 'Cancelled' },
+            'details.journeyRevoked': { $ne: true }
         };
-        if (shouldRotate && oldHash) {
+
+        if (oldHash) {
             casFilter['details.journeyTokenHash'] = oldHash;
+        } else {
+            casFilter.$or = [
+                { 'details.journeyTokenHash': { $exists: false } },
+                { 'details.journeyTokenHash': null },
+                { 'details.journeyTokenHash': '' }
+            ];
         }
 
         if (typeof ActivityModel.findOneAndUpdate === 'function') {
@@ -766,20 +774,51 @@ export class SiteVisitService {
                 { new: true, ...(options.session ? { session: options.session } : {}) }
             );
 
-            // If CAS matched nothing because of concurrent rotation, return the newly rotated token
-            if (!updated && shouldRotate) {
+            // If CAS matched nothing because of concurrent initial creation or rotation,
+            // reload from database and return the winning active valid token
+            if (!updated) {
                 const latest = await ActivityModel.findById(activity._id, null, options.session ? { session: options.session } : undefined);
+                if (!latest) {
+                    const err = new Error('Site visit not found');
+                    err.statusCode = 404;
+                    throw err;
+                }
+                if (latest.status === 'Cancelled') {
+                    const err = new Error('Cannot generate journey link for cancelled site visit');
+                    err.statusCode = 410;
+                    throw err;
+                }
+                if (latest.details?.journeyRevoked === true) {
+                    const err = new Error(latest.details?.journeyRevokedReason || 'Site visit journey link has been revoked');
+                    err.statusCode = 403;
+                    throw err;
+                }
+
                 const latestActive = SiteVisitJourneyService.reconstructActiveToken(latest);
                 if (latestActive) {
                     return {
                         journeyUrl: latestActive.journeyUrl,
                         safeToken: latestActive.safeToken,
                         expiresAt: latestActive.expiresAt,
-                        isRotated: true
+                        isRotated: shouldRotate
                     };
                 }
+
+                const err = new Error('Concurrent token modification in progress. Please retry.');
+                err.statusCode = 409;
+                throw err;
             }
         } else if (activity.save) {
+            if (activity.status === 'Cancelled') {
+                const err = new Error('Cannot generate journey link for cancelled site visit');
+                err.statusCode = 410;
+                throw err;
+            }
+            if (activity.details?.journeyRevoked === true) {
+                const err = new Error(activity.details?.journeyRevokedReason || 'Site visit journey link has been revoked');
+                err.statusCode = 403;
+                throw err;
+            }
             if (!activity.details) activity.details = {};
             activity.details.journeyTokenHash = journeyInfo.tokenHash;
             activity.details.journeyTokenJti = journeyInfo.jti;
@@ -789,6 +828,9 @@ export class SiteVisitService {
             if (shouldRotate) {
                 activity.details.journeyRotatedAt = new Date();
                 activity.details.journeyRotatedBy = user?._id || user?.id || null;
+                if (options.rotationReason) {
+                    activity.details.journeyRotationReason = String(options.rotationReason).trim();
+                }
             }
             await activity.save(options.session ? { session: options.session } : undefined);
         }

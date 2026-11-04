@@ -127,7 +127,9 @@ export class SiteVisitJourneyService {
      */
     static async verifyJourneyToken(rawToken, options = {}) {
         if (!rawToken || typeof rawToken !== 'string') {
-            throw new Error('Journey token is required');
+            const err = new Error('Journey token is required');
+            err.statusCode = 400;
+            throw err;
         }
 
         const normalizedToken = rawToken.replace(/~/g, '.');
@@ -142,13 +144,25 @@ export class SiteVisitJourneyService {
             throw error;
         }
 
+        // 6. Verify token issuer and purpose
+        if (decoded.iss !== 'bharat-properties-crm') {
+            const error = new Error('Unauthorized token issuer');
+            error.statusCode = 403;
+            throw error;
+        }
+
         if (decoded.purpose !== 'client_site_visit_journey') {
             const error = new Error('Unauthorized token purpose');
             error.statusCode = 403;
             throw error;
         }
 
-        const tokenHash = crypto.createHash('sha256').update(normalizedToken).digest('hex');
+        if (!decoded.activityId) {
+            const error = new Error('Token is missing activityId claim');
+            error.statusCode = 403;
+            throw error;
+        }
+
         const ActivityModel = mongoose.models.Activity || Activity;
 
         let activity = null;
@@ -162,26 +176,57 @@ export class SiteVisitJourneyService {
             throw error;
         }
 
+        // 4. Verify decoded activityId matches the loaded activity ID
+        if (String(activity._id) !== String(decoded.activityId)) {
+            const error = new Error('Token activity ID does not match target activity');
+            error.statusCode = 403;
+            throw error;
+        }
+
+        // 5. Verify decoded leadId matches the activity's actual lead/entity ID
+        const activityLeadId = String(activity.entityId || activity.lead || activity.leadId || '');
+        if (!decoded.leadId || String(decoded.leadId) !== activityLeadId) {
+            const error = new Error('Token lead ID does not match target activity entity');
+            error.statusCode = 403;
+            throw error;
+        }
+
         if (activity.type !== 'Site Visit') {
             const error = new Error('Activity is not a Site Visit');
             error.statusCode = 400;
             throw error;
         }
 
+        // 7. Enforce cancellation
         if (activity.status === 'Cancelled') {
             const error = new Error('This site visit has been cancelled');
             error.statusCode = 410; // Gone
             throw error;
         }
 
+        // 7. Enforce explicit revocation
         if (activity.details?.journeyRevoked === true) {
             const error = new Error(activity.details?.journeyRevokedReason || 'This site visit journey link has been revoked');
             error.statusCode = 403;
             throw error;
         }
 
-        // Verify stored hash matches (prevent replay of obsolete revoked tokens)
-        if (activity.details?.journeyTokenHash && activity.details.journeyTokenHash !== tokenHash) {
+        // 1 & 2. Require activity.details.journeyTokenHash to exist and be a valid SHA-256 hash
+        const storedHash = activity.details?.journeyTokenHash;
+        const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/i;
+
+        if (!storedHash || typeof storedHash !== 'string' || !SHA256_HEX_REGEX.test(storedHash)) {
+            const error = new Error('Journey link has missing or malformed security token hash');
+            error.statusCode = 403;
+            throw error;
+        }
+
+        // 3. Compare the computed token hash using constant-time comparison
+        const computedTokenHash = crypto.createHash('sha256').update(normalizedToken).digest('hex');
+        const storedBuf = Buffer.from(storedHash.toLowerCase(), 'hex');
+        const computedBuf = Buffer.from(computedTokenHash.toLowerCase(), 'hex');
+
+        if (storedBuf.length !== computedBuf.length || !crypto.timingSafeEqual(storedBuf, computedBuf)) {
             const error = new Error('Journey link has been superseded or refreshed');
             error.statusCode = 403;
             throw error;
@@ -190,7 +235,7 @@ export class SiteVisitJourneyService {
         return {
             activity,
             claims: decoded,
-            tokenHash
+            tokenHash: computedTokenHash
         };
     }
 

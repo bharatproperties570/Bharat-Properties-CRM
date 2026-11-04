@@ -125,55 +125,137 @@ async function runJourneyTests() {
     // Test 2: Expired, Tampered, and Revoked Token Rejection
     // ------------------------------------------------------------------------
     console.log('\n--- Test 2: Invalid & Revoked Token Guards ---');
-    await recordAsync('2. Expired, tampered, superseded, and cancelled journey tokens are rejected', async () => {
+    await recordAsync('2. Missing, empty, malformed, wrong-claim, expired, revoked, and superseded tokens fail closed', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
 
-        // 2a. Expired Token
-        const expiredToken = jwt.sign({
-            iss: 'bharat-properties-crm',
-            activityId: String(fakeActId),
-            purpose: 'client_site_visit_journey'
-        }, process.env.JWT_SECRET, { expiresIn: '-1s' });
+        const baseActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Scheduled',
+            details: {}
+        };
 
+        const generateTestToken = (claims = {}, secret = process.env.JWT_SECRET, opts = {}) => {
+            return jwt.sign({
+                iss: 'bharat-properties-crm',
+                activityId: String(fakeActId),
+                leadId: String(fakeLeadId),
+                purpose: 'client_site_visit_journey',
+                ...claims
+            }, secret, { expiresIn: '72h', ...opts });
+        };
+
+        const validToken = generateTestToken();
+        const validHash = crypto.createHash('sha256').update(validToken).digest('hex');
+
+        // 2a. Missing stored hash -> 403
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: {} // Missing journeyTokenHash
+        });
+        await assert.rejects(
+            () => SiteVisitJourneyService.verifyJourneyToken(validToken),
+            err => err.statusCode === 403 && /missing or malformed security token hash/.test(err.message)
+        );
+
+        // 2b. Empty stored hash -> 403
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: { journeyTokenHash: '' }
+        });
+        await assert.rejects(
+            () => SiteVisitJourneyService.verifyJourneyToken(validToken),
+            err => err.statusCode === 403 && /missing or malformed security token hash/.test(err.message)
+        );
+
+        // 2c. Malformed stored hash (not 64-char hex) -> 403
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: { journeyTokenHash: 'not-a-valid-sha256-hex-hash' }
+        });
+        await assert.rejects(
+            () => SiteVisitJourneyService.verifyJourneyToken(validToken),
+            err => err.statusCode === 403 && /missing or malformed security token hash/.test(err.message)
+        );
+
+        // 2d. Wrong token hash (mismatched/superseded) -> 403
+        const otherValidSha256 = crypto.createHash('sha256').update('different_data').digest('hex');
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: { journeyTokenHash: otherValidSha256 }
+        });
+        await assert.rejects(
+            () => SiteVisitJourneyService.verifyJourneyToken(validToken),
+            err => err.statusCode === 403 && /superseded or refreshed/.test(err.message)
+        );
+
+        // 2e. Wrong activity ID -> 403
+        const wrongActIdToken = generateTestToken({ activityId: String(new mongoose.Types.ObjectId()) });
+        const wrongActHash = crypto.createHash('sha256').update(wrongActIdToken).digest('hex');
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: { journeyTokenHash: wrongActHash }
+        });
+        await assert.rejects(
+            () => SiteVisitJourneyService.verifyJourneyToken(wrongActIdToken),
+            err => err.statusCode === 403 && /Token activity ID does not match/.test(err.message)
+        );
+
+        // 2f. Wrong lead ID -> 403
+        const wrongLeadIdToken = generateTestToken({ leadId: String(new mongoose.Types.ObjectId()) });
+        const wrongLeadHash = crypto.createHash('sha256').update(wrongLeadIdToken).digest('hex');
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: { journeyTokenHash: wrongLeadHash }
+        });
+        await assert.rejects(
+            () => SiteVisitJourneyService.verifyJourneyToken(wrongLeadIdToken),
+            err => err.statusCode === 403 && /Token lead ID does not match/.test(err.message)
+        );
+
+        // 2g. Expired token -> 403
+        const expiredToken = generateTestToken({}, process.env.JWT_SECRET, { expiresIn: '-1s' });
         await assert.rejects(
             () => SiteVisitJourneyService.verifyJourneyToken(expiredToken),
-            /Invalid or expired journey token/
+            err => err.statusCode === 403 && /Invalid or expired journey token/.test(err.message)
         );
 
-        // 2b. Cancelled Visit
-        const validToken = jwt.sign({
-            iss: 'bharat-properties-crm',
-            activityId: String(fakeActId),
-            purpose: 'client_site_visit_journey'
-        }, process.env.JWT_SECRET, { expiresIn: '72h' });
-
-        const hash = crypto.createHash('sha256').update(validToken).digest('hex');
-        const cancelledActivity = {
-            _id: fakeActId,
-            type: 'Site Visit',
+        // 2h. Cancelled Visit -> 410
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
             status: 'Cancelled',
-            details: { journeyTokenHash: hash }
-        };
-        Activity.findById = () => Promise.resolve(cancelledActivity);
-
+            details: { journeyTokenHash: validHash }
+        });
         await assert.rejects(
             () => SiteVisitJourneyService.verifyJourneyToken(validToken),
-            /This site visit has been cancelled/
+            err => err.statusCode === 410 && /This site visit has been cancelled/.test(err.message)
         );
 
-        // 2c. Superseded Hash (Token refreshed)
-        const activeActivity = {
-            _id: fakeActId,
-            type: 'Site Visit',
-            status: 'Scheduled',
-            details: { journeyTokenHash: 'newer_active_hash_xyz' }
-        };
-        Activity.findById = () => Promise.resolve(activeActivity);
-
+        // 2i. Explicitly Revoked token -> 403
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: {
+                journeyTokenHash: validHash,
+                journeyRevoked: true,
+                journeyRevokedReason: 'Revoked by CRM administrator'
+            }
+        });
         await assert.rejects(
             () => SiteVisitJourneyService.verifyJourneyToken(validToken),
-            /Journey link has been superseded or refreshed/
+            err => err.statusCode === 403 && /Revoked by CRM administrator/.test(err.message)
         );
+
+        // 2j. Valid active token -> passes
+        Activity.findById = () => Promise.resolve({
+            ...baseActivity,
+            details: { journeyTokenHash: validHash }
+        });
+        const verified = await SiteVisitJourneyService.verifyJourneyToken(validToken);
+        assert.strictEqual(String(verified.activity._id), String(fakeActId));
+        assert.strictEqual(verified.claims.leadId, String(fakeLeadId));
+        assert.strictEqual(verified.tokenHash, validHash);
     });
 
     // ------------------------------------------------------------------------

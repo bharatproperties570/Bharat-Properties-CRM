@@ -769,6 +769,235 @@ async function runAcceptanceJourneyTests() {
     assert(expiredBlocked === true, '14k. Expired token is rejected (HTTP 403 / Expired)');
 }
 
+async function runConcurrentTokenLifecycleTests() {
+    console.log('\n======================================================');
+    console.log('Phase 3: Real WiredTiger Concurrent Token Lifecycle & Race Condition Gate');
+    console.log('======================================================');
+
+    const agent = {
+        _id: new mongoose.Types.ObjectId(),
+        name: 'Concurrent Agent',
+        role: 'admin'
+    };
+
+    // ------------------------------------------------------------------------
+    // 3.1: 10 Concurrent Initial Link Requests
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.1 Ten Concurrent Initial Link Requests on Fresh Visit ---');
+    const lead1 = await createTestLead({
+        firstName: 'Concurrent1',
+        lastName: 'Lead',
+        mobile: '9899112233'
+    });
+
+    const sched1 = await SiteVisitService.schedule({
+        leadId: lead1._id,
+        date: '2026-12-01',
+        time: '11:00',
+        properties: [{ project: 'Godrej Palm Retreat' }]
+    }, agent);
+    const actId1 = sched1.activity._id;
+
+    // Concurrently trigger 10 initial link retrievals on the document with 0 initial tokens
+    const initialCalls = Array.from({ length: 10 }, () =>
+        SiteVisitService.getJourneyLink(actId1, agent)
+    );
+    const initialResults = await Promise.all(initialCalls);
+
+    // Fetch the raw document directly from MongoDB to verify actual database state
+    const doc1 = await Activity.findById(actId1).lean();
+    assert(doc1.details?.journeyToken === undefined, '3.1a. Raw journeyToken is strictly NOT persisted in MongoDB');
+    assert(doc1.details?.journeyUrl === undefined, '3.1b. Raw journeyUrl is strictly NOT persisted in MongoDB');
+    assert(typeof doc1.details?.journeyTokenHash === 'string', '3.1c. Exactly one active token hash exists in MongoDB');
+    assert(doc1.details.journeyTokenHash.length === 64, '3.1d. Token hash is valid SHA-256');
+
+    // Every returned token must match the single active token hash in MongoDB
+    for (let i = 0; i < initialResults.length; i++) {
+        const res = initialResults[i];
+        assert(res.safeToken, `3.1e[${i}]. Safe token must be returned`);
+        const verified = await SiteVisitJourneyService.verifyJourneyToken(res.safeToken);
+        assert(String(verified.activity._id) === String(actId1), `3.1f[${i}]. Verified activity ID matches`);
+        assert(verified.tokenHash === doc1.details.journeyTokenHash, `3.1g[${i}]. Returned token hash matches MongoDB active hash`);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3.2: 10 Concurrent Ordinary Retrievals
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.2 Ten Concurrent Ordinary Retrievals (Zero DB Writes & Idempotency) ---');
+    const hashBeforeRetrievals = doc1.details.journeyTokenHash;
+    const iatBeforeRetrievals = doc1.details.journeyTokenIat;
+
+    const retrievalCalls = Array.from({ length: 10 }, () =>
+        SiteVisitService.getJourneyLink(actId1, agent)
+    );
+    const retrievalResults = await Promise.all(retrievalCalls);
+
+    // Re-fetch raw document from MongoDB to verify zero writes occurred
+    const doc1After = await Activity.findById(actId1).lean();
+    assert(doc1After.details.journeyTokenHash === hashBeforeRetrievals, '3.2a. Active hash unchanged across concurrent retrievals');
+    assert(doc1After.details.journeyTokenIat === iatBeforeRetrievals, '3.2b. Active iat unchanged across concurrent retrievals');
+
+    for (let i = 0; i < retrievalResults.length; i++) {
+        assert(retrievalResults[i].safeToken === initialResults[0].safeToken, `3.2c[${i}]. All concurrent retrievals return identical token`);
+        assert(retrievalResults[i].isRotated === false, `3.2d[${i}]. Retrieval indicates isRotated: false`);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3.3: 5 Concurrent Rotation Requests
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.3 Five Concurrent Rotation Requests (CAS Atomic Winner Selection) ---');
+    const oldSafeToken = initialResults[0].safeToken;
+
+    const rotationCalls = Array.from({ length: 5 }, (_, i) =>
+        SiteVisitService.getJourneyLink(actId1, agent, {
+            rotate: true,
+            rotationReason: `Concurrent rotation request #${i + 1}`
+        })
+    );
+    const rotationResults = await Promise.all(rotationCalls);
+
+    // Fetch database state after all 5 rotations complete
+    const doc1Rotated = await Activity.findById(actId1).lean();
+    assert(doc1Rotated.details.journeyTokenHash !== hashBeforeRetrievals, '3.3a. Final hash is distinct from pre-rotation hash');
+    assert(typeof doc1Rotated.details.journeyTokenHash === 'string' && doc1Rotated.details.journeyTokenHash.length === 64, '3.3b. Exactly one active token hash exists in MongoDB');
+
+    // Verify old token is now invalidated
+    let oldTokenRejected = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(oldSafeToken);
+    } catch (err) {
+        if (err.statusCode === 403 && /superseded or refreshed/.test(err.message)) {
+            oldTokenRejected = true;
+        }
+    }
+    assert(oldTokenRejected === true, '3.3c. Pre-rotation token is rejected as superseded (HTTP 403)');
+
+    // Verify all 5 callers received a token matching the final active database state
+    for (let i = 0; i < rotationResults.length; i++) {
+        const res = rotationResults[i];
+        assert(res.isRotated === true, `3.3d[${i}]. Result indicates isRotated: true`);
+        const verified = await SiteVisitJourneyService.verifyJourneyToken(res.safeToken);
+        assert(verified.tokenHash === doc1Rotated.details.journeyTokenHash, `3.3e[${i}]. Caller received token matching final DB state`);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3.4: Retrieval Racing with Explicit Revocation
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.4 Retrieval Racing with Explicit Revocation ---');
+    const lead2 = await createTestLead({
+        firstName: 'RevokeRace',
+        lastName: 'Lead',
+        mobile: '9899334455'
+    });
+
+    const sched2 = await SiteVisitService.schedule({
+        leadId: lead2._id,
+        date: '2026-12-02',
+        time: '14:00',
+        properties: [{ project: 'Sobha City' }]
+    }, agent);
+    const actId2 = sched2.activity._id;
+
+    // Establish active token
+    const initialLink2 = await SiteVisitService.getJourneyLink(actId2, agent);
+    assert(initialLink2.safeToken, '3.4a. Initial token created before race');
+
+    // Fire 5 retrievals racing simultaneously with explicit revocation
+    const raceOps = [
+        SiteVisitService.getJourneyLink(actId2, agent),
+        SiteVisitService.getJourneyLink(actId2, agent),
+        SiteVisitService.revokeJourneyLink(actId2, 'Security revocation: Emergency security block', agent),
+        SiteVisitService.getJourneyLink(actId2, agent),
+        SiteVisitService.getJourneyLink(actId2, agent)
+    ];
+
+    await Promise.allSettled(raceOps);
+
+    // Final DB state MUST be revoked
+    const doc2Final = await Activity.findById(actId2).lean();
+    assert(doc2Final.details.journeyRevoked === true, '3.4b. Activity journey is revoked in MongoDB');
+    assert(doc2Final.details.journeyRevokedReason === 'Security revocation: Emergency security block', '3.4c. Revocation reason recorded');
+
+    // Public access with the token MUST fail closed (HTTP 403 / Revoked)
+    let publicAccessRevoked = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(initialLink2.safeToken);
+    } catch (err) {
+        if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
+            publicAccessRevoked = true;
+        }
+    }
+    assert(publicAccessRevoked === true, '3.4d. Public access fails closed after revocation (HTTP 403)');
+
+    // Scoped retrieval on revoked activity MUST fail closed
+    let retrievalRevoked = false;
+    try {
+        await SiteVisitService.getJourneyLink(actId2, agent);
+    } catch (err) {
+        if (err.statusCode === 403 && /revoked|revocation/i.test(err.message)) {
+            retrievalRevoked = true;
+        }
+    }
+    assert(retrievalRevoked === true, '3.4e. Subsequent getJourneyLink fails closed on revoked visit (HTTP 403)');
+
+    // ------------------------------------------------------------------------
+    // 3.5: Retrieval Racing with Cancellation
+    // ------------------------------------------------------------------------
+    console.log('\n--- 3.5 Retrieval Racing with Visit Cancellation ---');
+    const lead3 = await createTestLead({
+        firstName: 'CancelRace',
+        lastName: 'Lead',
+        mobile: '9899556677'
+    });
+
+    const sched3 = await SiteVisitService.schedule({
+        leadId: lead3._id,
+        date: '2026-12-03',
+        time: '16:00',
+        properties: [{ project: 'Experion The Heartsong' }]
+    }, agent);
+    const actId3 = sched3.activity._id;
+
+    const initialLink3 = await SiteVisitService.getJourneyLink(actId3, agent);
+
+    // Fire 5 retrievals racing simultaneously with visit cancellation
+    const cancelRaceOps = [
+        SiteVisitService.getJourneyLink(actId3, agent),
+        SiteVisitService.getJourneyLink(actId3, agent),
+        SiteVisitService.cancel(actId3, 'Customer changed plans', agent),
+        SiteVisitService.getJourneyLink(actId3, agent),
+        SiteVisitService.getJourneyLink(actId3, agent)
+    ];
+
+    await Promise.allSettled(cancelRaceOps);
+
+    // Final DB state MUST be Cancelled
+    const doc3Final = await Activity.findById(actId3).lean();
+    assert(doc3Final.status === 'Cancelled', '3.5a. Activity status is Cancelled in MongoDB');
+
+    // Public access with the token MUST return HTTP 410 (Gone)
+    let publicAccessCancelled = false;
+    try {
+        await SiteVisitJourneyService.verifyJourneyToken(initialLink3.safeToken);
+    } catch (err) {
+        if (err.statusCode === 410 && /cancelled/.test(err.message)) {
+            publicAccessCancelled = true;
+        }
+    }
+    assert(publicAccessCancelled === true, '3.5b. Public access returns HTTP 410 on cancelled visit');
+
+    // Scoped retrieval on cancelled activity MUST fail closed (HTTP 410)
+    let retrievalCancelled = false;
+    try {
+        await SiteVisitService.getJourneyLink(actId3, agent);
+    } catch (err) {
+        if (err.statusCode === 410 && /cancelled/.test(err.message)) {
+            retrievalCancelled = true;
+        }
+    }
+    assert(retrievalCancelled === true, '3.5c. Subsequent getJourneyLink fails closed on cancelled visit (HTTP 410)');
+}
+
 async function main() {
     console.log('======================================================');
     console.log('BHARAT PROPERTIES CRM — STAGING ACCEPTANCE & REAL TX TEST');
@@ -777,6 +1006,7 @@ async function main() {
         await setupDatabase();
         await runRealTransactionTests();
         await runAcceptanceJourneyTests();
+        await runConcurrentTokenLifecycleTests();
 
         console.log('\n======================================================');
         console.log(`STAGING ACCEPTANCE RESULTS: Passed: ${testPassed}, Failed: ${testFailed}`);

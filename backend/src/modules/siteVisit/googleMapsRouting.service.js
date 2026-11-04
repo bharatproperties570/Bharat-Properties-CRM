@@ -124,8 +124,23 @@ export class GoogleMapsRoutingService {
                 optimizationSource: 'SCHEDULED_ORDER',
                 claimedOptimal: false,
                 estimatedTravelTimes: null,
-                reason: 'SINGLE_PROPERTY_NOOP',
+                status: 'SINGLE_PROPERTY_NOOP',
+                reason: 'Itinerary contains one or zero properties; no optimization applicable',
                 properties: Array.isArray(properties) ? properties : []
+            };
+        }
+
+        // Two-property no-op: origin and destination are fixed; no intermediate waypoints to optimize
+        if (properties.length === 2) {
+            return {
+                optimized: false,
+                isProviderOptimized: false,
+                optimizationSource: 'SCHEDULED_ORDER',
+                claimedOptimal: false,
+                estimatedTravelTimes: null,
+                status: 'NO_OPTIMIZATION_REQUIRED',
+                reason: 'Itinerary contains two properties; no intermediate waypoints to optimize',
+                properties
             };
         }
 
@@ -140,7 +155,7 @@ export class GoogleMapsRoutingService {
                     optimizationSource: 'SCHEDULED_ORDER',
                     claimedOptimal: false,
                     estimatedTravelTimes: null,
-                    reason: 'INVALID_COORDINATES',
+                    status: 'INVALID_COORDINATES',
                     error: `Property at index ${i} (${properties[i]?.project || 'Unknown'}) has invalid coordinates: ${val.error}`,
                     properties
                 };
@@ -150,7 +165,7 @@ export class GoogleMapsRoutingService {
 
         const apiKey = options.apiKey || getGoogleMapsApiKey();
 
-        // 2. Provider Execution (Live API or Mock Transport)
+        // 2. Provider Execution for 3 or more properties (Live API or Mock Transport)
         if (apiKey || typeof options.mockTransport === 'function') {
             try {
                 // Origin is property 0 (starting visit)
@@ -188,18 +203,6 @@ export class GoogleMapsRoutingService {
                     });
                 }
 
-                // If only 2 properties, waypoint ordering is trivial (no intermediate waypoints to optimize)
-                if (intermediates.length === 0) {
-                    return {
-                        optimized: false,
-                        isProviderOptimized: true,
-                        optimizationSource: 'GOOGLE_ROUTES_API',
-                        claimedOptimal: true,
-                        estimatedTravelTimes: null,
-                        properties
-                    };
-                }
-
                 const requestPayload = {
                     origin,
                     destination,
@@ -212,9 +215,18 @@ export class GoogleMapsRoutingService {
 
                 const route = providerResponse?.routes?.[0];
                 const optimizedIndices = route?.optimizedIntermediateWaypointIndex;
+                const N = intermediates.length;
 
-                if (Array.isArray(optimizedIndices) && optimizedIndices.length === intermediates.length) {
-                    // Reorder the intermediate properties according to provider's optimized indices
+                // Validate optimized waypoint indices: must be an array of length N, all integers in [0, N-1], unique complete permutation
+                const isValidPermutation = (
+                    Array.isArray(optimizedIndices) &&
+                    optimizedIndices.length === N &&
+                    new Set(optimizedIndices).size === N &&
+                    optimizedIndices.every(idx => Number.isInteger(idx) && idx >= 0 && idx < N)
+                );
+
+                if (route && isValidPermutation) {
+                    // Reorder the intermediate properties according to provider's validated optimized indices
                     const reorderedIntermediates = optimizedIndices.map(newIdx => properties[1 + newIdx]);
                     const optimizedProperties = [
                         properties[0],
@@ -227,14 +239,20 @@ export class GoogleMapsRoutingService {
                         isProviderOptimized: true,
                         optimizationSource: 'GOOGLE_ROUTES_API',
                         claimedOptimal: true,
-                        providerDuration: route?.duration || null,
-                        providerDistanceMeters: route?.distanceMeters || null,
-                        estimatedTravelTimes: route?.duration ? {
+                        providerDuration: route.duration || null,
+                        providerDistanceMeters: route.distanceMeters || null,
+                        estimatedTravelTimes: route.duration ? {
                             totalDuration: route.duration,
                             distanceMeters: route.distanceMeters || null
                         } : null,
                         properties: optimizedProperties
                     };
+                } else {
+                    console.warn('[GoogleMapsRoutingService] Provider returned invalid route or malformed waypoint permutation:', {
+                        hasRoute: Boolean(route),
+                        optimizedIndices,
+                        expectedLength: N
+                    });
                 }
             } catch (providerErr) {
                 console.warn('[GoogleMapsRoutingService] Provider execution failed, falling back cleanly:', providerErr.message);
