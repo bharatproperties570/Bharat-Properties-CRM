@@ -28,6 +28,15 @@ const MergeAuditSchema = new mongoose.Schema({
     fieldChanges: [FieldChangeSchema],
     referenceRewires: [ReferenceRewireSchema],
     
+    rolledBackBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rolledBackAt: { type: Date },
+    rolledBackBySystem: {
+        systemId: String,
+        actorProvenance: String,
+        reason: String,
+        timestamp: Date
+    },
+
     errorLog: String
 });
 
