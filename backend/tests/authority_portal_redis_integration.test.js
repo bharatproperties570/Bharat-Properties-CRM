@@ -18,8 +18,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Redis from 'ioredis';
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
 import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
+import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
+import { registerOrRotateCanonicalPolicy } from '../services/authority/portal/canonicalPolicyService.js';
+import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
+import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
+import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
+import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import Inventory from '../models/Inventory.js';
+import Lookup from '../models/Lookup.js';
+import Team from '../models/Team.js';
+import User from '../models/User.js';
+import Role from '../models/Role.js';
+import AuditLog from '../models/AuditLog.js';
+import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
 
 const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
 const REDIS_PORT = Number(process.env.REDIS_PORT) || 6379;
@@ -28,6 +45,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
     let redisClient = null;
     let redisClient2 = null;
     let isRedisAvailable = false;
+    let mongoServer = null;
 
     t.before(async () => {
         try {
@@ -82,6 +100,12 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             } catch {
                 redisClient2.disconnect();
             }
+        }
+        if (mongoServer) {
+            try {
+                await mongoose.disconnect();
+                await mongoServer.stop();
+            } catch {}
         }
     });
 
@@ -573,5 +597,390 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             }),
             (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
         );
+    });
+
+    await t.test('10. Configured Portal Runtime Factory + Canonical Quota Trust Anchor + Redis Hash Persistence (Finding A & B)', async (t10) => {
+        if (!isRedisAvailable) {
+            t10.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
+            return;
+        }
+
+        const runtime = createConfiguredPortalRuntime({
+            redisClient,
+            testMode: false
+        });
+
+        assert.ok(runtime.lockProvider, 'runtime must expose lockProvider');
+        assert.ok(runtime.quotaProvider, 'runtime must expose quotaProvider');
+        assert.equal(typeof runtime.initializeCanonicalPolicy, 'function', 'runtime must expose initializeCanonicalPolicy helper');
+
+        // Prime canonical policy through configured runtime
+        const canonicalRef = 'HSVP_CANONICAL_CONFIGURED_TEST';
+        const contentHash = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: canonicalRef,
+            minIntervalMs: 250,
+            maxRequestsPerMinute: 4,
+            maxRequestsPerHour: 40,
+            maxRequestsPerDay: 200
+        });
+
+        await runtime.initializeCanonicalPolicy({
+            authorityCode: 'HSVP',
+            policy: {
+                policyReference: canonicalRef,
+                minIntervalMs: 250,
+                maxRequestsPerMinute: 4,
+                maxRequestsPerHour: 40,
+                maxRequestsPerDay: 200,
+                contentHash
+            },
+            approvedBy: 'audit-officer-pr42',
+            policyVersion: 1
+        });
+
+        // Inspect Redis hash directly
+        const redisHash = await redisClient.hgetall('quota:canonical:HSVP');
+        assert.equal(redisHash.policyReference, canonicalRef);
+        assert.equal(redisHash.minIntervalMs, '250');
+        assert.equal(redisHash.maxRequestsPerMinute, '4');
+        assert.equal(redisHash.maxRequestsPerHour, '40');
+        assert.equal(redisHash.maxRequestsPerDay, '200');
+        assert.equal(redisHash.approvedBy, 'audit-officer-pr42');
+        assert.equal(redisHash.policyVersion, '1');
+        assert.equal(redisHash.contentHash, contentHash);
+
+        const keyTtl = await redisClient.ttl('quota:canonical:HSVP');
+        assert.equal(keyTtl, -1, 'Canonical policy trust anchor in Redis must not expire');
+
+        // Cleanup
+        await redisClient.del('quota:canonical:HSVP');
+    });
+
+    await t.test('11. Real Redis Cross-Tenant Quota Isolation + Elevation Tamper Defense via Configured Runtime (Finding B)', async (t11) => {
+        if (!isRedisAvailable) {
+            t11.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
+            return;
+        }
+
+        const runtime = createConfiguredPortalRuntime({
+            redisClient,
+            testMode: false
+        });
+
+        const authorityCode = 'CHD';
+        const canonicalRef = 'CHD_OFFICIAL_INTEGRATION_2026';
+        const contentHash = AuthorityCanonicalPolicy.computeContentHash({
+            policyReference: canonicalRef,
+            minIntervalMs: 100,
+            maxRequestsPerMinute: 2,
+            maxRequestsPerHour: 20,
+            maxRequestsPerDay: 50
+        });
+
+        await runtime.initializeCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: canonicalRef,
+                minIntervalMs: 100,
+                maxRequestsPerMinute: 2,
+                maxRequestsPerHour: 20,
+                maxRequestsPerDay: 50,
+                contentHash
+            },
+            approvedBy: 'chd-governance-officer',
+            policyVersion: 1
+        });
+
+        const at = new Date(Math.floor(Date.now() / 60000) * 60000 + 5000);
+
+        // Valid Tenant Alpha reservation succeeds
+        const resAlpha = await runtime.quotaProvider.reserve({
+            authorityCode,
+            tenantId: 'tenant-chd-alpha',
+            policy: {
+                policyReference: canonicalRef,
+                minIntervalMs: 100,
+                maxRequestsPerMinute: 2,
+                maxRequestsPerHour: 20,
+                maxRequestsPerDay: 50,
+                contentHash
+            },
+            at
+        });
+        assert.equal(resAlpha.allowed, true);
+
+        // Tenant Beta attempts to elevate rate limit over canonical ceiling
+        const resBetaElevated = await runtime.quotaProvider.reserve({
+            authorityCode,
+            tenantId: 'tenant-chd-beta',
+            policy: {
+                policyReference: canonicalRef,
+                minIntervalMs: 100,
+                maxRequestsPerMinute: 10, // ELEVATED! Canonical is 2
+                maxRequestsPerHour: 20,
+                maxRequestsPerDay: 50,
+                contentHash
+            },
+            at: new Date(at.getTime() + 150)
+        });
+        assert.equal(resBetaElevated.allowed, false);
+        assert.equal(resBetaElevated.reason, 'RATE_LIMIT_ELEVATION_REJECTED');
+
+        // Tenant Alpha violates minimumIntervalMs: 100
+        const resAlphaFast = await runtime.quotaProvider.reserve({
+            authorityCode,
+            tenantId: 'tenant-chd-alpha',
+            policy: {
+                policyReference: canonicalRef,
+                minIntervalMs: 100,
+                maxRequestsPerMinute: 2,
+                maxRequestsPerHour: 20,
+                maxRequestsPerDay: 50,
+                contentHash
+            },
+            at: new Date(at.getTime() + 50) // only 50ms later
+        });
+        assert.equal(resAlphaFast.allowed, false);
+        assert.equal(resAlphaFast.reason, 'MINIMUM_INTERVAL_VIOLATED');
+
+        // Cleanup
+        const keys = await redisClient.keys(`*${authorityCode}*`);
+        if (keys.length > 0) await redisClient.del(...keys);
+    });
+
+    await t.test('12. Real Redis Distributed Lock + executeWithinLease + Cross-Tenant AuthorityGlobalFenceWatermark Race (Finding C & D)', async (t12) => {
+        if (!isRedisAvailable) {
+            t12.skip('Redis 6379 not reachable in local environment; runs in CI service container.');
+            return;
+        }
+
+        if (!mongoServer) {
+            mongoServer = await MongoMemoryServer.create();
+            const uri = mongoServer.getUri();
+            if (mongoose.connection.readyState !== 0) {
+                await mongoose.disconnect();
+            }
+            await mongoose.connect(uri);
+        }
+
+        const tenantAlpha = new mongoose.Types.ObjectId();
+        const tenantBeta = new mongoose.Types.ObjectId();
+        const authorityCode = 'GMADA';
+
+        // 12.1 Register authority-global canonical policy in Mongo and Redis
+        const reviewerId = new mongoose.Types.ObjectId().toString();
+        const approverId = new mongoose.Types.ObjectId().toString();
+
+        const canonicalPolicyDoc = await registerOrRotateCanonicalPolicy({
+            authorityCode,
+            policy: {
+                policyReference: 'GMADA_CANONICAL_REAL_REDIS',
+                minIntervalMs: 100,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerHour: 100,
+                maxRequestsPerDay: 500,
+                maxConcurrent: 1,
+                expiresAt: new Date(Date.now() + 86400000)
+            },
+            reviewedBy: reviewerId,
+            approvedBy: approverId,
+            quotaProvider: new RedisPortalQuotaProvider(redisClient, { testMode: false })
+        });
+
+        // 12.2 Setup AuthoritySourceSettings for Tenant Alpha
+        await AuthoritySourceSettings.deleteMany({ authorityCode });
+        await AuthoritySourceSettings.create({
+            tenantId: tenantAlpha,
+            authorityCode,
+            permissionStatus: 'GRANTED',
+            approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+            approvalReference: 'GMADA/AUTH/REDIS/2026',
+            commercialUseAuthorized: true,
+            readOnlySearchAuthorized: true,
+            termsReviewed: true,
+            termsReference: 'https://gmada.gov.in/terms',
+            submittedBy: reviewerId,
+            approvedBy: approverId,
+            reviewedBy: reviewerId,
+            permittedFields: ['propertyId', 'sectorNumber'],
+            reviewStatus: 'APPROVED',
+            isEnabled: true,
+            contractVerificationStatus: 'VERIFIED_CONTRACT',
+            contractEvidenceReference: 'GMADA/CONTRACT/REDIS',
+            identityRequirements: { verified: true },
+            ratePolicy: {
+                maxConcurrent: 1,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerDay: 200,
+                minIntervalMs: 100,
+                minimumIntervalMs: 100,
+                policySource: 'GMADA_CANONICAL_REAL_REDIS'
+            }
+        });
+
+        const inventory = await Inventory.create({
+            tenantId: tenantAlpha,
+            title: 'Real Redis Plot GMADA',
+            propertyId: 'PLT-REDIS-1',
+            sector: '66',
+            urbanEstate: 'Mohali',
+            price: 5000000,
+            status: 'AVAILABLE'
+        });
+
+        const link = await PropertyAuthorityLink.create({
+            tenantId: tenantAlpha,
+            inventoryId: inventory._id,
+            authorityCode,
+            propertyId: 'PLT-REDIS-1',
+            sectorNumber: '66',
+            urbanEstate: 'Mohali',
+            compositeKey: 'GMADA:66:PLT-REDIS-1',
+            identityVerified: true,
+            matchEligibility: 'ELIGIBLE',
+            createdBy: new mongoose.Types.ObjectId()
+        });
+
+        const runItem1 = await PropertyVerificationRunItem.create({
+            tenantId: tenantAlpha,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: inventory._id,
+            linkId: link._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-redis-1',
+            workerClaimToken: 'claim-token-redis-1',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        // 12.3 Setup configured runtime with real Redis lock provider and real Redis quota provider
+        const runtime = createConfiguredPortalRuntime({
+            redisClient,
+            testMode: false
+        });
+
+        // Mock search that exercises executeWithinLease with genuine Redis lock acquisition
+        let executeWithinLeaseRan = false;
+        const mockSearchRuntime = {
+            async search(args) {
+                // Acquire genuine Redis lock to obtain real monotonic fence token
+                const lockKey = `portal_lock:${authorityCode}`;
+                const lease = await runtime.lockProvider.acquire({
+                    key: lockKey,
+                    authorityCode,
+                    ttlMs: 10000
+                });
+                assert.ok(lease.acquired, 'Real Redis lock must be acquired');
+                assert.ok(lease.fenceToken > 0, 'Real Redis lock must issue positive monotonic fence token');
+
+                try {
+                    if (typeof args.executeWithinLease === 'function') {
+                        executeWithinLeaseRan = true;
+                        const cbRes = await args.executeWithinLease({
+                            fenceToken: lease.fenceToken,
+                            isCurrentFence: async () => lease.isCurrent(),
+                            recordCount: 1,
+                            records: [{
+                                propertyId: 'PLT-REDIS-1',
+                                sectorNumber: '66',
+                                urbanEstate: 'Mohali',
+                                status: 'ALLOTTED'
+                            }],
+                            contentHash: 'content-hash-redis-01',
+                            sourceHost: 'gmada.gov.in'
+                        });
+                        return { callbackResult: cbRes };
+                    }
+                    return {};
+                } finally {
+                    await lease.release();
+                }
+            }
+        };
+
+        const res1 = await AuthorityBulkProcessor.processItem(runItem1, {
+            tenantId: tenantAlpha,
+            workerId: 'worker-redis-1',
+            claimToken: 'claim-token-redis-1',
+            isFixtureMode: false,
+            portalRuntime: mockSearchRuntime,
+            canonicalPolicy: canonicalPolicyDoc
+        });
+
+        assert.equal(executeWithinLeaseRan, true, 'executeWithinLease must execute within Redis lock');
+        assert.equal(res1.success, true, 'First live item processing must succeed under real Redis lock');
+
+        // Verify watermark committed in AuthorityGlobalFenceWatermark
+        const wmDoc = await AuthorityGlobalFenceWatermark.findOne({ authorityCode });
+        assert.ok(wmDoc, 'AuthorityGlobalFenceWatermark must be created in Mongo');
+        assert.ok(wmDoc.lastCommittedFenceToken >= 1);
+        const committedFenceToken = wmDoc.lastCommittedFenceToken;
+
+        // 12.4 Concurrent / Stale Worker Race from Tenant Beta:
+        // Advance global watermark further to simulate newer committed worker
+        await AuthorityBulkProcessor._updateAuthorityGlobalFenceWatermark({
+            authorityCode,
+            fenceToken: committedFenceToken + 5,
+            tenantId: tenantBeta,
+            workerId: 'worker-redis-newer'
+        });
+
+        const runItem2 = await PropertyVerificationRunItem.create({
+            tenantId: tenantAlpha,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: inventory._id,
+            linkId: link._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-redis-stale',
+            workerClaimToken: 'claim-token-redis-stale',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        // Stale search runtime passes earlier fence token (committedFenceToken)
+        const mockStaleRuntime = {
+            async search(args) {
+                if (typeof args.executeWithinLease === 'function') {
+                    const cbRes = await args.executeWithinLease({
+                        fenceToken: committedFenceToken, // STALE! Watermark is committedFenceToken + 5
+                        isCurrentFence: async () => true,
+                        recordCount: 1,
+                        records: [{
+                            propertyId: 'PLT-REDIS-1',
+                            sectorNumber: '66',
+                            urbanEstate: 'Mohali',
+                            status: 'ALLOTTED'
+                        }],
+                        contentHash: 'content-hash-redis-02',
+                        sourceHost: 'gmada.gov.in'
+                    });
+                    return { callbackResult: cbRes };
+                }
+                return {};
+            }
+        };
+
+        const res2 = await AuthorityBulkProcessor.processItem(runItem2, {
+            tenantId: tenantAlpha,
+            workerId: 'worker-redis-stale',
+            claimToken: 'claim-token-redis-stale',
+            isFixtureMode: false,
+            portalRuntime: mockStaleRuntime,
+            canonicalPolicy: canonicalPolicyDoc
+        });
+
+        assert.equal(res2.success, false);
+        assert.equal(res2.reason, 'PORTAL_LOCK_OWNERSHIP_LOST');
+        assert.equal(res2.ownershipLost, true);
+
+        const updatedRunItem2 = await PropertyVerificationRunItem.findById(runItem2._id);
+        assert.equal(updatedRunItem2.status, 'FAILED');
+
+        const snap2 = await PropertyVerificationSnapshot.findOne({ runItemId: runItem2._id });
+        assert.equal(snap2, null, 'Stale fence token must abort snapshot persistence fail-closed');
+
+        // Cleanup Redis keys
+        const lockKeys = await redisClient.keys(`*${authorityCode}*`);
+        if (lockKeys.length > 0) await redisClient.del(...lockKeys);
     });
 });

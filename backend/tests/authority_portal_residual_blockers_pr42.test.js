@@ -39,6 +39,17 @@ import { chdPortalAdapter } from '../services/authority/portal/adapters/chdPorta
 import { createAuthorityPortalRuntime } from '../services/authority/portal/authorityPortalRuntime.js';
 import { assertAuthorityPortalApproval } from '../services/authority/portal/authorityPortalApprovalGate.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
+import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
+import { registerOrRotateCanonicalPolicy, getCanonicalPolicy } from '../services/authority/portal/canonicalPolicyService.js';
+import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
+import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
+import Lookup from '../models/Lookup.js';
+import Team from '../models/Team.js';
+import User from '../models/User.js';
+import Role from '../models/Role.js';
+import AuditLog from '../models/AuditLog.js';
+import Inventory from '../models/Inventory.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1118,7 +1129,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 policyVersion: 1
             });
 
-            const at = new Date();
+            // Anchor test timestamp safely within a minute window to prevent clock boundary flakiness
+            const at = new Date(Math.floor(Date.now() / 60000) * 60000 + 5000);
             // Tenant A reserves 1 request
             const resTenantA = await quota.reserve({
                 authorityCode: 'HSVP',
@@ -1755,6 +1767,110 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         });
         assert.equal(r4.allowed, false);
         assert.equal(r4.reason, 'POLICY_HASH_MISMATCH');
+
+        // 26.7 Privileged registerOrRotateCanonicalPolicy enforces independent maker-checker
+        await assert.rejects(
+            registerOrRotateCanonicalPolicy({
+                authorityCode: 'HSVP',
+                policy: {
+                    policyReference: 'HSVP_CANONICAL_REF',
+                    minIntervalMs: 500,
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 50,
+                    expiresAt: new Date(Date.now() + 86400000)
+                },
+                reviewedBy: 'same_person',
+                approvedBy: 'same_person'
+            }),
+            (err) => {
+                assert.equal(err.code, 'CANONICAL_POLICY_SELF_APPROVAL');
+                return true;
+            }
+        );
+
+        // 26.8 registerOrRotateCanonicalPolicy rejects maxConcurrent !== 1 (Option A enforcement)
+        await assert.rejects(
+            registerOrRotateCanonicalPolicy({
+                authorityCode: 'HSVP',
+                policy: {
+                    policyReference: 'HSVP_CANONICAL_REF',
+                    minIntervalMs: 500,
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 50,
+                    maxConcurrent: 2,
+                    expiresAt: new Date(Date.now() + 86400000)
+                },
+                reviewedBy: 'officer_1',
+                approvedBy: 'officer_2'
+            }),
+            (err) => {
+                assert.equal(err.code, 'PORTAL_CONCURRENCY_UNSUPPORTED');
+                return true;
+            }
+        );
+
+        // 26.9 registerOrRotateCanonicalPolicy rejects expired date
+        await assert.rejects(
+            registerOrRotateCanonicalPolicy({
+                authorityCode: 'HSVP',
+                policy: {
+                    policyReference: 'HSVP_CANONICAL_REF',
+                    minIntervalMs: 500,
+                    maxRequestsPerMinute: 2,
+                    maxRequestsPerDay: 50,
+                    expiresAt: new Date(Date.now() - 1000)
+                },
+                reviewedBy: 'officer_1',
+                approvedBy: 'officer_2'
+            }),
+            (err) => {
+                assert.equal(err.code, 'CANONICAL_POLICY_EXPIRED');
+                return true;
+            }
+        );
+
+        // 26.10 Valid canonical registration & CAS version rotation
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode: 'HSVP' });
+        const v1Doc = await registerOrRotateCanonicalPolicy({
+            authorityCode: 'HSVP',
+            policy: {
+                policyReference: 'HSVP_OFFICIAL_TERMS_2026_V1',
+                minIntervalMs: 200,
+                maxRequestsPerMinute: 5,
+                maxRequestsPerHour: 20,
+                maxRequestsPerDay: 100,
+                expiresAt: new Date(Date.now() + 86400000 * 30)
+            },
+            reviewedBy: 'compliance_officer_a',
+            approvedBy: 'security_lead_b',
+            quotaProvider
+        });
+        assert.equal(v1Doc.version, 1);
+        assert.ok(v1Doc.contentHash);
+
+        // Rotate to V2 with CAS assertion
+        const v2Doc = await registerOrRotateCanonicalPolicy({
+            authorityCode: 'HSVP',
+            policy: {
+                policyReference: 'HSVP_OFFICIAL_TERMS_2026_V2',
+                minIntervalMs: 100,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerHour: 40,
+                maxRequestsPerDay: 200,
+                expiresAt: new Date(Date.now() + 86400000 * 60)
+            },
+            expectedPreviousVersion: 1,
+            reviewedBy: 'compliance_officer_c',
+            approvedBy: 'security_lead_d',
+            quotaProvider
+        });
+        assert.equal(v2Doc.version, 2);
+
+        // 26.11 getCanonicalPolicy returns active policy
+        const activePol = await getCanonicalPolicy('HSVP');
+        assert.ok(activePol);
+        assert.equal(activePol.version, 2);
+        assert.equal(activePol.policyReference, 'HSVP_OFFICIAL_TERMS_2026_V2');
     });
 
     // =========================================================================
@@ -1902,12 +2018,113 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     // Finding 30: Deterministic Portal Lease / Persistence Race and Watermark Protection (Phase 6)
     // =========================================================================
     await t.test('30. Deterministic Portal Lease / Persistence Race and Watermark Protection (Phase 6)', async () => {
-        const tenantId = new mongoose.Types.ObjectId();
+        const tenantAlpha = new mongoose.Types.ObjectId();
+        const tenantBeta = new mongoose.Types.ObjectId();
         const authorityCode = 'GMADA';
 
-        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode });
+        await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });
+
+        // 30.1 Cross-tenant monotonic fence sequence via AuthorityBulkProcessor._updateAuthorityGlobalFenceWatermark
+        // Worker B (Tenant Beta) commits fence token 6 first and advances watermark to 6
+        const resBeta = await AuthorityBulkProcessor._updateAuthorityGlobalFenceWatermark({
+            authorityCode,
+            fenceToken: 6,
+            tenantId: tenantBeta,
+            workerId: 'worker-beta'
+        });
+        assert.equal(resBeta.success, true);
+        assert.equal(resBeta.watermark.lastCommittedFenceToken, 6);
+        assert.equal(String(resBeta.watermark.lastCommittedByTenantId), String(tenantBeta));
+
+        // Worker A (Tenant Alpha) holds stale fence token 5: rejected fail-closed across tenants!
+        const resAlpha = await AuthorityBulkProcessor._updateAuthorityGlobalFenceWatermark({
+            authorityCode,
+            fenceToken: 5,
+            tenantId: tenantAlpha,
+            workerId: 'worker-alpha'
+        });
+        assert.equal(resAlpha.success, false);
+        assert.equal(resAlpha.reason, 'STALE_FENCE_TOKEN');
+
+        // Verify watermark in DB is still 6
+        const currentWatermark = await AuthorityGlobalFenceWatermark.findOne({ authorityCode });
+        assert.equal(currentWatermark.lastCommittedFenceToken, 6);
+
+        // 30.2 ProcessItem with mock runtime verifies executeWithinLease and rejects stale fenceToken
+        const inventory = await Inventory.create({
+            tenantId: tenantAlpha,
+            title: 'Test Plot GMADA',
+            propertyId: 'PLT-GM-999',
+            sector: '66',
+            urbanEstate: 'Mohali',
+            price: 5000000,
+            status: 'AVAILABLE'
+        });
+
+        const link = await PropertyAuthorityLink.create({
+            tenantId: tenantAlpha,
+            inventoryId: inventory._id,
+            authorityCode,
+            propertyId: 'PLT-GM-999',
+            sectorNumber: '66',
+            urbanEstate: 'Mohali',
+            compositeKey: 'GMADA:66:PLT-GM-999',
+            identityVerified: true,
+            matchEligibility: 'ELIGIBLE',
+            createdBy: new mongoose.Types.ObjectId()
+        });
+
+        const runItem = await PropertyVerificationRunItem.create({
+            tenantId: tenantAlpha,
+            runId: new mongoose.Types.ObjectId(),
+            inventoryId: inventory._id,
+            linkId: link._id,
+            authorityCode,
+            status: 'PROCESSING',
+            claimedBy: 'worker-test-alpha',
+            workerClaimToken: 'claim-token-alpha',
+            leaseExpiresAt: new Date(Date.now() + 60000)
+        });
+
+        // Mock runtime whose search() invokes executeWithinLease with stale fenceToken 4
+        let executeWithinLeaseInvoked = false;
+        const mockRuntime = {
+            async search(args) {
+                if (typeof args.executeWithinLease === 'function') {
+                    executeWithinLeaseInvoked = true;
+                    const res = await args.executeWithinLease({
+                        fenceToken: 4, // Stale! Current watermark is 6
+                        isCurrentFence: async () => true,
+                        recordCount: 1,
+                        records: [{
+                            propertyId: 'PLT-GM-999',
+                            sectorNumber: '66',
+                            urbanEstate: 'Mohali',
+                            status: 'ALLOTTED'
+                        }],
+                        contentHash: 'mock-content-hash-01',
+                        sourceHost: 'gmada.gov.in'
+                    });
+                    return { callbackResult: res };
+                }
+                return {};
+            }
+        };
+
+        const canonicalPolicy = {
+            policyReference: 'GMADA_TEST_POL',
+            minIntervalMs: 50,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            version: 1,
+            contentHash: 'hash',
+            approvedBy: 'audit'
+        };
+
+        await AuthoritySourceSettings.deleteMany({ tenantId: tenantAlpha, authorityCode });
         await AuthoritySourceSettings.create({
-            tenantId,
+            tenantId: tenantAlpha,
             authorityCode,
             permissionStatus: 'GRANTED',
             approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
@@ -1922,7 +2139,6 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             permittedFields: ['propertyId', 'sectorNumber'],
             reviewStatus: 'APPROVED',
             isEnabled: true,
-            isPaused: false,
             contractVerificationStatus: 'VERIFIED_CONTRACT',
             contractEvidenceReference: 'GMADA/CONTRACT/01',
             identityRequirements: { verified: true },
@@ -1932,45 +2148,28 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 maxRequestsPerDay: 500,
                 minIntervalMs: 50,
                 minimumIntervalMs: 50,
-                policySource: 'APPROVED_POLICY'
-            },
-            lastCommittedFenceToken: 0
+                policySource: 'GMADA_TEST_POL'
+            }
         });
 
-        // Simulate Worker A and Worker B with fence watermarks
-        // Worker A has fence token 5
-        // Worker B has fence token 6
-        // Worker B commits first and advances watermark to 6
-        const watermarkB = await AuthoritySourceSettings.findOneAndUpdate(
-            {
-                tenantId,
-                authorityCode,
-                $or: [
-                    { lastCommittedFenceToken: { $lt: 6 } },
-                    { lastCommittedFenceToken: { $exists: false } },
-                    { lastCommittedFenceToken: null }
-                ]
-            },
-            { $set: { lastCommittedFenceToken: 6 } },
-            { new: true }
-        );
-        assert.ok(watermarkB);
-        assert.equal(watermarkB.lastCommittedFenceToken, 6);
+        const processResult = await AuthorityBulkProcessor.processItem(runItem, {
+            tenantId: tenantAlpha,
+            workerId: 'worker-test-alpha',
+            claimToken: 'claim-token-alpha',
+            isFixtureMode: false,
+            portalRuntime: mockRuntime,
+            canonicalPolicy
+        });
 
-        // Worker A resumes with stale fence token 5: atomic conditional update fails closed!
-        const watermarkA = await AuthoritySourceSettings.findOneAndUpdate(
-            {
-                tenantId,
-                authorityCode,
-                $or: [
-                    { lastCommittedFenceToken: { $lt: 5 } },
-                    { lastCommittedFenceToken: { $exists: false } },
-                    { lastCommittedFenceToken: null }
-                ]
-            },
-            { $set: { lastCommittedFenceToken: 5 } },
-            { new: true }
-        );
-        assert.equal(watermarkA, null, 'Worker A with stale fence token 5 must be rejected by atomic watermark guard');
+        assert.equal(executeWithinLeaseInvoked, true, 'executeWithinLease must be invoked by portalRuntime.search');
+        assert.equal(processResult.success, false);
+        assert.equal(processResult.reason, 'PORTAL_LOCK_OWNERSHIP_LOST');
+
+        // Verify runItem transitioned to FAILED and NO snapshot was created
+        const updatedItem = await PropertyVerificationRunItem.findById(runItem._id);
+        assert.equal(updatedItem.status, 'FAILED');
+
+        const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: runItem._id });
+        assert.equal(snapCount, 0, 'No snapshot should be created when watermark check fails');
     });
 });

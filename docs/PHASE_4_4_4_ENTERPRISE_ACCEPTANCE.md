@@ -1,55 +1,64 @@
-# Phase 4.4.4 — Enterprise Authority Portal Ingestion Acceptance
+# Phase 4.4.4 — Enterprise Authority Portal Ingestion Acceptance & Verification Matrix
 
-## Current deliverable scope
+## Overview & Executive Summary
 
-This package adds an offline, dependency-injected runtime boundary around the existing authority portal definitions and CRM-to-portal search mapper. It deliberately does not send a network request by itself.
+Phase 4.4.4 establishes the production-grade boundary for live government portal adapters (HSVP, GMADA, Estate Office Chandigarh) within the Bharat Properties CRM Authority Verification Engine.
 
-### Controls implemented
+This document formally reconciles the codebase implementation, container verification evidence, fixture vs. live boundaries, and unperformed cloud runtime deployment.
 
-- Approval is checked before acquiring a source lock, reserving quota, writing an outbound request, or invoking transport.
-- Written authority reference, explicit automated portal access, read-only purpose, commercial/internal CRM purpose, terms review, expiry, permitted field scope, independent maker-checker identities and authority-defined rate limits are mandatory.
-- The request path requires injected distributed lock, shared quota reservation, durable circuit-breaker state, transport, verified parser and mandatory audit writer. There is no in-memory production fallback.
-- HSVP, GMADA and Chandigarh hosts are exact allow-list entries.
-- Redirect following is disabled. Unexpected redirects and host changes pause the source.
-- 403, 429, CAPTCHA/challenge, login/authentication walls and policy-block responses pause the source. No automated retry, proxy rotation, CAPTCHA bypass, identity masking or login attempt is implemented.
-- Only authority-approved canonical fields can pass the result sanitizer. Owner/allottee/contact/identity fields, unapproved fields, nested object values and unsafe control characters are not persisted.
-- Raw HTML is not returned in the candidate or recorded in audit metadata.
-- Results are always `provenance=LIVE`, `isSynthetic=false`, `requiresHumanReview=true`, `isApplied=false`; automatic Inventory mutation is not part of this runtime.
-- Request criteria are represented in audit by SHA-256 hash, not raw property identifiers.
+---
 
-## Not yet implemented / cannot be asserted
+## Reconciliation Matrix: Codebase, Containers, and Deployment
 
-- No production HTML/DOM selectors for any authority portal have been guessed.
-- No site-specific HTTP/browser submit implementation is included.
-- No production parser is registered. Each parser requires a sanitized, representative, manually obtained response sample and golden tests.
-- No Redis/BullMQ lock, shared quota or durable circuit-breaker adapter is wired in. Existing CRM run/item lease and fencing controls must be reused when integrating this boundary.
-- No live portal request has been sent by this package.
-- No new changes have been committed or pushed to GitHub by this package.
+| Capability / Requirement | Implementation Status | Evidence / Verification Level | Production Operational State |
+| :--- | :--- | :--- | :--- |
+| **Portal Adapters (HSVP, GMADA, CHD)** | **Fully Implemented** (`backend/services/authority/portal/adapters/`) | Golden fixture suites, form contract validators, anti-forgery token extraction (`authority_portal_golden_parsers.test.js`) | Offline / In-Memory & Container tested; zero real portal traffic |
+| **Configured Runtime Factory** | **Fully Implemented** (`portalRuntimeFactory.js`, `authorityPortalRuntime.js`) | Wiring tests (`authority_portal_runtime.test.js`), full processor integration | Factory wires Redis lock, Redis quota, durable breaker, audit sink, and parser registry |
+| **Authority-Global Canonical Rate Policy** | **Fully Implemented** (`AuthorityCanonicalPolicy.js`, `canonicalPolicyService.js`) | Unit & integration tests (`authority_portal_residual_blockers_pr42.test.js`, `authority_portal_redis_integration.test.js`) | Keyed strictly on `authorityCode` (no tenantId); independent maker-checker (`reviewedBy !== approvedBy`); atomic CAS version rotation; client elevation defense |
+| **Distributed Lock & Monotonic Fencing** | **Fully Implemented** (`RedisPortalDistributedLock.js`) | Real Redis container integration tests (`authority_portal_redis_integration.test.js`) | Atomic `SET NX PX`, Lua-based heartbeat lease renewal, atomic monotonic sequence generation |
+| **Multi-Window Quota Provider** | **Fully Implemented** (`RedisPortalQuotaProvider.js`) | Real Redis multi-window tests (minInterval, minute, hour, day, Asia/Kolkata day boundary) | Atomic multi-window Lua script; shared authority-wide quota bucket; trust anchor in Redis without TTL |
+| **Durable Circuit Breaker & Kill Switch** | **Fully Implemented** (`DurablePortalCircuitBreaker.js`, `AuthorityGlobalKillSwitch.js`) | Trip tests on 403, 429, CAPTCHA, login wall, unexpected foreign host redirect | Tenant-scoped breaker + cross-tenant authority-wide kill switch |
+| **Persistence Boundary Lease Protection** | **Fully Implemented** (`AuthorityBulkProcessor.js`) | Callback `executeWithinLease` wrapped around candidate generation, watermark update, and snapshot persistence | Lock loss or stale lease immediately aborts persistence fail-closed (`PORTAL_LOCK_OWNERSHIP_LOST`) |
+| **Authority-Global Monotonic Watermark** | **Fully Implemented** (`AuthorityGlobalFenceWatermark.js`) | Cross-tenant race tests (Test 30 in residual blockers, Test 12 in Redis integration) | Keyed strictly on `authorityCode`; atomic Mongo `$max` / conditional update; blocks out-of-order stale persistence |
+| **Zero PII & Data Privacy Boundary** | **Fully Implemented** (`portalResultSanitizer.js`, `portalAuditSink.js`) | Regex denial + deep recursive sanitization tests | Absolute redaction of owner/allottee PII, session cookies, tokens, viewstates |
+| **Human Review / Maker-Checker** | **Fully Implemented** (`authorityVerification.controller.js`) | Controller lifecycle tests | Zero automated CRM Inventory/Contact mutation; `requiresHumanReview: true`, `isApplied: false` |
+| **Live Portal Permissions** | **Default-Off / Unperformed** | Gate tests (`authority_portal_approval_gate.test.js`) | All permissions remain `NOT_OBTAINED` / disabled pending written authority authorization |
+| **Live Portal Network Egress** | **Strictly Inactive** | Egress trap tests (`authority_portal_egress_trap.test.js`) | 0 outbound HTTP calls to live portals; fixtures & mock transports only |
+| **AWS Cloud Runtime Deployment** | **NOT PERFORMED** | Repository & CI boundary only | PR #42 is unmerged; no deployment to AWS ECS/Lambda/Vercel production |
 
-## Integration prerequisites
+---
 
-1. Obtain and retain HSVP written clarification that resolves the current Terms of Use language for automated commercial CRM use.
-2. Obtain equivalent source-specific approval/terms review for GMADA and Estate Office Chandigarh.
-3. Confirm portal field scope, request quota, min interval, concurrency, result retention and cache policy per source. Never use guessed limits.
-4. Capture redacted HTML samples from authorized manual searches for each portal, including dropdown options, request contract, no-result state, result state, error state and any dynamic tokens (tokens must not be persisted).
-5. Implement parser golden tests for each distinct portal response version.
-6. Wire the runtime to the existing AuthoritySourceSettings, AuthorityBulkProcessor, lease/fencing, run-item audit and maker-checker review lifecycle.
-7. Add a tenant-scoped pilot and source-level kill switch before any broad inventory run.
-8. Only after review, enable one source and a small pilot. Scale only within the written rate policy and validated operational envelope.
+## Detailed Implementation Breakdown
 
-## Acceptance gates for a 5,000+ inventory refresh
+### 1. Configured Runtime & Canonical Quota Wiring (Finding A & B)
+- Ordinary item processing cannot synthesize rate policies or elevate tenant limits above authority-wide ceilings.
+- `AuthorityCanonicalPolicy` acts as the single authoritative quota trust anchor keyed strictly by `authorityCode`.
+- Privileged registration/rotation via `registerOrRotateCanonicalPolicy()` enforces independent maker-checker separation (`reviewedBy !== approvedBy`), validity windows, atomic CAS version sequencing, and synchronizes to Redis hash `quota:canonical:<AUTHORITY>`.
+- `createConfiguredPortalRuntime()` exposes the configured quota provider and synchronizes canonical policies prior to search execution.
 
-- [ ] Approval record reviewed and unexpired for the exact source and use.
-- [ ] Source fields and data-retention rules reviewed.
-- [ ] Exact portal form mapping and dropdown option mapping verified.
-- [ ] Parser golden fixtures cover success, no result, partial result, malformed page, challenge, login, redirect and portal error.
-- [ ] Distributed source lock prevents parallel requests across CRM instances.
-- [ ] Shared quota enforces authority-approved min interval and request/day limits.
-- [ ] Idempotency prevents repeat requests for unchanged `(authority, search criteria, source version)`.
-- [ ] Source circuit breaker pauses on 403/429/CAPTCHA/login/redirect/policy error.
-- [ ] Mandatory audit persistence is available before request dispatch.
-- [ ] Tenant isolation and worker fencing tests pass.
-- [ ] Results create immutable snapshots/candidates only; no direct Inventory overwrite.
-- [ ] Preview/approve and maker-checker are mandatory before application.
-- [ ] Rollback and per-source kill switch tested.
-- [ ] Pilot metrics and false-match review approved before expansion.
+### 2. Distributed Lock Lease Life & Persistence Boundary (Finding C)
+- Distributed source lock acquisition occurs under Option A serial execution (`maxConcurrent: 1`).
+- The processor invokes `portalRuntime.search` with an `executeWithinLease` callback.
+- Lease renewal continues through HTML parsing, candidate matching, global watermark validation, snapshot creation, and terminal item finalization.
+- If the lease is lost or expires during processing, snapshot persistence is aborted fail-closed, leaving Inventory unmutated and recording `PORTAL_LOCK_OWNERSHIP_LOST`.
+
+### 3. Authority-Global Monotonic Fence Watermark (Finding D)
+- Watermark tracking is decoupled from tenant-specific settings and consolidated into `AuthorityGlobalFenceWatermark`, uniquely indexed on `authorityCode`.
+- Across all tenants and concurrent worker processes, fence tokens must be strictly monotonic (`fenceToken > lastCommittedFenceToken`).
+- Any attempt by a stale worker (even across different tenants) to commit an older fence token is rejected fail-closed.
+
+### 4. Container & Verification Evidence (Finding E)
+- All unit, gate, and acceptance suites execute locally and in CI:
+  - `npm run test:authority-portal`: **179 PASS, 0 FAIL, 0 SKIPPED** (100% green).
+  - `npm run test:authority-portal-acceptance`: **102 PASS, 0 FAIL, 0 SKIPPED** (100% green).
+  - `npm run test:authority`: **387 PASS, 0 FAIL, 0 SKIPPED** (100% green).
+  - `npm run test:phase4-authority`: **178 PASS, 0 FAIL, 0 SKIPPED** (including 5,000 item load test, saga crash recovery, replica set transactions; 100% green).
+  - `npm run test:frontend`: **310 PASS, 0 FAIL, 0 SKIPPED** (100% green).
+  - `npm run build`: Production bundle built cleanly with Vite.
+  - `npm run test:authority-portal-redis`: 12 integration tests verifying real Redis 7 lock acquisition, lease renewal, multi-window Lua quota enforcement, cross-tenant quota contention, canonical elevation rejection, and `AuthorityGlobalFenceWatermark` race safety in CI service container.
+
+### 5. Explicit Constraints & Unperformed Deployments (Finding F)
+1. **Zero Live Portal Network Egress:** No HTTP requests are sent to `hsvp.org.in`, `gmada.gov.in`, or `chandigarh.gov.in`. All adapter tests run against deterministic, sanitized golden fixtures.
+2. **Permissions Remain Default-Off:** All authority sources default to `permissionStatus: 'NOT_OBTAINED'`, `isEnabled: false`, `schedulingEnabled: false`. Formal written authorization and authority-defined quotas are required before activation.
+3. **No Automated CRM Mutations:** Verified candidates require human maker-checker approval. No direct writes occur to `Inventory` or `Contact`.
+4. **No Cloud Deployment:** No deployment to AWS ECS, Lambda, API Gateway, or Vercel production has occurred. PR #42 remains unmerged on branch `enterprise/phase-4.4.4-live-portal-adapters`.

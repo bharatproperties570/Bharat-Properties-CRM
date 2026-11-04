@@ -33,12 +33,14 @@ import Inventory from '../../models/Inventory.js';
 import AuditLog from '../../models/AuditLog.js';
 import User from '../../models/User.js';
 import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
+import AuthorityGlobalFenceWatermark from '../../models/AuthorityGlobalFenceWatermark.js';
+import AuthorityCanonicalPolicy from '../../models/AuthorityCanonicalPolicy.js';
+import { getCanonicalPolicy } from './portal/canonicalPolicyService.js';
 import { executeFixturePipeline } from './adapterRegistry.js';
 import { HSVP_SYNTHETIC, CHD_SYNTHETIC, GMADA_SYNTHETIC } from './fixtures/syntheticPhase3AFixtures.js';
 import {
     createAuthorityPortalRuntime,
     defaultPortalDistributedLock,
-    defaultPortalQuotaProvider,
     defaultPortalCircuitBreaker,
     portalHttpTransport,
     PORTAL_PARSERS,
@@ -1153,6 +1155,682 @@ export class AuthorityBulkProcessor {
     }
 
     /**
+     * Atomically validates and advances the durable authority-global monotonic fence watermark.
+     * Guaranteed authority-global (keyed strictly on authorityCode, NOT tenantId) to prevent
+     * cross-tenant monotonic sequence race conditions (Finding D).
+     *
+     * @param {object} params
+     * @param {string} params.authorityCode
+     * @param {number} params.fenceToken
+     * @param {string|mongoose.Types.ObjectId} [params.tenantId]
+     * @param {string} [params.workerId]
+     * @param {mongoose.ClientSession} [params.session=null]
+     * @returns {Promise<{success: boolean, watermark?: object, reason?: string}>}
+     */
+    static async _updateAuthorityGlobalFenceWatermark({
+        authorityCode,
+        fenceToken,
+        tenantId = null,
+        workerId = null,
+        session = null
+    } = {}) {
+        const token = Number(fenceToken);
+        if (!token || !Number.isInteger(token) || token < 1) {
+            return { success: false, reason: 'INVALID_FENCE_TOKEN' };
+        }
+
+        const code = String(authorityCode || '').trim().toUpperCase();
+
+        // Ensure global watermark document exists (outside session to avoid transaction collection creation limits)
+        try {
+            await AuthorityGlobalFenceWatermark.updateOne(
+                { authorityCode: code },
+                { $setOnInsert: { authorityCode: code, lastCommittedFenceToken: 0 } },
+                { upsert: true }
+            );
+        } catch (upsertErr) {
+            if (upsertErr.code !== 11000) {
+                throw upsertErr;
+            }
+        }
+
+        const opts = { new: true };
+        if (session) {
+            opts.session = session;
+        }
+
+        const watermarkDoc = await AuthorityGlobalFenceWatermark.findOneAndUpdate(
+            {
+                authorityCode: code,
+                $or: [
+                    { lastCommittedFenceToken: { $lt: token } },
+                    { lastCommittedFenceToken: { $exists: false } },
+                    { lastCommittedFenceToken: null }
+                ]
+            },
+            {
+                $set: {
+                    lastCommittedFenceToken: token,
+                    lastCommittedAt: new Date(),
+                    lastCommittedByTenantId: tenantId,
+                    lastWorkerId: workerId
+                }
+            },
+            opts
+        );
+
+        if (!watermarkDoc) {
+            return { success: false, reason: 'STALE_FENCE_TOKEN' };
+        }
+
+        // Also update tenant-scoped AuthoritySourceSettings for backwards-compatibility & tenant observability
+        if (tenantId) {
+            try {
+                const tenantOpts = {};
+                if (session) tenantOpts.session = session;
+                await AuthoritySourceSettings.findOneAndUpdate(
+                    { tenantId, authorityCode: code },
+                    { $set: { lastCommittedFenceToken: token } },
+                    tenantOpts
+                );
+            } catch {}
+        }
+
+        return { success: true, watermark: watermarkDoc };
+    }
+
+    /**
+     * Executes crash-safe snapshot persistence and item finalization.
+     * Enforces fail-closed distributed portal lease ownership, monotonic global watermark guard,
+     * worker lease ownership, and immutable snapshot sealing.
+     */
+    static async _persistItemSnapshotAndFinalize({
+        item,
+        inventory,
+        link,
+        candidate,
+        tenantId,
+        effectiveWorkerId,
+        isFixtureMode,
+        supportsTransactions,
+        heartbeat = null,
+        beforeSnapshotPersistence = null,
+        afterRollbackPurged = null,
+        isOrphanRecovered = false
+    }) {
+        // In-flight hook prior to snapshot persistence for testing deterministic races
+        if (typeof beforeSnapshotPersistence === 'function') {
+            await beforeSnapshotPersistence(item, effectiveWorkerId, candidate);
+        }
+
+        // Fail-closed portal lease & worker lease verification immediately before snapshot persistence
+        if (candidate?.isCurrentFence && typeof candidate.isCurrentFence === 'function') {
+            const isPortalLeaseCurrent = await candidate.isCurrentFence();
+            if (!isPortalLeaseCurrent) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: 'Portal lease was superseded by a newer fence token before snapshot persistence.',
+                        errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                return {
+                    success: false,
+                    reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                    ownershipLost: true
+                };
+            }
+        }
+
+        const preCheck = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+            item._id,
+            tenantId,
+            effectiveWorkerId
+        );
+        if (!preCheck) {
+            return {
+                success: false,
+                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                ownershipLost: true
+            };
+        }
+
+        // Create immutable verification snapshot with explicit synthetic provenance & worker identity
+        const snapshotPayload = {
+            tenantId,
+            authorityCode: item.authorityCode,
+            linkId: link._id,
+            runItemId: item._id,
+            createdByWorkerId: effectiveWorkerId || null,
+            fenceToken: candidate.fenceToken || null,
+            sourceReferenceUrl: isFixtureMode
+                ? `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`
+                : (candidate.sourceReferenceUrl || `https://${item.authorityCode.toLowerCase()}.authority.internal`),
+            observedAt: new Date(),
+            isSynthetic: Boolean(isFixtureMode),
+            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+            identityEvidence: {
+                compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
+                sectorNumber: link.sectorNumber || null,
+                phaseCode: link.phaseCode || null,
+                blockCode: link.blockCode || null,
+                propertyId: link.propertyId || null,
+                urbanEstate: link.urbanEstate || null,
+                schemeName: link.schemeName || null
+            },
+            normalizedData: candidate.normalizedRecord || {},
+            contentHash: candidate.contentHash || null,
+            isSealed: true,
+            dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
+        };
+
+        // Build proposed changes (filtering strictly against allowlist/blocklist)
+        const proposedChanges = [];
+        if (Array.isArray(candidate.proposedChanges)) {
+            for (const pc of candidate.proposedChanges) {
+                if (BLOCKED_UPDATE_FIELDS.has(pc.field)) continue;
+                if (!ALLOWED_UPDATE_FIELDS.has(pc.field)) continue;
+
+                proposedChanges.push({
+                    field: pc.field,
+                    currentValue: pc.currentValue ?? null,
+                    proposedValue: pc.proposedValue ?? null,
+                    changeType: pc.changeType || 'UPDATE',
+                    approved: null // Awaiting human review
+                });
+            }
+        }
+
+        const matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
+            ? 'EXACT_MATCH'
+            : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH');
+
+        // Check lease heartbeat before committing terminal update
+        if (heartbeat?.isLeaseLost()) {
+            const err = new Error(`STALE_WORKER: Heartbeat lost lease for item ${item._id} during execution.`);
+            err.code = 'STALE_WORKER';
+            throw err;
+        }
+
+        let snapshot = null;
+        let finalized = null;
+
+        if (supportsTransactions) {
+            let session = null;
+            try {
+                session = await mongoose.startSession();
+                session.startTransaction();
+
+                // Fenced verification within transaction
+                const inTxLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    session
+                );
+                if (!inTxLease) {
+                    await session.abortTransaction();
+                    await session.endSession();
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+
+                // Atomic authority-global portal fence watermark validation within transaction (Finding D)
+                if (candidate.fenceToken) {
+                    const wmRes = await AuthorityBulkProcessor._updateAuthorityGlobalFenceWatermark({
+                        authorityCode: item.authorityCode,
+                        fenceToken: candidate.fenceToken,
+                        tenantId,
+                        workerId: effectiveWorkerId,
+                        session
+                    });
+                    if (!wmRes.success) {
+                        await session.abortTransaction();
+                        await session.endSession();
+                        await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                status: 'FAILED',
+                                matchStatus: 'NOT_ATTEMPTED',
+                                errorMessage: 'A newer portal lease fence token has already been committed for this authority.',
+                                errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                                processedAt: new Date(),
+                                isSynthetic: false,
+                                provenance: 'LIVE'
+                            }
+                        );
+                        return {
+                            success: false,
+                            reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                            code: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                            ownershipLost: true
+                        };
+                    }
+                }
+
+                // Create snapshot inside transaction
+                const createdDocs = await PropertyVerificationSnapshot.create([snapshotPayload], { session });
+                snapshot = createdDocs[0];
+
+                // Finalize item inside transaction
+                finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'SUCCEEDED',
+                        matchStatus,
+                        snapshotId: snapshot._id,
+                        proposedChanges,
+                        reviewerDecision: 'PENDING',
+                        isSynthetic: Boolean(isFixtureMode),
+                        provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                        processedAt: new Date(),
+                        errorMessage: null
+                    },
+                    session
+                );
+
+                if (!finalized) {
+                    await session.abortTransaction();
+                    await session.endSession();
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+
+                await session.commitTransaction();
+                await session.endSession();
+            } catch (txErr) {
+                if (session) {
+                    try {
+                        if (session.inTransaction()) {
+                            await session.abortTransaction();
+                        }
+                    } catch {}
+                    try {
+                        await session.endSession();
+                    } catch {}
+                }
+
+                if (txErr.code === 11000) {
+                    const existingSnap = await PropertyVerificationSnapshot.findOne({
+                        tenantId,
+                        runItemId: item._id
+                    });
+                    if (existingSnap && effectiveWorkerId && existingSnap.createdByWorkerId && existingSnap.createdByWorkerId !== effectiveWorkerId) {
+                        return {
+                            success: false,
+                            reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                            code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                            ownershipLost: true
+                        };
+                    }
+                }
+                throw txErr;
+            }
+        } else {
+            // Standalone MongoDB path: crash-safe lifecycle
+            const intendedSnapshotId = new mongoose.Types.ObjectId();
+            snapshotPayload._id = intendedSnapshotId;
+            snapshotPayload.createdByWorkerId = effectiveWorkerId;
+
+            if (!isOrphanRecovered) {
+                const stagedIntent = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        $set: {
+                            'recoveryState.stage': 'SNAPSHOT_PERSISTENCE_PENDING',
+                            'recoveryState.orphanedSnapshotId': intendedSnapshotId,
+                            'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                            'recoveryState.detectedAt': new Date(),
+                            'recoveryState.error': null
+                        }
+                    }
+                );
+
+                if (!stagedIntent) {
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+            } else {
+                const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId
+                );
+                if (!leaseStillValid) {
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+            }
+
+            // Atomic authority-global portal fence watermark validation in standalone path (Finding D)
+            if (candidate.fenceToken) {
+                const wmRes = await AuthorityBulkProcessor._updateAuthorityGlobalFenceWatermark({
+                    authorityCode: item.authorityCode,
+                    fenceToken: candidate.fenceToken,
+                    tenantId,
+                    workerId: effectiveWorkerId,
+                    session: null
+                });
+                if (!wmRes.success) {
+                    await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            matchStatus: 'NOT_ATTEMPTED',
+                            errorMessage: 'A newer portal lease fence token has already been committed for this authority.',
+                            errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    return {
+                        success: false,
+                        reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                        code: 'PORTAL_LOCK_OWNERSHIP_LOST',
+                        ownershipLost: true
+                    };
+                }
+            }
+
+            try {
+                snapshot = await PropertyVerificationSnapshot.create(snapshotPayload);
+            } catch (snapErr) {
+                if (snapErr.code === 11000) {
+                    const existingSnap = await PropertyVerificationSnapshot.findOne({
+                        tenantId,
+                        runItemId: item._id
+                    });
+                    if (existingSnap) {
+                        if (effectiveWorkerId && existingSnap.createdByWorkerId && existingSnap.createdByWorkerId !== effectiveWorkerId) {
+                            return {
+                                success: false,
+                                reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                                code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                                ownershipLost: true
+                            };
+                        }
+                        snapshot = existingSnap;
+                    } else {
+                        throw snapErr;
+                    }
+                } else {
+                    if (!isOrphanRecovered) {
+                        await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                $set: {
+                                    'recoveryState.stage': 'NONE',
+                                    'recoveryState.orphanedSnapshotId': null,
+                                    'recoveryState.orphanedByWorkerId': null
+                                }
+                            }
+                        );
+                    }
+                    const failFinalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            errorMessage: `SNAPSHOT_PERSISTENCE_FAILED: ${snapErr.message}`,
+                            processedAt: new Date()
+                        }
+                    );
+                    return {
+                        success: false,
+                        reason: 'SNAPSHOT_PERSISTENCE_FAILED',
+                        code: 'SNAPSHOT_PERSISTENCE_FAILED',
+                        error: snapErr.message,
+                        ownershipLost: !failFinalized
+                    };
+                }
+            }
+
+            const finalizeUpdates = {
+                status: 'SUCCEEDED',
+                matchStatus,
+                snapshotId: snapshot._id,
+                proposedChanges,
+                reviewerDecision: 'PENDING',
+                isSynthetic: Boolean(isFixtureMode),
+                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                processedAt: new Date(),
+                errorMessage: null
+            };
+
+            if (!isOrphanRecovered) {
+                finalizeUpdates['recoveryState.stage'] = 'NONE';
+                finalizeUpdates['recoveryState.orphanedSnapshotId'] = null;
+                finalizeUpdates['recoveryState.orphanedByWorkerId'] = null;
+            }
+
+            finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                finalizeUpdates
+            );
+
+            if (!finalized) {
+                if (snapshot && snapshot._id) {
+                    const rollbackMarker = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'ROLLBACK_PURGE_PENDING',
+                                'recoveryState.orphanedSnapshotId': snapshot._id,
+                                'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                                'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                'recoveryState.detectedAt': new Date()
+                            }
+                        }
+                    );
+
+                    if (!rollbackMarker) {
+                        console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback; aborting rollback to preserve state for replacement worker.`);
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    try {
+                        const purgeRes = await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                            tenantId,
+                            runItemId: item._id,
+                            snapshotId: snapshot._id,
+                            createdByWorkerId: effectiveWorkerId
+                        });
+
+                        const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
+                            (typeof purgeRes === 'number' && purgeRes > 0) ||
+                            (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
+                        if (!isDeleted) {
+                            throw new Error(`ORPHAN_DELETION_UNCONFIRMED: Snapshot purge returned deletedCount: ${purgeRes?.deletedCount ?? 0}`);
+                        }
+
+                        if (typeof afterRollbackPurged === 'function') {
+                            await afterRollbackPurged(snapshot, effectiveWorkerId);
+                        }
+
+                        const purgedAt = new Date();
+
+                        try {
+                            await logAuditEvent(
+                                'authority_orphan_snapshot_purged',
+                                item.requestedBy || null,
+                                'authority_snapshot',
+                                snapshot._id,
+                                `Orphaned snapshot ${snapshot._id} purged after worker lease preemption during finalization`,
+                                {
+                                    snapshotId: snapshot._id,
+                                    runItemId: item._id,
+                                    tenantId,
+                                    workerId: effectiveWorkerId,
+                                    reason: 'FINALIZATION_OWNERSHIP_LOST'
+                                },
+                                'success',
+                                {
+                                    throwOnError: true,
+                                    correlationId: `orphan_purge:${tenantId}:${item._id}:${snapshot._id}`
+                                }
+                            );
+                        } catch (auditErr) {
+                            const pendingRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                                item._id,
+                                tenantId,
+                                effectiveWorkerId,
+                                {
+                                    $set: {
+                                        'recoveryState.stage': 'ORPHAN_PURGED_AUDIT_PENDING',
+                                        'recoveryState.orphanedSnapshotId': snapshot._id,
+                                        'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                                        'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                        'recoveryState.purgedAt': purgedAt,
+                                        'recoveryState.error': `AUDIT_LOG_FAILED: ${auditErr.message}`
+                                    }
+                                }
+                            );
+                            if (!pendingRes) {
+                                console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback audit-pending recording; state preserved for replacement worker.`);
+                            }
+                            return {
+                                success: false,
+                                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                                ownershipLost: true
+                            };
+                        }
+
+                        const recoveredRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                $set: {
+                                    'recoveryState.stage': 'ORPHAN_RECOVERED',
+                                    'recoveryState.orphanedSnapshotId': snapshot._id,
+                                    'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                                    'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                    'recoveryState.recoveredAt': new Date(),
+                                    'recoveryState.error': null
+                                }
+                            }
+                        );
+                        if (!recoveredRes) {
+                            console.warn(`[AuthorityBulkProcessor] Worker ${effectiveWorkerId} lease expired during rollback recovery completion; replacement worker will claim.`);
+                        }
+                    } catch (cleanupErr) {
+                        let auditError = null;
+                        try {
+                            await logAuditEvent(
+                                'authority_orphan_cleanup_failed',
+                                item.requestedBy || null,
+                                'authority_snapshot',
+                                snapshot._id,
+                                `Failed to purge orphaned snapshot ${snapshot._id} after preemption: ${cleanupErr.message}`,
+                                {
+                                    snapshotId: snapshot._id,
+                                    runItemId: item._id,
+                                    tenantId,
+                                    workerId: effectiveWorkerId,
+                                    error: cleanupErr.message
+                                },
+                                'failure',
+                                { throwOnError: true }
+                            );
+                        } catch (auditErr) {
+                            auditError = auditErr;
+                            console.error('[AuthorityBulkProcessor] Critical: orphan cleanup failure audit log failed in standalone rollback:', auditErr.message);
+                        }
+
+                        const combinedErrorMessage = auditError
+                            ? `CLEANUP_FAILED: ${cleanupErr.message}; AUDIT_LOG_FAILED: ${auditError.message}`
+                            : `CLEANUP_FAILED: ${cleanupErr.message}`;
+
+                        const fencedRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                $set: {
+                                    'recoveryState.stage': 'CLEANUP_FAILED',
+                                    'recoveryState.orphanedSnapshotId': snapshot._id,
+                                    'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                                    'recoveryState.failedAt': new Date(),
+                                    'recoveryState.error': combinedErrorMessage
+                                }
+                            }
+                        );
+                        if (!fencedRes) {
+                            console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback failure recording; state preserved for replacement worker.`);
+                        }
+                    }
+                }
+                return {
+                    success: false,
+                    reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                    ownershipLost: true
+                };
+            }
+        }
+
+        item.status = 'SUCCEEDED';
+        item.matchStatus = matchStatus;
+        item.snapshotId = snapshot._id;
+        item.proposedChanges = proposedChanges;
+        item.reviewerDecision = 'PENDING';
+        item.isSynthetic = Boolean(isFixtureMode);
+        item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
+        item.processedAt = finalized.processedAt;
+        item.errorMessage = null;
+        item.leaseExpiresAt = null;
+
+        return {
+            success: true,
+            itemId: item._id,
+            snapshotId: snapshot._id,
+            matchStatus,
+            proposedChangesCount: proposedChanges.length,
+            proposedChanges,
+            snapshot,
+            finalized
+        };
+    }
+
+    /**
      * Atomically update an item to its terminal state with lease fencing and ownership validation.
      * Throws STALE_WORKER if the worker's lease expired or was reclaimed.
      */
@@ -2140,12 +2818,57 @@ export class AuthorityBulkProcessor {
                 }
                 return { success: false, reason: 'QUALITY_REJECTED' };
             }
+
+            return await AuthorityBulkProcessor._persistItemSnapshotAndFinalize({
+                item,
+                inventory,
+                link,
+                candidate,
+                tenantId,
+                effectiveWorkerId,
+                isFixtureMode: true,
+                supportsTransactions,
+                heartbeat,
+                beforeSnapshotPersistence,
+                afterRollbackPurged,
+                isOrphanRecovered
+            });
         } else {
-            // Live Government Portal Verification Execution (Phase 4.4.4 - Finding P0.1)
+            // Live Government Portal Verification Execution (Phase 4.4.4)
             const setting = await AuthoritySourceSettings.getForTenant(tenantId, item.authorityCode);
-            
-            // P0.4: Remove invented rate-policy fallbacks. Source-specific approved rate values must flow
-            // unchanged from reviewed evidence. Missing any required rate field or source reference => hard fail.
+
+            // Finding B: Load authority-global canonical rate and quota policy
+            const canonicalDoc = options.canonicalPolicy || await getCanonicalPolicy(item.authorityCode);
+            if (!canonicalDoc) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: `Authority ${item.authorityCode} has no active canonical policy registered; live verification fails closed.`,
+                        errorDetails: { code: 'CANONICAL_POLICY_MISSING' },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'CANONICAL_POLICY_MISSING' };
+            }
+
+            const canonicalMinInterval = Number(canonicalDoc.minIntervalMs ?? canonicalDoc.minimumIntervalMs);
+            const canonicalMaxMinute = Number(canonicalDoc.maxRequestsPerMinute);
+            const canonicalMaxDay = Number(canonicalDoc.maxRequestsPerDay);
+            const canonicalMaxHour = canonicalDoc.maxRequestsPerHour ? Number(canonicalDoc.maxRequestsPerHour) : 0;
+            const canonicalRef = String(canonicalDoc.policyReference || canonicalDoc.policySource || '').trim();
+            const canonicalHash = String(canonicalDoc.contentHash || '');
+            const canonicalVersion = Number(canonicalDoc.version || canonicalDoc.policyVersion || 1);
+            const canonicalApprover = String(canonicalDoc.approvedBy || 'audit-reviewer');
+
             const rawRate = setting?.ratePolicy || {};
             const minInterval = rawRate.minimumIntervalMs || rawRate.minIntervalMs || null;
             const maxMinute = rawRate.maxRequestsPerMinute || null;
@@ -2158,14 +2881,49 @@ export class AuthorityBulkProcessor {
                 const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
                     item._id,
                     tenantId,
-                    claimToken,
-                    'FAILED',
+                    effectiveWorkerId,
                     {
-                        errorCode: 'RATE_POLICY_INCOMPLETE',
-                        errorMessage: 'Missing approved rate policy: maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, maxConcurrent, and policySource are all mandatory without fallbacks.'
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: 'Missing approved rate policy: maxRequestsPerMinute, maxRequestsPerDay, minimumIntervalMs, maxConcurrent, and policySource are all mandatory without fallbacks.',
+                        errorDetails: { code: 'RATE_POLICY_INCOMPLETE' },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
                     }
                 );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
                 return { success: false, reason: 'RATE_POLICY_INCOMPLETE' };
+            }
+
+            // Finding B: Prevent tenant setting elevation over authority-global canonical ceilings
+            if (
+                minInterval < canonicalMinInterval ||
+                maxMinute > canonicalMaxMinute ||
+                maxDay > canonicalMaxDay ||
+                (maxHour && canonicalMaxHour && maxHour > canonicalMaxHour) ||
+                maxConcurrent !== 1
+            ) {
+                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'FAILED',
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: `Tenant rate policy exceeds canonical authority ceiling: minIntervalMs must be >= ${canonicalMinInterval}, maxRequestsPerMinute <= ${canonicalMaxMinute}, maxRequestsPerDay <= ${canonicalMaxDay}, maxConcurrent === 1.`,
+                        errorDetails: { code: 'RATE_LIMIT_ELEVATION_REJECTED' },
+                        processedAt: new Date(),
+                        isSynthetic: false,
+                        provenance: 'LIVE'
+                    }
+                );
+                if (!finalized) {
+                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                }
+                return { success: false, reason: 'RATE_LIMIT_ELEVATION_REJECTED' };
             }
 
             const approval = {
@@ -2182,30 +2940,210 @@ export class AuthorityBulkProcessor {
                 expiresAt: setting.approvalExpiryDate,
                 permittedFields: setting.permittedFields,
                 ratePolicy: {
-                    maxRequestsPerMinute: maxMinute,
-                    maxRequestsPerHour: maxHour,
-                    maxRequestsPerDay: maxDay,
-                    minimumIntervalMs: minInterval,
-                    maxConcurrentRequests: maxConcurrent,
-                    policyReference: policySource
+                    maxRequestsPerMinute: Math.min(maxMinute, canonicalMaxMinute),
+                    maxRequestsPerHour: canonicalMaxHour ? Math.min(maxHour || canonicalMaxHour, canonicalMaxHour) : maxHour,
+                    maxRequestsPerDay: Math.min(maxDay, canonicalMaxDay),
+                    minimumIntervalMs: Math.max(minInterval, canonicalMinInterval),
+                    maxConcurrentRequests: 1,
+                    policyReference: canonicalRef,
+                    version: canonicalVersion,
+                    contentHash: canonicalHash
                 }
             };
 
-            // P0.3: Wire runtime via portal runtime factory or explicit injection
+            // Finding A: Wire runtime via portal runtime factory or explicit injection
             const portalRuntime = options.portalRuntime || createConfiguredPortalRuntime(options.portalOptions || {});
 
-            if (setting.reviewStatus === 'APPROVED' && setting.ratePolicy) {
+            // Finding A: Synchronize canonical policy directly to the runtime's exact quota provider
+            const initFn = typeof portalRuntime.initializeCanonicalPolicy === 'function'
+                ? portalRuntime.initializeCanonicalPolicy.bind(portalRuntime)
+                : (typeof portalRuntime.quotaProvider?.setCanonicalPolicy === 'function'
+                    ? portalRuntime.quotaProvider.setCanonicalPolicy.bind(portalRuntime.quotaProvider)
+                    : null);
+
+            if (initFn) {
                 try {
-                    await defaultPortalQuotaProvider.setCanonicalPolicy({
+                    await initFn({
                         authorityCode: item.authorityCode,
-                        policy: setting.ratePolicy,
-                        approvedBy: setting.approvedBy || 'admin',
-                        policyVersion: setting.evidenceVersion || 1
+                        policy: {
+                            policyReference: canonicalRef,
+                            minIntervalMs: canonicalMinInterval,
+                            maxRequestsPerMinute: canonicalMaxMinute,
+                            maxRequestsPerHour: canonicalMaxHour,
+                            maxRequestsPerDay: canonicalMaxDay,
+                            contentHash: canonicalHash
+                        },
+                        approvedBy: canonicalApprover,
+                        policyVersion: canonicalVersion
                     });
-                } catch {
-                    // Ignore priming error if any
+                } catch (policyInitErr) {
+                    if (options.requireRealRedis || process.env.NODE_ENV === 'production') {
+                        throw policyInitErr;
+                    }
                 }
             }
+
+            // Finding C: executeWithinLease callback maintains distributed lock through candidate creation,
+            // monotonic global watermark guard, immutable snapshot persistence, and terminal item finalization
+            const executeWithinLease = async (portalResult) => {
+                // Validate monotonic fence token from portal distributed lock
+                if (portalResult.fenceToken === undefined || portalResult.fenceToken === null || !Number.isInteger(Number(portalResult.fenceToken)) || Number(portalResult.fenceToken) < 1) {
+                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            matchStatus: 'NOT_ATTEMPTED',
+                            errorMessage: 'Portal lock fence token missing or invalid; snapshot persistence aborted.',
+                            errorDetails: { code: 'PORTAL_FENCE_TOKEN_INVALID' },
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    if (!finalized) {
+                        return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                    }
+                    return { success: false, reason: 'PORTAL_FENCE_TOKEN_INVALID' };
+                }
+
+                // Verify portal fence token has not been superseded by a newer worker
+                if (typeof portalResult.isCurrentFence === 'function') {
+                    const isCurrent = await portalResult.isCurrentFence();
+                    if (!isCurrent) {
+                        const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                status: 'FAILED',
+                                matchStatus: 'NOT_ATTEMPTED',
+                                errorMessage: 'Portal lock fence token is stale; a newer portal lease was issued before snapshot persistence.',
+                                errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
+                                processedAt: new Date(),
+                                isSynthetic: false,
+                                provenance: 'LIVE'
+                            }
+                        );
+                        if (!finalized) {
+                            return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                        }
+                        return { success: false, reason: 'PORTAL_LOCK_OWNERSHIP_LOST' };
+                    }
+                }
+
+                if (!portalResult || portalResult.recordCount === 0 || !portalResult.records || portalResult.records.length === 0) {
+                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'NO_MATCH',
+                            matchStatus: 'NO_MATCH',
+                            errorMessage: `No matching authority record returned by ${item.authorityCode} portal.`,
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    if (!finalized) {
+                        return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                    }
+                    return { success: false, reason: 'NO_RECORDS_FOUND' };
+                }
+
+                const matchingRecords = [];
+                for (const rec of portalResult.records) {
+                    const matchRes = matchAuthorityInventory(item.authorityCode, inventory, link, rec);
+                    if (matchRes.matches) {
+                        matchingRecords.push(rec);
+                    }
+                }
+
+                if (matchingRecords.length === 0) {
+                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'NO_MATCH',
+                            matchStatus: 'REJECTED_IDENTITY_MISMATCH',
+                            errorMessage: 'Authority record returned but identity coordinates did not match.',
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    if (!finalized) {
+                        return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                    }
+                    return { success: false, reason: 'IDENTITY_MISMATCH' };
+                }
+
+                if (matchingRecords.length > 1) {
+                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            status: 'FAILED',
+                            matchStatus: 'AMBIGUOUS',
+                            errorMessage: `Ambiguous match: multiple authority records (${matchingRecords.length}) matched coordinates.`,
+                            processedAt: new Date(),
+                            isSynthetic: false,
+                            provenance: 'LIVE'
+                        }
+                    );
+                    if (!finalized) {
+                        return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+                    }
+                    return { success: false, reason: 'AMBIGUOUS_MATCH' };
+                }
+
+                const matchedRecord = matchingRecords[0];
+                const liveProposedChanges = [];
+                for (const [field, newVal] of Object.entries(matchedRecord)) {
+                    if (BLOCKED_UPDATE_FIELDS.has(field)) continue;
+                    if (!ALLOWED_UPDATE_FIELDS.has(field)) continue;
+                    const currentVal = inventory.authorityVerification ? inventory.authorityVerification[field] : undefined;
+                    if (newVal !== undefined && newVal !== null && newVal !== currentVal) {
+                        liveProposedChanges.push({
+                            field,
+                            currentValue: currentVal !== undefined ? currentVal : null,
+                            proposedValue: newVal,
+                            changeType: currentVal !== undefined ? 'UPDATE' : 'CREATE'
+                        });
+                    }
+                }
+
+                const candidate = {
+                    status: 'READY_FOR_REVIEW',
+                    normalizedRecord: matchedRecord,
+                    contentHash: portalResult.contentHash,
+                    sourceReferenceUrl: `https://${portalResult.sourceHost}`,
+                    fenceToken: Number(portalResult.fenceToken),
+                    isCurrentFence: portalResult.isCurrentFence,
+                    proposedChanges: liveProposedChanges,
+                    matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' },
+                    compositeKey: link.compositeKey ? { key: link.compositeKey } : null
+                };
+
+                return await AuthorityBulkProcessor._persistItemSnapshotAndFinalize({
+                    item,
+                    inventory,
+                    link,
+                    candidate,
+                    tenantId,
+                    effectiveWorkerId,
+                    isFixtureMode: false,
+                    supportsTransactions,
+                    heartbeat,
+                    beforeSnapshotPersistence,
+                    afterRollbackPurged,
+                    isOrphanRecovered
+                });
+            };
 
             let portalResult;
             try {
@@ -2217,7 +3155,8 @@ export class AuthorityBulkProcessor {
                     tenantId,
                     actorId: item.requestedBy,
                     runId: item.runId,
-                    runItemId: item._id
+                    runItemId: item._id,
+                    executeWithinLease
                 });
             } catch (runtimeErr) {
                 const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
@@ -2240,754 +3179,12 @@ export class AuthorityBulkProcessor {
                 return { success: false, reason: runtimeErr.code || 'PORTAL_RUNTIME_ERROR', error: runtimeErr.message };
             }
 
-            // Validate monotonic fence token from portal distributed lock (Fix 4)
-            if (portalResult.fenceToken === undefined || portalResult.fenceToken === null || !Number.isInteger(Number(portalResult.fenceToken)) || Number(portalResult.fenceToken) < 1) {
-                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        status: 'FAILED',
-                        matchStatus: 'NOT_ATTEMPTED',
-                        errorMessage: 'Portal lock fence token missing or invalid; snapshot persistence aborted.',
-                        errorDetails: { code: 'PORTAL_FENCE_TOKEN_INVALID' },
-                        processedAt: new Date(),
-                        isSynthetic: false,
-                        provenance: 'LIVE'
-                    }
-                );
-                if (!finalized) {
-                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
-                }
-                return { success: false, reason: 'PORTAL_FENCE_TOKEN_INVALID' };
+            if (portalResult && portalResult.callbackResult) {
+                return portalResult.callbackResult;
             }
-
-            // Verify portal fence token has not been superseded by a newer worker
-            if (typeof portalResult.isCurrentFence === 'function') {
-                const isCurrent = await portalResult.isCurrentFence();
-                if (!isCurrent) {
-                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                        item._id,
-                        tenantId,
-                        effectiveWorkerId,
-                        {
-                            status: 'FAILED',
-                            matchStatus: 'NOT_ATTEMPTED',
-                            errorMessage: 'Portal lock fence token is stale; a newer portal lease was issued before snapshot persistence.',
-                            errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
-                            processedAt: new Date(),
-                            isSynthetic: false,
-                            provenance: 'LIVE'
-                        }
-                    );
-                    if (!finalized) {
-                        return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
-                    }
-                    return { success: false, reason: 'PORTAL_LOCK_OWNERSHIP_LOST' };
-                }
-            }
-
-            if (!portalResult || portalResult.recordCount === 0 || !portalResult.records || portalResult.records.length === 0) {
-                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        status: 'NO_MATCH',
-                        matchStatus: 'NO_MATCH',
-                        errorMessage: `No matching authority record returned by ${item.authorityCode} portal.`,
-                        processedAt: new Date(),
-                        isSynthetic: false,
-                        provenance: 'LIVE'
-                    }
-                );
-                if (!finalized) {
-                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
-                }
-                return { success: false, reason: 'NO_RECORDS_FOUND' };
-            }
-
-            const matchingRecords = [];
-            for (const rec of portalResult.records) {
-                const matchRes = matchAuthorityInventory(item.authorityCode, inventory, link, rec);
-                if (matchRes.matches) {
-                    matchingRecords.push(rec);
-                }
-            }
-
-            if (matchingRecords.length === 0) {
-                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        status: 'NO_MATCH',
-                        matchStatus: 'REJECTED_IDENTITY_MISMATCH',
-                        errorMessage: 'Authority record returned but identity coordinates did not match.',
-                        processedAt: new Date(),
-                        isSynthetic: false,
-                        provenance: 'LIVE'
-                    }
-                );
-                if (!finalized) {
-                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
-                }
-                return { success: false, reason: 'IDENTITY_MISMATCH' };
-            }
-
-            if (matchingRecords.length > 1) {
-                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        status: 'FAILED',
-                        matchStatus: 'AMBIGUOUS',
-                        errorMessage: `Ambiguous match: multiple authority records (${matchingRecords.length}) matched coordinates.`,
-                        processedAt: new Date(),
-                        isSynthetic: false,
-                        provenance: 'LIVE'
-                    }
-                );
-                if (!finalized) {
-                    return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
-                }
-                return { success: false, reason: 'AMBIGUOUS_MATCH' };
-            }
-
-            const matchedRecord = matchingRecords[0];
-            const liveProposedChanges = [];
-            for (const [field, newVal] of Object.entries(matchedRecord)) {
-                if (BLOCKED_UPDATE_FIELDS.has(field)) continue;
-                if (!ALLOWED_UPDATE_FIELDS.has(field)) continue;
-                const currentVal = inventory.authorityVerification ? inventory.authorityVerification[field] : undefined;
-                if (newVal !== undefined && newVal !== null && newVal !== currentVal) {
-                    liveProposedChanges.push({
-                        field,
-                        currentValue: currentVal !== undefined ? currentVal : null,
-                        proposedValue: newVal,
-                        changeType: currentVal !== undefined ? 'UPDATE' : 'CREATE'
-                    });
-                }
-            }
-
-            candidate = {
-                status: 'READY_FOR_REVIEW',
-                normalizedRecord: matchedRecord,
-                contentHash: portalResult.contentHash,
-                sourceReferenceUrl: `https://${portalResult.sourceHost}`,
-                fenceToken: Number(portalResult.fenceToken),
-                isCurrentFence: portalResult.isCurrentFence,
-                proposedChanges: liveProposedChanges,
-                matchEvidence: { confidence: 'EXACT', method: 'PORTAL_EXACT' },
-                compositeKey: link.compositeKey ? { key: link.compositeKey } : null
-            };
+            return { success: true, portalResult };
         }
-
-        // In-flight hook prior to snapshot persistence for testing deterministic races
-        if (typeof beforeSnapshotPersistence === 'function') {
-            await beforeSnapshotPersistence(item, effectiveWorkerId, candidate);
-        }
-
-        // Fail-closed portal lease & worker lease verification immediately before snapshot persistence
-        if (candidate?.isCurrentFence && typeof candidate.isCurrentFence === 'function') {
-            const isPortalLeaseCurrent = await candidate.isCurrentFence();
-            if (!isPortalLeaseCurrent) {
-                const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        status: 'FAILED',
-                        matchStatus: 'NOT_ATTEMPTED',
-                        errorMessage: 'Portal lease was superseded by a newer fence token before snapshot persistence.',
-                        errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
-                        processedAt: new Date(),
-                        isSynthetic: false,
-                        provenance: 'LIVE'
-                    }
-                );
-                return {
-                    success: false,
-                    reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
-                    ownershipLost: true
-                };
-            }
-        }
-
-        const preCheck = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
-            item._id,
-            tenantId,
-            effectiveWorkerId
-        );
-        if (!preCheck) {
-            return {
-                success: false,
-                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                ownershipLost: true
-            };
-        }
-
-        // 6. Create immutable verification snapshot with explicit synthetic provenance & worker identity
-        const snapshotPayload = {
-            tenantId,
-            authorityCode: item.authorityCode,
-            linkId: link._id,
-            runItemId: item._id,
-            createdByWorkerId: effectiveWorkerId || null,
-            fenceToken: candidate.fenceToken || null,
-            sourceReferenceUrl: isFixtureMode
-                ? `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`
-                : (candidate.sourceReferenceUrl || `https://${item.authorityCode.toLowerCase()}.authority.internal`),
-            observedAt: new Date(),
-            isSynthetic: Boolean(isFixtureMode),
-            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-            identityEvidence: {
-                compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
-                sectorNumber: link.sectorNumber || null,
-                phaseCode: link.phaseCode || null,
-                blockCode: link.blockCode || null,
-                propertyId: link.propertyId || null,
-                urbanEstate: link.urbanEstate || null,
-                schemeName: link.schemeName || null
-            },
-            normalizedData: candidate.normalizedRecord || {},
-            contentHash: candidate.contentHash || null,
-            isSealed: true,
-            dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
-        };
-
-        // 7. Build proposed changes (filtering strictly against allowlist/blocklist)
-        const proposedChanges = [];
-        if (Array.isArray(candidate.proposedChanges)) {
-            for (const pc of candidate.proposedChanges) {
-                if (BLOCKED_UPDATE_FIELDS.has(pc.field)) continue;
-                if (!ALLOWED_UPDATE_FIELDS.has(pc.field)) continue;
-
-                proposedChanges.push({
-                    field: pc.field,
-                    currentValue: pc.currentValue ?? null,
-                    proposedValue: pc.proposedValue ?? null,
-                    changeType: pc.changeType || 'UPDATE',
-                    approved: null // Awaiting human review
-                });
-            }
-        }
-
-        const matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
-            ? 'EXACT_MATCH'
-            : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH');
-
-        // Check lease heartbeat before committing terminal update
-        if (heartbeat?.isLeaseLost()) {
-            const err = new Error(`STALE_WORKER: Heartbeat lost lease for item ${item._id} during execution.`);
-            err.code = 'STALE_WORKER';
-            throw err;
-        }
-
-        let snapshot = null;
-        let finalized = null;
-
-        if (supportsTransactions) {
-            let session = null;
-            try {
-                session = await mongoose.startSession();
-                session.startTransaction();
-
-                // Fenced verification within transaction
-                const inTxLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    session
-                );
-                if (!inTxLease) {
-                    await session.abortTransaction();
-                    await session.endSession();
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-
-                // Atomic portal fence watermark validation within transaction (Phase 6)
-                if (candidate.fenceToken) {
-                    const watermarkDoc = await AuthoritySourceSettings.findOneAndUpdate(
-                        {
-                            tenantId,
-                            authorityCode: item.authorityCode,
-                            $or: [
-                                { lastCommittedFenceToken: { $lt: Number(candidate.fenceToken) } },
-                                { lastCommittedFenceToken: { $exists: false } },
-                                { lastCommittedFenceToken: null }
-                            ]
-                        },
-                        {
-                            $set: { lastCommittedFenceToken: Number(candidate.fenceToken) }
-                        },
-                        { session, new: true }
-                    );
-                    if (!watermarkDoc) {
-                        await session.abortTransaction();
-                        await session.endSession();
-                        await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                            item._id,
-                            tenantId,
-                            effectiveWorkerId,
-                            {
-                                status: 'FAILED',
-                                matchStatus: 'NOT_ATTEMPTED',
-                                errorMessage: 'A newer portal lease fence token has already been committed for this authority.',
-                                errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
-                                processedAt: new Date(),
-                                isSynthetic: false,
-                                provenance: 'LIVE'
-                            }
-                        );
-                        return {
-                            success: false,
-                            reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
-                            code: 'PORTAL_LOCK_OWNERSHIP_LOST',
-                            ownershipLost: true
-                        };
-                    }
-                }
-
-                // Create snapshot inside transaction
-                const createdDocs = await PropertyVerificationSnapshot.create([snapshotPayload], { session });
-                snapshot = createdDocs[0];
-
-                // Finalize item inside transaction
-                finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        status: 'SUCCEEDED',
-                        matchStatus,
-                        snapshotId: snapshot._id,
-                        proposedChanges,
-                        reviewerDecision: 'PENDING',
-                        isSynthetic: Boolean(isFixtureMode),
-                        provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-                        processedAt: new Date(),
-                        errorMessage: null
-                    },
-                    session
-                );
-
-                if (!finalized) {
-                    await session.abortTransaction();
-                    await session.endSession();
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-
-                await session.commitTransaction();
-                await session.endSession();
-            } catch (txErr) {
-                if (session) {
-                    try {
-                        if (session.inTransaction()) {
-                            await session.abortTransaction();
-                        }
-                    } catch {}
-                    try {
-                        await session.endSession();
-                    } catch {}
-                }
-
-                if (txErr.code === 11000) {
-                    const existingSnap = await PropertyVerificationSnapshot.findOne({
-                        tenantId,
-                        runItemId: item._id
-                    });
-                    if (existingSnap && effectiveWorkerId && existingSnap.createdByWorkerId && existingSnap.createdByWorkerId !== effectiveWorkerId) {
-                        return {
-                            success: false,
-                            reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
-                            code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
-                            ownershipLost: true
-                        };
-                    }
-                }
-                throw txErr;
-            }
-        } else {
-            // Standalone MongoDB path: genuinely crash-safe lifecycle
-            // 1. Allocate intended snapshot ID in advance
-            const intendedSnapshotId = new mongoose.Types.ObjectId();
-            snapshotPayload._id = intendedSnapshotId;
-            snapshotPayload.createdByWorkerId = effectiveWorkerId;
-
-            if (!isOrphanRecovered) {
-                // 2. Persist durable, fenced cleanup intent BEFORE snapshot creation
-                const stagedIntent = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        $set: {
-                            'recoveryState.stage': 'SNAPSHOT_PERSISTENCE_PENDING',
-                            'recoveryState.orphanedSnapshotId': intendedSnapshotId,
-                            'recoveryState.orphanedByWorkerId': effectiveWorkerId,
-                            'recoveryState.detectedAt': new Date(),
-                            'recoveryState.error': null
-                        }
-                    }
-                );
-
-                if (!stagedIntent) {
-                    // Worker lost active ownership before snapshot creation! Fail closed immediately.
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-            } else {
-                // Item has already successfully recovered an orphan snapshot.
-                // Verify worker lease ownership remains valid before snapshot creation without destroying ORPHAN_RECOVERED audit trail.
-                const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId
-                );
-                if (!leaseStillValid) {
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-            }
-
-            // Atomic portal fence watermark validation in standalone path (Phase 6)
-            if (candidate.fenceToken) {
-                const watermarkDoc = await AuthoritySourceSettings.findOneAndUpdate(
-                    {
-                        tenantId,
-                        authorityCode: item.authorityCode,
-                        $or: [
-                            { lastCommittedFenceToken: { $lt: Number(candidate.fenceToken) } },
-                            { lastCommittedFenceToken: { $exists: false } },
-                            { lastCommittedFenceToken: null }
-                        ]
-                    },
-                    {
-                        $set: { lastCommittedFenceToken: Number(candidate.fenceToken) }
-                    },
-                    { new: true }
-                );
-                if (!watermarkDoc) {
-                    await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                        item._id,
-                        tenantId,
-                        effectiveWorkerId,
-                        {
-                            status: 'FAILED',
-                            matchStatus: 'NOT_ATTEMPTED',
-                            errorMessage: 'A newer portal lease fence token has already been committed for this authority.',
-                            errorDetails: { code: 'PORTAL_LOCK_OWNERSHIP_LOST' },
-                            processedAt: new Date(),
-                            isSynthetic: false,
-                            provenance: 'LIVE'
-                        }
-                    );
-                    return {
-                        success: false,
-                        reason: 'PORTAL_LOCK_OWNERSHIP_LOST',
-                        code: 'PORTAL_LOCK_OWNERSHIP_LOST',
-                        ownershipLost: true
-                    };
-                }
-            }
-
-            try {
-                snapshot = await PropertyVerificationSnapshot.create(snapshotPayload);
-            } catch (snapErr) {
-                if (snapErr.code === 11000) {
-                    const existingSnap = await PropertyVerificationSnapshot.findOne({
-                        tenantId,
-                        runItemId: item._id
-                    });
-                    if (existingSnap) {
-                        if (effectiveWorkerId && existingSnap.createdByWorkerId && existingSnap.createdByWorkerId !== effectiveWorkerId) {
-                            return {
-                                success: false,
-                                reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
-                                code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
-                                ownershipLost: true
-                            };
-                        }
-                        snapshot = existingSnap;
-                    } else {
-                        throw snapErr;
-                    }
-                } else {
-                    // Database / persistence failure during snapshot insert: clean up intent if worker still owns lease
-                    if (!isOrphanRecovered) {
-                        await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                            item._id,
-                            tenantId,
-                            effectiveWorkerId,
-                            {
-                                $set: {
-                                    'recoveryState.stage': 'NONE',
-                                    'recoveryState.orphanedSnapshotId': null,
-                                    'recoveryState.orphanedByWorkerId': null
-                                }
-                            }
-                        );
-                    }
-                    const failFinalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                        item._id,
-                        tenantId,
-                        effectiveWorkerId,
-                        {
-                            status: 'FAILED',
-                            errorMessage: `SNAPSHOT_PERSISTENCE_FAILED: ${snapErr.message}`,
-                            processedAt: new Date()
-                        }
-                    );
-                    return {
-                        success: false,
-                        reason: 'SNAPSHOT_PERSISTENCE_FAILED',
-                        code: 'SNAPSHOT_PERSISTENCE_FAILED',
-                        error: snapErr.message,
-                        ownershipLost: !failFinalized
-                    };
-                }
-            }
-
-            const finalizeUpdates = {
-                status: 'SUCCEEDED',
-                matchStatus,
-                snapshotId: snapshot._id,
-                proposedChanges,
-                reviewerDecision: 'PENDING',
-                isSynthetic: Boolean(isFixtureMode),
-                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-                processedAt: new Date(),
-                errorMessage: null
-            };
-
-            if (!isOrphanRecovered) {
-                finalizeUpdates['recoveryState.stage'] = 'NONE';
-                finalizeUpdates['recoveryState.orphanedSnapshotId'] = null;
-                finalizeUpdates['recoveryState.orphanedByWorkerId'] = null;
-            }
-
-            finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-                item._id,
-                tenantId,
-                effectiveWorkerId,
-                finalizeUpdates
-            );
-
-            if (!finalized) {
-                // Standalone rollback:
-                // Finalization check failed (lease expired, preempted, or worker lost ownership).
-                if (snapshot && snapshot._id) {
-                    // 1. Check whether worker still holds valid ownership before attempting rollback
-                    const rollbackMarker = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                        item._id,
-                        tenantId,
-                        effectiveWorkerId,
-                        {
-                            $set: {
-                                'recoveryState.stage': 'ROLLBACK_PURGE_PENDING',
-                                'recoveryState.orphanedSnapshotId': snapshot._id,
-                                'recoveryState.orphanedByWorkerId': effectiveWorkerId,
-                                'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                                'recoveryState.detectedAt': new Date()
-                            }
-                        }
-                    );
-
-                    if (!rollbackMarker) {
-                        // Real lease expiry / worker takeover!
-                        // Worker has genuinely lost ownership. Do NOT continue as though marker was persisted.
-                        // Do NOT perform untracked cleanup or delete state belonging to replacement workers.
-                        // Recovery is safely delegated to replacement workers who will inspect SNAPSHOT_PERSISTENCE_PENDING intent.
-                        console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback; aborting rollback to preserve state for replacement worker.`);
-                        return {
-                            success: false,
-                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                            ownershipLost: true
-                        };
-                    }
-
-                    // Worker still holds lease: proceed with tracked cleanup
-                    try {
-                        const purgeRes = await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
-                            tenantId,
-                            runItemId: item._id,
-                            snapshotId: snapshot._id,
-                            createdByWorkerId: effectiveWorkerId
-                        });
-
-                        const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
-                            (typeof purgeRes === 'number' && purgeRes > 0) ||
-                            (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
-                        if (!isDeleted) {
-                            throw new Error(`ORPHAN_DELETION_UNCONFIRMED: Snapshot purge returned deletedCount: ${purgeRes?.deletedCount ?? 0}`);
-                        }
-
-                        // Deterministic test hook: simulate crash after purge but before audit persistence
-                        if (typeof afterRollbackPurged === 'function') {
-                            await afterRollbackPurged(snapshot, effectiveWorkerId);
-                        }
-
-                        const purgedAt = new Date();
-
-                        // 4. Persist the purge audit (throwOnError: true)
-                        try {
-                            await logAuditEvent(
-                                'authority_orphan_snapshot_purged',
-                                item.requestedBy || null,
-                                'authority_snapshot',
-                                snapshot._id,
-                                `Orphaned snapshot ${snapshot._id} purged after worker lease preemption during finalization`,
-                                {
-                                    snapshotId: snapshot._id,
-                                    runItemId: item._id,
-                                    tenantId,
-                                    workerId: effectiveWorkerId,
-                                    reason: 'FINALIZATION_OWNERSHIP_LOST'
-                                },
-                                'success',
-                                {
-                                    throwOnError: true,
-                                    correlationId: `orphan_purge:${tenantId}:${item._id}:${snapshot._id}`
-                                }
-                            );
-                        } catch (auditErr) {
-                            // Confirmed snapshot deletion but audit logging failed: persist ORPHAN_PURGED_AUDIT_PENDING
-                            const pendingRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                                item._id,
-                                tenantId,
-                                effectiveWorkerId,
-                                {
-                                    $set: {
-                                        'recoveryState.stage': 'ORPHAN_PURGED_AUDIT_PENDING',
-                                        'recoveryState.orphanedSnapshotId': snapshot._id,
-                                        'recoveryState.orphanedByWorkerId': effectiveWorkerId,
-                                        'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                                        'recoveryState.purgedAt': purgedAt,
-                                        'recoveryState.error': `AUDIT_LOG_FAILED: ${auditErr.message}`
-                                    }
-                                }
-                            );
-                            if (!pendingRes) {
-                                console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback audit-pending recording; state preserved for replacement worker.`);
-                            }
-                            return {
-                                success: false,
-                                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                                ownershipLost: true
-                            };
-                        }
-
-                        // 5. Complete or reconcile the recovery state
-                        const recoveredRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                            item._id,
-                            tenantId,
-                            effectiveWorkerId,
-                            {
-                                $set: {
-                                    'recoveryState.stage': 'ORPHAN_RECOVERED',
-                                    'recoveryState.orphanedSnapshotId': snapshot._id,
-                                    'recoveryState.orphanedByWorkerId': effectiveWorkerId,
-                                    'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                                    'recoveryState.recoveredAt': new Date(),
-                                    'recoveryState.error': null
-                                }
-                            }
-                        );
-                        if (!recoveredRes) {
-                            console.warn(`[AuthorityBulkProcessor] Worker ${effectiveWorkerId} lease expired during rollback recovery completion; replacement worker will claim.`);
-                        }
-                    } catch (cleanupErr) {
-                        // Deletion unconfirmed or other pre-purge failure
-                        let auditError = null;
-                        try {
-                            await logAuditEvent(
-                                'authority_orphan_cleanup_failed',
-                                item.requestedBy || null,
-                                'authority_snapshot',
-                                snapshot._id,
-                                `Failed to purge orphaned snapshot ${snapshot._id} after preemption: ${cleanupErr.message}`,
-                                {
-                                    snapshotId: snapshot._id,
-                                    runItemId: item._id,
-                                    tenantId,
-                                    workerId: effectiveWorkerId,
-                                    error: cleanupErr.message
-                                },
-                                'failure',
-                                { throwOnError: true }
-                            );
-                        } catch (auditErr) {
-                            auditError = auditErr;
-                            console.error('[AuthorityBulkProcessor] Critical: orphan cleanup failure audit log failed in standalone rollback:', auditErr.message);
-                        }
-
-                        const combinedErrorMessage = auditError
-                            ? `CLEANUP_FAILED: ${cleanupErr.message}; AUDIT_LOG_FAILED: ${auditError.message}`
-                            : `CLEANUP_FAILED: ${cleanupErr.message}`;
-
-                        // Fenced failure update: check whether fenced update matched active owner
-                        const fencedRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                            item._id,
-                            tenantId,
-                            effectiveWorkerId,
-                            {
-                                $set: {
-                                    'recoveryState.stage': 'CLEANUP_FAILED',
-                                    'recoveryState.orphanedSnapshotId': snapshot._id,
-                                    'recoveryState.orphanedByWorkerId': effectiveWorkerId,
-                                    'recoveryState.failedAt': new Date(),
-                                    'recoveryState.error': combinedErrorMessage
-                                }
-                            }
-                        );
-                        if (!fencedRes) {
-                            console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback failure recording; state preserved for replacement worker.`);
-                        }
-                    }
-                }
-                return {
-                    success: false,
-                    reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                    ownershipLost: true
-                };
-            }
-        }
-
-        item.status = 'SUCCEEDED';
-        item.matchStatus = matchStatus;
-        item.snapshotId = snapshot._id;
-        item.proposedChanges = proposedChanges;
-        item.reviewerDecision = 'PENDING';
-        item.isSynthetic = Boolean(isFixtureMode);
-        item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-        item.processedAt = finalized.processedAt;
-        item.errorMessage = null;
-        item.leaseExpiresAt = null;
-
-        return {
-            success: true,
-            itemId: item._id,
-            snapshotId: snapshot._id,
-            matchStatus,
-            proposedChangesCount: proposedChanges.length
-        };
-        } finally {
+    } finally {
             if (heartbeat) {
                 heartbeat.stop();
             }

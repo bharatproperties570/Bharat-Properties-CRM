@@ -120,7 +120,31 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
         await writeAudit('AUTHORITY_PORTAL_SOURCE_PAUSED', authorityCode, searchKey, { reason }, correlation);
     }
 
-    return Object.freeze({
+    const runtimeBundle = {
+        lockProvider,
+        quotaProvider,
+        circuitBreakerStore,
+        auditSink,
+        transport,
+        parserRegistry,
+        gateConfig,
+
+        /**
+         * Safely initializes authority-global canonical rate policy on the runtime's exact quota provider.
+         * Fails closed if quota provider is not configured or fails.
+         */
+        async initializeCanonicalPolicy({ authorityCode, policy, approvedBy = 'system', policyVersion = 1 } = {}) {
+            if (!quotaProvider || typeof quotaProvider.setCanonicalPolicy !== 'function') {
+                throw makeError('NO_QUOTA_PROVIDER', 'Configured runtime has no quota provider supporting setCanonicalPolicy.');
+            }
+            return await quotaProvider.setCanonicalPolicy({
+                authorityCode,
+                policy,
+                approvedBy,
+                policyVersion
+            });
+        },
+
         async search({
             authorityCode,
             inventory = {},
@@ -427,7 +451,10 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                 await lease.release();
             }
         }
-    });
+    };
+
+    runtimeBundle.runtime = runtimeBundle;
+    return Object.freeze(runtimeBundle);
 }
 
 export { EXPECTED_HOSTS };
