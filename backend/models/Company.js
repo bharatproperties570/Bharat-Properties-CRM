@@ -173,7 +173,7 @@ CompanySchema.plugin(softDeletePlugin);
 // Without these, MongoDB performs full collection scans on every API call.
 CompanySchema.index({ updatedAt: -1 });                        // Default sort
 CompanySchema.index({ createdAt: -1 });                        // Newest First sort
-CompanySchema.index({ name: 1 });                              // Search by name
+// Note: `name` is already indexed uniquely at field level ({ unique: true }) on line 21; redundant schema.index({ name: 1 }) removed to eliminate Mongoose warning
 CompanySchema.index({ industry: 1, updatedAt: -1 });           // Industry filter + sort
 CompanySchema.index({ relationshipType: 1, updatedAt: -1 });   // Relationship filter + sort
 CompanySchema.index({ owner: 1, updatedAt: -1 });              // Owner filter + sort

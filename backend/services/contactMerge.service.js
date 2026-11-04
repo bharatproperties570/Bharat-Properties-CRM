@@ -356,11 +356,116 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
     });
 };
 
-export const rollbackMerge = async (mergeOperationId) => {
+/**
+ * Canonical Rollback Authorization & Visibility Policy
+ *
+ * Verifies that the caller has sufficient privileges and active visibility
+ * over both master and duplicate contacts for a given MergeAudit record.
+ *
+ * @param {Object} audit - The MergeAudit document
+ * @param {Object} user - The authenticated User object (req.user)
+ * @param {mongoose.ClientSession|null} [session=null] - Optional transaction session
+ * @returns {Promise<{ masterContact: Object, duplicateContact: Object }>}
+ * @throws {Error} with statusCode 401 (unauthenticated) or 403 (unauthorized/visibility denied)
+ */
+export async function verifyMergeRollbackAuthorization(audit, user, session = null) {
+    if (!user) {
+        const err = new Error('Not authenticated');
+        err.statusCode = 401;
+        throw err;
+    }
+
+    let roleName = String(user.role?.name || user.role || '').toLowerCase().trim();
+    let populatedUser = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+
+    if (mongoose.Types.ObjectId.isValid(roleName) && !['admin', 'super admin', 'manager'].includes(roleName)) {
+        try {
+            const Role = mongoose.model('Role');
+            const roleDoc = await Role.findById(user.role).lean();
+            if (roleDoc) {
+                roleName = String(roleDoc.name || '').toLowerCase().trim();
+                populatedUser.role = roleDoc;
+            }
+        } catch (_) {}
+    }
+
+    if (!populatedUser.role || typeof populatedUser.role !== 'object' || !populatedUser.role.name) {
+        populatedUser.role = { name: roleName };
+    }
+
+    const userEmail = String(user.email || '').toLowerCase().trim();
+    const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
+    const isAdmin = isSystemOwner || roleName === 'admin' || roleName === 'super admin' || user.dataScope === 'all';
+    const isManager = roleName === 'manager';
+    const isCreator = Boolean(
+        audit.createdBy &&
+        (user._id || user.id) &&
+        audit.createdBy.toString() === (user._id || user.id).toString()
+    );
+
+    if (!isAdmin && !isManager && !isCreator) {
+        const err = new Error('Forbidden: Insufficient privileges to roll back contact merge');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    const { getVisibilityFilter } = await import('../utils/visibility.js');
+    const visibilityFilter = await getVisibilityFilter(populatedUser);
+
+    const masterQuery = Contact.findOne({ _id: audit.masterContactId, ...visibilityFilter });
+    const duplicateQuery = Contact.findOne({ _id: audit.duplicateContactId, ...visibilityFilter }, null, { includeDeleted: true });
+
+    if (session) {
+        masterQuery.session(session);
+        duplicateQuery.session(session);
+    }
+
+    const [masterContact, duplicateContact] = await Promise.all([
+        masterQuery,
+        duplicateQuery
+    ]);
+
+    if (!masterContact || !duplicateContact) {
+        const err = new Error('Forbidden: Caller does not have visibility access to the merged contacts');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    return { masterContact, duplicateContact };
+}
+
+export const rollbackMerge = async (mergeOperationId, options = {}) => {
     return await withMongoTransaction(async (session) => {
         const audit = await MergeAudit.findOne({ mergeOperationId }).session(session);
-        if (!audit || audit.status !== 'COMPLETED') throw new Error('Invalid or uncompleted audit record');
-        if (!audit.rollbackAvailable) throw new Error('Rollback not available');
+        if (!audit || audit.status !== 'COMPLETED') {
+            const err = new Error('Invalid or uncompleted audit record');
+            err.statusCode = 404;
+            throw err;
+        }
+        if (!audit.rollbackAvailable) {
+            const err = new Error('Rollback not available');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        // Atomic In-Session Caller Authorization & Identity Verification
+        // No untrusted caller may invoke rollback without authorization.
+        // As no production system caller exists, system-level bypass is disabled;
+        // authenticated user context with verified role and visibility is strictly mandatory.
+        if (options.user) {
+            await verifyMergeRollbackAuthorization(audit, options.user, session);
+            audit.rolledBackBy = options.user._id || options.user.id;
+            audit.rolledBackAt = new Date();
+        } else if (options.trustedCapability || options.systemCaller || options.systemId) {
+            // Caller-supplied systemId strings, forged provenance, or arbitrary capability objects
+            const err = new Error('Forbidden: Caller-supplied systemId or arbitrary capabilities cannot authorize rollback. Authenticated user context is strictly required.');
+            err.statusCode = 403;
+            throw err;
+        } else {
+            const err = new Error('Forbidden: Missing caller authorization context. rollbackMerge requires an authorized user context.');
+            err.statusCode = 403;
+            throw err;
+        }
         
         // 1. Un-consolidate Master fields FIRST (removes duplicate's phone numbers from Master before Duplicate is restored)
         if (audit.fieldChanges && audit.fieldChanges.length > 0) {
