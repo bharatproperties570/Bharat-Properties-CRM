@@ -59,7 +59,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
 
     t.before(async () => {
         const isCI = Boolean(process.env.CI);
-        const maxAttempts = isCI ? 5 : 2;
+        const maxAttempts = isCI ? 15 : 2;
         const connectTimeout = isCI ? 5000 : 2000;
         const retryDelayMs = 1000;
 
@@ -106,7 +106,14 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             if (initialKeys.length > 0) await redisClient.del(...initialKeys);
             const initialQuotaKeys = await redisClient.keys('quota:*');
             if (initialQuotaKeys.length > 0) await redisClient.del(...initialQuotaKeys);
-        } catch {
+        } catch (setupErr) {
+            console.error('Redis connection or cleanup failed in t.before:', setupErr?.message || setupErr);
+            if (redisClient) {
+                try { redisClient.disconnect(); } catch {}
+            }
+            if (redisClient2) {
+                try { redisClient2.disconnect(); } catch {}
+            }
             isRedisAvailable = false;
         }
 
