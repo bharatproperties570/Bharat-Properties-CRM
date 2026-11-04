@@ -879,7 +879,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
                         executeWithinLeaseRan = true;
                         const cbRes = await args.executeWithinLease({
                             fenceToken: lease.fenceToken,
-                            isCurrentFence: async () => lease.isCurrent(),
+                            isCurrentFence: async () => runtime.lockProvider.isCurrentFenceToken(authorityCode, lease.fenceToken),
                             recordCount: 1,
                             records: [{
                                 propertyId: 'PLT-REDIS-1',
