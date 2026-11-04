@@ -398,10 +398,11 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                     <label style={labelStyle}>Ownership</label>
                                     <select style={selectStyle} value={formData.ownership} onChange={e => setFormData({...formData, ownership: e.target.value})}>
                                         <option value="">Select Ownership</option>
-                                        <option value="Freehold">Freehold</option>
-                                        <option value="Leasehold">Leasehold</option>
-                                        <option value="Power of Attorney">Power of Attorney</option>
-                                        <option value="Co-operative Society">Co-operative Society</option>
+                                        {(masterFields?.ownerships || []).map((own, i) => {
+                                            const ownName = typeof own === 'object' ? (own.lookup_value || own.name || own._id) : own;
+                                            const ownVal = typeof own === 'object' ? (own._id || own.id || ownName) : ownName;
+                                            return <option key={ownVal || i} value={ownName}>{ownName}</option>;
+                                        })}
                                     </select>
                                 </div>
                             </div>

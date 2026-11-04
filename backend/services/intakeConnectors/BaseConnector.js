@@ -44,6 +44,7 @@ class BaseConnector {
             seller_intent: mappedIntent,
             extracted_entities: normalizedData.extracted_entities || {},
             verification_status: normalizedData.verification_status || 'unverified',
+            verification_notes: Array.isArray(normalizedData.verification_notes) ? normalizedData.verification_notes : [],
             source_type: this.sourceType,
             source_confidence: normalizedData.source_confidence || 0,
             tenantId: normalizedData.tenantId || null,

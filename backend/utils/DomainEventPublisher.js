@@ -5,7 +5,8 @@ const ALLOWED_EVENTS = {
     'LeadUpdated': 'Lead',
     'ManualEnrichmentRequested': 'Lead',
     'ActivityCreated': 'Activity',
-    'ActivityUpdated': 'Activity'
+    'ActivityUpdated': 'Activity',
+    'ActivityDeleted': 'Activity'
 };
 
 async function _publishInternal(session, eventType, aggregateType, aggregateId, payload, provenance) {
@@ -25,7 +26,8 @@ async function _publishInternal(session, eventType, aggregateType, aggregateId, 
 
     const ModelName = aggregateType === 'Lead' ? 'Lead' : 'Activity';
     const Model = mongoose.models[ModelName] || mongoose.model(ModelName);
-    const aggregateExists = await Model.exists({ _id: aggregateId }).session(session);
+    const aggregateDoc = await Model.findOne({ _id: aggregateId }, '_id', { includeDeleted: true, session });
+    const aggregateExists = !!aggregateDoc;
     if (!aggregateExists) {
         throw new Error(`SECURITY_VIOLATION: Target aggregate ${aggregateType} ${aggregateId} does not exist`);
     }

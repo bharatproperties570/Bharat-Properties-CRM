@@ -180,9 +180,11 @@ export const completeActivity = async (req, res, next) => {
         // 5. Recalculate and save unified lead score
         let scoreResult = null;
         try {
+            const { AuthorityProofIssuer } = await import('../../../utils/ServerAuthorityProof.js');
+            const systemContract = AuthorityProofIssuer.issueSystemContract('activity_completion');
             scoreResult = await computeScore(leadId, {
-                triggeredBy: 'activity'
-            });
+                triggeredBy: 'activity_completion'
+            }, { user: req.user, systemAuthorityContract: systemContract });
         } catch (err) {
             console.error('[ActivityComplete] Scoring failed (non-critical):', err.message);
         }
@@ -277,7 +279,9 @@ export const completeActivityWithForm = async (req, res, next) => {
         // Recalculate score
         let scoreResult = null;
         try {
-            scoreResult = await computeScore(leadId, { triggeredBy: 'activity' });
+            const { AuthorityProofIssuer } = await import('../../../utils/ServerAuthorityProof.js');
+            const systemContract = AuthorityProofIssuer.issueSystemContract('activity_completion');
+            scoreResult = await computeScore(leadId, { triggeredBy: 'activity_completion' }, { user: req.user, systemAuthorityContract: systemContract });
         } catch (err) {
             console.error('[ActivityCompleteForm] Scoring failed:', err.message);
         }
@@ -316,7 +320,7 @@ export const completeActivityWithForm = async (req, res, next) => {
 export const recalculateLeadScore = async (req, res, next) => {
     try {
         const { leadId } = req.params;
-        const result = await computeScore(leadId, { triggeredBy: 'manual' });
+        const result = await computeScore(leadId, { triggeredBy: 'UI' }, { user: req.user });
 
         res.status(200).json({
             success: true,

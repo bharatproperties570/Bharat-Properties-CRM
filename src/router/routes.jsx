@@ -3,15 +3,16 @@ import { createBrowserRouter, useOutletContext, Navigate, Outlet, useParams, use
 import { AuthGuard } from './AuthGuard';
 import PublicChatWidget from '../components/PublicChatWidget';
 import ErrorBoundary from '../components/ErrorBoundary';
+import RouteErrorBoundary from '../components/RouteErrorBoundary';
 
-// Public Pages
-import LoginPage from '../pages/Auth/LoginPage';
-import ForgotPasswordPage from '../pages/Auth/ForgotPasswordPage';
-import ResetPasswordPage from '../pages/Auth/ResetPasswordPage';
-import PublicLeadForm from '../pages/Public/PublicLeadForm';
-import PublicDealForm from '../pages/Public/PublicDealForm';
-import PublicFeedbackForm from '../pages/Public/PublicFeedbackForm';
-import CaptureFormPage from '../pages/Public/CaptureFormPage';
+// Lazy Loaded Public Pages
+const LoginPage = lazy(() => import('../pages/Auth/LoginPage'));
+const ForgotPasswordPage = lazy(() => import('../pages/Auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('../pages/Auth/ResetPasswordPage'));
+const PublicLeadForm = lazy(() => import('../pages/Public/PublicLeadForm'));
+const PublicDealForm = lazy(() => import('../pages/Public/PublicDealForm'));
+const PublicFeedbackForm = lazy(() => import('../pages/Public/PublicFeedbackForm'));
+const CaptureFormPage = lazy(() => import('../pages/Public/CaptureFormPage'));
 
 // Lazy Loaded Public Pages
 const MatchBrochure = lazy(() => import('../pages/Public/MatchBrochure'));
@@ -119,118 +120,134 @@ const WithNav = ({ Component }) => {
         contextualOnEdit = context?.onEditContact || context?.onEdit;
     }
 
-    return <Component 
-        {...context} 
-        onEdit={contextualOnEdit}
-        onEditContact={context?.onEditContact}
-        onEditCompany={context?.onEditCompany}
-        onAddActivity={context?.onAddActivity}
-        onAddProject={context?.onAddProject}
-        onEditProject={context?.onEditProject}
-        onAddInventory={context?.onAddInventory}
-        onAddDeal={context?.onAddDeal}
-        {...params} 
-        dealId={params?.id} 
-        projectId={params?.id} 
-        inventoryId={params?.id} 
-        contactId={params?.id} 
-        onBack={handleBack}
-    />;
+    return (
+        <Suspense fallback={<RouteLoading />}>
+            <Component
+                {...context}
+                onEdit={contextualOnEdit}
+                onEditContact={context?.onEditContact}
+                onEditCompany={context?.onEditCompany}
+                onAddActivity={context?.onAddActivity}
+                onAddProject={context?.onAddProject}
+                onEditProject={context?.onEditProject}
+                onAddInventory={context?.onAddInventory}
+                onAddDeal={context?.onAddDeal}
+                {...params}
+                dealId={params?.id}
+                projectId={params?.id}
+                inventoryId={params?.id}
+                contactId={params?.id}
+                onBack={handleBack}
+            />
+        </Suspense>
+    );
 };
 
 
 // We define our router here
 export const router = createBrowserRouter([
-    // Auth Routes
-    { path: '/login', element: <WithNav Component={LoginPage} /> },
-    { path: '/forgot-password', element: <WithNav Component={ForgotPasswordPage} /> },
-    { path: '/reset-password/:token', element: <WithNav Component={ResetPasswordPage} /> },
-    
-    // Public Feature Routes
-    { 
-        element: <WithNav Component={PublicLayout} />, 
-        children: [
-            { path: '/public/form/:slug', element: <WithNav Component={PublicLeadForm} /> },
-            { path: '/public/deal/:slug', element: <WithNav Component={PublicDealForm} /> },
-            { path: '/public/feedback/:slug', element: <WithNav Component={PublicFeedbackForm} /> },
-            { path: '/capture/:slug', element: <WithNav Component={CaptureFormPage} /> },
-            { path: '/matches/:id', element: <WithNav Component={MatchBrochure} /> },
-            { path: '/p/:slug', element: <WithNav Component={PublicPortfolioPage} /> },
-            { path: '/journey/:token', element: <WithNav Component={ClientSiteVisitJourneyPage} /> },
-            { path: '/public/journey/:token', element: <WithNav Component={ClientSiteVisitJourneyPage} /> }
-        ]
-    },
-
-    // Protected Routes
     {
-        element: <WithNav Component={AuthGuard} />,
-        errorElement: <ErrorBoundary />,
+        errorElement: <RouteErrorBoundary />,
         children: [
-            {
-                element: <ProtectedLayout />,
+            // Auth Routes
+            { path: '/login', element: <WithNav Component={LoginPage} />, errorElement: <RouteErrorBoundary /> },
+            { path: '/forgot-password', element: <WithNav Component={ForgotPasswordPage} />, errorElement: <RouteErrorBoundary /> },
+            { path: '/reset-password/:token', element: <WithNav Component={ResetPasswordPage} />, errorElement: <RouteErrorBoundary /> },
+            
+            // Public Feature Routes
+            { 
+                element: <WithNav Component={PublicLayout} />, 
+                errorElement: <RouteErrorBoundary />,
                 children: [
-                    { path: '/', element: <WithNav Component={DashboardPage} /> },
-                    
-                    { path: '/contacts', element: <WithNav Component={ContactsPage} /> },
-                    { path: '/contacts/:id', element: <WithNav Component={ContactDetail} /> },
-                    
-                    { path: '/leads', element: <WithNav Component={LeadsPage} /> },
-                    { path: '/lead-analytics', element: <WithNav Component={LeadAnalyticsPage} /> },
-                    { path: '/leads/match/:id', element: <WithNav Component={LeadMatchingPage} /> },
-                    { path: '/leads/match', element: <WithNav Component={LeadMatchingPage} /> },
-                    { path: '/lead-matching', element: <WithNav Component={LeadMatchingPage} /> },
-                    { path: '/lead-matching/:id', element: <WithNav Component={LeadMatchingPage} /> },
-                    
-                    { path: '/deals', element: <WithNav Component={DealsPage} /> },
-                    { path: '/deal-analytics', element: <WithNav Component={DealAnalyticsPage} /> },
-                    { path: '/deals/match/:id', element: <WithNav Component={DealMatchingPage} /> },
-                    { path: '/deals/match', element: <WithNav Component={DealMatchingPage} /> },
-                    { path: '/deal-matching', element: <WithNav Component={DealMatchingPage} /> },
-                    { path: '/deal-matching/:id', element: <WithNav Component={DealMatchingPage} /> },
-                    { path: '/deals/:id', element: <WithNav Component={DealDetailPage} /> },
-                    { path: '/deal-intake', element: <WithNav Component={DealIntakePage} /> },
-                    
-                    { path: '/company', element: <WithNav Component={CompanyPage} /> },
-                    { path: '/company/:id', element: <WithNav Component={CompanyDetailPage} /> },
-                    
-                    { path: '/inventory', element: <WithNav Component={InventoryPage} /> },
-                    { path: '/inventory-analytics', element: <WithNav Component={InventoryAnalyticsPage} /> },
-                    { path: '/inventory-matching/:id', element: <WithNav Component={InventoryMatchingPage} /> },
-                    { path: '/inventory/:id', element: <WithNav Component={InventoryDetailPage} /> },
-                    
-                    { path: '/projects', element: <WithNav Component={ProjectsPage} /> },
-                    { path: '/projects/:id', element: <WithNav Component={ProjectDetailPage} /> },
-                    { path: '/projects/:id/master-plan', element: <WithNav Component={ProjectMasterPlanPage} /> },
-                    
-                    { path: '/activities', element: <WithNav Component={ActivitiesPage} /> },
-                    { path: '/booking', element: <WithNav Component={BookingPage} /> },
-                    { path: '/account', element: <WithNav Component={AccountPage} /> },
-                    { path: '/communication', element: <WithNav Component={CommunicationPage} /> },
-                    { path: '/reports', element: <WithNav Component={ReportsPage} /> },
-                    { path: '/profile', element: <WithNav Component={ProfilePage} /> },
-                    
-                    { path: '/marketing', element: <WithNav Component={MarketingOverviewPage} /> },
-                    { path: '/marketings', element: <Navigate to="/marketing-overview" replace /> },
-                    { path: '/marketing-overview', element: <WithNav Component={MarketingOverviewPage} /> },
-                    { path: '/marketing/sequences/:id', element: <WithNav Component={SequenceBuilderPage} /> },
-                    { path: '/wizard', element: <WithNav Component={WizardPage} /> },
-                    
-                    { path: '/settings', element: <WithNav Component={SettingsPage} /> },
-                    { path: '/settings/email', element: <WithNav Component={EmailSettingsPage} /> },
-                    { path: '/settings/integrations', element: <WithNav Component={IntegrationsSettingsPage} /> },
-                    { path: '/settings/messaging', element: <WithNav Component={MessagingSettingsPage} /> },
-                    { path: '/settings/notifications', element: <WithNav Component={NotificationSettingsPage} /> },
-                    { path: '/settings/sales-goals', element: <WithNav Component={SalesGoalsSettingsPage} /> },
-                    { path: '/settings/voice', element: <WithNav Component={VoiceSettingsPage} /> },
-                    { path: '/settings/enrichment', element: <WithNav Component={EnrichmentSettingsPage} /> },
-                    { path: '/settings/ai-agents', element: <WithNav Component={AiAgentsSettingsPage} /> },
-                    
-                    { path: '/google-callback', element: <WithNav Component={GoogleCallback} /> },
-                    
-                    // Fallback
-                    { path: '*', element: <div style={{ padding: '50px', textAlign: 'center' }}><h1>404 - Not Found</h1></div> }
+                    { path: '/public/form/:slug', element: <WithNav Component={PublicLeadForm} /> },
+                    { path: '/public/deal/:slug', element: <WithNav Component={PublicDealForm} /> },
+                    { path: '/public/feedback/:slug', element: <WithNav Component={PublicFeedbackForm} /> },
+                    { path: '/capture/:slug', element: <WithNav Component={CaptureFormPage} /> },
+                    { path: '/matches/:id', element: <WithNav Component={MatchBrochure} /> },
+                    { path: '/p/:slug', element: <WithNav Component={PublicPortfolioPage} /> },
+                    { path: '/journey/:token', element: <WithNav Component={ClientSiteVisitJourneyPage} /> },
+                    { path: '/public/journey/:token', element: <WithNav Component={ClientSiteVisitJourneyPage} /> }
                 ]
-            }
+            },
+
+            // Protected Routes
+            {
+                element: <WithNav Component={AuthGuard} />,
+                errorElement: <RouteErrorBoundary />,
+                children: [
+                    {
+                        element: <ProtectedLayout />,
+                        errorElement: <RouteErrorBoundary />,
+                        children: [
+                            { path: '/', element: <WithNav Component={DashboardPage} /> },
+                            
+                            { path: '/contacts', element: <WithNav Component={ContactsPage} /> },
+                            { path: '/contacts/:id', element: <WithNav Component={ContactDetail} /> },
+                            
+                            { path: '/leads', element: <WithNav Component={LeadsPage} /> },
+                            { path: '/lead-analytics', element: <WithNav Component={LeadAnalyticsPage} /> },
+                            { path: '/leads/match/:id', element: <WithNav Component={LeadMatchingPage} /> },
+                            { path: '/leads/match', element: <WithNav Component={LeadMatchingPage} /> },
+                            { path: '/lead-matching', element: <WithNav Component={LeadMatchingPage} /> },
+                            { path: '/lead-matching/:id', element: <WithNav Component={LeadMatchingPage} /> },
+                            
+                            { path: '/deals', element: <WithNav Component={DealsPage} /> },
+                            { path: '/deal-analytics', element: <WithNav Component={DealAnalyticsPage} /> },
+                            { path: '/deals/match/:id', element: <WithNav Component={DealMatchingPage} /> },
+                            { path: '/deals/match', element: <WithNav Component={DealMatchingPage} /> },
+                            { path: '/deal-matching', element: <WithNav Component={DealMatchingPage} /> },
+                            { path: '/deal-matching/:id', element: <WithNav Component={DealMatchingPage} /> },
+                            { path: '/deals/:id', element: <WithNav Component={DealDetailPage} /> },
+                            { path: '/deal-intake', element: <WithNav Component={DealIntakePage} /> },
+                            
+                            { path: '/company', element: <WithNav Component={CompanyPage} /> },
+                            { path: '/companies', element: <Navigate to="/company" replace /> },
+                            { path: '/company/:id', element: <WithNav Component={CompanyDetailPage} /> },
+                            { path: '/companies/:id', element: <Navigate to="/company/:id" replace /> },
+                            
+                            { path: '/inventory', element: <WithNav Component={InventoryPage} /> },
+                            { path: '/inventory-analytics', element: <WithNav Component={InventoryAnalyticsPage} /> },
+                            { path: '/inventory-matching/:id', element: <WithNav Component={InventoryMatchingPage} /> },
+                            { path: '/inventory/:id', element: <WithNav Component={InventoryDetailPage} /> },
+                            
+                            { path: '/projects', element: <WithNav Component={ProjectsPage} /> },
+                            { path: '/projects/:id', element: <WithNav Component={ProjectDetailPage} /> },
+                            { path: '/projects/:id/master-plan', element: <WithNav Component={ProjectMasterPlanPage} /> },
+                            
+                            { path: '/activities', element: <WithNav Component={ActivitiesPage} /> },
+                            { path: '/booking', element: <WithNav Component={BookingPage} /> },
+                            { path: '/account', element: <WithNav Component={AccountPage} /> },
+                            { path: '/communication', element: <WithNav Component={CommunicationPage} /> },
+                            { path: '/reports', element: <WithNav Component={ReportsPage} /> },
+                            { path: '/profile', element: <WithNav Component={ProfilePage} /> },
+                            
+                            { path: '/marketing', element: <WithNav Component={MarketingOverviewPage} /> },
+                            { path: '/marketings', element: <Navigate to="/marketing-overview" replace /> },
+                            { path: '/marketing-overview', element: <WithNav Component={MarketingOverviewPage} /> },
+                            { path: '/marketing/sequences/:id', element: <WithNav Component={SequenceBuilderPage} /> },
+                            { path: '/wizard', element: <WithNav Component={WizardPage} /> },
+                            
+                            { path: '/settings', element: <WithNav Component={SettingsPage} /> },
+                            { path: '/settings/email', element: <WithNav Component={EmailSettingsPage} /> },
+                            { path: '/settings/integrations', element: <WithNav Component={IntegrationsSettingsPage} /> },
+                            { path: '/settings/messaging', element: <WithNav Component={MessagingSettingsPage} /> },
+                            { path: '/settings/notifications', element: <WithNav Component={NotificationSettingsPage} /> },
+                            { path: '/settings/sales-goals', element: <WithNav Component={SalesGoalsSettingsPage} /> },
+                            { path: '/settings/voice', element: <WithNav Component={VoiceSettingsPage} /> },
+                            { path: '/settings/enrichment', element: <WithNav Component={EnrichmentSettingsPage} /> },
+                            { path: '/settings/ai-agents', element: <WithNav Component={AiAgentsSettingsPage} /> },
+                            
+                            { path: '/google-callback', element: <WithNav Component={GoogleCallback} /> },
+                            
+                            // Fallback
+                            { path: '*', element: <div style={{ padding: '50px', textAlign: 'center' }}><h1>404 - Not Found</h1></div> }
+                        ]
+                    }
+                ]
+            },
+
+            // Root Fallback
+            { path: '*', element: <Navigate to="/login" replace />, errorElement: <RouteErrorBoundary /> }
         ]
     }
 ]);

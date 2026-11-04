@@ -34,6 +34,16 @@ import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 
+const getCategoryColor = (catName) => {
+    const norm = String(catName || '').toLowerCase().trim();
+    if (norm.includes('resident')) return '#6366f1';
+    if (norm.includes('commercial')) return '#2563eb';
+    if (norm.includes('industrial')) return '#f59e0b';
+    if (norm.includes('institution')) return '#10b981';
+    if (norm.includes('agricultur')) return '#ec4899';
+    return '#8b5cf6';
+};
+
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
     const { isDark } = useTheme();
@@ -66,6 +76,52 @@ const DealStageChip = ({ stage }) => {
     );
 };
 
+// 🧠 SENIOR PROFESSIONAL: Universal Deal Size & Dimension Resolver (Module Scope)
+export const resolveDealSizeDisplay = (deal, fallback = 'Size TBA', resolveDealLookup = null) => {
+    if (!deal) return fallback;
+
+    const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+
+    // 1. Try resolving via lookups (sizeConfig or sizeLabel)
+    if (resolveDealLookup && typeof resolveDealLookup === 'function') {
+        const sizeConfigLookup = resolveDealLookup(deal.sizeConfig, 'Size') || resolveDealLookup(deal.inventoryId?.sizeConfig, 'Size');
+        if (sizeConfigLookup && !isHex(sizeConfigLookup)) {
+            return renderValue(sizeConfigLookup);
+        }
+
+        const sizeLabelLookup = resolveDealLookup(deal.sizeLabel, 'Size') || resolveDealLookup(deal.inventoryId?.sizeLabel, 'Size');
+        if (sizeLabelLookup && !isHex(sizeLabelLookup)) {
+            return renderValue(sizeLabelLookup);
+        }
+    }
+
+    // 2. Direct string or object sizeLabel if not a raw hex ID
+    const rawLabel = deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.inventoryId?.sizeLabel;
+    if (rawLabel) {
+        const labelStr = typeof rawLabel === 'object' ? (rawLabel.lookup_value || rawLabel.name || rawLabel.label) : rawLabel;
+        if (labelStr && !isHex(labelStr) && labelStr !== '-') {
+            return String(labelStr);
+        }
+    }
+
+    // 3. Fallback to dimensions
+    const w = deal.width || deal.unitSpecification?.width || deal.inventoryId?.width || deal.inventoryId?.unitSpecification?.width;
+    const l = deal.length || deal.unitSpecification?.length || deal.inventoryId?.length || deal.inventoryId?.unitSpecification?.length;
+    const metric = deal.widthMetric || deal.dimensionMetric || deal.unitSpecification?.widthMetric || deal.inventoryId?.widthMetric || 'Meter';
+    if (w && l) {
+        return `${w} x ${l} ${metric}`;
+    }
+
+    // 4. Fallback to size value and unit if non-zero
+    const szVal = typeof deal.size === 'object' ? deal.size?.value : deal.size;
+    const szUnit = typeof deal.size === 'object' ? deal.size?.unit : (deal.sizeUnit || 'Sq.Ft.');
+    if (szVal && szVal !== '0' && szVal !== 0 && szVal !== '0 Sq.Ft.') {
+        return `${szVal} ${szUnit}`;
+    }
+
+    return fallback;
+};
+
 function DealsPage({ onNavigate, onAddActivity }) {
     const { isDark } = useTheme();
     const queryClient = useQueryClient();
@@ -73,7 +129,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     
     const { data: teams = [] } = useTeams();
     const { startCall } = useCall();
-    const { getLookupValue, sizes } = usePropertyConfig();
+    const { getLookupValue, sizes, propertyConfig } = usePropertyConfig();
 
     // 🚀 Enterprise Deal Verification Desk State
     const [verifyingDeal, setVerifyingDeal] = useState(null);
@@ -194,7 +250,57 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const { data: dealsData, isLoading: loading } = useDeals(queryParams);
     const deals = dealsData?.records || [];
     const totalRecords = dealsData?.totalCount || 0;
+    const persistentTotalDeals = React.useRef(0);
+    if (totalRecords > 0 && (!filters.category || !filters.category.length)) {
+        persistentTotalDeals.current = totalRecords;
+    }
     const categoryStats = dealsData?.categoryStats || [];
+    const persistentCategoryStats = React.useRef([]);
+    if (categoryStats && categoryStats.length > 0 && (!filters.category || !filters.category.length)) {
+        persistentCategoryStats.current = categoryStats;
+    }
+    const displayCategoryStats = (persistentCategoryStats.current && persistentCategoryStats.current.length > 0)
+        ? persistentCategoryStats.current
+        : categoryStats;
+    const subCategoryStats = dealsData?.subCategoryStats || [];
+
+    const activeCategory = useMemo(() => {
+        if (!filters.category) return null;
+        if (Array.isArray(filters.category)) return filters.category[0] || null;
+        return filters.category;
+    }, [filters.category]);
+
+    const activeSubCategory = useMemo(() => {
+        if (!filters.subCategory) return null;
+        if (Array.isArray(filters.subCategory)) return filters.subCategory[0] || null;
+        return filters.subCategory;
+    }, [filters.subCategory]);
+
+    const resolvedSubCategories = useMemo(() => {
+        if (!activeCategory) return [];
+        const seen = new Set();
+        const list = [];
+
+        (subCategoryStats || []).forEach(s => {
+            if (!s || !s.name) return;
+            const norm = String(s.name).toLowerCase().trim();
+            seen.add(norm);
+            list.push({ name: s.name, count: s.count });
+        });
+
+        const configured = propertyConfig?.[activeCategory]?.subCategories || [];
+        configured.forEach(sub => {
+            const name = typeof sub === 'string' ? sub : (sub.name || sub.lookup_value);
+            if (!name) return;
+            const norm = String(name).toLowerCase().trim();
+            if (!seen.has(norm)) {
+                seen.add(norm);
+                list.push({ name, count: 0 });
+            }
+        });
+
+        return list;
+    }, [activeCategory, subCategoryStats, propertyConfig]);
 
     const updateDealMutation = useUpdateDealMutation({ isPartial: true });
     const deleteDealMutation = useDeleteDealMutation();
@@ -393,12 +499,92 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const handleRemoveFilter = (key) => {
         const newFilters = { ...filters };
         delete newFilters[key];
+        if (key === 'category') {
+            delete newFilters.subCategory;
+        }
         setFilters(newFilters);
+        setCurrentPage(1);
     };
 
     const handleClearAll = () => {
         setFilters({});
+        setCurrentPage(1);
     };
+
+    const handleCategoryFilter = (catName) => {
+        if (!catName) {
+            setFilters(prev => {
+                const next = { ...prev };
+                delete next.category;
+                delete next.subCategory;
+                return next;
+            });
+            setCurrentPage(1);
+            return;
+        }
+        setFilters(prev => {
+            const current = prev.category || [];
+            const isSelected = Array.isArray(current) 
+                ? current.some(c => c && String(c).toLowerCase() === String(catName).toLowerCase()) 
+                : (current && String(current).toLowerCase() === String(catName).toLowerCase());
+            if (isSelected) {
+                const next = { ...prev };
+                delete next.category;
+                delete next.subCategory;
+                return next;
+            }
+            const next = { ...prev, category: [catName] };
+            delete next.subCategory;
+            return next;
+        });
+        setCurrentPage(1);
+    };
+
+    const handleSubCategoryFilter = (subCatName) => {
+        if (!subCatName) {
+            setFilters(prev => {
+                const next = { ...prev };
+                delete next.subCategory;
+                return next;
+            });
+            setCurrentPage(1);
+            return;
+        }
+        setFilters(prev => {
+            const current = prev.subCategory || [];
+            const isSelected = Array.isArray(current)
+                ? current.some(c => c && String(c).toLowerCase() === String(subCatName).toLowerCase())
+                : (current && String(current).toLowerCase() === String(subCatName).toLowerCase());
+            if (isSelected) {
+                const next = { ...prev };
+                delete next.subCategory;
+                return next;
+            }
+            return { ...prev, subCategory: [subCatName] };
+        });
+        setCurrentPage(1);
+    };
+
+    // 🎯 [STAGE FILTER] Click on Pipeline Dashboard Stages to directly filter deals table
+    const handleStageClick = useCallback((stages) => {
+        setFilters(prev => {
+            const next = { ...prev };
+            const stageArr = Array.isArray(stages) ? stages : [stages];
+            const currentStages = Array.isArray(prev.stage) ? prev.stage : (prev.stage ? [prev.stage] : []);
+            
+            // Check if already selected -> toggle off
+            const isSame = stageArr.length === currentStages.length && 
+                stageArr.every(s => currentStages.some(cs => String(cs).toLowerCase() === String(s).toLowerCase()));
+            
+            if (isSame) {
+                delete next.stage;
+            } else {
+                next.stage = stageArr;
+            }
+            return next;
+        });
+        setCurrentPage(1);
+    }, []);
 
 
     // 🚀 ENTERPRISE GRADE: 100% Server-side filtering offloaded to Database
@@ -595,14 +781,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     </div>
                 </div>
 
-                {/* Pipeline Dashboard - Enhanced with Percentages */}
+                {/* Pipeline Dashboard - Enhanced with Percentages & Direct Stage Filter */}
                 <PipelineDashboard 
                     entityType="deal" 
                     refreshTrigger={refreshTrigger} 
-                    onStageClick={(stages) => {
-                        setFilters(prev => ({ ...prev, stage: Array.isArray(stages) ? stages : [stages] }));
-                        setIsFilterPanelOpen(true);
-                    }}
+                    activeStage={filters.stage}
+                    onStageClick={handleStageClick}
                 />
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
@@ -772,18 +956,38 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <div style={{ position: 'relative', width: '380px' }}>
-                                    <input
-                                        type="text"
-                                        className="search-input-premium"
-                                        placeholder="Search deals by ID, property or owner..."
-                                        value={searchTerm}
-                                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                                    <div style={{ position: 'relative', width: '320px', minWidth: '240px', flexShrink: 0 }}>
+                                        <input
+                                            type="text"
+                                            className="search-input-premium"
+                                            placeholder="Search deals by ID, property or owner..."
+                                            value={searchTerm}
+                                            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                        />
+                                        {searchTerm && (
+                                            <button
+                                                type="button"
+                                                className="search-clear-btn"
+                                                aria-label="Clear search"
+                                                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        )}
+                                        <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
+                                    </div>
+
+                                    {/* Active Filters Chips shown right in front of the search box in the same header */}
+                                    <ActiveFiltersChips
+                                        inline
+                                        filters={filters}
+                                        onRemoveFilter={handleRemoveFilter}
+                                        onClearAll={handleClearAll}
                                     />
-                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexShrink: 0 }}>
                                     <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                                         Showing: <strong>{deals.length}</strong> /{" "}
                                         <strong>{totalRecords}</strong>
@@ -969,12 +1173,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     </div>
 
 
-                    {/* Active Filters Chips */}
-                    <ActiveFiltersChips
-                        filters={filters}
-                        onRemoveFilter={handleRemoveFilter}
-                        onClearAll={handleClearAll}
-                    />
 
                     {/* Header */}
                     {currentView === 'list' && (
@@ -1136,13 +1334,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: isDark ? '#60a5fa' : '#2563eb' }}></i>
                                                     <span style={{ fontWeight: 700, color: isDark ? '#60a5fa' : '#2563eb' }}>
-                                                        {(() => {
-                                                            const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
-                                                            if (sizeFromLookup) return renderValue(sizeFromLookup);
-                                                            if (deal.sizeLabel) return renderValue(deal.sizeLabel);
-                                                            if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
-                                                            return 'Size N/A';
-                                                        })()}
+                                                        {resolveDealSizeDisplay(deal, 'Size N/A', resolveDealLookup)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1386,22 +1578,242 @@ function DealsPage({ onNavigate, onAddActivity }) {
             </Suspense>
 
             <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
-                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
-                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
-                    {categoryStats && categoryStats.length > 0 ? (
-                        categoryStats.map((stat, idx) => {
-                            const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
-                            const color = colors[idx % colors.length];
-                            const label = stat.name.toUpperCase();
-                            return (
-                                <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                                    <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
-                                    <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '0 1.5rem', width: '100%', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    {activeCategory ? (
+                        <>
+                            {/* Reset / Return to All Categories Pill */}
+                            <div 
+                                className="summary-label" 
+                                onClick={() => handleCategoryFilter(null)}
+                                style={{ 
+                                    background: isDark ? '#1e293b' : '#ffffff', 
+                                    color: isDark ? '#cbd5e1' : '#1e293b', 
+                                    borderRadius: '8px', 
+                                    fontSize: '0.68rem', 
+                                    padding: '5px 12px', 
+                                    fontWeight: 700, 
+                                    whiteSpace: 'nowrap', 
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1',
+                                    boxShadow: isDark ? '0 2px 6px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.08)',
+                                    transition: 'all 0.15s ease'
+                                }}
+                                title="Click to clear category and view all deals"
+                            >
+                                <span style={{ fontSize: '0.8rem', fontWeight: 900, pointerEvents: 'none' }}>←</span> ALL CATEGORIES
+                            </div>
+
+                            {/* Active Category Header Chip */}
+                            {(() => {
+                                const activeCatColor = getCategoryColor(activeCategory);
+                                const activeCatCount = displayCategoryStats.find(c => String(c.name).toLowerCase() === String(activeCategory).toLowerCase())?.count ?? totalRecords;
+                                return (
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '7px',
+                                            padding: '4px 12px',
+                                            borderRadius: '10px',
+                                            background: isDark ? `${activeCatColor}18` : `${activeCatColor}14`,
+                                            border: `1.5px solid ${activeCatColor}`,
+                                            boxShadow: isDark ? `0 0 10px ${activeCatColor}33` : `0 1px 4px ${activeCatColor}25`,
+                                            fontSize: '0.75rem',
+                                            fontWeight: 800,
+                                            color: activeCatColor,
+                                            whiteSpace: 'nowrap',
+                                            letterSpacing: '0.4px'
+                                        }}
+                                        title={`${activeCategory}: ${activeCatCount.toLocaleString()} deals`}
+                                    >
+                                        <span>{activeCategory.toUpperCase()}</span>
+                                        <span 
+                                            className="stat-val-bold" 
+                                            style={{ 
+                                                fontSize: '1rem', 
+                                                fontWeight: 800, 
+                                                color: isDark ? '#f8fafc' : '#0f172a',
+                                                marginLeft: '2px' 
+                                            }}
+                                        >
+                                            {activeCatCount.toLocaleString()}
+                                        </span>
+                                        <span
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCategoryFilter(null);
+                                            }}
+                                            title={`Clear ${activeCategory} filter`}
+                                            style={{
+                                                cursor: 'pointer',
+                                                marginLeft: '4px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '16px',
+                                                height: '16px',
+                                                borderRadius: '50%',
+                                                background: isDark ? `${activeCatColor}30` : `${activeCatColor}20`,
+                                                color: activeCatColor,
+                                                fontSize: '0.65rem',
+                                                fontWeight: 900,
+                                                lineHeight: 1,
+                                                transition: 'all 0.1s ease'
+                                            }}
+                                        >
+                                            ✕
+                                        </span>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Subtle Divider */}
+                            <div style={{ height: '20px', width: '1px', background: isDark ? 'rgba(255, 255, 255, 0.15)' : '#cbd5e1', margin: '0 4px', flexShrink: 0 }} />
+
+                            {/* Sub-Category Pills (Slightly smaller, refined enterprise pills) */}
+                            {resolvedSubCategories.length > 0 ? (
+                                resolvedSubCategories.map((sub, idx) => {
+                                    const subName = sub.name;
+                                    const activeCatColor = getCategoryColor(activeCategory);
+                                    const isSubSelected = activeSubCategory && String(activeSubCategory).toLowerCase() === String(subName).toLowerCase();
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className={`stat-pill subcategory-pill ${isSubSelected ? 'active-summary-pill' : ''}`}
+                                            onClick={() => handleSubCategoryFilter(subName)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                whiteSpace: 'nowrap',
+                                                cursor: 'pointer',
+                                                padding: '2px 8px',
+                                                borderRadius: '8px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: isSubSelected ? 800 : 600,
+                                                background: isSubSelected 
+                                                    ? (isDark ? `${activeCatColor}28` : `${activeCatColor}18`)
+                                                    : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff'),
+                                                border: isSubSelected 
+                                                    ? `1.5px solid ${activeCatColor}` 
+                                                    : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                boxShadow: isSubSelected ? `0 0 8px ${activeCatColor}40` : (isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)'),
+                                                color: isSubSelected ? activeCatColor : (isDark ? '#cbd5e1' : '#475569'),
+                                                transition: 'all 0.15s ease-in-out',
+                                                transform: isSubSelected ? 'scale(1.02)' : 'scale(1)'
+                                            }}
+                                            title={isSubSelected ? `Click to clear ${subName} filter` : `Filter by ${subName}`}
+                                        >
+                                            <span style={{ textTransform: 'capitalize' }}>
+                                                {isSubSelected && <span style={{ marginRight: '4px', fontSize: '0.65rem' }}>●</span>}
+                                                {subName}:
+                                            </span>
+                                            <span 
+                                                className="stat-val-bold" 
+                                                style={{ 
+                                                    fontWeight: 800, 
+                                                    fontSize: '0.88rem',
+                                                    color: isSubSelected ? activeCatColor : (isDark ? '#f8fafc' : '#0f172a')
+                                                }}
+                                            >
+                                                {sub.count.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #64748b)', fontStyle: 'italic' }}>
+                                    No sub-categories recorded for {activeCategory}
                                 </div>
-                            );
-                        })
+                            )}
+                        </>
                     ) : (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Calculating distribution...</div>
+                        <>
+                            <div 
+                                className="summary-label" 
+                                onClick={() => handleCategoryFilter(null)}
+                                style={{ 
+                                    background: isDark ? '#334155' : '#1e293b', 
+                                    color: '#fff', 
+                                    borderRadius: '8px', 
+                                    fontSize: '0.65rem', 
+                                    padding: '4px 12px', 
+                                    fontWeight: 800, 
+                                    whiteSpace: 'nowrap', 
+                                    cursor: 'pointer',
+                                    boxShadow: !filters.category?.length ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined
+                                }}
+                                title="Click to view all deals"
+                            >
+                                SUMMARY
+                            </div>
+
+                            {/* TOTAL DEAL Pill */}
+                            <div 
+                                className={`stat-pill ${(!filters.category || !filters.category.length) ? 'active-summary-pill' : ''}`} 
+                                onClick={() => handleCategoryFilter(null)}
+                                style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '5px', 
+                                    whiteSpace: 'nowrap',
+                                    cursor: 'pointer',
+                                    padding: '2px 8px',
+                                    borderRadius: '10px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.5px',
+                                    color: isDark ? '#e2e8f0' : '#1e293b',
+                                    background: (!filters.category || !filters.category.length) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                                    border: (!filters.category || !filters.category.length) ? '1.5px solid #6366f1' : '1px solid transparent',
+                                    boxShadow: (!filters.category || !filters.category.length) ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
+                                    transition: 'all 0.15s ease-in-out'
+                                }}
+                                title={(!filters.category || !filters.category.length) ? "Showing all deals" : "Click to view all deals"}
+                            >
+                                TOTAL DEAL 
+                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#10b981' }}>
+                                    {(persistentTotalDeals.current || totalRecords).toLocaleString()}
+                                </span>
+                            </div>
+
+                            {displayCategoryStats && displayCategoryStats.length > 0 ? (
+                                displayCategoryStats.map((stat, idx) => {
+                                    const color = getCategoryColor(stat.name);
+                                    const label = stat.name.toUpperCase();
+                                    const isSelected = Array.isArray(filters.category) 
+                                        ? filters.category.some(c => c && String(c).toLowerCase() === stat.name.toLowerCase())
+                                        : (filters.category && String(filters.category).toLowerCase() === stat.name.toLowerCase());
+
+                                    return (
+                                        <div 
+                                            key={idx} 
+                                            className={`stat-pill ${isSelected ? 'active-summary-pill' : ''}`} 
+                                            onClick={() => handleCategoryFilter(stat.name)}
+                                            style={{ 
+                                                display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                                                cursor: 'pointer',
+                                                padding: '2px 8px',
+                                                borderRadius: '10px',
+                                                background: isSelected ? `${color}20` : undefined,
+                                                border: isSelected ? `1.5px solid ${color}` : '1px solid transparent',
+                                                boxShadow: isSelected ? `0 0 5px ${color}40` : undefined,
+                                                transition: 'all 0.15s ease-in-out'
+                                            }}
+                                            title={`Filter by ${stat.name}`}
+                                        >
+                                            <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
+                                            <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: isDark ? '#f8fafc' : '#0f172a' }}>{stat.count.toLocaleString()}</span>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Calculating distribution...</div>
+                            )}
+                        </>
                     )}
                 </div>
             </footer>
@@ -1680,13 +2092,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     </div>
                     <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                        {(() => {
-                            const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
-                            if (sizeFromLookup) return renderValue(sizeFromLookup);
-                            if (deal.sizeLabel) return renderValue(deal.sizeLabel);
-                            if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
-                            return 'N/A';
-                        })()}
+                        {resolveDealSizeDisplay(deal, 'N/A', resolveDealLookup)}
                     </div>
                 </div>
             </div>
@@ -1730,10 +2136,21 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 
                 {(() => {
                     if (!deal.price) return null;
-                    const sizeId = typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : deal.sizeConfig;
-                    const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : null;
-                    const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : deal.size;
-                    const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : deal.sizeUnit || 'sq.ft.';
+                    const sizeId = (deal.sizeConfig && typeof deal.sizeConfig === 'object')
+                        ? (deal.sizeConfig._id || deal.sizeConfig.id)
+                        : (deal.sizeConfig || deal.sizeLabel?._id || (typeof deal.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(deal.sizeLabel) ? deal.sizeLabel : null));
+                    const sizeLabelValue = (deal.sizeLabel && typeof deal.sizeLabel === 'object')
+                        ? (deal.sizeLabel.lookup_value || deal.sizeLabel.name)
+                        : deal.sizeLabel;
+                    const sizeLookup = sizeId
+                        ? sizes?.find(size => size.id === sizeId)
+                        : (sizeLabelValue ? sizes?.find(s => s.name === sizeLabelValue) : null);
+                    const calcArea = sizeLookup && sizeLookup.totalArea
+                        ? parseFloat(sizeLookup.totalArea)
+                        : (deal.size && typeof deal.size === 'object' ? parseFloat(deal.size?.value) : parseFloat(deal.size));
+                    const calcUnit = sizeLookup && sizeLookup.resultMetric
+                        ? sizeLookup.resultMetric
+                        : (deal.size && typeof deal.size === 'object' ? deal.size?.unit : deal.sizeUnit || 'sq.ft.');
                     
                     if (calcArea && calcArea > 0) {
                         return (

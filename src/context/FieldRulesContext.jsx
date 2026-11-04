@@ -3,11 +3,27 @@ import { validateEntity } from '../utils/fieldRuleEngine';
 import { fieldRulesAPI, safeStorage } from '../utils/api';
 
 
-const FieldRulesContext = createContext();
+const defaultFieldRules = {
+    rules: [],
+    isLoading: false,
+    addRule: async () => {},
+    updateRule: async () => {},
+    deleteRule: async () => {},
+    toggleRuleStatus: async () => {},
+    validate: () => ({ isValid: true, errors: {} }),
+    validateAsync: async () => ({ isValid: true, errors: {} })
+};
+
+const FieldRulesContext = createContext(defaultFieldRules);
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useFieldRules = () => {
-    return useContext(FieldRulesContext);
+    const context = useContext(FieldRulesContext);
+    if (!context) {
+        console.warn('⚠️ [FieldRulesContext] useFieldRules called outside provider or during HMR module reload. Using safe fallback.');
+        return defaultFieldRules;
+    }
+    return context;
 };
 
 export const FieldRulesProvider = ({ children }) => {

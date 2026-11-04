@@ -2,7 +2,10 @@ import express from 'express';
 console.log('--- MARKETING ROUTES INITIALIZING ---');
 import { 
     getMarketingStats,
-    getCampaignRuns, 
+    getCampaignRuns,
+    getCampaignRunsForCampaign,
+    getCampaignRunMetrics,
+    getCampaignSummary,
     generateSocialContent, 
     generateEmailCampaign, 
     getRecentDeals,
@@ -27,7 +30,13 @@ import {
     getBNAAnalytics,
     getVariableRegistry,
     generateMatchLink,
-    createCampaignTrackedLink
+    createCampaignTrackedLink,
+    getLiveBroadcastState,
+    getLiveBroadcasts,
+    pauseBroadcastCampaign,
+    resumeBroadcastCampaign,
+    cancelBroadcastCampaign,
+    retryFailedBroadcastRecipients
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -53,6 +62,9 @@ router.use(authenticate);
 // ── Analytics ─────────────────────────────────────────────────────────────────
 router.get('/stats',         getMarketingStats);
 router.get('/campaign-runs', getCampaignRuns);
+router.get('/campaigns/:campaignId/runs', getCampaignRunsForCampaign);
+router.get('/campaign-runs/:runId/metrics', getCampaignRunMetrics);
+router.get('/campaigns/:campaignId/summary', getCampaignSummary);
 router.get('/recent-deals',  getRecentDeals);
 
 // ── AI Generation ─────────────────────────────────────────────────────────────
@@ -80,6 +92,14 @@ console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);
 router.post('/broadcast',      broadcastToHub);
 router.post('/broadcast/bna',  broadcastToBrokerGroup);
 router.get('/broadcast/analytics/:dealId', getBNAAnalytics);
+
+// ── Phase 4: Live Broadcast Progress Board & Operator Controls ────────────────
+router.get('/broadcast/live', getLiveBroadcasts);
+router.get('/broadcast/live/:campaignId', getLiveBroadcastState);
+router.post('/broadcast/:campaignId/pause', pauseBroadcastCampaign);
+router.post('/broadcast/:campaignId/resume', resumeBroadcastCampaign);
+router.post('/broadcast/:campaignId/cancel', cancelBroadcastCampaign);
+router.post('/broadcast/:campaignId/retry-failed', retryFailedBroadcastRecipients);
 
 router.post('/generate-match-link', generateMatchLink);
 router.post('/tracked-link', createCampaignTrackedLink);

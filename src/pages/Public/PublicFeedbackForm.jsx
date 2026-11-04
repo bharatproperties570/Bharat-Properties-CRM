@@ -354,6 +354,11 @@ const FieldRenderer = ({ field, value, onChange, activityDetails }) => {
 
 // ─── Main Public Feedback Form Page ─────────────────────────────────────────
 const PublicFeedbackForm = ({ slug }) => {
+    // 🛡️ CRITICAL-01: Extract token from URL query params, then scrub from URL bar
+    const [token] = useState(() => {
+        const queryParams = new URLSearchParams(window.location.search);
+        return queryParams.get('ref') || queryParams.get('token') || '';
+    });
     const [form, setForm] = useState(null);
     const [leadInfo, setLeadInfo] = useState(null);
     const [responses, setResponses] = useState({});
@@ -363,14 +368,20 @@ const PublicFeedbackForm = ({ slug }) => {
     const [activityDetails, setActivityDetails] = useState(null);
     const [error, setError] = useState(null);
 
+    // 🛡️ CRITICAL-01: Scrub token from browser URL to prevent leakage via shoulder surfing, history, or Referer
+    useEffect(() => {
+        if (window.history && window.history.replaceState && window.location.search) {
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+    }, []);
+
     useEffect(() => {
         const fetchForm = async () => {
             try {
-                const queryParams = new URLSearchParams(window.location.search);
-                const leadId = queryParams.get('leadId') || '';
-                const activityId = queryParams.get('activityId') || '';
-
-                const res = await api.get(`/feedback-forms/public/${slug}?leadId=${leadId}`);
+                // Transmit token securely via custom header rather than query params
+                const headers = token ? { 'x-feedback-token': token } : {};
+                const res = await api.get(`/feedback-forms/public/${slug}`, { headers });
                 if (!res.data?.success || !res.data?.data) {
                     setError('Form not found or is no longer active.');
                     return;
@@ -379,32 +390,9 @@ const PublicFeedbackForm = ({ slug }) => {
                 setForm(formData);
                 if (formData.leadInfo) {
                     setLeadInfo(formData.leadInfo);
-
-                    // 🌟 Auto-prefill lead details into matching form fields if present
-                    const info = formData.leadInfo;
-                    const autoFields = {};
-                    formData.sections?.forEach(sec => {
-                        sec.fields?.forEach(f => {
-                            const lbl = (f.label || '').toLowerCase();
-                            if (f.type === 'phone' || lbl.includes('phone') || lbl.includes('mobile')) {
-                                if (info.mobile) autoFields[f.id] = info.mobile;
-                            } else if (f.type === 'email' || lbl.includes('email')) {
-                                if (info.email) autoFields[f.id] = info.email;
-                            } else if (lbl.includes('name') && !lbl.includes('company')) {
-                                if (info.name) autoFields[f.id] = info.name;
-                            }
-                        });
-                    });
-                    setResponses(prev => ({ ...autoFields, ...prev }));
                 }
-
-                if (activityId) {
-                    try {
-                        const actRes = await api.get(`/activities/public/${activityId}`);
-                        if (actRes.data.success) setActivityDetails(actRes.data.data);
-                    } catch {
-                        // Activity details are optional — don't block the form
-                    }
+                if (formData.activityDetails) {
+                    setActivityDetails(formData.activityDetails);
                 }
             } catch (err) {
                 setError('This form could not be loaded. Please try again later.');
@@ -413,27 +401,26 @@ const PublicFeedbackForm = ({ slug }) => {
             }
         };
         fetchForm();
-    }, [slug]);
+    }, [slug, token]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const queryParams = new URLSearchParams(window.location.search);
-            const leadId = queryParams.get('leadId');
-            const inventoryId = queryParams.get('inventoryId');
-            const activityId = queryParams.get('activityId');
-
+            // 🛡️ CRITICAL-01: Send verified token in POST body.
+            // Client-supplied unauthenticated leadId / activityId are completely omitted.
             await api.post(`/feedback-forms/public/${slug}/submit`, {
                 responses,
-                leadId,
-                inventoryId,
-                activityId,
-                sourceMeta: { userAgent: navigator.userAgent, referrer: document.referrer }
+                token,
+                sourceMeta: { userAgent: navigator.userAgent }
             });
             setIsSubmitted(true);
-        } catch {
-            toast.error('Failed to submit feedback. Please try again.');
+        } catch (err) {
+            if (err.response?.status === 409) {
+                toast.error(err.response.data?.message || 'Feedback has already been submitted or completed.');
+            } else {
+                toast.error('Failed to submit feedback. Please try again.');
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -494,7 +481,7 @@ const PublicFeedbackForm = ({ slug }) => {
             <div className="feedback-glass-card" style={{ width: '100%', maxWidth: '660px', padding: '50px 44px' }}>
                 {/* Header */}
                 <div style={{ textAlign: 'center', marginBottom: '50px' }}>
-                    {leadInfo?.name && (
+                    {leadInfo?.greetingName && (
                         <div style={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -507,7 +494,7 @@ const PublicFeedbackForm = ({ slug }) => {
                             boxShadow: '0 4px 15px rgba(201, 146, 26, 0.15)'
                         }}>
                             <span style={{ fontSize: '0.95rem', color: '#f8fafc', fontWeight: 600 }}>
-                                Welcome, <span style={{ color: '#c9921a', fontWeight: 800 }}>{leadInfo.name}</span> 👋
+                                Welcome, <span style={{ color: '#c9921a', fontWeight: 800 }}>{leadInfo.greetingName}</span> 👋
                             </span>
                         </div>
                     )}

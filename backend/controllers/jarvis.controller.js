@@ -380,3 +380,90 @@ export const processMeetingNotesController = async (req, res) => {
         });
     }
 };
+
+/**
+ * POST /api/jarvis/speak
+ * Synthesize arbitrary text to speech using Gemini 3.8 Flash TTS
+ */
+export const handleJarvisSpeak = async (req, res) => {
+    try {
+        const { text, voice, style, speed } = req.body;
+        if (!text || typeof text !== 'string' || !text.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Text is required for speech synthesis'
+            });
+        }
+
+        const audioResult = await JarvisService.synthesizeSpeech(text, {
+            userId: req.user?._id,
+            voice,
+            style,
+            speed,
+            force: true // Allow preview even if globally disabled
+        });
+
+        if (!audioResult?.audioBase64) {
+            return res.status(500).json({
+                success: false,
+                message: 'Speech synthesis failed or model returned empty audio'
+            });
+        }
+
+        return res.json({
+            success: true,
+            audioBase64: audioResult.audioBase64,
+            mimeType: audioResult.mimeType,
+            voice: audioResult.voice
+        });
+    } catch (error) {
+        console.error('[JarvisController] Error synthesizing speech:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Speech synthesis error',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * GET /api/jarvis/voice-config
+ * Retrieve voice persona and synthesis settings
+ */
+export const getJarvisVoiceConfig = async (req, res) => {
+    try {
+        const config = await JarvisService.getVoiceConfig(req.user?._id);
+        return res.json({
+            success: true,
+            config
+        });
+    } catch (error) {
+        console.error('[JarvisController] Error getting voice config:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve voice config',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * POST /api/jarvis/voice-config
+ * Save voice persona and synthesis settings
+ */
+export const saveJarvisVoiceConfig = async (req, res) => {
+    try {
+        const saved = await JarvisService.saveVoiceConfig(req.body);
+        return res.json({
+            success: true,
+            config: saved
+        });
+    } catch (error) {
+        console.error('[JarvisController] Error saving voice config:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to save voice config',
+            error: error.message
+        });
+    }
+};

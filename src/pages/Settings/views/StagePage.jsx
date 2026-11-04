@@ -260,6 +260,140 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
 };
 
 // ─────────────────────────────────────────────
+// Add Custom Qualification Field Modal
+// ─────────────────────────────────────────────
+const AddCustomFieldModal = ({ onSave, onClose }) => {
+    const [fieldKey, setFieldKey] = useState('');
+    const [label, setLabel] = useState('');
+    const [tab, setTab] = useState('requirement');
+
+    const canSave = fieldKey.trim().length > 0 && label.trim().length > 0;
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+            <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '480px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div>
+                        <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#111827', margin: 0 }}>Add Custom / Future Field</h2>
+                        <p style={{ fontSize: '13px', color: '#6b7280', margin: '4px 0 0' }}>Register a new field from Add Lead form for stage qualification</p>
+                    </div>
+                    <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', color: '#64748b' }}>
+                        <i className="fas fa-times" />
+                    </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div>
+                        <label style={{ fontSize: '12px', fontWeight: 700, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                            Field Key (camelCase or snake_case) <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="e.g. preferredFloor, balconyView, vastuCompliant"
+                            value={fieldKey}
+                            onChange={(e) => setFieldKey(e.target.value.replace(/\s+/g, ''))}
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                        <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>Must match property key in lead or lead.customFields</span>
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '12px', fontWeight: 700, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                            Field Label (Human Readable) <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="e.g. Preferred Floor Preference"
+                            value={label}
+                            onChange={(e) => setLabel(e.target.value)}
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '12px', fontWeight: 700, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                            Add Lead Form Page / Tab <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <select
+                            value={tab}
+                            onChange={(e) => setTab(e.target.value)}
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', outline: 'none', background: '#fff', boxSizing: 'border-box' }}
+                        >
+                            <option value="requirement">Requirement Page / Tab</option>
+                            <option value="location">Location Page / Tab</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '24px' }}>
+                    <button onClick={onClose} style={{ padding: '9px 18px', background: '#f1f5f9', border: 'none', borderRadius: '8px', color: '#475569', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
+                        Cancel
+                    </button>
+                    <button
+                        disabled={!canSave}
+                        onClick={() => {
+                            if (canSave) {
+                                onSave({ key: fieldKey.trim(), label: label.trim(), tab });
+                                onClose();
+                            }
+                        }}
+                        style={{
+                            padding: '9px 20px',
+                            background: canSave ? '#6366f1' : '#cbd5e1',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                            cursor: canSave ? 'pointer' : 'not-allowed',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        <i className="fas fa-plus" /> Add Field
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const DEFAULT_QUAL_FIELDS = [
+    // Requirement Page Fields (Exact 12 Form Fields)
+    { key: 'requirement', label: 'Requirement Type', tab: 'requirement', isCore: true },
+    { key: 'propertyType', label: 'Categories', tab: 'requirement', isCore: true },
+    { key: 'subType', label: 'Sub-Categories', tab: 'requirement', isCore: true },
+    { key: 'sizeType', label: 'Size Type / Configuration', tab: 'requirement', isCore: true },
+    { key: 'budgetMin', label: 'Budget Range', tab: 'requirement', isCore: true, aliases: ['budgetMax', 'budget'] },
+    { key: 'timeline', label: 'Timeline', tab: 'requirement', isCore: true },
+    { key: 'areaMin', label: 'Area Range', tab: 'requirement', isCore: false, aliases: ['areaMax'] },
+    { key: 'areaMetric', label: 'Area Metric', tab: 'requirement', isCore: false },
+    { key: 'funding', label: 'Funding Source', tab: 'requirement', isCore: false },
+    { key: 'furnishing', label: 'Furnishing Status', tab: 'requirement', isCore: false },
+    { key: 'transactionType', label: 'Transaction Type', tab: 'requirement', isCore: false, aliases: ['whitePortion'] },
+    { key: 'purpose', label: 'Purpose', tab: 'requirement', isCore: false },
+
+    // Location Page Fields (Exact 16 Form Fields)
+    { key: 'locCity', label: 'City', tab: 'location', isCore: true, aliases: ['projectCity'] },
+    { key: 'locArea', label: 'Area / Sector', tab: 'location', isCore: true, aliases: ['sector', 'projectName'] },
+    { key: 'locState', label: 'State', tab: 'location', isCore: false },
+    { key: 'searchLocation', label: 'Search Location / Landmark', tab: 'location', isCore: false },
+    { key: 'range', label: 'Proximity Range', tab: 'location', isCore: false },
+    { key: 'projectCity', label: 'Project City', tab: 'location', isCore: false, aliases: ['locCity'] },
+    { key: 'projectName', label: 'Project Name', tab: 'location', isCore: false },
+    { key: 'projectTowers', label: 'Block / Tower', tab: 'location', isCore: false },
+    { key: 'locPinCode', label: 'Pin Code', tab: 'location', isCore: false, aliases: ['locPincode'] },
+    { key: 'locHNo', label: 'House / Flat No.', tab: 'location', isCore: false, aliases: ['propertyNo'] },
+    { key: 'locStreet', label: 'Street / Road', tab: 'location', isCore: false },
+    { key: 'propertyNo', label: 'Specific Unit Number', tab: 'location', isCore: false, aliases: ['locHNo'] },
+    { key: 'unitType', label: 'Unit Type', tab: 'location', isCore: false },
+    { key: 'facing', label: 'Facing', tab: 'location', isCore: false },
+    { key: 'roadWidth', label: 'Road Width', tab: 'location', isCore: false },
+    { key: 'direction', label: 'Direction', tab: 'location', isCore: false }
+];
+
+// ─────────────────────────────────────────────
 // Main StagePage Component
 // ─────────────────────────────────────────────
 
@@ -341,6 +475,143 @@ const StagePage = () => {
         }
     };
 
+    // ─── Stage Qualification Engine State ───
+    const [qualConfig, setQualConfig] = useState({
+        enabled: true,
+        targetStage: 'Prospect',
+        thresholdPercent: 80,
+        selectedFields: DEFAULT_QUAL_FIELDS.filter(f => f.isCore).map(f => f.key),
+        customFields: []
+    });
+    const [availableQualFields, setAvailableQualFields] = useState(DEFAULT_QUAL_FIELDS);
+    const [availableStages, setAvailableStages] = useState(['Incoming', 'Prospect', 'Engaged', 'Opportunity', 'Negotiation', 'Won', 'Lost']);
+    const [loadingQual, setLoadingQual] = useState(false);
+    const [savingQual, setSavingQual] = useState(false);
+    const [runningSync, setRunningSync] = useState(false);
+    const [fieldSearch, setFieldSearch] = useState('');
+    const [activeFieldTab, setActiveFieldTab] = useState('all'); // 'all', 'requirement', 'location', 'custom'
+    const [showAddCustomModal, setShowAddCustomModal] = useState(false);
+
+    const fetchQualData = async () => {
+        try {
+            setLoadingQual(true);
+            const res = await systemSettingsAPI.getStageQualificationConfig();
+            if (res?.success && res?.data) {
+                if (res.data.rule) setQualConfig(res.data.rule);
+                if (Array.isArray(res.data.fields)) setAvailableQualFields(res.data.fields);
+                if (Array.isArray(res.data.stages) && res.data.stages.length > 0) setAvailableStages(res.data.stages);
+            }
+        } catch (e) {
+            console.error("Failed to load stage qualification config", e);
+        } finally {
+            setLoadingQual(false);
+        }
+    };
+
+    React.useEffect(() => {
+        fetchQualData();
+    }, []);
+
+    const handleSaveQualificationRule = async () => {
+        try {
+            setSavingQual(true);
+            await systemSettingsAPI.upsert('stage_qualification_rules', {
+                value: qualConfig,
+                category: 'sales_config',
+                description: 'Rule for auto-promoting lead to target stage when requirement completeness meets threshold'
+            });
+            showToast('Stage Qualification Rule saved successfully!');
+            await fetchQualData();
+        } catch (err) {
+            console.error("Save qualification rule error:", err);
+            showToast('Failed to save qualification rule', 'error');
+        } finally {
+            setSavingQual(false);
+        }
+    };
+
+    const handleSyncExistingLeads = async () => {
+        try {
+            setRunningSync(true);
+            const res = await systemSettingsAPI.reEvaluateExistingLeads({
+                body: JSON.stringify({ rule: qualConfig })
+            });
+            if (res?.success) {
+                showToast(res.message || `Promoted ${res.data?.promotedCount} leads!`, 'success');
+                // Refresh data if needed
+                await fetchQualData();
+            } else {
+                showToast(res?.message || 'Sync failed', 'error');
+            }
+        } catch (err) {
+            console.error('Error syncing existing leads:', err);
+            const errMsg = err?.response?.data?.message || err?.message || 'Failed to sync existing leads';
+            showToast(errMsg, 'error');
+        } finally {
+            setRunningSync(false);
+        }
+    };
+
+    const handleToggleField = (key) => {
+        setQualConfig(prev => {
+            const currentSelected = Array.isArray(prev.selectedFields) ? prev.selectedFields : [];
+            const exists = currentSelected.includes(key);
+            const updated = exists ? currentSelected.filter(k => k !== key) : [...currentSelected, key];
+            return { ...prev, selectedFields: updated };
+        });
+    };
+
+    const handleSelectAllFields = () => {
+        const allKeys = availableQualFields.map(f => f.key);
+        setQualConfig(prev => ({ ...prev, selectedFields: allKeys }));
+    };
+
+    const handleDeselectAllFields = () => {
+        setQualConfig(prev => ({ ...prev, selectedFields: [] }));
+    };
+
+    const handleResetToCoreFields = () => {
+        const coreKeys = availableQualFields.filter(f => f.isCore).map(f => f.key);
+        setQualConfig(prev => ({ ...prev, selectedFields: coreKeys }));
+    };
+
+    const handleSelectTabFields = (tabName) => {
+        const tabKeys = availableQualFields.filter(f => f.tab === tabName).map(f => f.key);
+        setQualConfig(prev => {
+            const current = new Set(prev.selectedFields || []);
+            tabKeys.forEach(k => current.add(k));
+            return { ...prev, selectedFields: Array.from(current) };
+        });
+    };
+
+    const handleDeselectTabFields = (tabName) => {
+        const tabKeys = new Set(availableQualFields.filter(f => f.tab === tabName).map(f => f.key));
+        setQualConfig(prev => ({
+            ...prev,
+            selectedFields: (prev.selectedFields || []).filter(k => !tabKeys.has(k))
+        }));
+    };
+
+    const handleAddCustomField = (newField) => {
+        setAvailableQualFields(prev => [...prev, newField]);
+        setQualConfig(prev => ({
+            ...prev,
+            selectedFields: [...(prev.selectedFields || []), newField.key],
+            customFields: [...(prev.customFields || []), newField]
+        }));
+        showToast(`Custom field "${newField.label}" added and selected!`);
+    };
+
+    const handleRemoveCustomField = (keyToRemove) => {
+        setAvailableQualFields(prev => prev.filter(f => f.key !== keyToRemove));
+        setQualConfig(prev => ({
+            ...prev,
+            selectedFields: (prev.selectedFields || []).filter(k => k !== keyToRemove),
+            customFields: (prev.customFields || []).filter(cf => (typeof cf === 'string' ? cf : cf.key) !== keyToRemove)
+        }));
+        showToast('Custom field removed');
+    };
+
     const allRows = useMemo(() => flattenOutcomeMappings(activityMasterFields), [activityMasterFields]);
     const filteredRows = useMemo(() => allRows.filter(row => {
         const q = search.toLowerCase();
@@ -360,6 +631,7 @@ const StagePage = () => {
 
     const tabs = [
         { id: 'rules', label: 'Rule Table', icon: 'fa-table' },
+        { id: 'qualification', label: 'Requirement Qualification', icon: 'fa-tasks' },
         { id: 'density', label: 'Stage Density', icon: 'fa-chart-bar' },
         { id: 'stability', label: 'Stability Lock', icon: 'fa-lock' },
         { id: 'sequence', label: 'Sequence Guard', icon: 'fa-project-diagram' },
@@ -374,6 +646,7 @@ const StagePage = () => {
         <div style={{ flex: 1, height: '100%', background: '#f8fafc', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             {notification.show && <Toast message={notification.message} type={notification.type} onClose={() => setNotification(n => ({ ...n, show: false }))} />}
             {showAddModal && <AddRuleModal activityMasterFields={activityMasterFields} onClose={() => setShowAddModal(false)} onSave={rule => { addStageMappingRule(rule); showToast('Override rule added successfully'); }} />}
+            {showAddCustomModal && <AddCustomFieldModal onSave={handleAddCustomField} onClose={() => setShowAddCustomModal(false)} />}
 
             {/* Page Header */}
             <div style={{ padding: '28px 32px 0', borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
@@ -404,6 +677,24 @@ const StagePage = () => {
                             <button onClick={() => setShowAddModal(true)} style={{ padding: '8px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-plus" />+ Override Rule
                             </button>
+                        )}
+                        {activeTab === 'qualification' && (
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <button
+                                    onClick={() => setShowAddCustomModal(true)}
+                                    style={{ padding: '8px 16px', background: '#fff', border: '1px solid #cbd5e1', color: '#475569', borderRadius: '8px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                    <i className="fas fa-plus" /> Add Field
+                                </button>
+                                <button
+                                    onClick={handleSaveQualificationRule}
+                                    disabled={savingQual}
+                                    style={{ padding: '8px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: savingQual ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
+                                >
+                                    {savingQual ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-save" />}
+                                    Save Rule Changes
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -705,6 +996,589 @@ const StagePage = () => {
                     </div>
                 </div>
             )}
+
+            {/* ─── TAB 2: Requirement Stage Qualification ─── */}
+            {activeTab === 'qualification' && (() => {
+                const selectedSet = new Set(qualConfig.selectedFields || []);
+                const threshold = Number(qualConfig.thresholdPercent) || 80;
+                const totalSelected = selectedSet.size;
+                const requiredCount = Math.ceil((totalSelected * threshold) / 100);
+
+                const q = fieldSearch.toLowerCase().trim();
+                const matchesSearch = (f) => !q || f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q);
+
+                const reqList = availableQualFields.filter(f => f.tab === 'requirement' && !f.isCustom);
+                const locList = availableQualFields.filter(f => f.tab === 'location' && !f.isCustom);
+                const customList = availableQualFields.filter(f => f.isCustom);
+
+                const visibleReq = reqList.filter(matchesSearch);
+                const visibleLoc = locList.filter(matchesSearch);
+                const visibleCustom = customList.filter(matchesSearch);
+
+                const reqSelectedCount = reqList.filter(f => selectedSet.has(f.key)).length;
+                const locSelectedCount = locList.filter(f => selectedSet.has(f.key)).length;
+                const customSelectedCount = customList.filter(f => selectedSet.has(f.key)).length;
+
+                return (
+                    <div style={{ padding: '24px 32px', flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        {/* Master Activation Banner */}
+                        <div style={{
+                            background: qualConfig.enabled ? 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)' : '#f8fafc',
+                            border: qualConfig.enabled ? '1.5px solid #a7f3d0' : '1.5px solid #e2e8f0',
+                            borderRadius: '14px',
+                            padding: '20px 24px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.03)'
+                        }}>
+                            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                                <div style={{
+                                    width: '44px',
+                                    height: '44px',
+                                    borderRadius: '12px',
+                                    background: qualConfig.enabled ? '#10b98120' : '#64748b15',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: qualConfig.enabled ? '#10b981' : '#64748b',
+                                    fontSize: '20px',
+                                    flexShrink: 0
+                                }}>
+                                    <i className={`fas ${qualConfig.enabled ? 'fa-bolt' : 'fa-power-off'}`} />
+                                </div>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#111827' }}>
+                                            Requirement Data Completeness Qualification Engine
+                                        </h3>
+                                        <span style={{
+                                            padding: '2px 10px',
+                                            borderRadius: '20px',
+                                            fontSize: '11px',
+                                            fontWeight: 800,
+                                            background: qualConfig.enabled ? '#10b981' : '#94a3b8',
+                                            color: '#fff'
+                                        }}>
+                                            {qualConfig.enabled ? 'ACTIVE' : 'DISABLED'}
+                                        </span>
+                                    </div>
+                                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#4b5563', lineHeight: 1.5 }}>
+                                        Auto-promote leads from <b>Incoming</b> to <b>{qualConfig.targetStage}</b> when at least <b>{qualConfig.thresholdPercent}%</b> of selected Requirement & Location fields are provided on the Add Lead form.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    onClick={handleSyncExistingLeads}
+                                    disabled={runningSync || !qualConfig.enabled}
+                                    style={{
+                                        padding: '8px 16px',
+                                        borderRadius: '8px',
+                                        border: '1.5px solid #6366f1',
+                                        background: runningSync ? '#f1f5f9' : '#6366f115',
+                                        color: '#6366f1',
+                                        fontWeight: 800,
+                                        fontSize: '12px',
+                                        cursor: (runningSync || !qualConfig.enabled) ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        boxShadow: '0 1px 3px rgba(99,102,241,0.1)'
+                                    }}
+                                    title="Scan all existing Incoming leads in CRM and promote those meeting the completeness threshold to Prospect"
+                                >
+                                    {runningSync ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-sync" />}
+                                    {runningSync ? 'Evaluating Leads...' : 'Sync & Qualify Existing Leads'}
+                                </button>
+
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
+                                    <span style={{ fontSize: '13px', fontWeight: 700, color: qualConfig.enabled ? '#047857' : '#64748b' }}>
+                                        {qualConfig.enabled ? 'Rule Enabled' : 'Rule Paused'}
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        checked={qualConfig.enabled}
+                                        onChange={(e) => setQualConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                                        style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Top Control Cards Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                            {/* Card 1: Target Qualification Stage */}
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                    <span style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#6b7280', letterSpacing: '0.5px' }}>
+                                        Target Stage
+                                    </span>
+                                    <StageChip stage={qualConfig.targetStage} />
+                                </div>
+                                <select
+                                    value={qualConfig.targetStage}
+                                    onChange={(e) => setQualConfig(prev => ({ ...prev, targetStage: e.target.value }))}
+                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', fontWeight: 700, color: '#1e293b', background: '#f8fafc', outline: 'none' }}
+                                >
+                                    {Array.from(new Set([qualConfig.targetStage, ...availableStages])).filter(Boolean).map(st => (
+                                        <option key={st} value={st}>{st}</option>
+                                    ))}
+                                </select>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px', display: 'block' }}>
+                                    Lead is promoted to this stage when requirement threshold is met
+                                </span>
+                            </div>
+
+                            {/* Card 2: Completeness Threshold */}
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#6b7280', letterSpacing: '0.5px' }}>
+                                        Completeness Threshold
+                                    </span>
+                                    <span style={{ fontSize: '18px', fontWeight: 900, color: '#6366f1' }}>
+                                        {qualConfig.thresholdPercent}%
+                                    </span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="50"
+                                    max="100"
+                                    step="5"
+                                    value={qualConfig.thresholdPercent}
+                                    onChange={(e) => setQualConfig(prev => ({ ...prev, thresholdPercent: Number(e.target.value) }))}
+                                    style={{ width: '100%', accentColor: '#6366f1', cursor: 'pointer', marginBottom: '10px' }}
+                                />
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    {[60, 70, 80, 90, 100].map(pct => (
+                                        <button
+                                            key={pct}
+                                            type="button"
+                                            onClick={() => setQualConfig(prev => ({ ...prev, thresholdPercent: pct }))}
+                                            style={{
+                                                flex: 1,
+                                                padding: '4px 0',
+                                                borderRadius: '6px',
+                                                border: qualConfig.thresholdPercent === pct ? '1.5px solid #6366f1' : '1px solid #e2e8f0',
+                                                background: qualConfig.thresholdPercent === pct ? '#6366f115' : '#f8fafc',
+                                                color: qualConfig.thresholdPercent === pct ? '#6366f1' : '#64748b',
+                                                fontSize: '11px',
+                                                fontWeight: qualConfig.thresholdPercent === pct ? 800 : 600,
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            {pct}%{pct === 80 ? ' ★' : ''}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Card 3: Live Simulator Calculation */}
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#6b7280', letterSpacing: '0.5px' }}>
+                                        Live Rule Simulator
+                                    </span>
+                                    <span style={{ fontSize: '12px', fontWeight: 700, color: totalSelected > 0 ? '#10b981' : '#ef4444' }}>
+                                        {totalSelected > 0 ? `${requiredCount} of ${totalSelected} fields` : '0 fields selected'}
+                                    </span>
+                                </div>
+                                <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden', marginBottom: '10px' }}>
+                                    <div style={{
+                                        width: `${threshold}%`,
+                                        height: '100%',
+                                        background: 'linear-gradient(90deg, #6366f1, #10b981)',
+                                        borderRadius: '4px',
+                                        transition: 'width 0.3s ease'
+                                    }} />
+                                </div>
+                                <p style={{ margin: 0, fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
+                                    {totalSelected > 0 ? (
+                                        <>When filling Add Lead form, entering at least <b>{requiredCount} fields</b> qualifies the lead as <b>{qualConfig.targetStage}</b>.</>
+                                    ) : (
+                                        <span style={{ color: '#ef4444' }}>Warning: No fields selected. Please select fields below.</span>
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Field Selection Filter Bar */}
+                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '14px 20px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                {[
+                                    { id: 'all', label: `All Fields (${availableQualFields.length})`, icon: 'fa-layer-group' },
+                                    { id: 'requirement', label: `Requirement (${reqList.length})`, icon: 'fa-clipboard-list' },
+                                    { id: 'location', label: `Location (${locList.length})`, icon: 'fa-map-marker-alt' },
+                                    { id: 'custom', label: `Dynamic / Custom (${customList.length})`, icon: 'fa-sparkles' }
+                                ].map(tabItem => (
+                                    <button
+                                        key={tabItem.id}
+                                        type="button"
+                                        onClick={() => setActiveFieldTab(tabItem.id)}
+                                        style={{
+                                            padding: '6px 14px',
+                                            borderRadius: '20px',
+                                            border: activeFieldTab === tabItem.id ? '1.5px solid #6366f1' : '1px solid #e2e8f0',
+                                            background: activeFieldTab === tabItem.id ? '#6366f115' : '#fff',
+                                            color: activeFieldTab === tabItem.id ? '#6366f1' : '#64748b',
+                                            fontSize: '12px',
+                                            fontWeight: activeFieldTab === tabItem.id ? 800 : 600,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <i className={`fas ${tabItem.icon}`} style={{ fontSize: '11px' }} />
+                                        {tabItem.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <div style={{ position: 'relative' }}>
+                                    <i className="fas fa-search" style={{ position: 'absolute', left: '10px', top: '10px', color: '#94a3b8', fontSize: '12px' }} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search fields..."
+                                        value={fieldSearch}
+                                        onChange={(e) => setFieldSearch(e.target.value)}
+                                        style={{ padding: '6px 12px 6px 30px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '12px', outline: 'none', width: '160px' }}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAllFields}
+                                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#334155', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                    Select All
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleDeselectAllFields}
+                                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#ef4444', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                    Clear All
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleResetToCoreFields}
+                                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#6366f1', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                    Reset to Core
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Section 1: Requirement Tab Fields */}
+                        {(activeFieldTab === 'all' || activeFieldTab === 'requirement') && (
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#6366f115', color: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-clipboard-list" style={{ fontSize: '13px' }} />
+                                        </div>
+                                        <div>
+                                            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: '#111827' }}>
+                                                Requirement Page Fields (Add Lead Tab 1)
+                                            </h4>
+                                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                                {reqSelectedCount} of {reqList.length} fields selected
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSelectTabFields('requirement')}
+                                            style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '11px', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+                                        >
+                                            Select All Requirement
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeselectTabFields('requirement')}
+                                            style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '11px', fontWeight: 700, color: '#94a3b8', cursor: 'pointer' }}
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style={{ padding: '18px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                                    {visibleReq.length > 0 ? visibleReq.map(f => {
+                                        const isSelected = selectedSet.has(f.key);
+                                        return (
+                                            <div
+                                                key={f.key}
+                                                onClick={() => handleToggleField(f.key)}
+                                                style={{
+                                                    padding: '12px 14px',
+                                                    borderRadius: '10px',
+                                                    border: isSelected ? '1.5px solid #6366f1' : '1px solid #e2e8f0',
+                                                    background: isSelected ? '#6366f108' : '#fff',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s ease',
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: '12px',
+                                                    boxShadow: isSelected ? '0 2px 8px rgba(99,102,241,0.08)' : 'none'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => {}}
+                                                    style={{ marginTop: '3px', width: '16px', height: '16px', accentColor: '#6366f1', cursor: 'pointer' }}
+                                                />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                                                        <span style={{ fontSize: '13px', fontWeight: isSelected ? 800 : 600, color: isSelected ? '#1e293b' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {f.label}
+                                                        </span>
+                                                        {f.isCore && (
+                                                            <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', background: '#6366f115', color: '#6366f1', flexShrink: 0 }}>
+                                                                CORE
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>
+                                                        key: {f.key}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }) : (
+                                        <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                            No requirement fields match your search.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Section 2: Location Tab Fields */}
+                        {(activeFieldTab === 'all' || activeFieldTab === 'location') && (
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#f43f5e15', color: '#f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-map-marker-alt" style={{ fontSize: '13px' }} />
+                                        </div>
+                                        <div>
+                                            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: '#111827' }}>
+                                                Location Page Fields (Add Lead Tab 2)
+                                            </h4>
+                                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                                {locSelectedCount} of {locList.length} fields selected
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSelectTabFields('location')}
+                                            style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '11px', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+                                        >
+                                            Select All Location
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeselectTabFields('location')}
+                                            style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '11px', fontWeight: 700, color: '#94a3b8', cursor: 'pointer' }}
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style={{ padding: '18px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                                    {visibleLoc.length > 0 ? visibleLoc.map(f => {
+                                        const isSelected = selectedSet.has(f.key);
+                                        return (
+                                            <div
+                                                key={f.key}
+                                                onClick={() => handleToggleField(f.key)}
+                                                style={{
+                                                    padding: '12px 14px',
+                                                    borderRadius: '10px',
+                                                    border: isSelected ? '1.5px solid #f43f5e' : '1px solid #e2e8f0',
+                                                    background: isSelected ? '#f43f5e08' : '#fff',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s ease',
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: '12px',
+                                                    boxShadow: isSelected ? '0 2px 8px rgba(244,63,94,0.08)' : 'none'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => {}}
+                                                    style={{ marginTop: '3px', width: '16px', height: '16px', accentColor: '#f43f5e', cursor: 'pointer' }}
+                                                />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                                                        <span style={{ fontSize: '13px', fontWeight: isSelected ? 800 : 600, color: isSelected ? '#1e293b' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {f.label}
+                                                        </span>
+                                                        {f.isCore && (
+                                                            <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', background: '#f43f5e15', color: '#f43f5e', flexShrink: 0 }}>
+                                                                CORE
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>
+                                                        key: {f.key}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }) : (
+                                        <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                            No location fields match your search.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Section 3: Dynamic / Custom Fields */}
+                        {(activeFieldTab === 'all' || activeFieldTab === 'custom') && (
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#8b5cf615', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-sparkles" style={{ fontSize: '13px' }} />
+                                        </div>
+                                        <div>
+                                            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: '#111827' }}>
+                                                Future-Proof Dynamic & Custom Fields
+                                            </h4>
+                                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                                {customSelectedCount} of {customList.length} custom fields selected
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddCustomModal(true)}
+                                        style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: '#8b5cf6', color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                        <i className="fas fa-plus" /> Add Future Field
+                                    </button>
+                                </div>
+
+                                {visibleCustom.length === 0 ? (
+                                    <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                        No custom fields added yet. If any new field is introduced on the Requirement or Location page in the future, click <b>Add Future Field</b> above.
+                                    </div>
+                                ) : (
+                                    <div style={{ padding: '18px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                                        {visibleCustom.map(f => {
+                                            const isSelected = selectedSet.has(f.key);
+                                            return (
+                                                <div
+                                                    key={f.key}
+                                                    style={{
+                                                        padding: '12px 14px',
+                                                        borderRadius: '10px',
+                                                        border: isSelected ? '1.5px solid #8b5cf6' : '1px solid #e2e8f0',
+                                                        background: isSelected ? '#8b5cf608' : '#fff',
+                                                        transition: 'all 0.15s ease',
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        gap: '12px'
+                                                    }}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleField(f.key)}
+                                                        style={{ marginTop: '3px', width: '16px', height: '16px', accentColor: '#8b5cf6', cursor: 'pointer' }}
+                                                    />
+                                                    <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => handleToggleField(f.key)}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <span style={{ fontSize: '13px', fontWeight: isSelected ? 800 : 600, color: isSelected ? '#1e293b' : '#475569' }}>
+                                                                {f.label}
+                                                            </span>
+                                                            <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 6px', borderRadius: '10px', background: '#8b5cf615', color: '#8b5cf6' }}>
+                                                                CUSTOM ({f.tab})
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>
+                                                            key: {f.key}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); handleRemoveCustomField(f.key); }}
+                                                        style={{ border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', padding: '2px 4px' }}
+                                                        title="Delete custom field"
+                                                    >
+                                                        <i className="fas fa-trash-alt" style={{ fontSize: '12px' }} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Save Sticky Action Footer */}
+                        <div style={{
+                            background: '#fff',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb',
+                            padding: '16px 24px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
+                                <i className="fas fa-info-circle" style={{ color: '#6366f1' }} />
+                                <span>
+                                    Rule applies automatically on <b>Add Lead Form submission</b> and <b>Lead Updates</b>.
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button
+                                    type="button"
+                                    onClick={fetchQualData}
+                                    style={{ padding: '9px 18px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#475569', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}
+                                >
+                                    Discard Changes
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveQualificationRule}
+                                    disabled={savingQual}
+                                    style={{
+                                        padding: '9px 24px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: savingQual ? '#94a3b8' : '#10b981',
+                                        color: '#fff',
+                                        fontWeight: 800,
+                                        fontSize: '13px',
+                                        cursor: savingQual ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                                    }}
+                                >
+                                    {savingQual ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
+                                    Save Qualification Rule
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* ─── TAB: Stage Density Dashboard ─── */}
             {activeTab === 'density' && (() => {

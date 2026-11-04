@@ -9,15 +9,19 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const createStandardizedLead = async (data, context = {}) => {
     let createdLeadId;
+    let createdLeadDoc = null;
     let newContact = null;
 
     const isExternalSession = !!context.session;
     const session = context.session || await mongoose.startSession();
     
     const executeInTransaction = async () => {
+        const effectiveTenantId = data.tenantId || context.tenantId || null;
+
         const contactRes = await resolveContactIdentity({
             mobile: data.mobile,
             email: data.email,
+            tenantId: effectiveTenantId,
             session,
             createIfMissing: true,
             contactData: {
@@ -34,7 +38,8 @@ export const createStandardizedLead = async (data, context = {}) => {
                 requirement: data.requirement,
                 budget: data.budget,
                 location: data.location,
-                personalAddress: data.personalAddress
+                personalAddress: data.personalAddress,
+                tenantId: effectiveTenantId
             }
         });
 
@@ -43,18 +48,53 @@ export const createStandardizedLead = async (data, context = {}) => {
             newContact = contactRes.contact;
         }
 
+        // 🛡️ Stage Qualification Engine: Auto-promote to targetStage if requirement completeness threshold is met
+        if (!data.stage) {
+            try {
+                const { evaluateLeadStageQualification } = await import('../utils/leadDataCompleteness.js');
+                const qualResult = await evaluateLeadStageQualification(data);
+                if (qualResult.qualified) {
+                    data.stage = await resolveLeadLookup('Stage', qualResult.targetStage || 'Prospect');
+                } else {
+                    data.stage = await resolveLeadLookup('Stage', 'Incoming');
+                }
+            } catch (err) {
+                data.stage = await resolveLeadLookup('Stage', 'Incoming');
+            }
+        }
+
+        if (effectiveTenantId && !data.tenantId) {
+            data.tenantId = effectiveTenantId;
+        }
+
         const leadDoc = new Lead(data);
         await leadDoc.save({ session });
         createdLeadId = leadDoc._id;
+        createdLeadDoc = leadDoc;
 
-        // R56 STAGE 1: Durable Outbox Integration
-        await OutboxEvent.create([{
+        // R56 STAGE 1: Durable Outbox Integration with Multi-Tenancy & Provenance
+        const outboxEntry = {
             eventId: uuidv4(),
             eventType: 'LeadCreated',
             aggregateType: 'Lead',
             aggregateId: leadDoc._id,
             payload: { triggerEvent: context.triggerEvent || 'onCreate' }
-        }], { session });
+        };
+
+        if (effectiveTenantId) {
+            outboxEntry.tenantId = effectiveTenantId;
+        }
+
+        if (context.actorId || context.actorType || context.source) {
+            outboxEntry.provenance = {
+                source: context.source || 'HTTP',
+                actorType: context.actorType || 'HUMAN',
+                actorId: context.actorId || null,
+                correlationId: context.correlationId || null
+            };
+        }
+
+        await OutboxEvent.create([outboxEntry], { session });
     };
 
     if (isExternalSession) {
@@ -69,7 +109,10 @@ export const createStandardizedLead = async (data, context = {}) => {
         }
     }
 
-    const lead = await Lead.findById(createdLeadId);
+    const query = Lead.findById(createdLeadId);
+    const lead = isExternalSession
+        ? ((query && typeof query.session === 'function' ? await query.session(session) : await query) || createdLeadDoc)
+        : await query;
 
     // Return the exact same contract. Assignment is deferred to the domainEventWorker.
     return { success: true, lead, contact: newContact, assignment: null };

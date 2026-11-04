@@ -128,6 +128,11 @@ const ContactSchema = new mongoose.Schema({
     stage: { type: String, default: "New" },
     status: { type: String, default: "Active" },
     addOn: [String],
+
+    // Communication & Consent Preferences (Phase 9)
+    whatsappOptOut: { type: Boolean, default: false, index: true },
+    whatsappOptOutAt: { type: Date },
+    whatsappOptInAt: { type: Date },
     groups: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ContactGroup', index: true }],
     isActionable: { type: Boolean, default: false },
     googleContactId: { type: String, index: true },
@@ -135,7 +140,9 @@ const ContactSchema = new mongoose.Schema({
     // Enterprise Merge Auditing (Soft-Delete)
     isDeleted: { type: Boolean, default: false, index: false },
     isMerged: { type: Boolean, default: false, index: false },
-    mergedInto: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact', index: true }
+    mergedInto: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact', index: true },
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null }
 }, { timestamps: true, strict: true });
 
 // ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -158,6 +165,7 @@ ContactSchema.index({ createdAt: -1 });
 // 🚀 [ENTERPRISE] Compound indexes for default query pattern: isMerged != true + sort
 ContactSchema.index({ isMerged: 1, updatedAt: -1 });
 ContactSchema.index({ isMerged: 1, createdAt: -1 });
+ContactSchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
 
 // 🚀 [ENTERPRISE] Soft Delete Support
 ContactSchema.plugin(softDeletePlugin);

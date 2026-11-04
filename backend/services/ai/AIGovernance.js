@@ -169,22 +169,22 @@ class AIGovernance {
     static get MATRIX() { return CAPABILITY_MATRIX; }
 
     static async assertEnabled(capability) {
+        const killswitch = process.env.AI_GLOBAL_KILLSWITCH;
+        if (killswitch !== undefined) {
+            const ksUpper = String(killswitch).trim().toUpperCase();
+            if (ksUpper === 'TRUE' || ksUpper === '1') {
+                throw new AIGovernanceError('GLOBAL_DISABLED', capability || 'GLOBAL');
+            } else if (ksUpper !== 'FALSE' && ksUpper !== '0') {
+                throw new AIGovernanceError('INVALID_CONFIGURATION', capability || 'GLOBAL');
+            }
+        }
+
         if (!capability || !Object.values(CAPABILITIES).includes(capability)) {
             throw new AIGovernanceError('UNKNOWN_CAPABILITY', capability || 'MISSING');
         }
 
         if (capability === CAPABILITIES.AI_UNCLASSIFIED) {
             throw new AIGovernanceError('CAPABILITY_DISABLED', capability);
-        }
-
-        const killswitch = process.env.AI_GLOBAL_KILLSWITCH;
-        if (killswitch !== undefined) {
-            const ksUpper = String(killswitch).trim().toUpperCase();
-            if (ksUpper === 'TRUE' || ksUpper === '1') {
-                throw new AIGovernanceError('GLOBAL_DISABLED', capability);
-            } else if (ksUpper !== 'FALSE' && ksUpper !== '0') {
-                throw new AIGovernanceError('INVALID_CONFIGURATION', capability);
-            }
         }
 
         let config = configCache.get(CACHE_KEY);

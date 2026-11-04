@@ -183,6 +183,7 @@ const DealSchema = new mongoose.Schema({
 
     flexiblePercentage: { type: Number, default: 50 },
     source: { type: String, default: 'Walk-in' },
+    attributedTouchId: { type: mongoose.Schema.Types.ObjectId, ref: 'MarketingTouch', index: true },
 
 
     isOwnerSelected: { type: Boolean, default: false },
@@ -207,6 +208,12 @@ const DealSchema = new mongoose.Schema({
     // Contacts (Stored as references for live data)
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
     associatedContact: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
+    ownerName: { type: String },
+    ownerPhone: { type: String },
+    ownerEmail: { type: String },
+    associateName: { type: String },
+    associatePhone: { type: String },
+    associateEmail: { type: String },
 
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
@@ -303,7 +310,9 @@ const DealSchema = new mongoose.Schema({
     geoPoint: {
         type: { type: String, enum: ['Point'] },
         coordinates: { type: [Number] }
-    }
+    },
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null }
 }, { timestamps: true, strict: false });
 
 DealSchema.pre("save", async function (next) {
@@ -535,6 +544,8 @@ DealSchema.index({ inventoryId: 1 }); // Inventory mapping
 DealSchema.index({ owner: 1 }); // Owner lookup
 DealSchema.index({ dealId: 1 }); // Quick search
 DealSchema.index({ geoPoint: "2dsphere" });
+DealSchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+DealSchema.index({ tenantId: 1, stage: 1 }, { background: true });
 
 DealSchema.pre('insertMany', function(next, docs) {
     if (Array.isArray(docs)) {

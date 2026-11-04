@@ -11,12 +11,12 @@ const OutboxEventSchema = new mongoose.Schema({
     eventType: {
         type: String,
         required: true,
-        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated', 'ContactMerged', 'TimeTriggerExecutionRequested', 'LeadUpdated', 'ContactUpdated', 'ActivityDeleted', 'ContactCreated']
+        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated', 'ContactMerged', 'TimeTriggerExecutionRequested', 'LeadUpdated', 'ContactUpdated', 'ActivityDeleted', 'ContactCreated', 'ManualEnrichmentRequested', 'BookingCreated']
     },
     aggregateType: {
         type: String,
         required: true,
-        enum: ['Lead', 'Deal', 'Activity', 'Contact']
+        enum: ['Lead', 'Deal', 'Activity', 'Contact', 'Booking']
     },
     aggregateId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -29,6 +29,17 @@ const OutboxEventSchema = new mongoose.Schema({
     correlationId: {
         type: String,
         required: false
+    },
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        index: true,
+        required: false
+    },
+    provenance: {
+        source: { type: String, enum: ['HTTP', 'MOBILE', 'PUBLIC_FORM', 'WEBHOOK', 'WORKER'], required: false },
+        actorType: { type: String, enum: ['HUMAN', 'EXTERNAL', 'WEBHOOK', 'SYSTEM'], required: false },
+        actorId: { type: mongoose.Schema.Types.ObjectId, required: false },
+        correlationId: { type: String, required: false }
     },
     status: {
         type: String,
@@ -67,6 +78,7 @@ const OutboxEventSchema = new mongoose.Schema({
 OutboxEventSchema.index({ status: 1, availableAt: 1 });
 OutboxEventSchema.index({ status: 1, lockedUntil: 1 });
 OutboxEventSchema.index({ aggregateType: 1, aggregateId: 1 });
+OutboxEventSchema.index({ tenantId: 1, status: 1 }, { background: true });
 
 const OutboxEvent = mongoose.model('OutboxEvent', OutboxEventSchema);
 

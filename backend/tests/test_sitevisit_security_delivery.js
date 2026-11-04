@@ -343,8 +343,8 @@ async function runSecurityDeliveryTests() {
 
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(res.body.success, true);
-        assert.strictEqual(String(res.body.data.leadInfo._id), String(leadA));
-        assert.strictEqual(res.body.data.leadInfo.firstName, 'Aditya');
+        assert.strictEqual(res.body.data.leadInfo.greetingName, 'Aditya');
+        assert.strictEqual(res.body.data.leadInfo._id, undefined, 'Raw leadId must be stripped for PII protection');
         assert.strictEqual(String(res.body.data.activityInfo._id), String(actA));
         assert.strictEqual(res.body.data.activityInfo.projectName, 'DLF Phase 5');
     });

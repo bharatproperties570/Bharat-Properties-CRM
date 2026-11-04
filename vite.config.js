@@ -37,6 +37,63 @@ export default defineConfig(({ mode }) => {
                 include: [/node_modules/],
                 transformMixedEsModules: true,
             },
+            rollupOptions: {
+                output: {
+                    manualChunks(id) {
+                        const normalizedId = id.replace(/\\/g, '/');
+                        if (normalizedId.includes('/node_modules/')) {
+                            if (
+                                normalizedId.includes('/node_modules/react/') ||
+                                normalizedId.includes('/node_modules/react-dom/') ||
+                                normalizedId.includes('/node_modules/react-router/') ||
+                                normalizedId.includes('/node_modules/react-router-dom/') ||
+                                normalizedId.includes('/node_modules/scheduler/')
+                            ) {
+                                return 'vendor-react';
+                            }
+                            if (normalizedId.includes('/node_modules/react-native-web/')) {
+                                return 'vendor-rnw';
+                            }
+                            if (
+                                normalizedId.includes('/node_modules/apexcharts/')
+                            ) {
+                                return 'vendor-apexcharts';
+                            }
+                            if (normalizedId.includes('/node_modules/recharts/')) {
+                                return 'vendor-recharts';
+                            }
+                            if (
+                                normalizedId.includes('/node_modules/jspdf/') ||
+                                normalizedId.includes('/node_modules/jspdf-autotable/')
+                            ) {
+                                return 'vendor-jspdf';
+                            }
+                            if (normalizedId.includes('/node_modules/html2canvas/')) {
+                                return 'vendor-html2canvas';
+                            }
+                            if (normalizedId.includes('/node_modules/pdfjs-dist/')) {
+                                return 'vendor-pdfjs';
+                            }
+                            if (normalizedId.includes('/node_modules/framer-motion/')) {
+                                return 'vendor-motion';
+                            }
+                            if (
+                                normalizedId.includes('/node_modules/lucide-react/') ||
+                                normalizedId.includes('/node_modules/sweetalert2/') ||
+                                normalizedId.includes('/node_modules/react-hot-toast/')
+                            ) {
+                                return 'vendor-ui';
+                            }
+                            if (
+                                normalizedId.includes('/node_modules/@tanstack/') ||
+                                normalizedId.includes('/node_modules/axios/')
+                            ) {
+                                return 'vendor-query';
+                            }
+                        }
+                    }
+                }
+            }
         },
         server: {
             port: 5174,

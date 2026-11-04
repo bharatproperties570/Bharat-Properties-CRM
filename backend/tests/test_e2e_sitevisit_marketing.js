@@ -144,17 +144,19 @@ async function runE2ETests() {
     }
 
     // Mock DB operations
-    Lead.findById = (id) => ({
-        session: () => ({
-            lean: () => Promise.resolve(db.leads.get(String(id)) || null)
-        }),
-        lean: () => ({
-            catch: () => Promise.resolve(db.leads.get(String(id)) || null)
-        }),
-        then(resolve) {
-            return Promise.resolve(db.leads.get(String(id)) || null).then(resolve);
-        }
-    });
+    const makeLeadQueryChain = (id) => {
+        const lead = db.leads.get(String(id)) || null;
+        const chain = {
+            session: () => chain,
+            select: () => chain,
+            populate: () => chain,
+            lean: () => Promise.resolve(lead),
+            catch: (r) => Promise.resolve(lead).catch(r),
+            then: (r) => Promise.resolve(lead).then(r)
+        };
+        return chain;
+    };
+    Lead.findById = (id) => makeLeadQueryChain(id);
 
     Lead.findByIdAndUpdate = (id, updates) => {
         const existing = db.leads.get(String(id)) || {};
@@ -347,6 +349,9 @@ async function runE2ETests() {
             lean: () => Promise.resolve(list)
         };
     };
+
+    const OutboxEvent = mongoose.models.OutboxEvent || mongoose.model('OutboxEvent');
+    OutboxEvent.create = () => Promise.resolve([]);
 
     FeedbackForm.findOne = () => Promise.resolve({
         _id: feedbackFormId,

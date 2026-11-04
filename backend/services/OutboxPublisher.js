@@ -68,24 +68,27 @@ class OutboxPublisher {
         return event;
     }
 
-    async publishEvent(event) {
+    async publishEvent(event, queue = domainEventQueue) {
         try {
             if (event.attempts > MAX_ATTEMPTS) {
                 await this.markTerminalFailure(event, 'Exceeded maximum publication attempts');
                 return;
             }
 
-            // Publish to BullMQ
+            // Publish to BullMQ with tenant and provenance metadata
             const jobPayload = {
                 eventId: event.eventId,
                 eventType: event.eventType,
                 aggregateType: event.aggregateType,
                 aggregateId: event.aggregateId,
                 payload: event.payload,
-                correlationId: event.correlationId
+                correlationId: event.correlationId,
+                tenantId: event.tenantId,
+                provenance: event.provenance
             };
 
-            await domainEventQueue.add(event.eventType, jobPayload, {
+            const targetQueue = queue || domainEventQueue;
+            await targetQueue.add(event.eventType, jobPayload, {
                 jobId: event.eventId, // Native deduplication
                 removeOnComplete: true,
                 removeOnFail: false
@@ -146,3 +149,21 @@ class OutboxPublisher {
 }
 
 export const outboxPublisher = new OutboxPublisher();
+
+/**
+ * Publishes pending outbox events up to batchSize.
+ * Invoked by cronWorker periodic polling loop.
+ * @param {import('bullmq').Queue} [queue] - BullMQ domain event queue (optional, defaults to domainEventQueue)
+ * @param {number} [batchSize=50] - Maximum number of events to claim and publish
+ * @returns {Promise<number>} Number of events published in this batch
+ */
+export async function publishPendingEvents(queue = domainEventQueue, batchSize = 50) {
+    let publishedCount = 0;
+    for (let i = 0; i < batchSize; i++) {
+        const event = await outboxPublisher.claimEvent();
+        if (!event) break;
+        await outboxPublisher.publishEvent(event, queue);
+        publishedCount++;
+    }
+    return publishedCount;
+}

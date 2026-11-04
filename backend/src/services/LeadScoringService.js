@@ -256,11 +256,50 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
 
     // ── B. ACTIVITY SCORE (dynamic — ONLY counted here, NOT in enrichment) ──
     let activityScore = 0;
+    const activityContributions = [];
+    const seenActivityIds = new Set();
+    const seenExternalIds = new Set();
+    const seenSignatures = new Map(); // signature -> timestamp of first scored occurrence
+    const DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
     const activityBehaviouralEnabled = scoringConfig?.behavioural?.enabled !== false;
 
     if (activityBehaviouralEnabled && Array.isArray(activities)) {
-        activities.forEach(act => {
-            if (act.status !== 'Completed') return; // Only completed activities score
+        // Sort activities chronologically to evaluate replay order deterministically
+        const sortedActivities = [...activities].sort((a, b) => {
+            const rawA = a.completedAt || a.createdAt;
+            const dateA = rawA ? new Date(rawA).getTime() : 0;
+            const timeA = isNaN(dateA) ? 0 : dateA;
+
+            const rawB = b.completedAt || b.createdAt;
+            const dateB = rawB ? new Date(rawB).getTime() : 0;
+            const timeB = isNaN(dateB) ? 0 : dateB;
+
+            return timeA - timeB;
+        });
+
+        sortedActivities.forEach(act => {
+            const normalizedStatus = String(act.status || '').trim().toLowerCase();
+            if (normalizedStatus !== 'completed') return; // Only completed activities score
+
+            // 1. Deduplicate by explicit activity _id
+            const actIdStr = act._id ? String(act._id) : null;
+            if (actIdStr) {
+                if (seenActivityIds.has(actIdStr)) {
+                    return; // Skip duplicate activity document
+                }
+                seenActivityIds.add(actIdStr);
+            }
+
+            // 2. Deduplicate by external event / message / call identifier if present
+            const extId = act.externalId || act.details?.externalId || act.details?.eventId || act.details?.callSid || act.details?.messageId || act.details?.idempotencyKey;
+            if (extId) {
+                const extKey = `${(act.type || '').toLowerCase()}:${String(extId).trim()}`;
+                if (seenExternalIds.has(extKey)) {
+                    return; // Skip duplicate external event
+                }
+                seenExternalIds.add(extKey);
+            }
 
             const actName = (act.type || '').toLowerCase();
             const actDef = activityMasterFields?.activities?.find(
@@ -297,23 +336,58 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
                     .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0] || '';
             }
 
-            const outcomeDef = purpDef.outcomes?.find(o => {
-                const ol = (o.label || '').toLowerCase();
-                return ol === outcomeLabel || outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
-            });
+            // 3. Safe timestamp normalization (handles missing, null, and invalid date formats safely)
+            const rawDate = act.completedAt || act.createdAt;
+            let actDate = rawDate ? new Date(rawDate) : null;
+            if (!actDate || isNaN(actDate.getTime())) {
+                actDate = new Date();
+            }
+            const actTimestamp = actDate.getTime();
 
+            // 4. Signature Deduplication for Unpersisted / Transient Activities:
+            // Activities without a persistent _id lack a stable database identity.
+            // Deduplicate unpersisted replays sharing the same activity signature within DUPLICATE_WINDOW_MS (5 min).
+            // Persisted activities with distinct _id values are never suppressed by timestamp/signature similarity alone.
+            const signature = `${actName}:${purpName}:${outcomeLabel}`;
+            if (!actIdStr && seenSignatures.has(signature)) {
+                const prevTimestamp = seenSignatures.get(signature);
+                const timeDiff = Math.abs(actTimestamp - prevTimestamp);
+                if (timeDiff < DUPLICATE_WINDOW_MS) {
+                    return; // Unpersisted replay within 5 minutes on same lead ignored
+                }
+            }
+            seenSignatures.set(signature, actTimestamp);
+
+            const outcomeDef = purpDef.outcomes?.find(o => (o.label || '').toLowerCase() === outcomeLabel)
+                || purpDef.outcomes?.find(o => {
+                    const ol = (o.label || '').toLowerCase();
+                    return outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
+                });
+
+            let scoredPoints = 0;
             if (outcomeDef) {
-                activityScore += (Number(outcomeDef.score) || 0);
+                scoredPoints = Number(outcomeDef.score) || 0;
             } else {
                 // Safeguard: Hardcoded penalty for negative/missed outcomes if not in config
                 const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed', 'not interested'].some(s => outcomeLabel.includes(s));
                 if (isMissed) {
-                    activityScore -= 3; // Standard penalty for unsuccessful attempt
+                    scoredPoints = -3; // Standard penalty for unsuccessful attempt
                 }
             }
+
+            activityScore += scoredPoints;
+            activityContributions.push({
+                activityId: actIdStr,
+                type: act.type,
+                purpose: act.details?.purpose || purpName,
+                outcome: outcomeLabel,
+                points: scoredPoints,
+                timestamp: new Date(actTimestamp)
+            });
         });
     }
     breakdown.activityScore = activityScore;
+    breakdown.activityContributions = activityContributions;
 
     // ── C. SOURCE QUALITY SCORE ──────────────────────────────────────────────
     let sourceScore = 0;
@@ -439,8 +513,45 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
  * @param {string} [options.triggeredBy] - 'activity'|'manual'|'cron'|'import'
  * @returns {Promise<{leadId, score, activityScore, temperature, intent}>}
  */
-export const computeAndSave = async (leadId, options = {}) => {
-    const { triggeredBy = 'system' } = options;
+export const computeAndSave = async (leadId, options = {}, authContext = null, txContext = {}) => {
+    const { triggeredBy } = options;
+
+    if (!triggeredBy) {
+        throw new Error("SECURITY_VIOLATION: Missing required triggeredBy authorization mode");
+    }
+
+    if (triggeredBy === 'SYSTEM_ENRICHMENT') {
+        if (!authContext || !authContext.authorizationProof) {
+            throw new Error("SECURITY_VIOLATION: SYSTEM_ENRICHMENT requires executionContext with authorizationProof");
+        }
+        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+        if (!AuthorityProofIssuer.verify(authContext.authorizationProof)) {
+            throw new Error("SECURITY_VIOLATION: Invalid or forged authorizationProof");
+        }
+        const proof = authContext.authorizationProof;
+        if (proof.actorType !== 'SYSTEM') {
+            throw new Error("SECURITY_VIOLATION: SYSTEM_ENRICHMENT proof actorType must be SYSTEM");
+        }
+        if (proof.targetId !== leadId.toString()) {
+            throw new Error("SECURITY_VIOLATION: Proof targetId mismatch");
+        }
+    } else if (triggeredBy === 'HUMAN' || triggeredBy === 'UI') {
+        const user = authContext?.user;
+        const userId = user?._id || authContext?.userId;
+        if (!userId) {
+            throw new Error("SECURITY_VIOLATION: HUMAN/UI mode requires authenticated user context");
+        }
+    } else if (triggeredBy === 'manual') {
+        throw new Error("SECURITY_VIOLATION: 'manual' is no longer a valid authorization mode bypass");
+    } else if (['system', 'activity', 'activity_created', 'activity_completion', 'bulk_recalc', 'cron', 'cron_sla', 'import', 'lead_created', 'lead_updated', 'OTHER_SYSTEM_AUTOMATION'].includes(triggeredBy)) {
+        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+        const contract = authContext?.systemAuthorityContract;
+        if (!contract || !AuthorityProofIssuer.verifySystemContract(contract, triggeredBy)) {
+            throw new Error(`SECURITY_VIOLATION: ${triggeredBy} requires valid systemAuthorityContract`);
+        }
+    } else {
+        throw new Error("SECURITY_VIOLATION: Unrecognized or unauthorized trigger: " + triggeredBy);
+    }
 
     // Load lead with populated stage for multiplier resolution
     const lead = await Lead.findById(leadId)
@@ -475,17 +586,33 @@ export const computeAndSave = async (leadId, options = {}) => {
     const prevScore = lead.leadScore || 0;
 
     // Persist to MongoDB
-    await Lead.findByIdAndUpdate(leadId, {
+    const updatePayload = {
         leadScore:      result.total,
         activityScore:  result.activityScore,
         scoreBreakdown: result.breakdown,
         dealHealthScore: dealHealth.score,
         dealHealthStatus: dealHealth.status
-    });
+    };
+
+    const session = txContext.session || null;
+    if (triggeredBy === 'SYSTEM_ENRICHMENT') {
+        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+        const predicate = AuthorityProofIssuer.getMutationPredicate(authContext.authorizationProof);
+        const updated = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true, session });
+        if (!updated) {
+            throw new Error("SECURITY_VIOLATION: LeadScoringService mutation rejected (superseded or state mismatch)");
+        }
+    } else {
+        const updated = await Lead.findOneAndUpdate({ _id: leadId }, { $set: updatePayload }, { new: true, session });
+        if (!updated) {
+            throw new Error(`LeadScoringService: Lead ${leadId} not found or concurrent deletion`);
+        }
+    }
 
     // Audit if score changed significantly (±5 points)
     if (Math.abs(prevScore - result.total) >= 5) {
         try {
+            // [R5 UPDATE] Piped options (including session and optional correlationId)
             await AuditLog.logEntityUpdate(
                 'score_changed',
                 'lead',
@@ -493,13 +620,17 @@ export const computeAndSave = async (leadId, options = {}) => {
                 `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
                 null,
                 { before: prevScore, after: result.total },
-                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
+                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`,
+                { session, correlationId: authContext?.correlationId }
             );
 
             // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
-            const eventBus = (await import('../../services/EventBus.js')).default;
-            const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
-            eventBus.emit('LEAD_UPDATED', updatedLead);
+            // Do NOT emit directly if running inside a transaction, to prevent pre-commit side effects.
+            if (!session) {
+                const eventBus = (await import('../../services/EventBus.js')).default;
+                const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
+                eventBus.emit('LEAD_UPDATED', updatedLead);
+            }
             
         } catch (_) { /* Non-critical — don't let audit failure break scoring */ }
     }
@@ -520,13 +651,15 @@ export const computeAndSave = async (leadId, options = {}) => {
  * Used for bulk migrations or after scoring config changes.
  */
 export const bulkRecompute = async (filter = {}, options = {}) => {
+    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+    const systemContract = AuthorityProofIssuer.issueSystemContract('bulk_recalc');
     const leads = await Lead.find(filter).select('_id').lean();
     let updated = 0;
     let failed = 0;
 
     for (const lead of leads) {
         try {
-            await computeAndSave(lead._id, { triggeredBy: 'bulk_recalc', ...options });
+            await computeAndSave(lead._id, { triggeredBy: 'bulk_recalc', ...options }, { systemAuthorityContract: systemContract });
             updated++;
         } catch (err) {
             console.error(`[LeadScoringService] Bulk failed for ${lead._id}:`, err.message);

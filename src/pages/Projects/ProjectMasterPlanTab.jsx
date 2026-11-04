@@ -71,6 +71,7 @@ const getRotatableOverlayClass = () => {
             this.div_.style.top = ne.y + 'px';
             this.div_.style.width = (ne.x - sw.x) + 'px';
             this.div_.style.height = (sw.y - ne.y) + 'px';
+            this.div_.style.transformOrigin = 'center center';
             this.div_.style.transform = `rotate(${this.rotation_}deg)`;
         }
         
@@ -84,6 +85,7 @@ const getRotatableOverlayClass = () => {
         setRotation(rotation) {
             this.rotation_ = rotation;
             if (this.div_) {
+                this.div_.style.transformOrigin = 'center center';
                 this.div_.style.transform = `rotate(${this.rotation_}deg)`;
             }
         }
@@ -168,6 +170,26 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     const [currentBounds, setCurrentBounds] = useState(masterPlan?.bounds || null);
     const [currentRotation, setCurrentRotation] = useState(masterPlan?.rotation || 0);
     const [currentOpacity, setCurrentOpacity] = useState(masterPlan?.opacity || 0.6);
+
+    // Keep masterPlan state synchronized if project data updates or refetches
+    useEffect(() => {
+        if (project?.masterPlan?.imageUrl) {
+            setMasterPlan(project.masterPlan);
+            if (project.masterPlan.bounds) {
+                setCurrentBounds(project.masterPlan.bounds);
+            }
+            if (typeof project.masterPlan.rotation === 'number') {
+                setCurrentRotation(project.masterPlan.rotation);
+            }
+            if (typeof project.masterPlan.opacity === 'number') {
+                setCurrentOpacity(project.masterPlan.opacity);
+            }
+            setIsEditMode(!project.masterPlan.isLocked);
+        } else if (project && !project.masterPlan?.imageUrl) {
+            setMasterPlan(null);
+            setCurrentBounds(null);
+        }
+    }, [project?.masterPlan]);
 
     // Plotting form state
     const [dynamicBlocks, setDynamicBlocks] = useState([]);
@@ -523,6 +545,32 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         }
     };
 
+    const handleQuickRotate = async (delta) => {
+        const nextRotation = ((currentRotation + delta) % 360 + 360) % 360;
+        setCurrentRotation(nextRotation);
+        if (overlayRef.current) {
+            overlayRef.current.setRotation(nextRotation);
+        }
+        if (!isEditMode && masterPlan && currentBounds) {
+            try {
+                const newPlan = { ...masterPlan, bounds: currentBounds, rotation: nextRotation, opacity: currentOpacity };
+                await updateMutation.mutateAsync({ id: project._id, data: { masterPlan: newPlan } });
+                setMasterPlan(newPlan);
+                toast.success(`Rotated to ${nextRotation}°`);
+            } catch (err) {
+                console.error("Failed to auto-save rotation", err);
+            }
+        }
+    };
+
+    const handleSetRotation = (targetDeg) => {
+        const normalized = ((Number(targetDeg) % 360) + 360) % 360;
+        setCurrentRotation(normalized);
+        if (overlayRef.current) {
+            overlayRef.current.setRotation(normalized);
+        }
+    };
+
     const handleSavePlottingSession = async () => {
         if (sessionUnits.length === 0) return toast.error("No units to save");
         setIsSavingUnits(true);
@@ -591,57 +639,112 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         <div style={{ position: 'relative', height: '100%', width: '100%', overflow: 'hidden' }}>
             
             {/* Top Toolbar */}
-            <div style={{ position: 'absolute', top: '16px', left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', gap: '12px', background: 'var(--bg-card)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', padding: '8px 16px', borderRadius: '30px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', border: '1px solid var(--border-color)' }}>
+            <div style={{ position: 'absolute', top: '16px', left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', gap: '10px', background: 'var(--bg-card)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', padding: '8px 18px', borderRadius: '30px', boxShadow: '0 4px 16px rgba(0,0,0,0.25)', alignItems: 'center', border: '1px solid var(--border-color)', flexWrap: 'nowrap' }}>
                 {isEditMode ? (
                     <>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ef4444' }}><i className="fas fa-arrows-alt" style={{marginRight: '6px'}}></i> Resize box</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>Rotate:</label>
-                            <input 
-                                type="range" 
-                                min="0" max="360" 
-                                value={currentRotation} 
-                                onChange={(e) => setCurrentRotation(Number(e.target.value))} 
-                                style={{ width: '80px' }}
-                            />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, width: '30px', color: 'var(--text-main)' }}>{currentRotation}°</span>
-                        </div>
-                        <button onClick={handleSaveLayout} style={{ padding: '6px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer' }}>
-                            <i className="fas fa-lock" style={{marginRight: '6px'}}></i> Lock Layout
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <i className="fas fa-arrows-alt"></i> Resize / Align
+                        </span>
+                        <button 
+                            type="button" 
+                            onClick={handleSaveLayout} 
+                            style={{ padding: '6px 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', boxShadow: '0 2px 4px rgba(16,185,129,0.3)' }}
+                        >
+                            <i className="fas fa-lock"></i> Lock Layout
                         </button>
                     </>
                 ) : (
                     <>
-                        <button onClick={() => { setIsEditMode(true); setIsPlottingMode(false); }} style={{ padding: '6px 16px', background: 'var(--bg-gray)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '20px', fontWeight: 600, cursor: 'pointer' }}>
-                            <i className="fas fa-unlock" style={{marginRight: '6px'}}></i> Adjust Map
-                        </button>
-                        <button onClick={handleRemoveMap} style={{ padding: '6px 16px', background: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '20px', fontWeight: 600, cursor: 'pointer' }}>
-                            <i className="fas fa-trash" style={{marginRight: '6px'}}></i> Remove Map
-                        </button>
-                        
-                        <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 8px' }}></div>
-                        
                         <button 
+                            type="button" 
+                            onClick={() => { setIsEditMode(true); setIsPlottingMode(false); }} 
+                            style={{ padding: '6px 14px', background: 'var(--bg-gray)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '20px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
+                        >
+                            <i className="fas fa-unlock"></i> Adjust Map Size
+                        </button>
+                        <button 
+                            type="button" 
+                            onClick={handleRemoveMap} 
+                            style={{ padding: '6px 12px', background: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '20px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
+                        >
+                            <i className="fas fa-trash"></i> Remove Map
+                        </button>
+                    </>
+                )}
+                
+                <div style={{ width: '1px', height: '22px', background: 'var(--border-color)', margin: '0 4px' }}></div>
+
+                {/* ROTATE CONTROLS - ALWAYS PROMINENT AND ACCESSIBLE */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <i className="fas fa-sync-alt" style={{ color: '#3b82f6', fontSize: '0.75rem' }}></i> Rotate:
+                    </span>
+                    <button 
+                        type="button" 
+                        onClick={() => handleQuickRotate(-90)} 
+                        title="Rotate 90° Left (Counter-Clockwise)"
+                        style={{ padding: '4px 8px', background: 'var(--bg-gray)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                    >
+                        <i className="fas fa-undo"></i> -90°
+                    </button>
+                    <button 
+                        type="button" 
+                        onClick={() => handleQuickRotate(90)} 
+                        title="Rotate 90° Right (Clockwise)"
+                        style={{ padding: '4px 8px', background: 'var(--bg-gray)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                    >
+                        <i className="fas fa-redo"></i> +90°
+                    </button>
+                    <input 
+                        type="range" 
+                        min="0" max="360" 
+                        value={currentRotation} 
+                        onChange={(e) => handleSetRotation(Number(e.target.value))} 
+                        title={`Rotate Map: ${currentRotation}°`}
+                        style={{ width: '80px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, minWidth: '36px', textAlign: 'center', color: 'var(--text-main)', background: 'var(--bg-gray)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                        {currentRotation}°
+                    </span>
+                    {currentRotation !== 0 && (
+                        <button 
+                            type="button" 
+                            onClick={() => handleSetRotation(0)} 
+                            title="Reset Rotation to 0°"
+                            style={{ padding: '3px 7px', background: 'transparent', color: '#64748b', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                            0°
+                        </button>
+                    )}
+                </div>
+
+                <div style={{ width: '1px', height: '22px', background: 'var(--border-color)', margin: '0 4px' }}></div>
+
+                {/* OPACITY CONTROLS */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>Opacity:</label>
+                    <input 
+                        type="range" 
+                        min="0.1" max="1" step="0.05"
+                        value={currentOpacity} 
+                        onChange={(e) => setCurrentOpacity(Number(e.target.value))} 
+                        style={{ width: '55px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, width: '32px', color: 'var(--text-main)' }}>{Math.round(currentOpacity * 100)}%</span>
+                </div>
+
+                {!isEditMode && (
+                    <>
+                        <div style={{ width: '1px', height: '22px', background: 'var(--border-color)', margin: '0 4px' }}></div>
+                        <button 
+                            type="button" 
                             onClick={() => setIsPlottingMode(!isPlottingMode)} 
-                            style={{ padding: '6px 16px', background: isPlottingMode ? '#ef4444' : 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ padding: '6px 14px', background: isPlottingMode ? '#ef4444' : 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
                         >
                             {isPlottingMode ? <><i className="fas fa-times"></i> Stop Plotting</> : <><i className="fas fa-bolt"></i> Start Rapid Plotting</>}
                         </button>
                     </>
                 )}
-                
-                <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 8px' }}></div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>Opacity:</label>
-                    <input 
-                        type="range" 
-                        min="0" max="1" step="0.1"
-                        value={currentOpacity} 
-                        onChange={(e) => setCurrentOpacity(Number(e.target.value))} 
-                        style={{ width: '60px' }}
-                    />
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600, width: '30px', color: 'var(--text-main)' }}>{Math.round(currentOpacity * 100)}%</span>
-                </div>
             </div>
 
             {/* Rapid Plotting Sidebar */}

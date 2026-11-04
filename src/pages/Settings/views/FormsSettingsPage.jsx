@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LucideFileSignature, LucideStar, LucidePlus, LucideSettings, LucideEye, LucideCopy, LucideTrash2, LucideCalendar, LucideCheckCircle, LucideMousePointer2 } from 'lucide-react';
 import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const FormsSettingsPage = ({ setActiveTab }) => {
     const [view, setView] = useState('dashboard'); // 'dashboard' or 'builder'
@@ -86,9 +87,91 @@ const FormsSettingsPage = ({ setActiveTab }) => {
         setActiveTab('custom-forms');
     };
 
+    const handleCopyLink = async (slug) => {
+        const url = `${window.location.origin}/public/form/${slug}`;
+        try {
+            if (!navigator?.clipboard?.writeText) {
+                throw new Error('Clipboard API unavailable');
+            }
+            await navigator.clipboard.writeText(url);
+            toast.success('Form link copied to clipboard!');
+        } catch (err) {
+            toast.error('Failed to copy form link');
+        }
+    };
+
     const filteredForms = allForms.filter(f => 
         f.name?.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const columns = useMemo(() => [
+        {
+            key: 'name',
+            header: 'Form Name',
+            headerStyle: { padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px 24px' },
+            render: (form) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: form.color + '15', color: form.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <i className="fas fa-file-alt"></i>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)' }}>{form.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/public/form/{form.slug}</div>
+                    </div>
+                </div>
+            )
+        },
+        {
+            key: 'type',
+            header: 'Type',
+            headerStyle: { padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px 24px' },
+            render: (form) => (
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '4px 10px', borderRadius: '6px' }}>{form.type}</span>
+            )
+        },
+        {
+            key: 'views',
+            header: 'Views',
+            headerStyle: { padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px 24px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' },
+            render: (form) => form.analytics?.views || 0
+        },
+        {
+            key: 'submissions',
+            header: 'Submissions',
+            headerStyle: { padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px 24px', fontSize: '0.9rem', fontWeight: 700, color: '#10b981' },
+            render: (form) => form.analytics?.submissions || 0
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px 24px' },
+            render: (form) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: form.isActive ? '#10b981' : 'var(--text-muted)' }}></div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: form.isActive ? '#10b981' : 'var(--text-muted)' }}>{form.isActive ? 'Live' : 'Draft'}</span>
+                </div>
+            )
+        },
+        {
+            key: 'actions',
+            header: 'Actions',
+            isAction: true,
+            headerStyle: { padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' },
+            cellStyle: { padding: '16px 24px', textAlign: 'right' },
+            render: (form) => (
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="View Public"><LucideEye size={16} /></button>
+                    <button onClick={() => handleCopyLink(form.slug)} style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Copy Link"><LucideCopy size={16} /></button>
+                    <button onClick={() => setActiveTab(form.category)} style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: '#3b82f6', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Edit"><LucideSettings size={16} /></button>
+                </div>
+            )
+        }
+    ], [setActiveTab]);
 
     return (
         <div style={{ flex: 1, padding: '40px', background: 'var(--bg-light)', overflowY: 'auto' }}>
@@ -182,60 +265,18 @@ const FormsSettingsPage = ({ setActiveTab }) => {
                 </div>
                 
                 <div style={{ padding: '8px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
-                                <th style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Form Name</th>
-                                <th style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Type</th>
-                                <th style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Views</th>
-                                <th style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Submissions</th>
-                                <th style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
-                                <th style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredForms.map((form, i) => (
-                                <tr key={i} style={{ borderBottom: i === filteredForms.length - 1 ? 'none' : '1px solid #f8fafc' }}>
-                                    <td style={{ padding: '16px 24px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: form.color + '15', color: form.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <i className="fas fa-file-alt"></i>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)' }}>{form.name}</div>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/public/form/{form.slug}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td style={{ padding: '16px 24px' }}>
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '4px 10px', borderRadius: '6px' }}>{form.type}</span>
-                                    </td>
-                                    <td style={{ padding: '16px 24px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>{form.analytics?.views || 0}</td>
-                                    <td style={{ padding: '16px 24px', fontSize: '0.9rem', fontWeight: 700, color: '#10b981' }}>{form.analytics?.submissions || 0}</td>
-                                    <td style={{ padding: '16px 24px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: form.isActive ? '#10b981' : 'var(--text-muted)' }}></div>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: form.isActive ? '#10b981' : 'var(--text-muted)' }}>{form.isActive ? 'Live' : 'Draft'}</span>
-                                        </div>
-                                    </td>
-                                    <td style={{ padding: '16px 24px', textAlign: 'right' }}>
-                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                            <button style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="View Public"><LucideEye size={16} /></button>
-                                            <button style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Copy Link"><LucideCopy size={16} /></button>
-                                            <button onClick={() => setActiveTab(form.category)} style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: '#3b82f6', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Edit"><LucideSettings size={16} /></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    
-                    {filteredForms.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '64px', color: 'var(--text-muted)' }}>
-                            <i className="fas fa-inbox" style={{ fontSize: '2.5rem', opacity: 0.3, marginBottom: '16px' }}></i>
-                            <p style={{ margin: 0, fontWeight: 600 }}>No forms found</p>
-                        </div>
-                    )}
+                    <DataTable
+                        columns={columns}
+                        data={filteredForms}
+                        keyField="_id"
+                        isLoading={isLoading}
+                        emptyMessage={
+                            <div style={{ textAlign: 'center', padding: '64px', color: 'var(--text-muted)' }}>
+                                <i className="fas fa-inbox" style={{ fontSize: '2.5rem', opacity: 0.3, marginBottom: '16px', display: 'block' }}></i>
+                                <p style={{ margin: 0, fontWeight: 600 }}>No forms found</p>
+                            </div>
+                        }
+                    />
                 </div>
             </div>
 

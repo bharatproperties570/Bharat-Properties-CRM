@@ -63,43 +63,62 @@ export const getAuthToken = () => {
     return null;
 };
 
-const isProd = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production') || getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
+// ✅ STABLE: Direct backend URL — production backend tunnel
+export const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
 
-// ✅ STABLE: Direct backend URL — no Vercel proxy hop
-const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
+/**
+ * Deterministic API URL resolution logic.
+ *
+ * Precedence Rules:
+ * 1. Explicit VITE_API_URL takes highest priority in all environments.
+ * 2. Exact production domains ('bharatproperties.co', 'www.bharatproperties.co', 'crm.bharatproperties.co') route to STABLE_TUNNEL_URL.
+ * 3. Vercel Preview (*.vercel.app) MUST NEVER silently connect to production backend. If no explicit VITE_API_URL is configured, it fails closed to relative '/api' proxy.
+ * 4. Browser dev environments (localhost, 127.0.0.1, LAN IP) default to '/api' (relying on Vite proxy).
+ * 5. Non-browser production (SSR / Node) routes to STABLE_TUNNEL_URL.
+ * 6. Non-browser development fallback routes to local backend default.
+ */
+export const resolveApiBaseUrl = (options = {}) => {
+    const envApiUrl = ('envApiUrl' in options) ? options.envApiUrl : (getEnvVar('VITE_API_URL') || '');
+    const envProd = ('envProd' in options) ? options.envProd : getEnvVar('PROD');
+    const nodeEnv = ('nodeEnv' in options) ? options.nodeEnv : (typeof process !== 'undefined' && process.env ? process.env.NODE_ENV : undefined);
+    const hostname = ('hostname' in options) ? options.hostname : (typeof window !== 'undefined' && window.location ? window.location.hostname : undefined);
 
-// 🛡️ Vite Static Replacement (Vite requires literal references)
-let VITE_API_URL = '';
-let VITE_API_URL_PROD = '';
-// Removed import.meta.env to prevent Metro Bundler SyntaxError
+    // Rule 1: Explicit VITE_API_URL strictly respected across all environments
+    if (typeof envApiUrl === 'string' && envApiUrl.trim().length > 0) {
+        return envApiUrl.trim();
+    }
 
-// Fallbacks using dynamic resolution
-const rawViteApiUrl = getEnvVar('VITE_API_URL') || VITE_API_URL;
-const rawProdApiUrl = getEnvVar('VITE_API_URL_PROD') || VITE_API_URL_PROD;
-const FINAL_VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
+    const host = typeof hostname === 'string' ? hostname.trim().toLowerCase() : '';
 
+    if (host) {
+        const isExactProdHost = host === 'bharatproperties.co' || host === 'www.bharatproperties.co' || host === 'crm.bharatproperties.co';
+        const isVercelPreview = host.endsWith('.vercel.app') || host === 'vercel.app';
 
-// Detect if running on production host
-let hostProdOverride = false;
-let isLocalhost = false;
-if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-  const hostname = window.location.hostname;
-  hostProdOverride = hostname.includes('bharatproperties.co') || hostname.includes('vercel.app');
-  isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
-}
-const finalProd = isProd || hostProdOverride;
+        // Rule 2: Strict production custom domains
+        if (isExactProdHost) {
+            return STABLE_TUNNEL_URL;
+        }
 
-// URL Resolution Priority:
-// 1. Production: STABLE_TUNNEL_URL directly
-// 2. Web Dev (Browser): '/api' (relies on Vite proxy to route to backend)
-// 3. Mobile/SSR Dev: FINAL_VITE_API_URL or localhost fallback
-const tempApiUrl = finalProd
-    ? STABLE_TUNNEL_URL
-    : (typeof window !== 'undefined' && window.location && window.location.hostname 
-        ? '/api' 
-        : (FINAL_VITE_API_URL || 'http://localhost:4001/api'));
+        // Rule 3: Vercel Preview deployments fail-closed to '/api' without silent leak to production
+        if (isVercelPreview) {
+            return '/api';
+        }
 
-export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
+        // Rule 4: Localhost or LAN dev browser -> relative '/api'
+        return '/api';
+    }
+
+    // Rule 5: Non-browser production environment
+    const isProdEnv = nodeEnv === 'production' || envProd === 'true' || envProd === true;
+    if (isProdEnv) {
+        return STABLE_TUNNEL_URL;
+    }
+
+    // Rule 6: Non-browser development fallback
+    return 'http://localhost:4001/api';
+};
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
@@ -186,6 +205,7 @@ export const socialAPI = {
     startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
     getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),
     getBaileysGroups: (id, params) => api.get(`/social/whatsapp/baileys/groups/${id}`, { params }).then(res => res.data),
+    disconnectBaileys: (id) => api.post(`/social/whatsapp/baileys/disconnect/${id}`).then(res => res.data),
 };
 
 export const automationAPI = {
@@ -198,11 +218,15 @@ export const automationAPI = {
     createSequence: (data) => api.post('/automations/sequences', data).then(res => res.data),
     updateSequence: (id, data) => api.put(`/automations/sequences/${id}`, data).then(res => res.data),
     deleteSequence: (id) => api.delete(`/automations/sequences/${id}`).then(res => res.data),
+    enrollInSequence: (id, data) => api.post(`/automations/sequences/${id}/enroll`, data).then(res => res.data),
+    getEntityEnrollments: (entityId) => api.get(`/automations/sequences/enrollments/${entityId}`).then(res => res.data),
 
     getAutomatedActions: () => api.get('/automations/actions').then(res => res.data),
     createAutomatedAction: (data) => api.post('/automations/actions', data).then(res => res.data),
     updateAutomatedAction: (id, data) => api.put(`/automations/actions/${id}`, data).then(res => res.data),
     deleteAutomatedAction: (id) => api.delete(`/automations/actions/${id}`).then(res => res.data),
+
+    getAuditLogs: (page = 1, limit = 100) => api.get('/automations/audit-logs', { params: { page, limit } }).then(res => res.data),
 };
 
 
@@ -248,7 +272,12 @@ const subscribeTokenRefresh = (cb) => {
 };
 
 const onRefreshed = (token) => {
-    refreshSubscribers.map((cb) => cb(token));
+    refreshSubscribers.forEach((cb) => cb(token, null));
+    refreshSubscribers = [];
+};
+
+const onRefreshFailed = (err) => {
+    refreshSubscribers.forEach((cb) => cb(null, err));
     refreshSubscribers = [];
 };
 
@@ -351,8 +380,11 @@ api.interceptors.response.use(
             }
 
             if (isRefreshing) {
-                return new Promise((resolve) => {
-                    subscribeTokenRefresh((token) => {
+                return new Promise((resolve, reject) => {
+                    subscribeTokenRefresh((token, err) => {
+                        if (err) {
+                            return reject(err);
+                        }
                         originalRequest.headers.Authorization = `Bearer ${token}`;
                         resolve(api(originalRequest));
                     });
@@ -371,9 +403,17 @@ api.interceptors.response.use(
                     onRefreshed(newToken);
                     originalRequest.headers.Authorization = `Bearer ${newToken}`;
                     return api(originalRequest);
+                } else {
+                    const err = new Error('Failed to refresh authentication token');
+                    isRefreshing = false;
+                    onRefreshFailed(err);
+                    safeStorage.removeItem('authToken');
+                    window.dispatchEvent(new CustomEvent('unauthorized-token'));
+                    return Promise.reject(err);
                 }
             } catch (refreshError) {
                 isRefreshing = false;
+                onRefreshFailed(refreshError);
                 safeStorage.removeItem('authToken');
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(refreshError);
@@ -643,6 +683,11 @@ export const scoringRulesAPI = {
 export const systemSettingsAPI = {
     getAll: (options = {}) => apiRequest('/system-settings', options),
     getByKey: (key, options = {}) => apiRequest(`/system-settings/${key}`, { _silentError: true, ...options }),
+    getStageQualificationConfig: (options = {}) => apiRequest('/system-settings/stage-qualification/fields', options),
+    reEvaluateExistingLeads: (options = {}) => apiRequest('/system-settings/stage-qualification/re-evaluate', {
+        method: 'POST',
+        ...options
+    }),
     upsert: (key, data, options = {}) => apiRequest('/system-settings/upsert', {
         method: 'POST',
         body: JSON.stringify({ key, ...data }),
@@ -892,25 +937,50 @@ export const aiAgentsAPI = {
 
 // Jarvis Voice AI Operating System API
 export const jarvisAPI = {
-    sendCommand: (data) => api.post('/jarvis/command', data).then(res => res.data),
-    confirmAction: (actionId) => api.post(`/jarvis/confirm/${actionId}`).then(res => res.data),
-    cancelAction: (actionId) => api.delete(`/jarvis/confirm/${actionId}`).then(res => res.data),
+    sendCommand: (data) => api.post('/jarvis/command', data, { timeout: 60000 }).then(res => res.data),
+    confirmAction: (actionId) => api.post(`/jarvis/confirm/${actionId}`, {}, { timeout: 45000 }).then(res => res.data),
+    cancelAction: (actionId) => api.delete(`/jarvis/confirm/${actionId}`, { timeout: 30000 }).then(res => res.data),
     getSession: (params) => api.get('/jarvis/session', { params }).then(res => res.data),
     getHistory: (params) => api.get('/jarvis/history', { params }).then(res => res.data),
-    getStatus: () => api.get('/jarvis/status').then(res => res.data),
-    processCallIntel: (data) => api.post('/jarvis/call-intel', data).then(res => res.data),
+    getStatus: () => api.get('/jarvis/status', { timeout: 15000 }).then(res => res.data),
+    processCallIntel: (data) => api.post('/jarvis/call-intel', data, { timeout: 60000 }).then(res => res.data),
     getCallIntelHistory: (params) => api.get('/jarvis/call-intel', { params }).then(res => res.data),
     getCallIntelById: (id) => api.get(`/jarvis/call-intel/${id}`).then(res => res.data),
-    getBriefing: () => api.get('/jarvis/briefing').then(res => res.data),
-    getSuggestions: () => api.get('/jarvis/suggestions').then(res => res.data),
+    getBriefing: () => api.get('/jarvis/briefing', { timeout: 30000 }).then(res => res.data),
+    getSuggestions: () => api.get('/jarvis/suggestions', { timeout: 20000 }).then(res => res.data),
     getAnalytics: (params) => api.get('/jarvis/analytics', { params }).then(res => res.data),
-    getTeamPerformance: (params) => api.get('/jarvis/team-performance', { params }).then(res => res.data),
-    processMeetingNotes: (data) => api.post('/jarvis/meeting-notes', data).then(res => res.data)
+    getTeamPerformance: (params) => api.get('/jarvis/team-performance', { params, timeout: 30000 }).then(res => res.data),
+    processMeetingNotes: (data) => api.post('/jarvis/meeting-notes', data, { timeout: 60000 }).then(res => res.data),
+    synthesizeSpeech: (data) => api.post('/jarvis/speak', data, { timeout: 30000 }).then(res => res.data),
+    getVoiceConfig: () => api.get('/jarvis/voice-config').then(res => res.data),
+    saveVoiceConfig: (data) => api.post('/jarvis/voice-config', data).then(res => res.data)
+};
+
+// Authority Property Verification API (Phase 4)
+export const authorityAPI = {
+    getSettings: () => api.get('/authority/settings').then(res => res.data),
+    getSettingByCode: (code) => api.get(`/authority/settings/${code}`).then(res => res.data),
+    updateSettings: (code, data) => api.patch(`/authority/settings/${code}`, data).then(res => res.data),
+    getLinks: (inventoryId) => api.get(`/authority/links/${inventoryId}`).then(res => res.data),
+    saveLink: (data) => api.post('/authority/links', data).then(res => res.data),
+    getRuns: (params) => api.get('/authority/runs', { params }).then(res => res.data),
+    getRunById: (runId) => api.get(`/authority/runs/${runId}`).then(res => res.data),
+    getRunProgress: (runId) => api.get(`/authority/runs/${runId}/progress`).then(res => res.data),
+    createRun: (data) => api.post('/authority/runs', data).then(res => res.data),
+    processRun: (runId, data) => api.post(`/authority/runs/${runId}/process`, data).then(res => res.data),
+    pauseRun: (runId) => api.post(`/authority/runs/${runId}/pause`).then(res => res.data),
+    resumeRun: (runId, data) => api.post(`/authority/runs/${runId}/resume`, data).then(res => res.data),
+    cancelRun: (runId, data) => api.post(`/authority/runs/${runId}/cancel`, data).then(res => res.data),
+    getPendingReviews: () => api.get('/authority/review/pending').then(res => res.data),
+    submitReview: (itemId, data) => api.post(`/authority/review/${itemId}`, data).then(res => res.data),
+    applyApprovedChanges: (itemId) => api.post(`/authority/apply/${itemId}`).then(res => res.data),
+    getHistory: (inventoryId) => api.get(`/authority/history/${inventoryId}`).then(res => res.data)
 };
 
 export default {
     auth: authAPI,
     jarvis: jarvisAPI,
+    authority: authorityAPI,
     aiAgents: aiAgentsAPI,
     users: usersAPI,
     roles: rolesAPI,

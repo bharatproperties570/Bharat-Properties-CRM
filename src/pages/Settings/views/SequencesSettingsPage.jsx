@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSequences } from '../../../context/SequenceContext';
 import CreateSequenceModal from '../../../components/CreateSequenceModal';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const SequencesSettingsPage = () => {
     const { sequences = [], toggleSequence, deleteSequence, getEnrollmentCount, enrollments = [] } = useSequences() || {};
@@ -73,6 +74,129 @@ const SequencesSettingsPage = () => {
         setIsDeleteConfirmOpen(false);
         setSequenceToDelete(null);
     };
+
+    const columns = useMemo(() => [
+        {
+            key: 'name',
+            header: 'Sequence Name',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (seq) => (
+                <div>
+                    <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{seq?.name || 'Untitled Sequence'}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Purpose: {seq?.purpose || 'N/A'}</div>
+                </div>
+            )
+        },
+        {
+            key: 'trigger',
+            header: 'Trigger',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (seq) => {
+                const triggerLabel = seq?.trigger?.type
+                    || (seq?.linkedTriggers && seq.linkedTriggers.length > 0 ? `${seq.linkedTriggers.length} Linked Triggers` : '')
+                    || (seq?.module ? `On ${seq.module} Event` : 'Manual / Event');
+                return (
+                    <span style={{ fontSize: '13px', color: 'var(--text-main)', background: 'var(--bg-light)', padding: '4px 8px', borderRadius: '4px' }}>
+                        {triggerLabel}
+                    </span>
+                );
+            }
+        },
+        {
+            key: 'steps',
+            header: 'Steps',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (seq) => {
+                const stepsCount = Array.isArray(seq?.steps) ? seq.steps.length : 0;
+                return (
+                    <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>{stepsCount} Steps</div>
+                );
+            }
+        },
+        {
+            key: 'enrolled',
+            header: 'Enrolled',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (seq) => {
+                const seqId = seq?._id || seq?.id;
+                const activeCount = typeof getEnrollmentCount === 'function' ? getEnrollmentCount(seqId) : 0;
+                return (
+                    <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
+                        {activeCount} Active
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (seq) => {
+                const seqId = seq?._id || seq?.id;
+                return (
+                    <button
+                        type="button"
+                        onClick={() => typeof toggleSequence === 'function' && toggleSequence(seqId)}
+                        style={{
+                            padding: '4px 12px',
+                            borderRadius: '20px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: seq?.active ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            color: seq?.active ? '#166534' : '#991b1b'
+                        }}
+                    >
+                        {seq?.active ? 'Active' : 'Paused'}
+                    </button>
+                );
+            }
+        },
+        {
+            key: 'actions',
+            header: 'Actions',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (seq) => (
+                <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
+                    <i
+                        className="fas fa-edit"
+                        style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                        onClick={() => handleEdit(seq)}
+                        onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
+                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                        title="Edit Sequence"
+                    ></i>
+                    <i
+                        className="fas fa-copy"
+                        style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                        onClick={() => {
+                            const duplicate = { ...seq, name: `${seq?.name || 'Sequence'} (Copy)`, id: undefined, _id: undefined };
+                            setEditingSequence(duplicate);
+                            setIsEditModalOpen(true);
+                        }}
+                        onMouseEnter={(e) => e.target.style.color = '#10b981'}
+                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                        title="Duplicate Sequence"
+                    ></i>
+                    <i
+                        className="fas fa-trash-alt"
+                        style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                        onClick={() => handleDelete(seq)}
+                        onMouseEnter={(e) => e.target.style.color = '#ef4444'}
+                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                        title="Delete Sequence"
+                    ></i>
+                </div>
+            )
+        }
+    ], [getEnrollmentCount, toggleSequence]);
 
     return (
         <div style={{ padding: '24px' }}>
@@ -167,110 +291,20 @@ const SequencesSettingsPage = () => {
 
             {/* Sequence Table */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                        <tr>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Sequence Name</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Trigger</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Steps</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Enrolled</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredSequences.map((seq, idx) => {
-                            const seqId = seq._id || seq.id || `seq_${idx}`;
-                            const triggerLabel = seq.trigger?.type 
-                                || (seq.linkedTriggers && seq.linkedTriggers.length > 0 ? `${seq.linkedTriggers.length} Linked Triggers` : '')
-                                || (seq.module ? `On ${seq.module} Event` : 'Manual / Event');
-                            const stepsCount = Array.isArray(seq.steps) ? seq.steps.length : 0;
-                            const activeCount = typeof getEnrollmentCount === 'function' ? getEnrollmentCount(seqId) : 0;
-
-                            return (
-                                <tr key={seqId} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                    <td style={{ padding: '16px' }}>
-                                        <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{seq.name || 'Untitled Sequence'}</div>
-                                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Purpose: {seq.purpose || 'N/A'}</div>
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <span style={{ fontSize: '13px', color: 'var(--text-main)', background: 'var(--bg-light)', padding: '4px 8px', borderRadius: '4px' }}>
-                                            {triggerLabel}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>{stepsCount} Steps</div>
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
-                                            {activeCount} Active
-                                        </div>
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <button
-                                            onClick={() => typeof toggleSequence === 'function' && toggleSequence(seqId)}
-                                            style={{
-                                                padding: '4px 12px',
-                                                borderRadius: '20px',
-                                                fontSize: '12px',
-                                                fontWeight: '600',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                background: seq.active ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                                color: seq.active ? '#166534' : '#991b1b'
-                                            }}
-                                        >
-                                            {seq.active ? 'Active' : 'Paused'}
-                                        </button>
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
-                                            <i
-                                                className="fas fa-edit"
-                                                style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                                onClick={() => handleEdit(seq)}
-                                                onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
-                                                onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                                title="Edit Sequence"
-                                            ></i>
-                                            <i
-                                                className="fas fa-copy"
-                                                style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                                onClick={() => {
-                                                    const duplicate = { ...seq, name: `${seq.name || 'Sequence'} (Copy)`, id: undefined, _id: undefined };
-                                                    setEditingSequence(duplicate);
-                                                    setIsEditModalOpen(true);
-                                                }}
-                                                onMouseEnter={(e) => e.target.style.color = '#10b981'}
-                                                onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                                title="Duplicate Sequence"
-                                            ></i>
-                                            <i
-                                                className="fas fa-trash-alt"
-                                                style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                                onClick={() => handleDelete(seq)}
-                                                onMouseEnter={(e) => e.target.style.color = '#ef4444'}
-                                                onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                                title="Delete Sequence"
-                                            ></i>
-                                        </div>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-
-                {/* Empty State */}
-                {filteredSequences.length === 0 && (
-                    <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                        <i className="fas fa-inbox" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
-                        <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>No sequences found</div>
-                        <div style={{ fontSize: '14px' }}>
-                            {searchTerm ? 'Try adjusting your search or filters' : 'Create your first sequence to get started'}
+                <DataTable
+                    columns={columns}
+                    data={filteredSequences}
+                    keyField="_id"
+                    emptyMessage={
+                        <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <i className="fas fa-inbox" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
+                            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>No sequences found</div>
+                            <div style={{ fontSize: '14px' }}>
+                                {searchTerm ? 'Try adjusting your search or filters' : 'Create your first sequence to get started'}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    }
+                />
             </div>
 
             {/* Create/Edit Modal */}

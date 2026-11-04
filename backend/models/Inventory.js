@@ -40,6 +40,49 @@ const resolveLookupLocal = async (type, value, parentId = null) => {
     return lookup._id;
 };
 
+// ━━ AUTHORITY VERIFICATION SUBSCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Strictly typed, isolated subdocument for verified authority facts.
+// Prevents arbitrary field injection, prototype pollution, or schema bypass.
+// strict: 'throw' ensures unknown nested fields trigger explicit validation error.
+const AuthorityVerificationSubSchema = new mongoose.Schema({
+    propertyId: { type: String, trim: true, default: null },
+    fileNumber: { type: String, trim: true, default: null },
+    formNumber: { type: String, trim: true, default: null },
+    sectorNumber: { type: String, trim: true, default: null },
+    phaseCode: { type: String, trim: true, default: null },
+    blockCode: { type: String, trim: true, default: null },
+    schemeName: { type: String, trim: true, default: null },
+    urbanEstate: { type: String, trim: true, default: null },
+    estateOffice: { type: String, trim: true, default: null },
+    propertyCategory: { type: String, trim: true, default: null },
+    propertyType: { type: String, trim: true, default: null },
+    propertySize: { type: String, trim: true, default: null },
+    propertyAreaValue: { type: Number, default: null },
+    propertyAreaUnit: { type: String, trim: true, default: null },
+    allotmentDate: { type: Date, default: null },
+    transferDate: { type: Date, default: null },
+    possessionDate: { type: Date, default: null },
+    allotmentMode: { type: String, trim: true, default: null },
+    possessionStatus: { type: String, trim: true, default: null },
+    buildingPlanApproved: { type: Boolean, default: null },
+    occupancyCertificate: { type: Boolean, default: null },
+    litigationStatus: { type: String, trim: true, default: null },
+    mortgageStatus: { type: String, trim: true, default: null },
+    authorityStatus: { type: String, trim: true, default: null },
+    duesStatus: { type: String, trim: true, default: null },
+    leaseRentStatus: { type: String, trim: true, default: null },
+    lastVerifiedAt: { type: Date, default: null },
+    authorityCode: { type: String, enum: ['HSVP', 'CHD', 'GMADA', null], default: null },
+    verificationRunId: { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyVerificationRun', default: null },
+    verificationSnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyVerificationSnapshot', default: null },
+    snapshotContentHash: { type: String, default: null },
+    rawSnapshotHash: { type: String, default: null },
+    applyClaimId: { type: mongoose.Schema.Types.ObjectId, default: null }
+}, {
+    _id: false,
+    strict: 'throw'
+});
+
 const InventorySchema = new mongoose.Schema({
 
     // Basic Info
@@ -204,11 +247,11 @@ const InventorySchema = new mongoose.Schema({
     longitude: { type: String },
     geoPoint: {
         type: { type: String, enum: ['Point'] },
-        coordinates: { type: [Number] }
+        coordinates: { type: [Number], default: undefined }
     },
     geoPolygon: {
         type: { type: String, enum: ['Polygon'] },
-        coordinates: { type: [[[Number]]] }
+        coordinates: { type: [[[Number]]], default: undefined }
     },
     gpsPerimeter: { type: Number }, // in meters or feet
 
@@ -259,8 +302,16 @@ const InventorySchema = new mongoose.Schema({
     // Legacy Support (to prevent 400 errors during transition)
     remarks: String,
     lastContactDate: String,
-    lastContactUser: String
+    lastContactUser: String,
 
+    // Authority Property Verification (Verified Portal Facts)
+    authorityVerification: {
+        type: AuthorityVerificationSubSchema,
+        default: undefined
+    },
+
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null }
 }, { timestamps: true, strict: true });
  
 // ━━ PERFORMANCE INDEXES (Harden for Bulk Operations) ━━━━━━━━━━━━━━━━━━━━━━
@@ -282,6 +333,8 @@ InventorySchema.index({ category: 1, updatedAt: -1 });             // Category f
 InventorySchema.index({ projectId: 1, updatedAt: -1 });            // Project filter + sort
 InventorySchema.index({ owners: 1 });                              // Owner lookup
 InventorySchema.index({ projectName: 1, updatedAt: -1 });          // Project name + sort (visibility queries)
+InventorySchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+InventorySchema.index({ tenantId: 1, status: 1 }, { background: true });
  
 // Permanent Fix: Deep Data Integrity Hooks
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { enrichmentAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const EnrichmentSettingsPage = () => {
     const [activeTab, setActiveTab] = useState('keywords'); // 'keywords', 'formula', 'classification', 'margin'
@@ -115,7 +116,7 @@ const EnrichmentSettingsPage = () => {
         }
     };
 
-    const handleDeleteKeyword = async (id) => {
+    const handleDeleteKeyword = useCallback(async (id) => {
         if (window.confirm('Are you sure you want to delete this keyword rule?')) {
             try {
                 const response = await enrichmentAPI.deleteKeywordRule(id);
@@ -127,7 +128,96 @@ const EnrichmentSettingsPage = () => {
                 showToast('Error deleting keyword rule', 'error');
             }
         }
-    };
+    }, [fetchRules]);
+
+    const keywordColumns = useMemo(() => [
+        {
+            key: 'keyword',
+            header: 'Keyword',
+            headerStyle: { padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px', fontWeight: 700, color: 'var(--text-main)' },
+            render: (rule) => `"${rule?.keyword || ''}"`
+        },
+        {
+            key: 'autoTag',
+            header: 'Auto Tag',
+            headerStyle: { padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (rule) => (
+                <span style={{ padding: '4px 10px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700 }}>
+                    {rule?.autoTag || '-'}
+                </span>
+            )
+        },
+        {
+            key: 'roleType',
+            header: 'Role Detect',
+            headerStyle: { padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px', fontWeight: 600, color: 'var(--text-muted)' },
+            render: (rule) => rule?.roleType || 'Buyer'
+        },
+        {
+            key: 'intentImpact',
+            header: 'Intent Impact',
+            headerStyle: { padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (rule) => {
+                const impact = rule?.intentImpact ?? 0;
+                return (
+                    <span style={{ fontWeight: 800, color: impact >= 0 ? '#10b981' : '#ef4444' }}>
+                        {impact >= 0 ? '+' : ''}{impact}%
+                    </span>
+                );
+            }
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '16px', textAlign: 'center', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px', textAlign: 'center' },
+            render: (rule) => (
+                <span style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    background: rule?.isActive ? 'rgba(34, 197, 94, 0.15)' : 'var(--bg-light)',
+                    color: rule?.isActive ? '#166534' : 'var(--text-muted)',
+                    fontSize: '0.7rem',
+                    fontWeight: 700
+                }}>
+                    {rule?.isActive ? 'ACTIVE' : 'INACTIVE'}
+                </span>
+            )
+        },
+        {
+            key: 'actions',
+            header: '',
+            headerStyle: { padding: '16px', width: '80px' },
+            cellStyle: { padding: '16px' },
+            render: (rule) => {
+                const ruleId = rule?._id || rule?.id;
+                return (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => { setEditingKeyword(rule); setKeywordForm({ ...rule }); setIsKeywordModalOpen(true); }}
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}
+                            title="Edit Rule"
+                            aria-label={`Edit ${rule?.keyword || 'rule'}`}
+                        >
+                            <i className="fas fa-edit"></i>
+                        </button>
+                        <button
+                            onClick={() => handleDeleteKeyword(ruleId)}
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444' }}
+                            title="Delete Rule"
+                            aria-label={`Delete ${rule?.keyword || 'rule'}`}
+                        >
+                            <i className="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                );
+            }
+        }
+    ], [handleDeleteKeyword]);
 
     const tabs = [
         { id: 'keywords', label: 'Keyword Detection', icon: 'fa-search-plus' },
@@ -195,35 +285,16 @@ const EnrichmentSettingsPage = () => {
                             </div>
 
                             <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                            <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Keyword</th>
-                                            <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Auto Tag</th>
-                                            <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Role Detect</th>
-                                            <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Intent Impact</th>
-                                            <th style={{ padding: '16px', textAlign: 'center', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Status</th>
-                                            <th style={{ padding: '16px', width: '80px' }}></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {rules.keywordRules.length === 0 ? (
-                                            <tr><td colSpan="6" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No keyword rules defined yet.</td></tr>
-                                        ) : rules.keywordRules.map(rule => (
-                                            <tr key={rule._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>"{rule.keyword}"</td>
-                                                <td style={{ padding: '16px' }}><span style={{ padding: '4px 10px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700 }}>{rule.autoTag}</span></td>
-                                                <td style={{ padding: '16px', fontWeight: 600, color: 'var(--text-muted)' }}>{rule.roleType}</td>
-                                                <td style={{ padding: '16px', fontWeight: 800, color: rule.intentImpact >= 0 ? '#10b981' : '#ef4444' }}>{rule.intentImpact >= 0 ? '+' : ''}{rule.intentImpact}%</td>
-                                                <td style={{ padding: '16px', textAlign: 'center' }}><span style={{ padding: '4px 8px', borderRadius: '4px', background: rule.isActive ? 'rgba(34, 197, 94, 0.15)' : 'var(--bg-light)', color: rule.isActive ? '#166534' : 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 700 }}>{rule.isActive ? 'ACTIVE' : 'INACTIVE'}</span></td>
-                                                <td style={{ padding: '16px', display: 'flex', gap: '8px' }}>
-                                                    <button onClick={() => { setEditingKeyword(rule); setKeywordForm({ ...rule }); setIsKeywordModalOpen(true); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-edit"></i></button>
-                                                    <button onClick={() => handleDeleteKeyword(rule._id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash-alt"></i></button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                <DataTable
+                                    columns={keywordColumns}
+                                    data={rules?.keywordRules || []}
+                                    keyField="_id"
+                                    emptyMessage={
+                                        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                            No keyword rules defined yet.
+                                        </div>
+                                    }
+                                />
                             </div>
                         </div>
                     )}

@@ -45,6 +45,7 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
             block: blockNameStr,
             category: category || 'Residential',
             subCategory: subCategory || '',
+            subCategories: subCategory ? [subCategory] : [],
             name: `${sizeName} (${area ? area + ' ' + unit : ''})`.trim(),
             sizeType: sizeName,
             unitType: sizeName,

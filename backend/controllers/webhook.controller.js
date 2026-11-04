@@ -31,7 +31,7 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
 import fs from 'fs';
 import DealVerificationService from '../services/DealVerificationService.js';
-import { extractWhatsAppChanges, extractCoexistenceChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage } from '../utils/whatsappWebhook.utils.js';
+import { extractWhatsAppChanges, extractCoexistenceChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage, isMonotonicStatusTransition } from '../utils/whatsappWebhook.utils.js';
 import { autoTriggerStageChange } from './activity.controller.js';
 import RealtimeHub from '../services/RealtimeHub.js';
 
@@ -71,6 +71,7 @@ export const captureLeadWebhook = async (req, res) => {
 
         // Create the lead using Standardized Engine
         const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+        const effectiveTenantId = req.resolvedTenantId || null;
         const leadResult = await createStandardizedLead({
             firstName,
             lastName,
@@ -78,10 +79,11 @@ export const captureLeadWebhook = async (req, res) => {
             email: email || undefined,
             source: sourceId,
             source_meta,
+            tenantId: effectiveTenantId,
             intent_index: intentIndex,
             description: message || `Lead from ${source_meta.utm_medium || 'campaign'} campaign`,
             tags: ['Marketing Automation'],
-        }, { triggerEvent: 'onCampaignIntake' });
+        }, { triggerEvent: 'onCampaignIntake', tenantId: effectiveTenantId });
 
         const lead = leadResult.lead;
         console.log(`[WebhookController] New lead created: ${lead._id} (${mobile}) intent: ${intentIndex}`);
@@ -430,13 +432,110 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
         setImmediate(async () => {
             try {
                 for (const { status } of statuses) {
-                    await Conversation.updateOne(
-                        { $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] },
-                        { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } }
+                    const statusVal = status.status;
+                    const statusTimestamp = new Date(Number(status.timestamp || 0) * 1000);
+
+                    // 1. Monotonic status progression on Conversation message
+                    const conv = await Conversation.findOne(
+                        { $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] }
+                    ).lean();
+
+                    if (conv && conv.messages) {
+                        const targetMsg = conv.messages.find(m => m.metadata?.waId === status.id || m.waId === status.id);
+                        if (targetMsg) {
+                            const currentStatus = targetMsg.metadata?.status || targetMsg.status;
+                            if (isMonotonicStatusTransition(currentStatus, statusVal)) {
+                                const updateFields = {
+                                    'messages.$.metadata.status': statusVal,
+                                    'messages.$.metadata.statusAt': statusTimestamp
+                                };
+                                if (statusVal === 'failed' && status.errors && status.errors.length > 0) {
+                                    updateFields['messages.$.metadata.error'] = status.errors[0];
+                                }
+                                await Conversation.updateOne(
+                                    { _id: conv._id, 'messages._id': targetMsg._id },
+                                    { $set: updateFields }
+                                );
+                            } else {
+                                console.log(`[WhatsApp Webhook] Regressive status '${statusVal}' ignored for message ${status.id} (current: '${currentStatus}')`);
+                            }
+                        }
+                    }
+
+                    // 2. Synchronize delivery status onto Activity timeline
+                    const activityUpdate = {
+                        'details.status': statusVal,
+                        'details.statusAt': statusTimestamp
+                    };
+                    if (statusVal === 'failed' && status.errors && status.errors.length > 0) {
+                        activityUpdate['details.error'] = status.errors[0];
+                    }
+                    await Activity.updateMany(
+                        { 'details.waId': status.id },
+                        { $set: activityUpdate }
                     );
+
+                    // 3. Synchronize status and reconcile ambiguous timeouts on WhatsAppDispatch ledger
+                    try {
+                        await WhatsAppService.reconcileWebhookStatus({
+                            id: status.id,
+                            status: statusVal,
+                            timestamp: status.timestamp,
+                            recipient_id: status.recipient_id,
+                            biz_opaque_callback_data: status.biz_opaque_callback_data,
+                            errors: status.errors
+                        });
+                    } catch (dispatchSyncErr) {
+                        console.error('[WhatsApp Webhook] Dispatch status reconciliation error:', dispatchSyncErr.message);
+                    }
+
+                    // 4. Synchronize status onto MarketingDelivery ledger with monotonic state protection
+                    try {
+                        const { default: MarketingDelivery } = await import('../models/MarketingDelivery.js');
+                        let deliveryStatus = null;
+                        let allowedPriorStatuses = null;
+
+                        if (statusVal === 'sent') {
+                            deliveryStatus = 'SENT';
+                            // Monotonic rule: 'sent' can ONLY overwrite prior states (IN_PROGRESS, QUEUED, ACCEPTED)
+                            // It must NEVER regress confirmed DELIVERED or READ!
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED'];
+                        } else if (statusVal === 'delivered') {
+                            deliveryStatus = 'DELIVERED';
+                            // Monotonic rule: 'delivered' advances sent/accepted; must NEVER regress READ!
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'SENT', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE'];
+                        } else if (statusVal === 'read') {
+                            deliveryStatus = 'READ';
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'SENT', 'DELIVERED', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE'];
+                        } else if (statusVal === 'failed') {
+                            deliveryStatus = 'FAILED_FINAL';
+                            // Failure cannot overwrite confirmed DELIVERED or READ
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'SENT', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE'];
+                        }
+
+                        if (deliveryStatus && allowedPriorStatuses) {
+                            const updateFields = {
+                                status: deliveryStatus,
+                                lastAttemptAt: statusTimestamp
+                            };
+                            if (statusVal === 'failed' && status.errors && status.errors.length > 0) {
+                                updateFields.error = status.errors[0]?.message || status.errors[0]?.title || 'Meta delivery failure';
+                            }
+                            await MarketingDelivery.updateMany(
+                                { 
+                                    providerMessageId: status.id,
+                                    status: { $in: allowedPriorStatuses }
+                                },
+                                { $set: updateFields }
+                            );
+                        }
+                    } catch (mktgErr) {
+                        console.error('[WhatsApp Webhook] MarketingDelivery sync error:', mktgErr.message);
+                    }
+
                     RealtimeHub.emitStatusUpdate({
                         messageId: status.id,
-                        status: status.status,
+                        status: statusVal,
                         phone: status.recipient_id
                     });
 

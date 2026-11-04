@@ -1,5 +1,48 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useId } from 'react';
 import { IconButton } from '../Button/Button';
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'area[href]',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'button:not([disabled])',
+  'iframe',
+  'object',
+  'embed',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex^="-"])'
+].join(', ');
+
+const isElementVisible = (el) => {
+  if (!el) return false;
+  if (el.disabled) return false;
+  if (el.getAttribute('aria-hidden') === 'true') return false;
+  if (el.closest && el.closest('[aria-hidden="true"]')) return false;
+
+  if (typeof window !== 'undefined' && window.getComputedStyle) {
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    // Check parent hierarchy for hidden containers
+    let parent = el.parentElement;
+    while (parent && parent !== el.ownerDocument?.body) {
+      const parentStyle = window.getComputedStyle(parent);
+      if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+        return false;
+      }
+      parent = parent.parentElement;
+    }
+  }
+  return true;
+};
+
+const getFocusableElements = (container) => {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isElementVisible);
+};
 
 export const Modal = ({
   isOpen,
@@ -8,17 +51,134 @@ export const Modal = ({
   children,
   footer,
   size = 'md', // sm, md, lg, xl, full
-  hideCloseButton = false
+  hideCloseButton = false,
+  closeOnBackdrop = true,
+  closeOnEscape = true,
+  role = 'dialog',
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
+  'aria-describedby': ariaDescribedBy,
+  style = {},
+  className = '',
+  ...props
 }) => {
   const modalRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const wasOpenRef = useRef(false);
+  const titleId = useId();
 
+  // Stable refs for callbacks and dynamic toggles to prevent re-running focus effects on rerenders
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const closeOnEscapeRef = useRef(closeOnEscape);
+  closeOnEscapeRef.current = closeOnEscape;
+
+  const restoreFocus = () => {
+    const target = previousFocusRef.current;
+    previousFocusRef.current = null;
+    if (target && typeof target.focus === 'function') {
+      if (typeof document !== 'undefined' && document.contains(target)) {
+        try {
+          target.focus();
+        } catch (e) {
+          // Ignore if target cannot be focused
+        }
+      }
+    }
+  };
+
+  // Manage open/close focus transitions
   useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === 'Escape' && isOpen) onClose();
+    if (isOpen) {
+      if (!wasOpenRef.current) {
+        wasOpenRef.current = true;
+        // Save the element that triggered the modal
+        if (typeof document !== 'undefined') {
+          previousFocusRef.current = document.activeElement;
+        }
+
+        // Move initial focus into the dialog: first focusable element, or dialog container itself
+        const focusables = getFocusableElements(modalRef.current);
+        if (focusables.length > 0) {
+          focusables[0].focus();
+        } else if (modalRef.current) {
+          modalRef.current.focus();
+        }
+      }
+    } else {
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        restoreFocus();
+      }
+    }
+  }, [isOpen]);
+
+  // Ensure focus is restored if the modal unmounts while open
+  useEffect(() => {
+    return () => {
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        restoreFocus();
+      }
     };
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, []);
+
+  // Keyboard navigation: Escape key and Tab / Shift+Tab focus trapping
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (closeOnEscapeRef.current && typeof onCloseRef.current === 'function') {
+          e.stopPropagation();
+          onCloseRef.current();
+        }
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        if (!modalRef.current) return;
+
+        const focusables = getFocusableElements(modalRef.current);
+
+        if (focusables.length === 0) {
+          // No focusable descendants: keep focus on dialog container
+          e.preventDefault();
+          modalRef.current.focus();
+          return;
+        }
+
+        const firstElement = focusables[0];
+        const lastElement = focusables[focusables.length - 1];
+        const isInsideDialog = modalRef.current.contains(document.activeElement);
+
+        if (e.shiftKey) {
+          // Shift + Tab: if on firstElement, dialog container, or outside, wrap back to lastElement
+          if (
+            !isInsideDialog ||
+            document.activeElement === firstElement ||
+            document.activeElement === modalRef.current
+          ) {
+            e.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          // Tab: if on lastElement, dialog container, or outside, wrap back to firstElement
+          if (
+            !isInsideDialog ||
+            document.activeElement === lastElement ||
+            document.activeElement === modalRef.current
+          ) {
+            e.preventDefault();
+            firstElement.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -53,7 +213,9 @@ export const Modal = ({
     display: 'flex',
     flexDirection: 'column',
     boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    outline: 'none',
+    ...style
   };
 
   const headerStyle = {
@@ -80,12 +242,44 @@ export const Modal = ({
     gap: '12px'
   };
 
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget && closeOnBackdrop && typeof onCloseRef.current === 'function') {
+      onCloseRef.current();
+    }
+  };
+
+  const computedAriaLabelledBy = ariaLabelledBy || (title ? titleId : undefined);
+
   return (
-    <div style={overlayStyle} onClick={onClose} role="dialog" aria-modal="true">
-      <div style={modalStyle} onClick={(e) => e.stopPropagation()} ref={modalRef}>
+    <div
+      style={overlayStyle}
+      onClick={handleBackdropClick}
+      data-testid="modal-overlay"
+    >
+      <div
+        style={modalStyle}
+        data-testid="modal-dialog"
+        className={`ui-modal-dialog ${className}`.trim()}
+        {...props}
+        ref={modalRef}
+        role={role}
+        aria-modal="true"
+        aria-labelledby={computedAriaLabelledBy}
+        aria-describedby={ariaDescribedBy}
+        aria-label={ariaLabel}
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (typeof props.onClick === 'function') {
+            props.onClick(e);
+          }
+        }}
+      >
         {title && (
           <div style={headerStyle}>
-            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{title}</h2>
+            <h2 id={titleId} style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>
+              {title}
+            </h2>
             {!hideCloseButton && (
               <IconButton icon="fas fa-times" variant="ghost" onClick={onClose} aria-label="Close modal" />
             )}

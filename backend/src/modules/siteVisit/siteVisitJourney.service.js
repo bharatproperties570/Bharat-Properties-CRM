@@ -31,6 +31,20 @@ export class SiteVisitJourneyService {
     }
 
     /**
+     * Resolves optional secondary secret for dual-key rotation.
+     * When FEEDBACK_JWT_SECRET is introduced and differs from JWT_SECRET,
+     * JWT_SECRET serves as fallback for in-flight tokens issued before rotation.
+     */
+    static getSecondarySecret() {
+        const primary = process.env.FEEDBACK_JWT_SECRET;
+        const fallback = process.env.JWT_SECRET;
+        if (primary && fallback && primary !== fallback) {
+            return fallback;
+        }
+        return null;
+    }
+
+    /**
      * Generate or reconstruct a signed, time-limited, revocable client journey token.
      * Tokens are valid for 72 hours (3 days) to accommodate pre-visit itinerary viewing.
      * When options.jti and options.iat are passed, reconstructs the identical active token
@@ -41,7 +55,7 @@ export class SiteVisitJourneyService {
             throw new Error('Valid activity is required to generate journey token');
         }
 
-        const secret = this.getSecret();
+        const secret = options.secret || this.getSecret();
         const activityId = String(activity._id);
         const leadId = String(activity.entityId || activity.lead || '');
         const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
@@ -115,6 +129,19 @@ export class SiteVisitJourneyService {
 
         // Safety assertion: reconstructed hash MUST match stored hash
         if (reconstructed.tokenHash !== journeyTokenHash) {
+            // Dual-key rotation check: attempt reconstruction with secondary secret
+            const secondarySecret = this.getSecondarySecret();
+            if (secondarySecret) {
+                const secondaryReconstructed = this.generateJourneyToken(activity, {
+                    jti: journeyTokenJti,
+                    iat: journeyTokenIat,
+                    exp: expSec,
+                    secret: secondarySecret
+                });
+                if (secondaryReconstructed.tokenHash === journeyTokenHash) {
+                    return secondaryReconstructed;
+                }
+            }
             console.error('[SiteVisitJourneyService] Reconstructed token hash mismatch with stored hash');
             return null;
         }
@@ -133,15 +160,26 @@ export class SiteVisitJourneyService {
         }
 
         const normalizedToken = rawToken.replace(/~/g, '.');
-        const secret = this.getSecret();
+        const primarySecret = this.getSecret();
+        const secondarySecret = this.getSecondarySecret();
 
         let decoded;
         try {
-            decoded = jwt.verify(normalizedToken, secret);
+            decoded = jwt.verify(normalizedToken, primarySecret);
         } catch (err) {
-            const error = new Error('Invalid or expired journey token');
-            error.statusCode = 403;
-            throw error;
+            if (secondarySecret) {
+                try {
+                    decoded = jwt.verify(normalizedToken, secondarySecret);
+                } catch (_) {
+                    const error = new Error('Invalid or expired journey token');
+                    error.statusCode = 403;
+                    throw error;
+                }
+            } else {
+                const error = new Error('Invalid or expired journey token');
+                error.statusCode = 403;
+                throw error;
+            }
         }
 
         // 6. Verify token issuer and purpose

@@ -19,13 +19,97 @@ class MockRedis extends EventEmitter {
     setMaxListeners(n) { return this; }
     getMaxListeners() { return 100; }
     async get(key) { return this.data.get(key) || null; }
-    async set(key, val) { this.data.set(key, val); return 'OK'; }
+    async set(key, val, ...args) { 
+        const argStrings = args.map(a => typeof a === 'string' ? a.toUpperCase() : a);
+        const hasNX = argStrings.includes('NX');
+        const hasXX = argStrings.includes('XX');
+        if (hasNX && this.data.has(key)) return null;
+        if (hasXX && !this.data.has(key)) return null;
+
+        this.data.set(key, val);
+
+        const exIdx = argStrings.indexOf('EX');
+        if (exIdx !== -1 && args[exIdx + 1] !== undefined) {
+            const sec = parseInt(args[exIdx + 1], 10);
+            if (!isNaN(sec)) {
+                setTimeout(() => this.data.delete(key), sec * 1000);
+            }
+        }
+        const pxIdx = argStrings.indexOf('PX');
+        if (pxIdx !== -1 && args[pxIdx + 1] !== undefined) {
+            const ms = parseInt(args[pxIdx + 1], 10);
+            if (!isNaN(ms)) {
+                setTimeout(() => this.data.delete(key), ms);
+            }
+        }
+        return 'OK'; 
+    }
     async setex(key, seconds, val) { 
         this.data.set(key, val); 
         setTimeout(() => this.data.delete(key), seconds * 1000);
         return 'OK'; 
     }
     async del(key) { this.data.delete(key); return 1; }
+    async incr(key) {
+        const current = parseInt(this.data.get(key) || '0', 10);
+        const next = current + 1;
+        this.data.set(key, String(next));
+        return next;
+    }
+    async expire(key, seconds) {
+        if (!this.data.has(key)) return 0;
+        const val = this.data.get(key);
+        setTimeout(() => {
+            if (this.data.get(key) === val) {
+                this.data.delete(key);
+            }
+        }, seconds * 1000);
+        return 1;
+    }
+    async eval(script, numkeys, ...args) {
+        const keys = args.slice(0, numkeys);
+        const argv = args.slice(numkeys);
+        const s = String(script || '');
+
+        // Canonical acquire fenced lock script: if set NX EX then incr(gen) return gen else return 0
+        if (s.includes('NX') && s.includes('incr')) {
+            const lockKey = keys[0];
+            const genKey = keys[1];
+            const token = argv[0];
+            const ttl = parseInt(argv[1], 10) || 15;
+            if (this.data.has(lockKey)) return 0;
+            await this.set(lockKey, token, 'NX', 'EX', ttl);
+            const currentGen = parseInt(this.data.get(genKey) || '0', 10);
+            const nextGen = currentGen + 1;
+            this.data.set(genKey, String(nextGen));
+            return nextGen;
+        }
+
+        // Canonical release lock script: if get(k) == token then del(k) return 1 else return 0
+        if (s.includes('del') && s.includes('get')) {
+            const key = keys[0];
+            const token = argv[0];
+            if (this.data.get(key) === token) {
+                this.data.delete(key);
+                return 1;
+            }
+            return 0;
+        }
+
+        // Canonical renew lock script: if get(k) == token then expire(k, ttl) return 1 else return 0
+        if (s.includes('expire') && s.includes('get')) {
+            const key = keys[0];
+            const token = argv[0];
+            const seconds = parseInt(argv[1], 10) || 30;
+            if (this.data.get(key) === token) {
+                await this.expire(key, seconds);
+                return 1;
+            }
+            return 0;
+        }
+
+        return 1;
+    }
     async quit() { return 'OK'; }
     async ping() { return 'PONG'; }
 }
@@ -100,6 +184,11 @@ if (!redisExists) {
  */
 const redisProxy = new Proxy({}, {
     get: (target, prop) => {
+        if (prop in target) {
+            const tVal = target[prop];
+            if (typeof tVal === 'function') return tVal.bind(target);
+            return tVal;
+        }
         // Handle special properties
         if (prop === 'isMock') return internalConnection.isMock;
         if (prop === 'status') return internalConnection.status;
@@ -109,6 +198,14 @@ const redisProxy = new Proxy({}, {
             return value.bind(internalConnection);
         }
         return value;
+    },
+    set: (target, prop, value) => {
+        target[prop] = value;
+        return true;
+    },
+    deleteProperty: (target, prop) => {
+        delete target[prop];
+        return true;
     }
 });
 

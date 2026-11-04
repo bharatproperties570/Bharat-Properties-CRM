@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
+import { v4 as uuidv4 } from 'uuid';
 import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import Contact from '../models/Contact.js';
+import Lead from '../models/Lead.js';
 import Deal from '../models/Deal.js';
 import Booking from '../models/Booking.js';
 import Inventory from '../models/Inventory.js';
@@ -105,13 +107,28 @@ export const previewMerge = async (canonical, duplicate) => {
         referenceRewires.push({ collectionName: col, documentId: docId, field, oldValue: oldV, newValue: newV });
     };
 
+    // Leads
+    const leads = await Lead.find({ contactDetails: dupId }).lean();
+    for (const l of leads) {
+        appendRewire('Lead', l._id, 'contactDetails', dupId, masId);
+    }
+
     // Deals
-    const deals = await Deal.find({ $or: [{owner: dupId}, {buyer: dupId}, {channelPartner: dupId}, {associatedContact: dupId}] }).lean();
+    const deals = await Deal.find({
+        $or: [
+            { owner: dupId },
+            { buyer: dupId },
+            { channelPartner: dupId },
+            { associatedContact: dupId },
+            { 'partyStructure.owner': dupId }
+        ]
+    }).lean();
     for (const d of deals) {
         if (d.owner?.toString() === dupId.toString()) appendRewire('Deal', d._id, 'owner', dupId, masId);
         if (d.buyer?.toString() === dupId.toString()) appendRewire('Deal', d._id, 'buyer', dupId, masId);
         if (d.channelPartner?.toString() === dupId.toString()) appendRewire('Deal', d._id, 'channelPartner', dupId, masId);
         if (d.associatedContact?.toString() === dupId.toString()) appendRewire('Deal', d._id, 'associatedContact', dupId, masId);
+        if (d.partyStructure?.owner?.toString() === dupId.toString()) appendRewire('Deal', d._id, 'partyStructure.owner', dupId, masId);
     }
     
     // Bookings
@@ -123,10 +140,17 @@ export const previewMerge = async (canonical, duplicate) => {
     }
     
     // Inventory
-    const invs = await Inventory.find({ $or: [{owners: dupId}, {'associates.contact': dupId}] }).lean();
+    const invs = await Inventory.find({
+        $or: [
+            { owners: dupId },
+            { 'associates.contact': dupId },
+            { 'ownerHistory.contactId': dupId }
+        ]
+    }).lean();
     for (const inv of invs) {
         if (inv.owners?.some(o => o.toString() === dupId.toString())) appendRewire('Inventory', inv._id, 'owners', dupId, masId);
         if (inv.associates?.some(a => a.contact?.toString() === dupId.toString())) appendRewire('Inventory', inv._id, 'associates.contact', dupId, masId);
+        if (inv.ownerHistory?.some(h => h.contactId?.toString() === dupId.toString())) appendRewire('Inventory', inv._id, 'ownerHistory.contactId', dupId, masId);
     }
     
     // Activity
@@ -253,34 +277,79 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
                 
                 await Model.updateOne({ _id: rw.documentId }, { $set: { relatedTo: newArray } }, { session });
                 
+            } else if (rw.field === 'ownerHistory.contactId') {
+                const originalArray = doc.ownerHistory || [];
+                rw.oldValue = originalArray;
+                rw.newValue = masId;
+
+                const newArray = originalArray.map(item => {
+                    if (item && item.contactId && item.contactId.toString() === dupId.toString()) {
+                        const updated = { ...item };
+                        updated.contactId = new mongoose.Types.ObjectId(masId);
+                        return updated;
+                    }
+                    return item;
+                });
+
+                await Model.updateOne({ _id: rw.documentId }, { $set: { ownerHistory: newArray } }, { session });
+
+            } else if (rw.field === 'partyStructure.owner') {
+                rw.oldValue = doc.partyStructure?.owner || null;
+                rw.newValue = masId;
+                await Model.updateOne({ _id: rw.documentId }, { $set: { 'partyStructure.owner': new mongoose.Types.ObjectId(masId) } }, { session });
+
             } else {
-                // Primitive field
-                await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: masId } }, { session });
+                // Primitive field (e.g. Lead.contactDetails, Deal.owner, etc.)
+                rw.oldValue = doc[rw.field] || null;
+                rw.newValue = masId;
+                await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: new mongoose.Types.ObjectId(masId) } }, { session });
             }
         }
         
-        // 2. Consolidate Master
+        // 2. Mark Duplicate as Merged FIRST (so duplicate leaves the active partial unique index before Master consolidates phones)
+        await Contact.updateOne({ _id: duplicateId }, { $set: { isMerged: true, mergedInto: canonicalId, isDeleted: true } }, { session });
+
+        // 3. Consolidate Master (can now safely receive duplicate's phone numbers without duplicate key collision)
         if (previewData.consolidatedFields && Object.keys(previewData.consolidatedFields).length > 0) {
             await Contact.updateOne({ _id: canonicalId }, previewData.consolidatedFields, { session });
         }
         
-        // 3. Mark Duplicate as Merged
-        await Contact.updateOne({ _id: duplicateId }, { $set: { isMerged: true, mergedInto: canonicalId, isDeleted: true } }, { session });
-        
+        // 3b. Flatten Multi-Hop Lineage: Any contacts previously merged into duplicateId now point directly to canonicalId
+        const previousMerged = await Contact.find({ mergedInto: duplicateId }, { _id: 1 }, { includeDeleted: true }).session(session).lean();
+        const flattenedContactIds = previousMerged.map(c => c._id);
+        if (flattenedContactIds.length > 0) {
+            await Contact.updateMany(
+                { _id: { $in: flattenedContactIds } },
+                { $set: { mergedInto: canonicalId } },
+                { session, includeDeleted: true }
+            );
+        }
+        audit.flattenedContactIds = flattenedContactIds;
+
         // 4. Complete Audit
         audit.status = 'COMPLETED';
         audit.completedAt = new Date();
         audit.markModified("referenceRewires");
+        if (flattenedContactIds.length > 0) audit.markModified("flattenedContactIds");
         await audit.save({ session });
         
         // 5. Emit Durable Domain Event
         await OutboxEvent.create([{
+            eventId: uuidv4(),
             eventType: 'ContactMerged',
             aggregateType: 'Contact',
             aggregateId: canonicalId,
             payload: {
-                mergeOperationId: audit.mergeOperationId
-            }
+                mergeOperationId: audit.mergeOperationId,
+                masterContactId: canonicalId,
+                duplicateContactId: duplicateId
+            },
+            provenance: {
+                source: 'HTTP',
+                actorType: options.userId ? 'HUMAN' : 'SYSTEM',
+                actorId: options.userId || null
+            },
+            tenantId: options.tenantId || null
         }], { session });
 
         return audit;
@@ -293,10 +362,7 @@ export const rollbackMerge = async (mergeOperationId) => {
         if (!audit || audit.status !== 'COMPLETED') throw new Error('Invalid or uncompleted audit record');
         if (!audit.rollbackAvailable) throw new Error('Rollback not available');
         
-        // 1. Un-mark Duplicate
-        await Contact.updateOne({ _id: audit.duplicateContactId }, { $set: { isMerged: false, isDeleted: false }, $unset: { mergedInto: 1 } }, { session });
-        
-        // 2. Un-consolidate Master fields
+        // 1. Un-consolidate Master fields FIRST (removes duplicate's phone numbers from Master before Duplicate is restored)
         if (audit.fieldChanges && audit.fieldChanges.length > 0) {
             const unsetFields = {};
             const setFields = {};
@@ -313,6 +379,18 @@ export const rollbackMerge = async (mergeOperationId) => {
             if (Object.keys(updateObj).length > 0) {
                 await Contact.updateOne({ _id: audit.masterContactId }, updateObj, { session });
             }
+        }
+
+        // 2. Un-mark Duplicate (can now be restored without duplicate phone key collision)
+        await Contact.updateOne({ _id: audit.duplicateContactId }, { $set: { isMerged: false, isDeleted: false }, $unset: { mergedInto: 1 } }, { session, includeDeleted: true });
+
+        // 2b. Restore flattened lineage
+        if (audit.flattenedContactIds && audit.flattenedContactIds.length > 0) {
+            await Contact.updateMany(
+                { _id: { $in: audit.flattenedContactIds } },
+                { $set: { mergedInto: audit.duplicateContactId } },
+                { session, includeDeleted: true }
+            );
         }
         
         // 3. Un-rewire references
@@ -333,14 +411,28 @@ export const rollbackMerge = async (mergeOperationId) => {
                 } else {
                     await Model.updateOne({ _id: rw.documentId, 'associates.contact': rw.newValue }, { $set: { 'associates.$.contact': rw.oldValue } }, { session });
                 }
+            } else if (rw.field === 'ownerHistory.contactId') {
+                if (Array.isArray(rw.oldValue)) {
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { ownerHistory: rw.oldValue } }, { session });
+                }
             } else if (rw.field === 'relatedTo.id') {
                 if (Array.isArray(rw.oldValue)) {
                     await Model.updateOne({ _id: rw.documentId }, { $set: { relatedTo: rw.oldValue } }, { session });
                 } else {
                     await Model.updateOne({ _id: rw.documentId, 'relatedTo.id': rw.newValue, 'relatedTo.model': 'Contact' }, { $set: { 'relatedTo.$.id': rw.oldValue } }, { session });
                 }
+            } else if (rw.field === 'partyStructure.owner') {
+                if (rw.oldValue) {
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { 'partyStructure.owner': rw.oldValue } }, { session });
+                } else {
+                    await Model.updateOne({ _id: rw.documentId }, { $unset: { 'partyStructure.owner': 1 } }, { session });
+                }
             } else {
-                await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: rw.oldValue } }, { session });
+                if (rw.oldValue === null || rw.oldValue === undefined) {
+                    await Model.updateOne({ _id: rw.documentId }, { $unset: { [rw.field]: 1 } }, { session });
+                } else {
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: rw.oldValue } }, { session });
+                }
             }
         }
         

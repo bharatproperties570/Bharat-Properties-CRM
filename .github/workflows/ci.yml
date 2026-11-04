@@ -1,69 +1,150 @@
-name: Site Visit CI Quality Gate
+name: CI Quality Gate
 
-'on':
+on:
   push:
     branches:
-      - enterprise/sitevisit-marketing-os
       - main
+      - 'enterprise/**'
+      - 'feature/**'
   pull_request:
     branches:
-      - enterprise/sitevisit-marketing-os
       - main
+      - 'enterprise/**'
+      - 'feature/**'
 
-permissions:
-  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  quality-gate:
-    name: Backend & Frontend Quality Gate
+  test-backend:
+    name: Backend Test Suite (Node.js 20)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     env:
+      MONGOMS_DISABLE_POSTINSTALL: '1'
       NODE_ENV: test
-      MOCK_MODE: "true"
       PORT: 5001
       JWT_SECRET: "ci-quality-gate-test-synthetic-jwt-secret-key-32chars"
       FEEDBACK_JWT_SECRET: "ci-quality-gate-test-synthetic-jwt-secret-key-32chars"
       JWT_REFRESH_SECRET: "ci-quality-gate-test-synthetic-refresh-secret-32ch"
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       PUBLIC_APP_URL: "https://bharatproperties.co"
-      VITE_API_URL: "http://localhost:5001"
-      VITE_SITE_VISIT_JOURNEY_BASE: "https://bharatproperties.co"
-
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20.x
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            backend/package-lock.json
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-      - name: Install root dependencies
-        run: npm ci
+      - name: Install backend dependencies (Deterministic)
+        run: |
+          cd backend
+          npm ci --legacy-peer-deps
 
-      - name: Install backend dependencies
-        run: cd backend && npm ci --legacy-peer-deps
+      - name: Cache MongoDB binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: ${{ runner.os }}-mongodb-binaries-8.2.6
+          restore-keys: |
+            ${{ runner.os }}-mongodb-binaries-
 
-      - name: "Gate 1 & 5: Backend Unit/Integration & Site Visit Security Suites (13 Suites / 126 Tests)"
-        run: npm run test:backend
+      - name: Pre-download MongoDB binary for tests
+        run: |
+          cd backend
+          node -e "import('mongodb-memory-server').then(m => m.MongoMemoryServer.create().then(s => s.stop()))"
 
-      - name: "Gate 2: Frontend Component Tests (Vitest)"
-        run: npm run test:frontend
+      - name: Run Phase 1 & 1.1 Discovery Engine Tests
+        run: |
+          cd backend
+          npm test
 
-      - name: "Gate 3: Frontend Production Build Verification (Vite)"
-        run: npm run build
+      - name: Run Phase 3 Lead Lifecycle, Scoring & Qualification Remediation Tests
+        run: |
+          cd backend
+          npm run test:phase3
+
+      - name: Run Phase 4 & 4.6 Multi-Tenancy & Contact Deduplication Tests
+        run: |
+          cd backend
+          npm run test:phase4
+          npm run test:phase4.6
+
+      - name: Run Phase 5 & 6 Automation Reliability & Sequences Tests
+        run: |
+          cd backend
+          npm run test:phase5
+          npm run test:phase6
+
+      - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
+        run: |
+          cd backend
+          npm run test:regression
+
+      - name: Run Phase 9 & 9.1 WhatsApp Reliability & Idempotency Tests
+        run: |
+          cd backend
+          npm run test:phase9.1
+          npm run test:phase9
+          npm run test:whatsapp-remediation
+          npm run test:whatsapp-phase4
+
+      - name: Run Phase 10 Deals Domain Lifecycle Tests
+        run: |
+          cd backend
+          npm run test:phase10
+
+      - name: Run Phase 11 Document Storage Tests
+        run: |
+          cd backend
+          npm run test:phase11
+
+      - name: Run Phase 12 Bulk Deal Import Safety Tests
+        run: |
+          cd backend
+          npm run test:phase12
+
+      - name: Run Phase 14 Enterprise Automation Audit Logs Tests
+        run: |
+          cd backend
+          npm run test:phase14
+
+      - name: Run Phase 17 Infrastructure Hardening & Preflight Tests
+        run: |
+          cd backend
+          npm run test:phase17
+
+      - name: Run Phase D & E Outbox & Domain Event Consumer Tests
+        run: |
+          cd backend
+          npm run test:outbox
+          npm run test:phase-e
+
+      - name: Run Phase 1-3 Authority Verification Conformance Tests
+        run: |
+          set -o pipefail
+          cd backend
+          npm run test:authority 2>&1 | tee test_authority.log
+          node scripts/verify-authority-test-completeness.js test_authority.log
+
+      - name: Run Phase 4 Authority Operational Completion Tests
+        run: |
+          cd backend
+          npm run test:phase4-authority
+
+      - name: Run Site Visit Marketing OS Suites (13 Suites / 126 Tests)
+        run: |
+          cd backend
+          npm run test:sitevisit
 
   replica-set-acceptance:
     name: Site Visit Real MongoDB Replica Set Acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     env:
       NODE_ENV: test
       MOCK_MODE: "true"
@@ -73,7 +154,6 @@ jobs:
       JWT_REFRESH_SECRET: "ci-replica-gate-test-synthetic-refresh-secret-32ch"
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       PUBLIC_APP_URL: "https://bharatproperties.co"
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -82,7 +162,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: |
             package-lock.json
             backend/package-lock.json
@@ -93,7 +173,7 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci --legacy-peer-deps
 
-      - name: "Gate 4: Real MongoDB Replica Set Acceptance & Concurrency Race Verification"
+      - name: Gate 4 Real MongoDB Replica Set Acceptance & Concurrency Race Verification
         run: npm run test:sitevisit:replica
 
       - name: Upload Logs on Failure
@@ -104,3 +184,29 @@ jobs:
           path: |
             backend/tests/*.log
           if-no-files-found: ignore
+
+  build-frontend:
+    name: Frontend Build & Unit Test Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies (Deterministic)
+        run: |
+          npm ci
+
+      - name: Run Frontend unit tests
+        run: |
+          npm run test:frontend
+
+      - name: Run Vite production build
+        run: |
+          npm run build

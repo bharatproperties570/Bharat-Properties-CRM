@@ -333,7 +333,7 @@ export const PropertyConfigProvider = ({ children }) => {
         frontOnRoads: [],
         soilTypes: ['Sandy', 'Clay', 'Silt', 'Loam'],
         currentCrops: ['Wheat', 'Rice', 'Sugarcane', 'Cotton', 'Mustard', 'Maize', 'None'],
-        ownerships: ['Freehold', 'Leasehold', 'Co-operative Society', 'Power of Attorney'],
+        ownerships: ['Freehold', 'Leasehold', 'Individual Ownership', 'Power of Attorney', 'Co-operative Society'],
         numberOfOwners: [],
         unitTypes: [],
         relations: [],
@@ -1411,11 +1411,14 @@ export const PropertyConfigProvider = ({ children }) => {
             const responseData = sizesResponse?.data || (Array.isArray(sizesResponse) ? sizesResponse : []);
 
             if (isSuccess && Array.isArray(responseData)) {
-                lookupSizes = responseData.map(l => ({
-                    id: l._id,
-                    name: l.lookup_value,
-                    ...l.metadata
-                }));
+                lookupSizes = responseData.map(l => {
+                    const { id: _metaId, ...cleanMeta } = (l.metadata || {});
+                    return {
+                        ...cleanMeta,
+                        id: String(l._id || l.id),
+                        name: l.lookup_value
+                    };
+                });
             }
 
             // ✅ ENTERPRISE: Update state + localStorage cache together
@@ -1748,7 +1751,7 @@ export const PropertyConfigProvider = ({ children }) => {
         'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline', 'PossessionStatus',
         'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type',
         'WaterSource', 'WaterLevel', 'WaterPumpType', 'FrontOnRoad', 'NumberOfOwner', 'ZoneName', 'FloorLevel', 'FloorPlan',
-        'SoilType', 'CurrentCrop'
+        'SoilType', 'CurrentCrop', 'Ownership'
     ];
 
     const { data: rawLookups } = useLookups(REQUIRED_LOOKUP_TYPES);
@@ -1796,7 +1799,9 @@ export const PropertyConfigProvider = ({ children }) => {
             zoneNames: getValues('ZoneName'),
             soilTypes: getValues('SoilType'),
             currentCrops: getValues('CurrentCrop'),
-            ownerships: getValues('Ownership'),
+            ownerships: getValues('Ownership').length > 0
+                ? getValues('Ownership')
+                : (prev?.ownerships?.length > 0 ? prev.ownerships : ['Freehold', 'Leasehold', 'Individual Ownership', 'Power of Attorney', 'Co-operative Society']),
             pincodes: getValues('Pincode'),
             titles: helperGet(newLookups, 'Title') || [],
             relations: helperGet(newLookups, 'Relation')?.map(l => ({
@@ -1827,11 +1832,14 @@ export const PropertyConfigProvider = ({ children }) => {
 
         const sizesList = helperGet(newLookups, 'Size');
         if (sizesList) {
-            const normalizedSizes = sizesList.map(l => ({
-                id: l._id,
-                name: l.lookup_value,
-                ...l.metadata
-            }));
+            const normalizedSizes = sizesList.map(l => {
+                const { id: _metaId, ...cleanMeta } = (l.metadata || {});
+                return {
+                    ...cleanMeta,
+                    id: String(l._id || l.id),
+                    name: l.lookup_value
+                };
+            });
             setSizesWithCache(normalizedSizes);
         }
     }, [rawLookups, setMasterFields, setLeadMasterFields, setCompanyMasterFields, setSizesWithCache]);
@@ -2167,7 +2175,8 @@ export const PropertyConfigProvider = ({ children }) => {
             floorLevels: 'FloorLevel',
             floorPlans: 'FloorPlan',
             soilTypes: 'SoilType',
-            currentCrops: 'CurrentCrop'
+            currentCrops: 'CurrentCrop',
+            ownerships: 'Ownership'
         };
 
         const lookupType = fieldToLookupType[field];
@@ -2651,6 +2660,7 @@ export const PropertyConfigProvider = ({ children }) => {
             const cleanMetadata = { ...metadata, projectMappings: initialMappings };
             delete cleanMetadata.project;
             delete cleanMetadata.block;
+            delete cleanMetadata.id; // 🛡️ CRITICAL: Never store client/temporary ID in metadata
 
             const res = await createLookup.mutateAsync({
                 lookup_type: 'Size',
@@ -2659,10 +2669,11 @@ export const PropertyConfigProvider = ({ children }) => {
             });
 
             if (res && res.data) {
+                const { id: _metaId, ...cleanResMeta } = (res.data.metadata || {});
                 const sizeObj = {
-                    id: res.data._id,
-                    name: res.data.lookup_value,
-                    ...res.data.metadata
+                    ...cleanResMeta,
+                    id: String(res.data._id || res.data.id),
+                    name: res.data.lookup_value
                 };
 
                 // 🚀 ENTERPRISE FIX: If backend returned an existing/updated record,
@@ -2699,18 +2710,20 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateSize = async (updatedSize) => {
         try {
             const { id, name, ...metadata } = updatedSize;
+            delete metadata.id; // 🛡️ CRITICAL: Never store client/temporary ID in metadata
             const res = await updateLookup.mutateAsync({ id, data: {
                 lookup_value: name,
                 metadata: metadata
             }});
 
             if (res && res.data) {
+                const { id: _metaId, ...cleanResMeta } = (res.data.metadata || {});
                 const updated = {
-                    id: res.data._id,
-                    name: res.data.lookup_value,
-                    ...res.data.metadata
+                    ...cleanResMeta,
+                    id: String(res.data._id || res.data.id),
+                    name: res.data.lookup_value
                 };
-                setSizesWithCache(prev => prev.map(s => s.id === id ? updated : s));
+                setSizesWithCache(prev => prev.map(s => (s.id === id || s.id === updated.id) ? updated : s));
                 return updated;
             }
         } catch (error) {
@@ -2792,7 +2805,14 @@ export const PropertyConfigProvider = ({ children }) => {
             if (!projectBlockMatches) return false;
 
             if (tCat && s.category && norm(s.category) !== tCat) return false;
-            if (tSub && s.subCategory && norm(s.subCategory) !== tSub) return false;
+            if (tSub) {
+                const matchesSub = (
+                    (Array.isArray(s.subCategories) && s.subCategories.length > 0 && s.subCategories.some(sc => norm(sc) === tSub)) ||
+                    (s.subCategory && norm(s.subCategory) === tSub) ||
+                    (s.subCategory && String(s.subCategory).split(',').map(x => norm(x.trim())).includes(tSub))
+                );
+                if (!matchesSub) return false;
+            }
 
             return true;
         });

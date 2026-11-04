@@ -177,6 +177,33 @@ export const getCompanies = async (req, res, next) => {
 
         let query = { ...visibilityFilter };
 
+        // 🚀 Dynamic Lookup Resolution for Industry / Category
+        const rawIndustry = dynamicFilters.industry || dynamicFilters.category;
+        delete dynamicFilters.industry;
+        delete dynamicFilters.category;
+
+        let resolvedIndustryIds = null;
+        if (rawIndustry && rawIndustry !== "" && rawIndustry !== "undefined") {
+            const indValues = Array.isArray(rawIndustry) ? rawIndustry : [rawIndustry];
+            resolvedIndustryIds = [];
+            const nonIds = [];
+            indValues.forEach(v => {
+                if (mongoose.Types.ObjectId.isValid(v)) resolvedIndustryIds.push(new mongoose.Types.ObjectId(v));
+                else nonIds.push(v);
+            });
+            if (nonIds.length > 0) {
+                const indLookups = await Lookup.find({
+                    lookup_type: 'Industry',
+                    lookup_value: { $in: nonIds.map(v => new RegExp(`^${v.trim()}$`, 'i')) }
+                }).lean();
+                indLookups.forEach(l => resolvedIndustryIds.push(l._id));
+            }
+        }
+
+        if (resolvedIndustryIds && resolvedIndustryIds.length > 0) {
+            query.industry = { $in: resolvedIndustryIds };
+        }
+
         // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys
         for (const [key, value] of Object.entries(dynamicFilters)) {
             if (value && value !== "" && value !== "undefined") {
@@ -212,32 +239,32 @@ export const getCompanies = async (req, res, next) => {
         const finalSortOrder = parseInt(sortOrder) || -1;
         const sortOption = { [finalSortBy]: finalSortOrder };
 
+        // 🚀 Stats Base Query: Unfiltered by the current industry filter so footer pills remain visible
+        const statsBaseQuery = { ...visibilityFilter };
+        if (search) {
+            statsBaseQuery.$or = query.$or;
+        }
+
         // 🚀 SENIOR OPTIMIZATION: Run pagination + industry stats concurrently.
-        // Fix N+1 anti-pattern: Replace N separate countDocuments() calls
-        // with a single $group aggregation — O(N) → O(1) DB round-trips.
-        const [results, industryStatsAgg] = await Promise.all([
+        const [results, industryStatsAgg, allIndustryLookups] = await Promise.all([
             paginate(Company, query, page, limit, sortOption, listPopulateFields),
             Company.aggregate([
-                { $match: query },
+                { $match: statsBaseQuery },
                 { $group: { _id: '$industry', count: { $sum: 1 } } }
-            ])
+            ]),
+            Lookup.find({ lookup_type: 'Industry' }).select('_id lookup_value').lean()
         ]);
 
-        // Resolve industry ObjectIds to names in a single batch lookup
-        const industryIds = industryStatsAgg
-            .map(s => s._id)
-            .filter(id => id && mongoose.Types.ObjectId.isValid(id));
-        const industryDocs = industryIds.length > 0
-            ? await Lookup.find({ _id: { $in: industryIds } }).select('lookup_value').lean()
-            : [];
-        const industryNameMap = new Map(industryDocs.map(d => [d._id.toString(), d.lookup_value]));
+        const industryCountMap = new Map(industryStatsAgg.map(s => [String(s._id), s.count]));
 
-        const industryCounts = industryStatsAgg.map(s => ({
-            name: s._id
-                ? (industryNameMap.get(String(s._id)) || String(s._id))
-                : 'Unknown',
-            count: s.count
-        }));
+        // Build list of industry counts ensuring consistent order
+        const industryCounts = allIndustryLookups
+            .map(l => ({
+                _id: l._id,
+                name: l.lookup_value,
+                count: industryCountMap.get(String(l._id)) || 0
+            }))
+            .filter(s => s.count > 0 || ['Real Estate', 'Construction', 'Architecture', 'Finance', 'Consultancy', 'Agricultural', 'Interior Design'].includes(s.name));
 
         res.status(200).json({
             success: true,

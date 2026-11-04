@@ -42,6 +42,18 @@ async function runTests() {
     const Activity = mongoose.models.Activity || mongoose.model('Activity');
     const AutomationLog = mongoose.models.AutomationLog || mongoose.model('AutomationLog');
     const SystemSetting = mongoose.models.SystemSetting || mongoose.model('SystemSetting');
+    const OutboxEvent = mongoose.models.OutboxEvent || mongoose.model('OutboxEvent');
+
+    function makeLeadQueryChain(leadDoc) {
+        const chain = {
+            session: () => chain,
+            select: () => chain,
+            lean: () => Promise.resolve(leadDoc),
+            then: (resolve, reject) => Promise.resolve(leadDoc).then(resolve, reject),
+            catch: (reject) => Promise.resolve(leadDoc).catch(reject)
+        };
+        return chain;
+    }
 
     // Save originals
     const origDealCreate = Deal.create;
@@ -63,30 +75,28 @@ async function runTests() {
     const origAutoLogCreate = AutomationLog.create;
     const origAutoLogUpdateOne = AutomationLog.updateOne;
     const origSystemSettingFindOne = SystemSetting.findOne;
+    const origOutboxEventCreate = OutboxEvent.create;
+    OutboxEvent.create = (docs) => Promise.resolve(docs);
 
     console.log('\n--- 1. Deal Marketing Attribution from Lead ---');
     await recordAsync('Deal inherits UTM attribution from Lead when not explicitly provided', async () => {
         const fakeLeadId = new mongoose.Types.ObjectId();
         const fakeDealId = new mongoose.Types.ObjectId();
 
-        Lead.findById = () => ({
-            session: () => ({
-                lean: () => Promise.resolve({
-                    _id: fakeLeadId,
-                    name: 'Karan Mehra',
-                    source: 'Google Ads',
-                    campaign: 'Summer Sale',
-                    source_meta: {
-                        utm_source: 'google',
-                        utm_medium: 'cpc',
-                        utm_campaign: 'luxury_villas_noida',
-                        utm_content: 'banner_ad_4k',
-                        utm_term: 'noida villas',
-                        landingPage: 'https://bharatproperties.com/villas'
-                    },
-                    createdAt: new Date('2026-06-01T10:00:00Z')
-                })
-            })
+        Lead.findById = () => makeLeadQueryChain({
+            _id: fakeLeadId,
+            name: 'Karan Mehra',
+            source: 'Google Ads',
+            campaign: 'Summer Sale',
+            source_meta: {
+                utm_source: 'google',
+                utm_medium: 'cpc',
+                utm_campaign: 'luxury_villas_noida',
+                utm_content: 'banner_ad_4k',
+                utm_term: 'noida villas',
+                landingPage: 'https://bharatproperties.com/villas'
+            },
+            createdAt: new Date('2026-06-01T10:00:00Z')
         });
 
         Activity.findOne = () => ({
@@ -139,15 +149,11 @@ async function runTests() {
         const fakeActId = new mongoose.Types.ObjectId();
         const fakeDealId = new mongoose.Types.ObjectId();
 
-        Lead.findById = () => ({
-            session: () => ({
-                lean: () => Promise.resolve({
-                    _id: fakeLeadId,
-                    name: 'Priya Sharma',
-                    source: 'Facebook',
-                    source_meta: { utm_source: 'meta', utm_campaign: 'tower_launch' }
-                })
-            })
+        Lead.findById = () => makeLeadQueryChain({
+            _id: fakeLeadId,
+            name: 'Priya Sharma',
+            source: 'Facebook',
+            source_meta: { utm_source: 'meta', utm_campaign: 'tower_launch' }
         });
 
         const mockSiteVisit = {
@@ -276,6 +282,7 @@ async function runTests() {
         });
         AutomationLog.create = () => Promise.resolve({});
         AutomationLog.updateOne = () => Promise.resolve({});
+        OutboxEvent.create = (docs) => Promise.resolve(docs);
 
         const req = {
             body: {
@@ -324,13 +331,9 @@ async function runTests() {
         const { createStandardizedDeal: origCSD } = await import('../services/DealCreationEngine.js');
 
         // Test payload through addDeal
-        Lead.findById = () => ({
-            session: () => ({
-                lean: () => Promise.resolve({
-                    _id: fakeLeadId,
-                    source_meta: { utm_source: 'linkedin', utm_campaign: 'b2b_office' }
-                })
-            })
+        Lead.findById = () => makeLeadQueryChain({
+            _id: fakeLeadId,
+            source_meta: { utm_source: 'linkedin', utm_campaign: 'b2b_office' }
         });
 
         Activity.findById = () => ({
@@ -397,6 +400,7 @@ async function runTests() {
     AutomationLog.create = origAutoLogCreate;
     AutomationLog.updateOne = origAutoLogUpdateOne;
     SystemSetting.findOne = origSystemSettingFindOne;
+    OutboxEvent.create = origOutboxEventCreate;
 
     console.log(`\n========================================`);
     console.log(`Results: ${passed} passed, ${failed} failed`);

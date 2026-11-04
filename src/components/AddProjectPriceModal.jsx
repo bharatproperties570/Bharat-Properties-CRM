@@ -301,7 +301,14 @@ export default function AddProjectPriceModal({ isOpen, onClose, onSave, project 
                                         {sizes.filter(s =>
                                             (!s.project || s.project === formData.name) &&
                                             (!newPriceRow.block || s.block === newPriceRow.block) &&
-                                            (!newPriceRow.subCategory || s.subCategory === newPriceRow.subCategory)
+                                            (!newPriceRow.subCategory || (
+                                                Array.isArray(s.subCategories) && s.subCategories.length > 0
+                                                    ? s.subCategories.some(sc => sc.toLowerCase() === newPriceRow.subCategory.toLowerCase())
+                                                    : (
+                                                        (s.subCategory || '').toLowerCase() === newPriceRow.subCategory.toLowerCase() ||
+                                                        String(s.subCategory || '').split(',').map(x => x.trim().toLowerCase()).includes(newPriceRow.subCategory.toLowerCase())
+                                                    )
+                                            ))
                                         ).map(s => (
                                             <option key={s.id} value={s.saleableArea || s.totalArea}>{s.name}</option>
                                         ))}

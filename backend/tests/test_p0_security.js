@@ -314,8 +314,9 @@ async function runTests() {
         const origJwt = process.env.JWT_SECRET;
         delete process.env.JWT_SECRET;
 
-        const token = LeadTokenGenerator.generate('60c72b2f9b1d8b2bad000001');
-        assert.strictEqual(token, '', 'Token generator must return empty string when JWT_SECRET is missing');
+        assert.throws(() => {
+            LeadTokenGenerator.generate('60c72b2f9b1d8b2bad000001');
+        }, /FATAL: JWT secret not configured/, 'Token generator must throw when JWT_SECRET is missing');
 
         process.env.JWT_SECRET = 'strong_test_secret_123';
         const validToken = LeadTokenGenerator.generate('60c72b2f9b1d8b2bad000001');

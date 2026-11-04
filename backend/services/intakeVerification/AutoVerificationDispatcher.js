@@ -245,7 +245,23 @@ class AutoVerificationDispatcher {
             return { status: 'cancelled_cooldown' };
         }
 
-        const targetIntegrationId = intake.whatsappIntegrationId ? String(intake.whatsappIntegrationId) : null;
+        let targetIntegrationId = intake.whatsappIntegrationId ? String(intake.whatsappIntegrationId) : null;
+
+        // Fallback: If missing on intake document, resolve from originating conversation
+        if (!targetIntegrationId && (intake.raw_source_data?.conversationId || intake.extracted_entities?._whatsappGroup?.conversationId)) {
+            try {
+                const Conversation = mongoose.models.Conversation || (await import('../../models/Conversation.js')).default;
+                const convId = intake.raw_source_data?.conversationId || intake.extracted_entities?._whatsappGroup?.conversationId;
+                const origConv = await Conversation.findById(convId).select('whatsappIntegrationId').lean();
+                if (origConv?.whatsappIntegrationId) {
+                    targetIntegrationId = String(origConv.whatsappIntegrationId);
+                    intake.whatsappIntegrationId = origConv.whatsappIntegrationId;
+                    await intake.save();
+                }
+            } catch (e) {
+                console.warn('[AutoDispatcher] Could not backfill whatsappIntegrationId from conversation:', e.message);
+            }
+        }
 
         try {
             // ── Tier 5: Human Telemetry Presence ('composing' simulation on exact line) ──

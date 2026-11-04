@@ -47,7 +47,7 @@ const populateFields = [
 const flattenPopulatedRefs = (obj) => {
     if (!obj || typeof obj !== 'object' || obj instanceof mongoose.Types.ObjectId) return obj;
     if (Array.isArray(obj)) return obj.map(flattenPopulatedRefs);
-    
+
     const newObj = { ...obj };
     const schemaContainers = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents", "assignment"];
     const referenceArrays = ["team", "teams", "tags", "groups", "addOn"];
@@ -75,7 +75,7 @@ export const getContacts = async (req, res, next) => {
     try {
         const { page = 1, limit = 10, search = "", phone, sortBy, sortOrder, contactType, ...filters } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
         if (req.user) {
             console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
@@ -93,6 +93,50 @@ export const getContacts = async (req, res, next) => {
             query.$or = [{ company: { $exists: false } }, { company: "" }, { company: null }];
         }
 
+        // 🎯 [ENTERPRISE SUMMARY FOOTER FILTER] Interactive Role & Segment Filtering
+        const roleFilter = req.query.role || filters.role;
+        delete filters.role;
+
+        if (roleFilter && roleFilter !== 'all' && roleFilter !== 'total') {
+            const LookupModel = mongoose.model('Lookup');
+            const lookups = await LookupModel.find({
+                lookup_type: { $in: ['ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionCategory', 'ProfessionSubCategory', 'Stage'] }
+            }).lean();
+            const findLookupIds = (regex, type) => lookups.filter(l => (!type || l.lookup_type === type) && regex.test(l.lookup_value)).map(l => l._id);
+
+            if (roleFilter === 'propertyOwners') {
+                const inventoryQuery = { ...visibilityFilter };
+                const ownerIdsInInventory = await Inventory.distinct('owners', inventoryQuery);
+                query._id = { $in: ownerIdsInInventory };
+            } else if (roleFilter === 'investors') {
+                const investorIds = findLookupIds(/Investor/i);
+                query.$or = [{ professionCategory: { $in: investorIds } }, { professionSubCategory: { $in: investorIds } }];
+            } else if (roleFilter === 'realEstateAgents') {
+                const agentIds = findLookupIds(/Real Estate Agent/i);
+                query.$or = [{ professionCategory: { $in: agentIds } }, { professionSubCategory: { $in: agentIds } }];
+            } else if (roleFilter === 'salesPersons') {
+                const salesIds = findLookupIds(/Sales|Sales Person|Sales Executive/i);
+                query.$or = [{ professionCategory: { $in: salesIds } }, { professionSubCategory: { $in: salesIds } }];
+            } else if (roleFilter === 'prospects') {
+                const prospectContactIds = await Lead.distinct('contactDetails', visibilityFilter);
+                query._id = { $in: prospectContactIds };
+            } else if (roleFilter === 'customers') {
+                const bookedStageIds = findLookupIds(/^Booked$/i, 'Stage');
+                const bookedLeadContactIds = await Lead.distinct('contactDetails', { ...visibilityFilter, stage: { $in: bookedStageIds } });
+                const closedBookingQuery = { ...visibilityFilter, 'closingDetails.isClosed': true };
+                const [closedBuyers, closedSellers] = await Promise.all([
+                    Booking.distinct('lead', closedBookingQuery),
+                    Booking.distinct('seller', closedBookingQuery)
+                ]);
+                const allCustomerIds = Array.from(new Set([
+                    ...bookedLeadContactIds.map(id => id.toString()),
+                    ...closedBuyers.map(id => id.toString()),
+                    ...closedSellers.map(id => id.toString())
+                ]));
+                query._id = { $in: allCustomerIds };
+            }
+        }
+
         // 🛡️ [SENIOR FIX] Dynamically apply all filter keys (e.g. personalAddress.city, professionCategory)
         for (const [key, value] of Object.entries(filters)) {
             let mappedKey = key;
@@ -103,13 +147,13 @@ export const getContacts = async (req, res, next) => {
 
             if (value && value !== "" && value !== "undefined") {
                 let searchValues = Array.isArray(value) ? value : [value];
-                
+
                 // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
                 const mixedValues = [];
                 const validIds = [];
-                
+
                 searchValues.forEach(val => {
-                    mixedValues.push(val); 
+                    mixedValues.push(val);
                     if (mongoose.Types.ObjectId.isValid(val)) {
                         mixedValues.push(new mongoose.Types.ObjectId(val));
                         validIds.push(val);
@@ -197,43 +241,62 @@ export const getContacts = async (req, res, next) => {
 
             results.records.forEach(contact => {
                 const cIdStr = contact._id.toString();
+                const rawPhones = [];
                 if (Array.isArray(contact.phones)) {
-                    contact.phones.forEach(p => {
-                        const raw = String(p?.number || p || "").replace(/\D/g, "");
-                        if (raw.length >= 10) {
-                            const last10 = raw.slice(-10);
-                            phoneToContactIdMap.set(last10, cIdStr);
-                            contactPhonesList.push(last10);
-                        }
-                    });
+                    contact.phones.forEach(p => rawPhones.push(p?.number || p));
                 }
-            });
+                if (contact.phone) rawPhones.push(contact.phone);
+                if (contact.mobile) rawPhones.push(contact.mobile);
 
-            // Run ALL aggregations in parallel for maximum performance
-            const [activityStats, smsStats, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
-                // 1. Activity Counts + Latest Activity (FIXED: mixedEntityIds + $toLower instead of $regexMatch)
-                Activity.aggregate([
-                    { $match: { entityId: { $in: mixedEntityIds }, status: 'Completed' } },
-                    { $sort: { createdAt: -1 } },
-                    {
-                        $group: {
-                            _id: { $toString: "$entityId" },
-                            latestActivity: { $first: "$subject" },
-                            latestDate: { $first: "$createdAt" },
-                            call: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["call", "outbound call", "inbound call"]] }, 1, 0] } },
-                            meeting: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["meeting"]] }, 1, 0] } },
-                            siteVisit: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["site visit"]] }, 1, 0] } },
-                            email: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["email"]] }, 1, 0] } },
-                            whatsapp: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["whatsapp", "messaging"]] }, 1, 0] } }
+                rawPhones.forEach(p => {
+                    const clean = String(p || "").replace(/\D/g, "");
+                    if (clean.length >= 10) {
+                        const last10 = clean.slice(-10);
+                        phoneToContactIdMap.set(last10, cIdStr);
+                        phoneToContactIdMap.set(`+91${last10}`, cIdStr);
+                        phoneToContactIdMap.set(`91${last10}`, cIdStr);
+                        if (!contactPhonesList.includes(last10)) {
+                            contactPhonesList.push(last10, `+91${last10}`, `91${last10}`);
                         }
                     }
-                ]),
+                });
+            });
 
-                // 2. SMS Counts (FIXED: mixedEntityIds)
-                SmsLog.aggregate([
-                    { $match: { entityId: { $in: mixedEntityIds }, status: { $in: ['Sent', 'Delivered'] } } },
-                    { $group: { _id: { $toString: "$entityId" }, sms: { $sum: 1 } } }
-                ]),
+            const actMatchOr = [{ entityId: { $in: mixedEntityIds } }];
+            if (contactPhonesList.length > 0) {
+                actMatchOr.push(
+                    { "details.phoneNumber": { $in: contactPhonesList } },
+                    { "details.recipient": { $in: contactPhonesList } }
+                );
+            }
+
+            const smsMatchOr = [{ entityId: { $in: mixedEntityIds } }];
+            if (contactPhonesList.length > 0) {
+                smsMatchOr.push({ to: { $in: contactPhonesList } });
+            }
+
+            // Run ALL aggregations in parallel for maximum performance
+            const [matchedActivities, smsLogs, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
+                // 1. Matched Activities for Activity Counts + Latest Activity (Enterprise Hybrid)
+                Activity.find({
+                    $and: [
+                        { $or: actMatchOr },
+                        { status: { $nin: ['Cancelled', 'Failed'] } }
+                    ]
+                })
+                .select('_id entityId entityType subject type channel status createdAt details.platform details.phoneNumber details.recipient details.to details.toggles.whatsapp details.channel')
+                .sort({ createdAt: -1 })
+                .lean(),
+
+                // 2. SMS Logs (Enterprise Hybrid)
+                SmsLog.find({
+                    $and: [
+                        { $or: smsMatchOr },
+                        { status: { $in: ['Sent', 'Delivered'] } }
+                    ]
+                })
+                .select('_id entityId to')
+                .lean(),
 
                 // 3. CRM Linkage: Leads Count (Enterprise Hybrid: Match via direct contactDetails OR Phone Number)
                 Lead.aggregate([
@@ -300,14 +363,85 @@ export const getContacts = async (req, res, next) => {
             ]);
 
             // ━━ Build Lookup Maps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            // Activity + SMS stats map
+            // Activity + SMS stats map (Enterprise Resolution: Direct entityId + Phone fallback)
             const statsMap = new Map();
-            activityStats.forEach(stat => statsMap.set(stat._id, stat));
-            smsStats.forEach(stat => {
-                if (statsMap.has(stat._id)) {
-                    statsMap.get(stat._id).sms = stat.sms;
+            contactIdsStr.forEach(idStr => {
+                statsMap.set(idStr, {
+                    call: 0,
+                    meeting: 0,
+                    siteVisit: 0,
+                    email: 0,
+                    whatsapp: 0,
+                    sms: 0,
+                    latestActivity: null,
+                    latestDate: null,
+                    seenActivityIds: new Set()
+                });
+            });
+
+            matchedActivities.forEach(act => {
+                const actIdStr = act._id.toString();
+                let targetContactId = null;
+                const rawEntId = act.entityId ? act.entityId.toString() : null;
+                if (rawEntId && statsMap.has(rawEntId)) {
+                    targetContactId = rawEntId;
                 } else {
-                    statsMap.set(stat._id, { sms: stat.sms });
+                    const ph = act.details?.phoneNumber || act.details?.recipient || act.details?.to || act.details?.from;
+                    if (ph) {
+                        const cleanPh = String(ph).replace(/\D/g, "").slice(-10);
+                        targetContactId = phoneToContactIdMap.get(cleanPh) || null;
+                    }
+                }
+
+                if (!targetContactId || !statsMap.has(targetContactId)) return;
+                const stats = statsMap.get(targetContactId);
+                if (stats.seenActivityIds.has(actIdStr)) return;
+                stats.seenActivityIds.add(actIdStr);
+
+                if (!stats.latestActivity) {
+                    stats.latestActivity = act.subject;
+                    stats.latestDate = act.createdAt;
+                }
+
+                const t = (act.type || "").toLowerCase();
+                const ch = (act.channel || "").toLowerCase();
+                const platform = (act.details?.platform || "").toLowerCase();
+                const isWaToggle = act.details?.toggles?.whatsapp === true;
+                const detailsCh = (act.details?.channel || "").toLowerCase();
+
+                const isWhatsApp = t.includes("whatsapp") || t.includes("messaging") ||
+                    ch === "whatsapp" || platform.includes("whatsapp") || isWaToggle || detailsCh === "whatsapp";
+
+                if (isWhatsApp) {
+                    stats.whatsapp++;
+                } else if (t.includes("call")) {
+                    stats.call++;
+                } else if (t.includes("meeting")) {
+                    stats.meeting++;
+                } else if (t.includes("site visit")) {
+                    stats.siteVisit++;
+                } else if (t.includes("email")) {
+                    stats.email++;
+                }
+            });
+
+            const seenSmsIds = new Set();
+            smsLogs.forEach(log => {
+                const logIdStr = log._id.toString();
+                if (seenSmsIds.has(logIdStr)) return;
+                seenSmsIds.add(logIdStr);
+
+                let targetContactId = null;
+                const rawEntId = log.entityId ? log.entityId.toString() : null;
+                if (rawEntId && statsMap.has(rawEntId)) {
+                    targetContactId = rawEntId;
+                } else if (log.to) {
+                    const cleanTo = String(log.to).replace(/\D/g, "").slice(-10);
+                    targetContactId = phoneToContactIdMap.get(cleanTo) || null;
+                }
+
+                if (targetContactId && statsMap.has(targetContactId)) {
+                    statsMap.get(targetContactId).sms++;
                 }
             });
 
@@ -423,13 +557,13 @@ export const getContacts = async (req, res, next) => {
 
                 return {
                     ...c,
-                    interactionCounts: { 
-                        call: stats.call || 0, 
-                        siteVisit: stats.siteVisit || 0, 
-                        meeting: stats.meeting || 0, 
-                        email: stats.email || 0, 
-                        sms: stats.sms || 0, 
-                        whatsapp: stats.whatsapp || 0 
+                    interactionCounts: {
+                        call: stats.call || 0,
+                        siteVisit: stats.siteVisit || 0,
+                        meeting: stats.meeting || 0,
+                        email: stats.email || 0,
+                        sms: stats.sms || 0,
+                        whatsapp: stats.whatsapp || 0
                     },
                     activity: stats.latestActivity || null,
                     lastAct: lastActText,
@@ -463,44 +597,89 @@ export const getContact = async (req, res, next) => {
         const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
-        // Attach Recent Activities and Interaction Counts
+        // Attach Recent Activities and Interaction Counts (Enterprise Multi-Key Resolution)
         const contactIdStr = req.params.id.toString();
-        const recentActivities = await Activity.find({
-            entityId: contactIdStr,
-            status: 'Completed'
-        }).sort({ createdAt: -1 }).limit(10).lean();
+        const mixedContactIds = [contactIdStr];
+        if (mongoose.Types.ObjectId.isValid(contactIdStr)) {
+            mixedContactIds.push(new mongoose.Types.ObjectId(contactIdStr));
+        }
 
-        // Aggregate counts from Activity collection
-        const activityStats = await Activity.aggregate([
-            {
-                $match: {
-                    entityId: new mongoose.Types.ObjectId(contactIdStr),
-                    status: 'Completed'
-                }
-            },
-            {
-                $group: {
-                    _id: "$type",
-                    count: { $sum: 1 }
+        const contactPhones = [];
+        const rawPhones = [];
+        if (Array.isArray(contact.phones)) {
+            contact.phones.forEach(p => rawPhones.push(p?.number || p));
+        }
+        if (contact.phone) rawPhones.push(contact.phone);
+        if (contact.mobile) rawPhones.push(contact.mobile);
+
+        rawPhones.forEach(p => {
+            const clean = String(p || "").replace(/\D/g, "");
+            if (clean.length >= 10) {
+                const last10 = clean.slice(-10);
+                if (!contactPhones.includes(last10)) {
+                    contactPhones.push(last10, `+91${last10}`, `91${last10}`);
                 }
             }
-        ]);
+        });
+
+        const actMatchOr = [{ entityId: { $in: mixedContactIds } }];
+        if (contactPhones.length > 0) {
+            actMatchOr.push(
+                { "details.phoneNumber": { $in: contactPhones } },
+                { "details.recipient": { $in: contactPhones } }
+            );
+        }
+
+        const recentActivities = await Activity.find({
+            $and: [
+                { $or: actMatchOr },
+                { status: { $nin: ['Cancelled', 'Failed'] } }
+            ]
+        }).sort({ createdAt: -1 }).limit(15).lean();
+
+        // Aggregate all activities for accurate interaction counts
+        const allContactActivities = await Activity.find({
+            $and: [
+                { $or: actMatchOr },
+                { status: { $nin: ['Cancelled', 'Failed'] } }
+            ]
+        })
+        .select('_id type channel status createdAt details.platform details.phoneNumber details.recipient details.to details.toggles.whatsapp details.channel')
+        .lean();
 
         // Aggregate counts from SmsLog collection
+        const smsMatchOr = [{ entityId: { $in: mixedContactIds } }];
+        if (contactPhones.length > 0) {
+            smsMatchOr.push({ to: { $in: contactPhones } });
+        }
         const smsStatsCount = await SmsLog.countDocuments({
-            entityId: new mongoose.Types.ObjectId(contactIdStr),
-            status: { $in: ['Sent', 'Delivered'] }
+            $and: [
+                { $or: smsMatchOr },
+                { status: { $in: ['Sent', 'Delivered'] } }
+            ]
         });
 
         const interactionCounts = { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: smsStatsCount, whatsapp: 0 };
-        activityStats.forEach(stat => {
-            if (!stat._id) return;
-            const t = stat._id.toLowerCase();
-            if (t.includes('call')) interactionCounts.call += stat.count;
-            else if (t.includes('meeting')) interactionCounts.meeting += stat.count;
-            else if (t.includes('site visit')) interactionCounts.siteVisit += stat.count;
-            else if (t.includes('email')) interactionCounts.email += stat.count;
-            else if (t.includes('whatsapp') || t.includes('messaging')) interactionCounts.whatsapp += stat.count;
+        const seenActIds = new Set();
+        allContactActivities.forEach(act => {
+            const actId = act._id.toString();
+            if (seenActIds.has(actId)) return;
+            seenActIds.add(actId);
+
+            const t = (act.type || "").toLowerCase();
+            const ch = (act.channel || "").toLowerCase();
+            const platform = (act.details?.platform || "").toLowerCase();
+            const isWaToggle = act.details?.toggles?.whatsapp === true;
+            const detailsCh = (act.details?.channel || "").toLowerCase();
+
+            const isWhatsApp = t.includes("whatsapp") || t.includes("messaging") ||
+                ch === "whatsapp" || platform.includes("whatsapp") || isWaToggle || detailsCh === "whatsapp";
+
+            if (isWhatsApp) interactionCounts.whatsapp++;
+            else if (t.includes('call')) interactionCounts.call++;
+            else if (t.includes('meeting')) interactionCounts.meeting++;
+            else if (t.includes('site visit')) interactionCounts.siteVisit++;
+            else if (t.includes('email')) interactionCounts.email++;
         });
 
         const contactData = contact.toObject();
@@ -597,7 +776,7 @@ const resolveAllReferenceFields = async (obj) => {
         if (!obj.assignment) obj.assignment = {};
         obj.assignment.team = Array.isArray(obj.team) ? obj.team : [obj.team];
     }
-    
+
     // Sync plural 'teams' to legacy 'team' for backward compatibility if logic expects singular
     if (obj.teams && Array.isArray(obj.teams) && obj.teams.length > 0 && !obj.team) {
         obj.team = obj.teams[0];
@@ -623,10 +802,10 @@ export const createContact = async (req, res, next) => {
                 field: error.details[0].path,
                 value: error.details[0].context?.value
             });
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 message: error.details[0].message,
-                details: error.details 
+                details: error.details
             });
         }
 
@@ -649,7 +828,12 @@ export const createContact = async (req, res, next) => {
             }
         };
 
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department, teams, and tenantId
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            contactData.tenantId = effectiveTenantId;
+        }
+
         if (req.user) {
             if (req.user.department && !contactData.department) contactData.department = req.user.department;
             if (req.user.teams && req.user.teams.length > 0 && (!contactData.teams || contactData.teams.length === 0)) {
@@ -657,14 +841,16 @@ export const createContact = async (req, res, next) => {
             }
         }
 
-        // Phase 4.6 Identity Deduplication Check
+        // Phase 4.6 Identity Deduplication Check (tenant-scoped)
         if (contactData.phones && Array.isArray(contactData.phones)) {
             const phoneNumbers = contactData.phones.map(p => p.number).filter(n => n);
             if (phoneNumbers.length > 0) {
+                const tenantFilter = effectiveTenantId ? { tenantId: effectiveTenantId } : {};
                 const existing = await Contact.findOne({
                     "phones.number": { $in: phoneNumbers },
                     isDeleted: false,
-                    isMerged: false
+                    isMerged: false,
+                    ...tenantFilter
                 });
                 if (existing) {
                     return res.status(409).json({
@@ -679,7 +865,7 @@ export const createContact = async (req, res, next) => {
         const contact = await withMongoTransaction(async (session) => {
             const [created] = await Contact.create([contactData], { session });
 
-            await OutboxEvent.create([{
+            const outboxEntry = {
                 eventType: 'ContactCreated',
                 aggregateType: 'Contact',
                 aggregateId: created._id,
@@ -688,7 +874,12 @@ export const createContact = async (req, res, next) => {
                     syncToGoogle: true,
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            };
+            if (effectiveTenantId) {
+                outboxEntry.tenantId = effectiveTenantId;
+            }
+
+            await OutboxEvent.create([outboxEntry], { session });
 
             return created;
         });
@@ -705,7 +896,7 @@ export const updateContact = async (req, res, next) => {
         console.log("[updateContact] Request Body:", JSON.stringify(req.body, null, 2));
 
         const updateData = flattenPopulatedRefs(req.body);
-        
+
         // Strip internal fields
         const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName"];
         fieldsToStrip.forEach(field => delete updateData[field]);
@@ -718,10 +909,10 @@ export const updateContact = async (req, res, next) => {
                 field: error.details[0].path,
                 value: error.details[0].context?.value
             });
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 error: error.details[0].message,
-                details: error.details 
+                details: error.details
             });
         }
 
@@ -865,7 +1056,7 @@ export const syncAllContacts = async (req, res) => {
                 { googleContactId: "" }
             ]
         }).select('_id');
-        
+
         console.log(`[ContactController] syncAllContacts: Found ${contacts.length} unsynced contacts.`);
 
         if (contacts.length === 0) {
@@ -934,26 +1125,27 @@ export const bulkDeleteContacts = async (req, res, next) => {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
 
-        const objectIds = ids.map(id => new mongoose.Types.ObjectId(id));
-        const contacts = await Contact.find({ _id: { $in: objectIds } });
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
 
-        // Cascading Updates/Deletions
+        const objectIds = ids.map(id => new mongoose.Types.ObjectId(id));
+        const contacts = await Contact.find({ _id: { $in: objectIds }, ...tenantFilter });
+        const allowedIds = contacts.map(c => c._id);
+
+        if (allowedIds.length === 0) {
+            return res.json({ success: true, message: "0 contacts deleted" });
+        }
+
+        // Cascading Updates/Deletions strictly scoped to the tenant
         await Promise.all([
-            // Delete related Leads
-            // Lead.deleteMany({ contactDetails: { $in: objectIds } }),
-            // Remove from Inventory
-            Inventory.updateMany({ owners: { $in: objectIds } }, { $pull: { owners: { $in: objectIds } } }),
-            Inventory.updateMany({ "associates.contact": { $in: objectIds } }, { $pull: { associates: { contact: { $in: objectIds } } } }),
-            // Null out in Bookings
-            Booking.updateMany({ lead: { $in: objectIds } }, { $set: { lead: null } }),
-            Booking.updateMany({ seller: { $in: objectIds } }, { $set: { seller: null } }),
-            Booking.updateMany({ channelPartner: { $in: objectIds } }, { $set: { channelPartner: null } }),
-            // Delete related Activities
-            // Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
+            Inventory.updateMany({ owners: { $in: allowedIds }, ...tenantFilter }, { $pull: { owners: { $in: allowedIds } } }),
+            Inventory.updateMany({ "associates.contact": { $in: allowedIds }, ...tenantFilter }, { $pull: { associates: { contact: { $in: allowedIds } } } }),
+            Booking.updateMany({ lead: { $in: allowedIds }, ...tenantFilter }, { $set: { lead: null } }),
+            Booking.updateMany({ seller: { $in: allowedIds }, ...tenantFilter }, { $set: { seller: null } }),
+            Booking.updateMany({ channelPartner: { $in: allowedIds }, ...tenantFilter }, { $set: { channelPartner: null } }),
         ]);
 
-
-        await Contact.softDeleteMany({ _id: { $in: objectIds } }, { userId: req.user?._id });
+        await Contact.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
 
         // Sync to Google
         contacts.forEach(contact => {
@@ -962,7 +1154,7 @@ export const bulkDeleteContacts = async (req, res, next) => {
             }
         });
 
-        res.json({ success: true, message: `${ids.length} contacts and associations deleted successfully` });
+        res.json({ success: true, message: `${allowedIds.length} contacts and associations deleted successfully` });
     } catch (error) {
         console.error("[ERROR] bulkDeleteContacts failed:", error);
         next(error);
@@ -974,8 +1166,11 @@ export const searchDuplicates = async (req, res, next) => {
         const { name, phone, email, fatherName, hNo, location } = req.query;
         if (!name && !phone && !email && !fatherName) return res.status(200).json({ success: true, data: [] });
 
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
         // 1. Fetch Active Rules
-        const activeRules = await DuplicationRule.find({ isActive: true });
+        const activeRules = await DuplicationRule.find({ isActive: true, ...tenantFilter });
 
         let query = {};
 
@@ -1025,7 +1220,8 @@ export const searchDuplicates = async (req, res, next) => {
             query = { $or: cases };
         }
 
-        const contacts = await Contact.find(query).limit(10).lean();
+        const finalQuery = Object.keys(tenantFilter).length > 0 ? { $and: [query, tenantFilter] } : query;
+        const contacts = await Contact.find(finalQuery).limit(10).lean();
         res.status(200).json({ success: true, data: contacts });
     } catch (error) {
         console.error("[ERROR] searchDuplicates failed:", error);
@@ -1076,6 +1272,9 @@ export const importContacts = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
 
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
         const bulkOps = [];
         const processedData = [];
         const errors = [];
@@ -1087,6 +1286,9 @@ export const importContacts = async (req, res, next) => {
                 if (i < 3) console.log(`[IMPORT_DIAG] Row ${i+1} Raw:`, JSON.stringify(item));
 
                 const newItem = { ...item };
+                if (rawTenantId) {
+                    newItem.tenantId = rawTenantId;
+                }
 
                 // Resolve Lookups
                 newItem.title = await resolveLookup('Title', item.title);
@@ -1096,7 +1298,7 @@ export const importContacts = async (req, res, next) => {
                 newItem.source = await resolveLookup('Source', item.source);
                 newItem.subSource = await resolveLookup('SubSource', item.subSource);
                 newItem.campaign = await resolveLookup('Campaign', item.campaign);
-                
+
                 // 🚀 [SENIOR] Assignment & Team Resolution
                 const rawOwner = item.owner || item.Owner;
                 newItem.owner = await resolveUser(rawOwner);
@@ -1107,7 +1309,7 @@ export const importContacts = async (req, res, next) => {
 
                 if (rawAssignedTo || rawTeam || rawVisibility) {
                     if (!newItem.assignment) newItem.assignment = {};
-                    
+
                     if (rawAssignedTo) {
                         newItem.assignment.assignedTo = await resolveUser(rawAssignedTo);
                         // Also sync to top-level for compatibility
@@ -1168,7 +1370,7 @@ export const importContacts = async (req, res, next) => {
                 let pincode = item.pinCode || item.pincode || item['Pin Code'] || item['Pincode'] || item['Zip'] || '';
 
                 let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || '';
-                
+
                 // Fallback: If no explicit fullAddress is mapped, check if 'street' contains the full address string
                 if (!fullAddress && !hNo && street && AddressParsingService.shouldParse(street)) {
                     fullAddress = street;
@@ -1207,7 +1409,7 @@ export const importContacts = async (req, res, next) => {
                     country,
                     pincode
                 });
-                
+
                 newItem.personalAddress = resolvedAddr;
 
 
@@ -1249,10 +1451,10 @@ export const importContacts = async (req, res, next) => {
                         if (resolution === 'MERGE_DATA_CUSTOM' && req.body.resolutions?.[rowKey]?.customData) {
                             const customData = req.body.resolutions[rowKey].customData;
                             const customUpdate = { $set: {} };
-                            
+
                             if (customData.name) customUpdate.$set.name = customData.name;
                             if (customData.fatherName) customUpdate.$set.fatherName = customData.fatherName;
-                            
+
                             // Address Merge
                             ['hNo', 'street', 'area', 'city', 'state', 'pincode', 'location'].forEach(f => {
                                 if (customData[f]) customUpdate.$set[`personalAddress.${f}`] = customData[f];
@@ -1264,10 +1466,11 @@ export const importContacts = async (req, res, next) => {
                             if (customData.email) {
                                 customUpdate.$set['emails.0'] = { type: 'Personal', address: customData.email };
                             }
+                            if (rawTenantId) customUpdate.$set.tenantId = rawTenantId;
 
                             bulkOps.push({
                                 updateOne: {
-                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }], ...tenantFilter },
                                     update: customUpdate,
                                     upsert: true
                                 }
@@ -1283,17 +1486,19 @@ export const importContacts = async (req, res, next) => {
                                 delete updateOp.$set.emails;
                                 updateOp.$addToSet = { ...updateOp.$addToSet, emails: { $each: newItem.emails } };
                             }
+                            if (rawTenantId) updateOp.$set.tenantId = rawTenantId;
                             bulkOps.push({
                                 updateOne: {
-                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }], ...tenantFilter },
                                     update: updateOp,
                                     upsert: true
                                 }
                             });
                         } else {
+                            if (rawTenantId) flatUpdate.tenantId = rawTenantId;
                             bulkOps.push({
                                 updateOne: {
-                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }], ...tenantFilter },
                                     update: { $set: flatUpdate },
                                     upsert: true
                                 }
@@ -1334,16 +1539,16 @@ export const importContacts = async (req, res, next) => {
                         }
                     });
 
-                    // 🛡️ [SENIOR] Pre-sanitize database to prevent `Cannot create field in element {personalAddress: null}` 
+                    // 🛡️ [SENIOR] Pre-sanitize database to prevent `Cannot create field in element {personalAddress: null}`
                     // This happens when dot-notation `$set` tries to update a nested field whose parent is explicitly `null`
                     if (mobilesToSanitize.length > 0) {
                         await Contact.updateMany(
-                            { $or: [{ mobile: { $in: mobilesToSanitize } }, { "phones.number": { $in: mobilesToSanitize } }] },
-                            { 
-                                $unset: { 
-                                    personalAddress: 1, 
-                                    correspondenceAddress: 1 
-                                } 
+                            { $or: [{ mobile: { $in: mobilesToSanitize } }, { "phones.number": { $in: mobilesToSanitize } }], ...tenantFilter },
+                            {
+                                $unset: {
+                                    personalAddress: 1,
+                                    correspondenceAddress: 1
+                                }
                             },
                             { session }
                         );
@@ -1365,7 +1570,7 @@ export const importContacts = async (req, res, next) => {
             if (!updateDuplicates) {
                 // 🚀 [SENIOR] Advanced Multi-Field Duplicate Detection
                 const mobiles = processedData.map(d => d.phones?.[0]?.number).filter(Boolean);
-                
+
                 // Build a composite query for records without mobiles
                 const compositeCriteria = processedData
                     .filter(d => !d.phones?.[0]?.number)
@@ -1377,18 +1582,22 @@ export const importContacts = async (req, res, next) => {
                     }))
                     .filter(c => c.name && c.fatherName); // Ensure basic fields exist for matching
 
-                const existingQuery = {
-                    $or: [
-                        ...(mobiles.length > 0 ? [{ "phones.number": { $in: mobiles } }] : []),
-                        ...compositeCriteria
-                    ]
-                };
+                const baseExistingConditions = [
+                    ...(mobiles.length > 0 ? [{ "phones.number": { $in: mobiles } }] : []),
+                    ...compositeCriteria
+                ];
 
-                const existing = await Contact.find(existingQuery, 'phones name fatherName personalAddress.hNo personalAddress.location').lean();
-                
+                const existingQuery = Object.keys(tenantFilter).length > 0
+                    ? { $and: [{ $or: baseExistingConditions }, tenantFilter] }
+                    : { $or: baseExistingConditions };
+
+                const existing = baseExistingConditions.length > 0
+                    ? await Contact.find(existingQuery, 'phones name fatherName personalAddress.hNo personalAddress.location').lean()
+                    : [];
+
                 const existingMobiles = new Set();
                 const existingComposites = new Set();
-                
+
                 existing.forEach(e => {
                     if (e.phones) e.phones.forEach(p => existingMobiles.add(p.number));
                     if (e.name && e.fatherName) {
@@ -1400,7 +1609,7 @@ export const importContacts = async (req, res, next) => {
                 dataToInsert = processedData.filter(d => {
                     const mobile = d.phones?.[0]?.number;
                     if (mobile) return !existingMobiles.has(mobile);
-                    
+
                     const key = `${String(d.name).trim().toLowerCase()}|${String(d.fatherName).trim().toLowerCase()}|${String(d.personalAddress?.hNo || '').trim().toLowerCase()}|${String(d.personalAddress?.location || '')}`;
                     return !existingComposites.has(key);
                 });
@@ -1439,13 +1648,18 @@ export const checkDuplicatesImport = async (req, res, next) => {
         const { mobiles } = req.body;
         if (!mobiles || !Array.isArray(mobiles)) return res.status(400).json({ success: false, message: "Invalid mobile numbers provided" });
 
-        // Find existing contacts by mobile or phone number
-        const duplicates = await Contact.find({
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
+        // Find existing contacts by mobile or phone number scoped to tenant
+        const baseQuery = {
             $or: [
                 { mobile: { $in: mobiles } },
                 { "phones.number": { $in: mobiles } }
             ]
-        }, 'mobile phones name surname').lean();
+        };
+        const finalQuery = Object.keys(tenantFilter).length > 0 ? { $and: [baseQuery, tenantFilter] } : baseQuery;
+        const duplicates = await Contact.find(finalQuery, 'mobile phones name surname').lean();
 
         const duplicateMobiles = new Set();
         duplicates.forEach(d => {
@@ -1465,10 +1679,10 @@ export const checkDuplicatesImport = async (req, res, next) => {
 export const getContactStats = async (req, res, next) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         // 1. Basic counts from Contact collection
         const totalCount = await Contact.countDocuments(visibilityFilter);
-        
+
         // Use lookup values to find IDs for professional categories
         const lookups = await Lookup.find({
             lookup_type: { $in: ['ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionCategory', 'ProfessionSubCategory', 'Stage'] }
@@ -1500,7 +1714,7 @@ export const getContactStats = async (req, res, next) => {
         // 5. [NEW LOGIC] Count Customers
         // A: Leads with 'Booked' stage
         const bookedLeadContactIds = await Lead.distinct('contactDetails', { ...visibilityFilter, stage: { $in: bookedStageIds } });
-        
+
         // B: Closed Bookings (Sellers and Buyers)
         const closedBookingQuery = { ...visibilityFilter, 'closingDetails.isClosed': true };
         const [closedBuyers, closedSellers] = await Promise.all([
@@ -1615,7 +1829,7 @@ export const mergeContacts = async (req, res, next) => {
 
         for (let i = 0; i < duplicates.length; i++) {
             const dup = duplicates[i];
-            
+
             // 1. Get exact rewires and baseline field changes for this duplicate from Enterprise service
             const p = await previewMerge(currentMaster, dup);
 
@@ -1623,13 +1837,13 @@ export const mergeContacts = async (req, res, next) => {
             if (i === 0 && Object.keys(sanitizedResolvedData).length > 0) {
                 p.consolidatedFields = p.consolidatedFields || { $set: {} };
                 p.consolidatedFields.$set = p.consolidatedFields.$set || {};
-                
+
                 for (const [key, newValue] of Object.entries(sanitizedResolvedData)) {
                     // Only apply if it actually differs from current master state
                     const oldValue = currentMaster[key];
                     if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
                         p.consolidatedFields.$set[key] = newValue;
-                        
+
                         // Overwrite any baseline fieldChange for this key with the manual UI change
                         const existingChangeIdx = p.fieldChanges.findIndex(fc => fc.field === key);
                         if (existingChangeIdx >= 0) {
@@ -1649,13 +1863,13 @@ export const mergeContacts = async (req, res, next) => {
             // Execute the merge mutation cleanly inside its own transaction via the Enterprise Engine
             const audit = await executeMerge(currentMaster._id, dup._id, p, { userId: req.user?._id });
             mergedAudits.push(audit);
-            
+
             // Refresh currentMaster state for the next duplicate loop
             currentMaster = await Contact.findById(currentMaster._id).lean();
         }
 
-        res.status(200).json({ 
-            success: true, 
+        res.status(200).json({
+            success: true,
             message: `Successfully merged ${duplicateContactIds.length} duplicate(s) into Master.`,
             masterId: currentMaster._id,
             audits: mergedAudits.map(a => a.mergeOperationId)
@@ -1663,6 +1877,28 @@ export const mergeContacts = async (req, res, next) => {
 
     } catch (error) {
         console.error('[MergeContacts] Error:', error);
+        next(error);
+    }
+};
+
+export const rollbackContactMerge = async (req, res, next) => {
+    try {
+        const { mergeOperationId } = req.params;
+        if (!mergeOperationId) {
+            return res.status(400).json({ success: false, message: 'mergeOperationId is required' });
+        }
+        const { rollbackMerge } = await import('../services/contactMerge.service.js');
+        const audit = await rollbackMerge(mergeOperationId);
+        res.status(200).json({
+            success: true,
+            message: `Merge operation ${mergeOperationId} rolled back successfully.`,
+            audit
+        });
+    } catch (error) {
+        console.error('[RollbackContactMerge] Error:', error);
+        if (error.message.includes('Invalid or uncompleted') || error.message.includes('not available')) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
         next(error);
     }
 };

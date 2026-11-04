@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from "../../utils/api";
 import { useCompany } from '../../utils/crmHooks';
 
@@ -8,6 +8,7 @@ import { formatIndianCurrency } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import { getInitials } from '../../utils/helpers';
 import Chart from 'react-apexcharts';
+import { DataTable } from '../../components/ui/DataTable/DataTable';
 
 const CompanyDetailPage = ({ onBack, onNavigate, onAddProject, onAddInventory, onAddDeal, onAddContact }) => {
     const { id: companyId } = useParams();
@@ -110,6 +111,134 @@ const CompanyDetailPage = ({ onBack, onNavigate, onAddProject, onAddInventory, o
         }
     }, [company, fetchAssociatedData]);
 
+    const projectColumns = useMemo(() => [
+        {
+            header: 'Project Name',
+            accessor: 'name',
+            render: (p) => <strong>{renderValue(p.name)}</strong>
+        },
+        {
+            header: 'Location',
+            accessor: 'location',
+            render: (p) => p.address?.locality || p.address?.area || 'N/A'
+        },
+        {
+            header: 'Launch Status',
+            accessor: 'status',
+            render: (p) => (
+                <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#ecfdf5', color: '#065f46', fontSize: '0.65rem', fontWeight: 700 }}>
+                    {renderValue(p.status) || 'Active'}
+                </span>
+            )
+        },
+        {
+            header: 'Action',
+            accessor: 'action',
+            render: (p) => (
+                <button
+                    onClick={() => onNavigate?.('project-detail', p._id)}
+                    style={{ border: 'none', background: 'none', color: '#3b82f6', fontWeight: 700, cursor: 'pointer' }}
+                >
+                    View
+                </button>
+            )
+        }
+    ], [onNavigate]);
+
+    const slicedProjectsData = useMemo(() => (
+        projectsData.slice(0, 5).map((p, i) => ({
+            ...p,
+            id: p._id || p.id || `proj-${i}`
+        }))
+    ), [projectsData]);
+
+    const inventoryColumns = useMemo(() => [
+        {
+            header: 'Unit',
+            accessor: 'unitNo',
+            render: (inv) => <strong>{inv.unitNo || inv.unitNumber}</strong>
+        },
+        {
+            header: 'Project',
+            accessor: 'projectName',
+            render: (inv) => renderValue(inv.projectName)
+        },
+        {
+            header: 'Status',
+            accessor: 'status',
+            render: (inv) => {
+                const statusStr = renderValue(inv.status);
+                const isAvailable = statusStr === 'Available';
+                return (
+                    <span style={{
+                        padding: '2px 6px', borderRadius: '4px',
+                        background: isAvailable ? '#dcfce7' : '#fee2e2',
+                        color: isAvailable ? '#166534' : '#991b1b',
+                        fontWeight: 700, fontSize: '0.6rem'
+                    }}>
+                        {statusStr}
+                    </span>
+                );
+            }
+        },
+        {
+            header: 'Price',
+            accessor: 'price',
+            render: (inv) => <strong>{formatIndianCurrency(inv.price)}</strong>
+        }
+    ], []);
+
+    const slicedInventoryData = useMemo(() => (
+        inventoryData.slice(0, 5).map((inv, i) => ({
+            ...inv,
+            id: inv._id || inv.id || `inv-${i}`
+        }))
+    ), [inventoryData]);
+
+    const dealColumns = useMemo(() => [
+        {
+            header: 'Deal ID',
+            accessor: 'dealId',
+            render: (deal) => <strong>{deal.dealId || `Deal #${deal.dealIndex}`}</strong>
+        },
+        {
+            header: 'Project',
+            accessor: 'project',
+            render: (deal) => `${renderValue(deal.projectName?.name || deal.projectName || 'N/A')}${deal.unitNo ? ` (${deal.unitNo})` : ''}`
+        },
+        {
+            header: 'Stage',
+            accessor: 'stage',
+            render: (deal) => {
+                const stage = deal.stage;
+                const isClosed = stage === 'Closed';
+                const isCancelled = stage === 'Cancelled';
+                return (
+                    <span style={{
+                        padding: '2px 6px', borderRadius: '4px',
+                        background: isClosed ? '#dcfce7' : (isCancelled ? '#fee2e2' : '#e0e7ff'),
+                        color: isClosed ? '#166534' : (isCancelled ? '#991b1b' : '#3730a3'),
+                        fontWeight: 700, fontSize: '0.6rem'
+                    }}>
+                        {stage || 'Active'}
+                    </span>
+                );
+            }
+        },
+        {
+            header: 'Value',
+            accessor: 'price',
+            render: (deal) => <strong>{formatIndianCurrency(deal.price)}</strong>
+        }
+    ], []);
+
+    const slicedDealsData = useMemo(() => (
+        dealsData.slice(0, 5).map((deal, i) => ({
+            ...deal,
+            id: deal._id || deal.id || `deal-${i}`,
+            dealIndex: i + 1
+        }))
+    ), [dealsData]);
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
@@ -278,32 +407,16 @@ const CompanyDetailPage = ({ onBack, onNavigate, onAddProject, onAddInventory, o
                             <button className="btn-outline" style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={() => onAddProject()}>Add Project</button>
                         </div>
                         <div style={{ padding: '0' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                    <tr>
-                                        <th style={tableHeaderStyle}>Project Name</th>
-                                        <th style={tableHeaderStyle}>Location</th>
-                                        <th style={tableHeaderStyle}>Launch Status</th>
-                                        <th style={tableHeaderStyle}>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {projectsData.length > 0 ? projectsData.slice(0, 5).map((p, i) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={tableCellStyle}><strong>{renderValue(p.name)}</strong></td>
-                                            <td style={tableCellStyle}>{p.address?.locality || p.address?.area || 'N/A'}</td>
-                                            <td style={tableCellStyle}>
-                                                <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#ecfdf5', color: '#065f46', fontSize: '0.65rem', fontWeight: 700 }}>{renderValue(p.status) || 'Active'}</span>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <button onClick={() => onNavigate('project-detail', p._id)} style={{ border: 'none', background: 'none', color: '#3b82f6', fontWeight: 700, cursor: 'pointer' }}>View</button>
-                                            </td>
-                                        </tr>
-                                    )) : (
-                                        <tr><td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>No projects registered under this developer.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+                            <DataTable
+                                columns={projectColumns}
+                                data={slicedProjectsData}
+                                keyField="id"
+                                emptyMessage={
+                                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                        No projects registered under this developer.
+                                    </div>
+                                }
+                            />
                             {projectsData.length > 5 && (
                                 <div style={{ padding: '12px', textAlign: 'center', borderTop: '1px solid #f1f5f9' }}>
                                     <button className="btn-ghost" style={{ fontSize: '0.75rem', fontWeight: 700 }}>View All {projectsData.length} Projects</button>
@@ -324,36 +437,16 @@ const CompanyDetailPage = ({ onBack, onNavigate, onAddProject, onAddInventory, o
                             <InventoryMetric label="Under Offer" value={inventoryData.filter(i => i.status === 'Booked').length} color="#f59e0b" />
                         </div>
                         <div style={{ padding: '0' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
-                                <thead style={{ background: '#fff', borderBottom: '1px solid #f1f5f9' }}>
-                                    <tr>
-                                        <th style={tableHeaderStyle}>Unit</th>
-                                        <th style={tableHeaderStyle}>Project</th>
-                                        <th style={tableHeaderStyle}>Status</th>
-                                        <th style={tableHeaderStyle}>Price</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {inventoryData.slice(0, 5).map((inv, i) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={tableCellStyle}><strong>{inv.unitNo || inv.unitNumber}</strong></td>
-                                            <td style={tableCellStyle}>{renderValue(inv.projectName)}</td>
-                                            <td style={tableCellStyle}>
-                                                <span style={{
-                                                    padding: '2px 6px', borderRadius: '4px',
-                                                    background: renderValue(inv.status) === 'Available' ? '#dcfce7' : '#fee2e2',
-                                                    color: renderValue(inv.status) === 'Available' ? '#166534' : '#991b1b',
-                                                    fontWeight: 700, fontSize: '0.6rem'
-                                                }}>{renderValue(inv.status)}</span>
-                                            </td>
-                                            <td style={tableCellStyle}><strong>{formatIndianCurrency(inv.price)}</strong></td>
-                                        </tr>
-                                    ))}
-                                    {inventoryData.length === 0 && (
-                                        <tr><td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No linked inventory.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+                            <DataTable
+                                columns={inventoryColumns}
+                                data={slicedInventoryData}
+                                keyField="id"
+                                emptyMessage={
+                                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>
+                                        No linked inventory.
+                                    </div>
+                                }
+                            />
                         </div>
                     </div>
 
@@ -391,36 +484,16 @@ const CompanyDetailPage = ({ onBack, onNavigate, onAddProject, onAddInventory, o
 
                             {/* Linked Deals Table */}
                             <div style={{ marginTop: '32px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
-                                    <thead style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                                        <tr>
-                                            <th style={tableHeaderStyle}>Deal ID</th>
-                                            <th style={tableHeaderStyle}>Project</th>
-                                            <th style={tableHeaderStyle}>Stage</th>
-                                            <th style={tableHeaderStyle}>Value</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {dealsData.slice(0, 5).map((deal, i) => (
-                                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                <td style={tableCellStyle}><strong>{deal.dealId || `Deal #${i+1}`}</strong></td>
-                                                <td style={tableCellStyle}>{renderValue(deal.projectName?.name || deal.projectName || 'N/A')} {deal.unitNo ? `(${deal.unitNo})` : ''}</td>
-                                                <td style={tableCellStyle}>
-                                                    <span style={{
-                                                        padding: '2px 6px', borderRadius: '4px',
-                                                        background: deal.stage === 'Closed' ? '#dcfce7' : (deal.stage === 'Cancelled' ? '#fee2e2' : '#e0e7ff'),
-                                                        color: deal.stage === 'Closed' ? '#166534' : (deal.stage === 'Cancelled' ? '#991b1b' : '#3730a3'),
-                                                        fontWeight: 700, fontSize: '0.6rem'
-                                                    }}>{deal.stage || 'Active'}</span>
-                                                </td>
-                                                <td style={tableCellStyle}><strong>{formatIndianCurrency(deal.price)}</strong></td>
-                                            </tr>
-                                        ))}
-                                        {dealsData.length === 0 && (
-                                            <tr><td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No linked deals.</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                <DataTable
+                                    columns={dealColumns}
+                                    data={slicedDealsData}
+                                    keyField="id"
+                                    emptyMessage={
+                                        <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>
+                                            No linked deals.
+                                        </div>
+                                    }
+                                />
                             </div>
                         </div>
                     </div>
@@ -763,32 +836,61 @@ const ContactsList = ({ contacts }) => (
     </div>
 );
 
-const DocumentsList = ({ documents }) => (
-    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-            <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                <tr>
-                    <th style={tableHeaderStyle}>Document Name</th>
-                    <th style={tableHeaderStyle}>Type</th>
-                    <th style={tableHeaderStyle}>Date Added</th>
-                    <th style={tableHeaderStyle}>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {documents.map((doc, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                         <td style={tableCellStyle}><i className={`fas fa-${doc.type === 'PDF' || doc.name.endsWith('.pdf') ? 'file-pdf' : 'file-alt'}`} style={{ color: '#ef4444', marginRight: '10px' }}></i>{doc.name}</td>
-                        <td style={tableCellStyle}>{doc.type}</td>
-                        <td style={tableCellStyle}>{doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : doc.date}</td>
-                        <td style={tableCellStyle}>
-                            <a href={doc.url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: '0.7rem', color: '#3b82f6', textDecoration: 'none' }}>View / Download</a>
-                        </td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    </div>
-);
+const DocumentsList = ({ documents = [] }) => {
+    const documentColumns = useMemo(() => [
+        {
+            header: 'Document Name',
+            accessor: 'name',
+            render: (doc) => (
+                <span>
+                    <i className={`fas fa-${doc.type === 'PDF' || (doc.name && doc.name.endsWith('.pdf')) ? 'file-pdf' : 'file-alt'}`} style={{ color: '#ef4444', marginRight: '10px' }}></i>
+                    {doc.name}
+                </span>
+            )
+        },
+        {
+            header: 'Type',
+            accessor: 'type',
+            render: (doc) => doc.type
+        },
+        {
+            header: 'Date Added',
+            accessor: 'uploadedAt',
+            render: (doc) => doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : doc.date
+        },
+        {
+            header: 'Action',
+            accessor: 'action',
+            render: (doc) => (
+                <a href={doc.url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: '0.7rem', color: '#3b82f6', textDecoration: 'none' }}>
+                    View / Download
+                </a>
+            )
+        }
+    ], []);
+
+    const documentsWithId = useMemo(() => (
+        (documents || []).map((doc, i) => ({
+            ...doc,
+            id: doc._id || doc.id || `doc-${i}`
+        }))
+    ), [documents]);
+
+    return (
+        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <DataTable
+                columns={documentColumns}
+                data={documentsWithId}
+                keyField="id"
+                emptyMessage={
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                        No documents linked.
+                    </div>
+                }
+            />
+        </div>
+    );
+};
 
 const CommissionStructure = ({ company }) => (
     <div style={{ background: '#fff', padding: '32px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>

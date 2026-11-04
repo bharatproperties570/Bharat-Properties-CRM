@@ -96,6 +96,8 @@ chatMessageSchema.index({ groupJid: 1, timestamp: -1 });
 chatMessageSchema.index({ conversationId: 1, timestamp: -1 });
 chatMessageSchema.index({ senderPhone: 1, timestamp: -1 });
 chatMessageSchema.index({ isGroup: 1, timestamp: -1 });
+// ⏳ Enterprise Auto-Purge TTL Index (30-day retention to prevent quota exhaustion)
+chatMessageSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
 

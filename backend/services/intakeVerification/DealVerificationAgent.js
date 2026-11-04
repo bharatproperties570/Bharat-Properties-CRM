@@ -1,7 +1,6 @@
 import Intake from '../../models/Intake.js';
 import AiAgent from '../../models/AiAgent.js';
 import unifiedAIService from '../UnifiedAIService.js';
-import geminiService from '../GeminiService.js';
 import whatsAppService from '../WhatsAppService.js';
 import mongoose from 'mongoose';
 
@@ -156,7 +155,8 @@ Price mentioned: ${price || 'Not mentioned'}`;
                 model: modelName,
                 systemPrompt: dynamicSystemPrompt,
                 temperature: dynamicTemperature,
-                maxTokens: 200
+                maxTokens: 200,
+                capability: 'AI_DEAL_VERIFICATION'
             });
 
             if (draft && draft.trim().length > 10) {
@@ -219,6 +219,20 @@ Price mentioned: ${price || 'Not mentioned'}`;
 
         const isMeta = String(provider).toUpperCase() === 'META';
         let resolvedIntegrationId = integrationId || (intake.whatsappIntegrationId ? String(intake.whatsappIntegrationId) : null);
+
+        // Fallback: Check if originating conversation holds the source line
+        if (!resolvedIntegrationId && (intake.raw_source_data?.whatsappIntegrationId || intake.raw_source_data?.conversationId || intake.extracted_entities?._whatsappGroup?.conversationId)) {
+            if (intake.raw_source_data?.whatsappIntegrationId) {
+                resolvedIntegrationId = String(intake.raw_source_data.whatsappIntegrationId);
+            } else {
+                try {
+                    const Conversation = mongoose.models.Conversation || (await import('../../models/Conversation.js')).default;
+                    const convId = intake.raw_source_data?.conversationId || intake.extracted_entities?._whatsappGroup?.conversationId;
+                    const c = await Conversation.findById(convId).select('whatsappIntegrationId').lean();
+                    if (c?.whatsappIntegrationId) resolvedIntegrationId = String(c.whatsappIntegrationId);
+                } catch (e) {}
+            }
+        }
 
         if (!isMeta) {
             // Strictly enforce per-user WhatsApp Web session isolation if not already resolved from intake group
@@ -534,7 +548,8 @@ Write the 1-line WhatsApp reply to the broker:`;
                 model: modelName,
                 systemPrompt,
                 temperature: 0.7,
-                maxTokens: 150
+                maxTokens: 150,
+                capability: 'AI_DEAL_VERIFICATION'
             });
             if (reply && reply.trim().length > 3) {
                 return reply.trim().replace(/^["']|["']$/g, '');
@@ -592,11 +607,13 @@ Output pure JSON with no markdown tags.`;
         const userPrompt = `Broker Reply:\n"${replyText}"`;
 
         try {
-            const rawOutput = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
+            const rawOutput = await unifiedAIService.generate(userPrompt, {
+                systemPrompt,
+                provider: 'google',
                 model: 'gemini-3.8-flash',
                 temperature: 0.1,
                 maxTokens: 1500,
-                responseMimeType: 'application/json'
+                capability: 'AI_DEAL_VERIFICATION'
             });
 
             const cleanJson = rawOutput.replace(/```json/gi, '').replace(/```/g, '').trim();

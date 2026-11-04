@@ -174,6 +174,27 @@ function ProjectsPage({ onNavigate }) {
         setEditProjectData(null);
     };
 
+    const handleStatusFilter = useCallback((statusVal) => {
+        if (!statusVal) {
+            setFilters(prev => {
+                const next = { ...prev };
+                delete next.status;
+                return next;
+            });
+            setCurrentPage(1);
+            return;
+        }
+        setFilters(prev => {
+            if (prev.status === statusVal) {
+                const next = { ...prev };
+                delete next.status;
+                return next;
+            }
+            return { ...prev, status: statusVal };
+        });
+        setCurrentPage(1);
+    }, [setFilters, setCurrentPage]);
+
     const handleDeleteProject = async (id) => {
         if (!window.confirm("Are you sure you want to delete this project?")) return;
         try {
@@ -641,25 +662,101 @@ function ProjectsPage({ onNavigate }) {
             )}
 
             <footer className="summary-footer" style={{ height: '60px', padding: '0 2rem' }}>
-                <div className="summary-label" style={{ background: 'var(--text-main)', color: 'var(--bg-card)', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>LIVE SUMMARY</div>
+                <div 
+                    className="summary-label" 
+                    onClick={() => handleStatusFilter(null)}
+                    style={{ 
+                        background: 'var(--text-main)', color: 'var(--bg-card)', 
+                        padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem',
+                        cursor: 'pointer' 
+                    }}
+                    title="Click to view all projects"
+                >
+                    LIVE SUMMARY
+                </div>
                 <div style={{ display: 'flex', gap: '15px' }}>
-                    <div className="stat-pill">
+                    <div 
+                        className={`stat-pill ${!filters.status ? 'active-summary-pill' : ''}`}
+                        onClick={() => handleStatusFilter(null)}
+                        style={{ 
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            border: !filters.status ? '1.5px solid #6366f1' : '1px solid transparent',
+                            background: !filters.status ? 'rgba(99, 102, 241, 0.15)' : undefined,
+                            boxShadow: !filters.status ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title="Click to view all projects"
+                    >
                         <span style={{ color: '#6366f1' }}><i className="fas fa-th-list"></i> TOTAL</span>
-                        <span className="stat-val-bold">{projectsData.length}</span>
+                        <span className="stat-val-bold">{totalRecords || projectsData.length}</span>
                     </div>
-                    <div className="stat-pill">
+                    <div 
+                        className={`stat-pill ${filters.status === 'Ready to Move' ? 'active-summary-pill' : ''}`}
+                        onClick={() => handleStatusFilter('Ready to Move')}
+                        style={{ 
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            border: filters.status === 'Ready to Move' ? '1.5px solid var(--success-color)' : '1px solid transparent',
+                            background: filters.status === 'Ready to Move' ? 'rgba(16, 185, 129, 0.2)' : undefined,
+                            boxShadow: filters.status === 'Ready to Move' ? '0 0 5px rgba(16, 185, 129, 0.3)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title={filters.status === 'Ready to Move' ? "Click to clear filter" : "Filter by Ready to Move"}
+                    >
                         <span style={{ color: 'var(--success-color)' }}><i className="fas fa-house-user"></i> READY</span>
                         <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Ready to Move').length}</span>
                     </div>
-                    <div className="stat-pill">
+                    <div 
+                        className={`stat-pill ${filters.status === 'Under Construction' ? 'active-summary-pill' : ''}`}
+                        onClick={() => handleStatusFilter('Under Construction')}
+                        style={{ 
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            border: filters.status === 'Under Construction' ? '1.5px solid var(--danger-color)' : '1px solid transparent',
+                            background: filters.status === 'Under Construction' ? 'rgba(239, 68, 68, 0.2)' : undefined,
+                            boxShadow: filters.status === 'Under Construction' ? '0 0 5px rgba(239, 68, 68, 0.3)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title={filters.status === 'Under Construction' ? "Click to clear filter" : "Filter by Under Construction"}
+                    >
                         <span style={{ color: 'var(--danger-color)' }}><i className="fas fa-tools"></i> BUILDING</span>
                         <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Under Construction').length}</span>
                     </div>
-                    <div className="stat-pill">
+                    <div 
+                        className={`stat-pill ${filters.status === 'Pre-Launch' ? 'active-summary-pill' : ''}`}
+                        onClick={() => handleStatusFilter('Pre-Launch')}
+                        style={{ 
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            border: filters.status === 'Pre-Launch' ? '1.5px solid var(--primary-color)' : '1px solid transparent',
+                            background: filters.status === 'Pre-Launch' ? 'rgba(99, 102, 241, 0.2)' : undefined,
+                            boxShadow: filters.status === 'Pre-Launch' ? '0 0 5px rgba(99, 102, 241, 0.3)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title={filters.status === 'Pre-Launch' ? "Click to clear filter" : "Filter by Pre-Launch"}
+                    >
                         <span style={{ color: 'var(--primary-color)' }}><i className="fas fa-rocket"></i> PRE-LAUNCH</span>
                         <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Pre-Launch').length}</span>
                     </div>
-                    <div className="stat-pill">
+                    <div 
+                        className={`stat-pill ${filters.status === 'Upcoming' ? 'active-summary-pill' : ''}`}
+                        onClick={() => handleStatusFilter('Upcoming')}
+                        style={{ 
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            border: filters.status === 'Upcoming' ? '1.5px solid #f59e0b' : '1px solid transparent',
+                            background: filters.status === 'Upcoming' ? 'rgba(245, 158, 11, 0.2)' : undefined,
+                            boxShadow: filters.status === 'Upcoming' ? '0 0 5px rgba(245, 158, 11, 0.3)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title={filters.status === 'Upcoming' ? "Click to clear filter" : "Filter by Upcoming"}
+                    >
                         <span style={{ color: '#f59e0b' }}><i className="fas fa-hourglass-start"></i> UPCOMING</span>
                         <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Upcoming').length}</span>
                     </div>

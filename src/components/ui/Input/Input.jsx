@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 export const Input = ({
   label,
@@ -8,6 +8,8 @@ export const Input = ({
   className = '',
   style = {},
   containerStyle = {},
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
   ...props
 }) => {
   const inputStyle = {
@@ -31,17 +33,43 @@ export const Input = ({
     marginBottom: '6px'
   };
 
-  const generatedId = id || `input-${Math.random().toString(36).substr(2, 9)}`;
+  const defaultId = useId();
+  const inputId = id || defaultId;
+  const errorId = error ? `${inputId}-error` : undefined;
+
+  const resolvedAriaDescribedBy = [ariaDescribedBy, errorId].filter(Boolean).join(' ') || undefined;
+  const resolvedAriaInvalid = ariaInvalid !== undefined ? ariaInvalid : (Boolean(error) || undefined);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', ...containerStyle }} className={`ui-input-container ${className}`}>
-      {label && <label htmlFor={generatedId} style={labelStyle}>{label}</label>}
+      {label && <label htmlFor={inputId} style={labelStyle}>{label}</label>}
       {type === 'textarea' ? (
-          <textarea id={generatedId} style={{...inputStyle, minHeight: '80px', resize: 'vertical'}} {...props} />
+        <textarea
+          id={inputId}
+          style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }}
+          aria-describedby={resolvedAriaDescribedBy}
+          aria-invalid={resolvedAriaInvalid}
+          {...props}
+        />
       ) : (
-          <input id={generatedId} type={type} style={inputStyle} {...props} />
+        <input
+          id={inputId}
+          type={type}
+          style={inputStyle}
+          aria-describedby={resolvedAriaDescribedBy}
+          aria-invalid={resolvedAriaInvalid}
+          {...props}
+        />
       )}
-      {error && <span style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '4px' }}>{error}</span>}
+      {error && (
+        <span
+          id={errorId}
+          role="alert"
+          style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '4px' }}
+        >
+          {error}
+        </span>
+      )}
     </div>
   );
 };

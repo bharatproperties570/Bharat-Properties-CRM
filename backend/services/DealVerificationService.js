@@ -158,6 +158,10 @@ class DealVerificationService {
             // Log activity on deal
             await Activity.create({
                 deal:        deal._id,
+                entityType:  'Deal',
+                entityId:    deal._id,
+                subject:     `Verification message sent to ${mobile}`,
+                dueDate:     new Date(),
                 type:        'WhatsApp',
                 direction:   'Outbound',
                 description: `Verification message sent to ${mobile}`,
@@ -303,7 +307,7 @@ class DealVerificationService {
         log.info(traceId, 'Parsing intent using Unified AI Engine...');
         const rawText = await unifiedAIService.generate(
             userMessage,
-            { systemPrompt, temperature: 0.1, maxTokens: 500 }
+            { systemPrompt, temperature: 0.1, maxTokens: 500, capability: 'AI_DEAL_VERIFICATION' }
         );
 
         // Strip any accidental markdown fences
@@ -314,6 +318,18 @@ class DealVerificationService {
             parsed = JSON.parse(clean);
         } catch {
             throw new Error(`AI returned invalid JSON: ${clean.slice(0, 200)}`);
+        }
+
+        // P16-R4: Policy Boundary Enforcement
+        const { default: AIPolicyEngine } = await import('./ai/AIPolicyEngine.js');
+        const authDecision = await AIPolicyEngine.authorize(
+            { action: 'CRM_MUTATION', intent: parsed.intent },
+            { target: deals.map(d => d._id) },
+            'AI_DATA_EXTRACTION'
+        );
+
+        if (authDecision.decision !== 'ALLOW') {
+            throw new Error(`AI Action blocked by Policy Engine: ${authDecision.reasonCode}`);
         }
 
         // Validate intent is known
@@ -365,6 +381,10 @@ class DealVerificationService {
                 // Activity log
                 await Activity.create({
                     deal:        deal._id,
+                    entityType:  'Deal',
+                    entityId:    deal._id,
+                    subject:     `Verification reply: ${intent}`,
+                    dueDate:     new Date(),
                     type:        'WhatsApp',
                     direction:   'Inbound',
                     description: `Verification reply: ${intent}`,

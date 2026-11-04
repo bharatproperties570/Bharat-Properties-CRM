@@ -7,6 +7,7 @@
  */
 
 import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
 
 export function cleanSubCategory(val) {
     if (!val) return '';
@@ -109,10 +110,10 @@ class VariableResolutionService {
             "office_address": "Gurugram, Haryana",
             
             // --- Smart Links ---
-            "site_visit_link": this.extractValue(lead, 'siteVisitLink'),
-            "feedback_link": this.extractValue(lead, 'feedbackLink'),
-            "campaign_link": this.extractValue(lead, 'trackedCampaignLink'),
-            "tracked_link": this.extractValue(lead, 'trackedCampaignLink'),
+            "site_visit_link": this.extractValue(lead, 'siteVisitLink', customOverrides),
+            "feedback_link": this.extractValue(lead, 'feedbackLink', customOverrides),
+            "campaign_link": this.extractValue(lead, 'trackedCampaignLink', customOverrides),
+            "tracked_link": this.extractValue(lead, 'trackedCampaignLink', customOverrides),
             "property_list_default": this.extractValue(lead, 'matchListDefault'),
             "property_list_dtl": this.extractValue(lead, 'matchListDetailed'),
             "portal_link": "https://crm.bharatproperties.co",
@@ -474,19 +475,47 @@ class VariableResolutionService {
                 try {
                     const leadId = lead.id || lead._id;
                     if (!leadId) return 'token_missing';
-                    if (!process.env.JWT_SECRET) {
-                        console.error("[VariableResolution] JWT_SECRET is not configured");
+                    const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
+                    if (!secret) {
                         return 'error';
                     }
-                    const activityId = lead.activityId || lead.context?.activityId || lead.context?.siteVisitId || null;
-                    const token = jwt.sign({
-                        leadId,
-                        activityId,
-                        source: 'customer_feedback',
-                        purpose: 'customer_feedback'
-                    }, process.env.JWT_SECRET, { expiresIn: '60d' });
+                    const formSlug = 'customer-experience-feedback-qx9z2';
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
-                    const formSlug = 'customer-experience-feedback-qx9z2'; 
+
+                    // 🛡️ CRITICAL-01: Dual-branch context resolution
+                    // If activity is provided in customOverrides or lead context, bind to Activity
+                    // If only lead is provided, generate a Lead-scoped token (activityId: null)
+                    const overrides = (typeof customVal === 'object' && customVal !== null) ? customVal : {};
+                    const activity = overrides.activity || (lead.activityId ? { _id: lead.activityId } : (lead.context?.activityId ? { _id: lead.context.activityId } : (lead.context?.siteVisitId ? { _id: lead.context.siteVisitId } : null)));
+                    if (activity && (activity._id || activity.id)) {
+                        const token = jwt.sign(
+                            {
+                                iss: 'bharat-properties-crm',
+                                purpose: 'feedback_submission',
+                                leadId: String(leadId),
+                                activityId: String(activity._id || activity.id),
+                                formSlug,
+                                jti: uuidv4()
+                            },
+                            secret,
+                            { expiresIn: '7d' }
+                        );
+                        return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;
+                    }
+
+                    // Lead-only context: DO NOT guess or invent an Activity
+                    const token = jwt.sign(
+                        {
+                            iss: 'bharat-properties-crm',
+                            purpose: 'general_feedback',
+                            leadId: String(leadId),
+                            activityId: null,
+                            formSlug,
+                            jti: uuidv4()
+                        },
+                        secret,
+                        { expiresIn: '30d' }
+                    );
                     return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;
                 } catch (e) {
                     return 'error';

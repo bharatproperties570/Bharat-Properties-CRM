@@ -1,81 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 // PROJECTS_LIST import removed, using context instead
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import CustomizeFeedbackPage from './CustomizeFeedbackPage';
 import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
-
-// ✅ ENTERPRISE: SizeItem — shows projectMappings as "Available In" badges
-const SizeItem = ({ size, onEdit, onDelete, onManageAvailability, isSelected, onToggleSelect }) => {
-    const mappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
-    const visibleMappings = mappings.slice(0, 2);
-    const extraCount = mappings.length - visibleMappings.length;
-    return (
-        <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <td style={{ padding: '14px 16px', width: '40px' }}>
-                <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={onToggleSelect}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
-                />
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>{size.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{size.unitType}</div>
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                <div style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>{size.category}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.subCategory}</div>
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                {(() => {
-                    if (size.totalArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.totalArea} {size.resultMetric || 'Sq Yd'}</span>;
-                    if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
-                    return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</span>;
-                })()}
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                {mappings.length === 0 ? (
-                    <span style={{ fontSize: '0.75rem', color: '#f59e0b', background: '#fffbeb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #fde68a' }}>Not assigned</span>
-                ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {visibleMappings.map((m, i) => (
-                            <span key={i} style={{ fontSize: '0.7rem', background: 'rgba(37,99,235,0.08)', color: '#2563eb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
-                                {m.project}{m.block ? ` › ${m.block}` : ''}
-                            </span>
-                        ))}
-                        {extraCount > 0 && (
-                            <span style={{ fontSize: '0.7rem', background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '99px', border: '1px solid var(--border-color)' }}>+{extraCount} more</span>
-                        )}
-                    </div>
-                )}
-            </td>
-            <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                    <button onClick={() => onManageAvailability(size)} title="Manage Project Availability"
-                        style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: 'none', background: 'rgba(37,99,235,0.08)', color: '#2563eb', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(37,99,235,0.2)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}>
-                        <i className="fas fa-project-diagram" style={{ marginRight: '4px' }}></i>Projects
-                    </button>
-                    <button onClick={() => onEdit(size)} title="Edit Size"
-                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
-                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
-                        <i className="fas fa-edit"></i>
-                    </button>
-                    <button onClick={() => onDelete(size.id)} title="Delete Size"
-                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
-                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
-                        <i className="fas fa-trash"></i>
-                    </button>
-                </div>
-            </td>
-        </tr>
-    );
-};
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 // ✅ ENTERPRISE: SizeAvailabilityModal — Manage which projects/blocks a size is assigned to
 const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMapping, onRemoveMapping }) => {
@@ -198,8 +127,200 @@ const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMappin
 
 // ✅ ENTERPRISE: Helper to determine if a subcategory is land/dimension-based (Plot, House, Villa, Kothi, etc.)
 export const isDimensionType = (subCat) => {
+    if (Array.isArray(subCat)) {
+        return subCat.some(sc => isDimensionType(sc));
+    }
     const s = String(subCat || '').trim().toLowerCase();
     return ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land', 'house', 'kothi', 'villa', 'bungalow', 'farm house', 'independent house'].some(k => s.includes(k));
+};
+
+// ✅ ENTERPRISE: Multi-Select Dropdown for Sub Categories
+const SubCategoryMultiSelect = ({ options = [], selected = [], onChange, inputStyle }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleOption = (opt) => {
+        if (selected.includes(opt)) {
+            onChange(selected.filter(item => item !== opt));
+        } else {
+            onChange([...selected, opt]);
+        }
+    };
+
+    const handleSelectAll = (e) => {
+        e.stopPropagation();
+        onChange([...options]);
+    };
+
+    const handleClearAll = (e) => {
+        e.stopPropagation();
+        onChange([]);
+    };
+
+    return (
+        <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                style={{
+                    ...inputStyle,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    background: 'var(--bg-light)',
+                    userSelect: 'none'
+                }}
+            >
+                <span style={{
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    fontSize: '0.9rem',
+                    color: selected.length === 0 ? 'var(--text-muted)' : 'var(--text-main)',
+                    fontWeight: selected.length > 0 ? 600 : 400
+                }}>
+                    {selected.length === 0
+                        ? 'Select Sub Categories'
+                        : selected.length === 1
+                            ? selected[0]
+                            : `${selected.length} Sub Categories Selected`}
+                </span>
+                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}></i>
+            </div>
+
+            {isOpen && (
+                <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    boxShadow: '0 12px 28px -4px rgba(0,0,0,0.2)',
+                    zIndex: 12000,
+                    maxHeight: '230px',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 12px',
+                        borderBottom: '1px solid var(--border-color)',
+                        background: 'var(--bg-light)',
+                        fontSize: '0.75rem'
+                    }}>
+                        <button
+                            type="button"
+                            onClick={handleSelectAll}
+                            style={{ border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+                        >
+                            Select All
+                        </button>
+                        <span style={{ color: 'var(--text-muted)' }}>{selected.length} of {options.length}</span>
+                        <button
+                            type="button"
+                            onClick={handleClearAll}
+                            style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+                        >
+                            Clear
+                        </button>
+                    </div>
+
+                    <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
+                        {options.length === 0 ? (
+                            <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                No sub categories available
+                            </div>
+                        ) : (
+                            options.map(opt => {
+                                const isChecked = selected.includes(opt);
+                                return (
+                                    <div
+                                        key={opt}
+                                        onClick={() => toggleOption(opt)}
+                                        style={{
+                                            padding: '8px 12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '10px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            background: isChecked ? 'rgba(37,99,235,0.08)' : 'transparent',
+                                            color: isChecked ? '#1e40af' : 'var(--text-main)',
+                                            fontWeight: isChecked ? 600 : 400,
+                                            transition: 'background 0.15s'
+                                        }}
+                                        onMouseEnter={e => { if (!isChecked) e.currentTarget.style.background = 'var(--bg-light)'; }}
+                                        onMouseLeave={e => { if (!isChecked) e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => {}} // handled by row onClick
+                                            style={{
+                                                width: '16px',
+                                                height: '16px',
+                                                accentColor: '#2563eb',
+                                                cursor: 'pointer',
+                                                margin: 0
+                                            }}
+                                        />
+                                        <span style={{ flex: 1 }}>{opt}</span>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Selected badges display */}
+            {selected.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                    {selected.map(subName => (
+                        <span
+                            key={subName}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                background: 'rgba(37,99,235,0.08)',
+                                color: '#2563eb',
+                                border: '1px solid #bfdbfe'
+                            }}
+                        >
+                            {subName}
+                            <i
+                                className="fas fa-times"
+                                style={{ cursor: 'pointer', fontSize: '0.65rem', opacity: 0.8 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleOption(subName);
+                                }}
+                            />
+                        </span>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 };
 
 // ✅ ENTERPRISE: AddSizeModal — Project/Block removed from size definition
@@ -210,6 +331,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         unitType: '',
         category: 'Residential',
         subCategory: 'Flat/Apartment / Builder Floor',
+        subCategories: ['Flat/Apartment / Builder Floor'],
         saleableArea: '',
         coveredArea: '',
         carpetArea: '',
@@ -244,14 +366,34 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
         console.log('[AddSizeModal] Initializing sizeData. initialData:', initialData);
         if (initialData) {
-            setSizeData(initialData);
+            let initialSubs = [];
+            if (Array.isArray(initialData.subCategories) && initialData.subCategories.length > 0) {
+                initialSubs = initialData.subCategories;
+            } else if (initialData.subCategory) {
+                initialSubs = String(initialData.subCategory).split(',').map(s => s.trim()).filter(Boolean);
+            }
+            const isDim = isDimensionType(initialSubs);
+            setSizeData({
+                ...defaultState,
+                ...initialData,
+                subCategories: initialSubs,
+                subCategory: initialSubs.join(', ') || initialData.subCategory || '',
+                resultMetric: initialData.resultMetric || (isDim ? 'Sq Yd' : 'Sq Ft')
+            });
         } else {
             const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
             const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
-                ? propertyConfig[initialCat].subCategories[0].name
+                ? (typeof propertyConfig[initialCat].subCategories[0] === 'object' ? propertyConfig[initialCat].subCategories[0].name : propertyConfig[initialCat].subCategories[0])
                 : '';
-            const isDim = isDimensionType(initialSub);
-            setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub, resultMetric: isDim ? 'Sq Yd' : 'Sq Ft' });
+            const initialSubs = initialSub ? [initialSub] : [];
+            const isDim = isDimensionType(initialSubs);
+            setSizeData({
+                ...defaultState,
+                category: initialCat || 'Residential',
+                subCategory: initialSub,
+                subCategories: initialSubs,
+                resultMetric: isDim ? 'Sq Yd' : 'Sq Ft'
+            });
         }
         setQuickProject('');
         setQuickBlock('');
@@ -280,25 +422,32 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         if (isOpen && !initialData && !sizeData.category && propertyConfig && Object.keys(propertyConfig).length > 0) {
             const initialCat = Object.keys(propertyConfig)[0];
             const initialSub = Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
-                ? propertyConfig[initialCat].subCategories[0].name
+                ? (typeof propertyConfig[initialCat].subCategories[0] === 'object' ? propertyConfig[initialCat].subCategories[0].name : propertyConfig[initialCat].subCategories[0])
                 : '';
-            const isDim = isDimensionType(initialSub);
-            setSizeData(prev => ({ ...prev, category: initialCat, subCategory: initialSub, resultMetric: isDim ? 'Sq Yd' : 'Sq Ft' }));
+            const initialSubs = initialSub ? [initialSub] : [];
+            const isDim = isDimensionType(initialSubs);
+            setSizeData(prev => ({
+                ...prev,
+                category: initialCat,
+                subCategory: initialSub,
+                subCategories: initialSubs,
+                resultMetric: isDim ? 'Sq Yd' : 'Sq Ft'
+            }));
         }
     }, [propertyConfig, isOpen, initialData, sizeData.category]);
 
     // Auto-generate name from unitType + area
     useEffect(() => {
-        const isPlot = isDimensionType(sizeData.subCategory);
+        const isPlot = isDimensionType(sizeData.subCategories) || isDimensionType(sizeData.subCategory);
         let areaPart = '';
         if (isPlot) {
             areaPart = sizeData.totalArea ? `(${sizeData.totalArea} ${sizeData.resultMetric})` : '';
         } else {
             areaPart = sizeData.saleableArea ? `(${sizeData.saleableArea} Sq Ft)` : '';
         }
-        const generatedName = `${sizeData.unitType} ${areaPart}`.trim();
+        const generatedName = `${sizeData.unitType || ''} ${areaPart}`.trim();
         setSizeData(prev => ({ ...prev, name: generatedName }));
-    }, [sizeData.unitType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory]);
+    }, [sizeData.unitType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory, sizeData.subCategories]);
 
     // ✅ ENTERPRISE: Real-time duplicate check — globally unique name
     useEffect(() => {
@@ -351,15 +500,24 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
     if (!isOpen) return null;
 
-    const isPlotType = isDimensionType(sizeData.subCategory);
+    const isPlotType = isDimensionType(sizeData.subCategories) || isDimensionType(sizeData.subCategory);
     const isResidentialType = !isPlotType;
 
     const handleSubmit = () => {
-        if (!sizeData.subCategory) { alert('Please select a Sub-Category.'); return; }
+        const currentSubs = Array.isArray(sizeData.subCategories) && sizeData.subCategories.length > 0
+            ? sizeData.subCategories
+            : (sizeData.subCategory ? String(sizeData.subCategory).split(',').map(s => s.trim()).filter(Boolean) : []);
+
+        if (currentSubs.length === 0) { alert('Please select at least one Sub-Category.'); return; }
         if (!sizeData.unitType) { alert('Please select a Size Type.'); return; }
         if (nameConflict) { alert(`Size "${sizeData.name}" already exists globally. Change the area to create a different size.`); return; }
         
-        const payload = { ...sizeData };
+        const payload = {
+            ...sizeData,
+            subCategories: currentSubs,
+            subCategory: currentSubs.join(', ')
+        };
+
         if (isPlotType) {
             payload.totalArea = sizeData.totalArea || '';
             payload.resultMetric = sizeData.resultMetric || 'Sq Yd';
@@ -383,11 +541,11 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 11000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: 'var(--bg-card)', width: '620px', borderRadius: '14px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto' }}>
+            <div style={{ background: 'var(--bg-card)', width: '640px', borderRadius: '14px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
                         <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{initialData ? 'Edit Property Size' : 'Add New Property Size'}</h3>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Size is global — assign to projects below</p>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Size is global — assign to multiple sub categories and projects below</p>
                     </div>
                     <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1rem' }}></i>
                 </div>
@@ -399,18 +557,20 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         {nameConflict && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginTop: '4px' }}><i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>This size already exists globally. Change area value to differentiate.</div>}
                     </div>
 
-                    {/* Category / SubCategory / SizeType */}
+                    {/* Category / SubCategory (Multi-Select) / SizeType */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                         <div>
                             <label style={labelStyle}>Category</label>
                             <select value={sizeData.category} onChange={e => {
                                 const cat = e.target.value;
                                 const subs = propertyConfig?.[cat]?.subCategories || [];
-                                const firstSub = subs.length > 0 ? subs[0].name : '';
-                                const willBeDimension = isDimensionType(firstSub);
+                                const firstSub = subs.length > 0 ? (typeof subs[0] === 'object' ? subs[0].name : subs[0]) : '';
+                                const newSubs = firstSub ? [firstSub] : [];
+                                const willBeDimension = isDimensionType(newSubs);
                                 setSizeData(prev => ({
                                     ...prev,
                                     category: cat,
+                                    subCategories: newSubs,
                                     subCategory: firstSub,
                                     unitType: '',
                                     resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
@@ -421,22 +581,32 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             </select>
                         </div>
                         <div>
-                            <label style={labelStyle}>Sub Category</label>
-                            <select value={sizeData.subCategory} onChange={e => {
-                                const sub = e.target.value;
-                                const willBeDimension = isDimensionType(sub);
-                                setSizeData(prev => ({
-                                    ...prev,
-                                    subCategory: sub,
-                                    unitType: '',
-                                    resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
-                                }));
-                            }} style={customSelectStyle}>
-                                <option value="">Select Sub Category</option>
-                                {propertyConfig && Array.isArray(propertyConfig[sizeData.category]?.subCategories) && propertyConfig[sizeData.category].subCategories.map(sub => (
-                                    <option key={sub.name} value={sub.name}>{sub.name}</option>
-                                ))}
-                            </select>
+                            <label style={labelStyle}>
+                                Sub Category *
+                                {Array.isArray(sizeData.subCategories) && sizeData.subCategories.length > 1 && (
+                                    <span style={{ marginLeft: '4px', fontSize: '0.75rem', color: '#2563eb', fontWeight: 700 }}>
+                                        ({sizeData.subCategories.length})
+                                    </span>
+                                )}
+                            </label>
+                            <SubCategoryMultiSelect
+                                options={(() => {
+                                    if (!propertyConfig || !sizeData.category) return [];
+                                    const subs = propertyConfig[sizeData.category]?.subCategories || [];
+                                    return subs.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : s).filter(Boolean);
+                                })()}
+                                selected={Array.isArray(sizeData.subCategories) ? sizeData.subCategories : (sizeData.subCategory ? [sizeData.subCategory] : [])}
+                                onChange={(newSelected) => {
+                                    const willBeDimension = isDimensionType(newSelected);
+                                    setSizeData(prev => ({
+                                        ...prev,
+                                        subCategories: newSelected,
+                                        subCategory: newSelected.join(', '),
+                                        resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
+                                    }));
+                                }}
+                                inputStyle={inputStyle}
+                            />
                         </div>
                         <div>
                             <label style={labelStyle}>Size Type *</label>
@@ -444,10 +614,27 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                                 <option value="">Select Size Type</option>
                                 {(() => {
                                     if (!propertyConfig) return null;
-                                    const subCatObj = Array.isArray(propertyConfig[sizeData.category]?.subCategories)
-                                        ? propertyConfig[sizeData.category].subCategories.find(s => s.name === sizeData.subCategory)
-                                        : null;
-                                    return subCatObj?.types?.map(t => { const typeName = typeof t === 'string' ? t : t.name; return <option key={typeName} value={typeName}>{typeName}</option>; });
+                                    const catSubs = propertyConfig[sizeData.category]?.subCategories || [];
+                                    const currentSubs = Array.isArray(sizeData.subCategories) && sizeData.subCategories.length > 0
+                                        ? sizeData.subCategories
+                                        : (sizeData.subCategory ? [sizeData.subCategory] : []);
+
+                                    const typeMap = new Map();
+                                    catSubs.forEach(s => {
+                                        const sName = typeof s === 'object' ? s.name : s;
+                                        if (currentSubs.length === 0 || currentSubs.includes(sName)) {
+                                            (s.types || []).forEach(t => {
+                                                const typeName = typeof t === 'string' ? t : t.name;
+                                                if (typeName && !typeMap.has(typeName)) {
+                                                    typeMap.set(typeName, typeName);
+                                                }
+                                            });
+                                        }
+                                    });
+
+                                    return Array.from(typeMap.values()).map(typeName => (
+                                        <option key={typeName} value={typeName}>{typeName}</option>
+                                    ));
                                 })()}
                             </select>
                         </div>
@@ -803,8 +990,19 @@ const PropertySettingsPage = () => {
             facings: 'Facing',
             directions: 'Direction',
             roadWidths: 'RoadWidth',
+            waterSources: 'WaterSource',
+            waterLevels: 'WaterLevel',
+            waterPumpTypes: 'WaterPumpType',
+            frontOnRoads: 'FrontOnRoad',
             unitTypes: 'UnitType',
-            relations: 'Relation'
+            relations: 'Relation',
+            zoneNames: 'ZoneName',
+            numberOfOwners: 'NumberOfOwner',
+            floorLevels: 'FloorLevel',
+            floorPlans: 'FloorPlan',
+            soilTypes: 'SoilType',
+            currentCrops: 'CurrentCrop',
+            ownerships: 'Ownership'
         };
 
         const lookupType = fieldToLookupType[activeOrientationField] || activeOrientationField;
@@ -820,7 +1018,8 @@ const PropertySettingsPage = () => {
     };
 
     const handleAddMasterItem = () => {
-        openInputModal(`Enter new ${activeOrientationField.slice(0, -1)}`, '', (value) => {
+        const singularLabel = activeOrientationField === 'ownerships' ? 'ownership' : activeOrientationField.slice(0, -1);
+        openInputModal(`Enter new ${singularLabel}`, '', (value) => {
             if (value) {
                 const currentList = masterFields[activeOrientationField] || [];
                 const itemExists = currentList.some(item => {
@@ -1040,7 +1239,8 @@ const PropertySettingsPage = () => {
             setEditingSize(null);
         } catch (error) {
             console.error('Failed to save size:', error);
-            showToast('Error saving size configuration', 'error');
+            const errMsg = error?.response?.data?.message || error?.message || 'Error saving size configuration';
+            showToast(errMsg, 'error');
         }
     };
 
@@ -1098,10 +1298,10 @@ const PropertySettingsPage = () => {
                 const requiredHeaders = ['name', 'unitType', 'category', 'subCategory'];
                 const missing = requiredHeaders.filter(h => !headers.includes(h));
                 if (missing.length > 0) { setImportError(`Missing required columns: ${missing.join(', ')}`); return; }
-                const rows = lines.slice(1).map(line => {
+                const rows = lines.slice(1).map((line, i) => {
                     const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-                    const obj = {};
-                    headers.forEach((h, i) => obj[h] = vals[i] || '');
+                    const obj = { __preview_id: `preview-${i}` };
+                    headers.forEach((h, idx) => obj[h] = vals[idx] || '');
                     return obj;
                 });
                 setImportPreview(rows.slice(0, 5));
@@ -1162,6 +1362,7 @@ const PropertySettingsPage = () => {
             (s.unitType || '').toLowerCase().includes(q) ||
             (s.category || '').toLowerCase().includes(q) ||
             (s.subCategory || '').toLowerCase().includes(q) ||
+            (Array.isArray(s.subCategories) && s.subCategories.some(sub => (sub || '').toLowerCase().includes(q))) ||
             String(s.saleableArea || '').includes(q) ||
             String(s.totalArea || '').includes(q) ||
             String(s.carpetArea || '').includes(q) ||
@@ -1177,7 +1378,14 @@ const PropertySettingsPage = () => {
             s.block === sizeFilters.block
         );
         const matchesCategory = !sizeFilters.category || s.category === sizeFilters.category;
-        const matchesSubCategory = !sizeFilters.subCategory || s.subCategory === sizeFilters.subCategory;
+        const matchesSubCategory = !sizeFilters.subCategory || (
+            Array.isArray(s.subCategories) && s.subCategories.length > 0
+                ? s.subCategories.some(sub => (sub || '').toLowerCase() === sizeFilters.subCategory.toLowerCase())
+                : (
+                    (s.subCategory || '').toLowerCase() === sizeFilters.subCategory.toLowerCase() ||
+                    (s.subCategory || '').split(',').map(x => x.trim().toLowerCase()).includes(sizeFilters.subCategory.toLowerCase())
+                )
+        );
         const matchesUnitType = !sizeFilters.unitType || s.unitType === sizeFilters.unitType;
         return matchesSearch && matchesProject && matchesBlock && matchesCategory && matchesSubCategory && matchesUnitType;
     });
@@ -1210,6 +1418,179 @@ const PropertySettingsPage = () => {
             <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }} title="Delete"><i className="fas fa-trash"></i></button>
         </div>
     );
+
+    const sizeColumns = useMemo(() => [
+        {
+            key: 'select',
+            header: (
+                <input
+                    type="checkbox"
+                    checked={paginatedSizes.length > 0 && selectedSizeIds.length === paginatedSizes.length}
+                    onChange={handleSelectAll}
+                    aria-label="Select all sizes"
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                />
+            ),
+            headerStyle: { padding: '16px', width: '40px' },
+            cellStyle: { padding: '14px 16px', width: '40px' },
+            render: (size) => (
+                <input
+                    type="checkbox"
+                    checked={selectedSizeIds.includes(size.id)}
+                    onChange={() => handleToggleSelect(size.id)}
+                    aria-label={`Select ${size.name}`}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                />
+            )
+        },
+        {
+            key: 'name',
+            header: 'Size Name',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => (
+                <div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>{size.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{size.unitType}</div>
+                </div>
+            )
+        },
+        {
+            key: 'category',
+            header: 'Category',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => {
+                const subs = Array.isArray(size.subCategories) && size.subCategories.length > 0
+                    ? size.subCategories
+                    : (size.subCategory ? String(size.subCategory).split(',').map(s => s.trim()).filter(Boolean) : []);
+                return (
+                    <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>{size.category}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {subs.length === 0 ? (
+                                <span>--</span>
+                            ) : subs.length === 1 ? (
+                                <span>{subs[0]}</span>
+                            ) : (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {subs.map((sc, i) => (
+                                        <span key={i} style={{
+                                            fontSize: '0.7rem',
+                                            background: 'rgba(37,99,235,0.08)',
+                                            color: '#2563eb',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #bfdbfe',
+                                            whiteSpace: 'nowrap'
+                                        }}>
+                                            {sc}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'area',
+            header: 'Area',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => {
+                if (size.totalArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.totalArea} {size.resultMetric || 'Sq Yd'}</span>;
+                if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
+                return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</span>;
+            }
+        },
+        {
+            key: 'availability',
+            header: 'Available In (Projects)',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => {
+                const mappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
+                const visibleMappings = mappings.slice(0, 2);
+                const extraCount = mappings.length - visibleMappings.length;
+                if (mappings.length === 0) {
+                    return (
+                        <span style={{ fontSize: '0.75rem', color: '#f59e0b', background: '#fffbeb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #fde68a' }}>
+                            Not assigned
+                        </span>
+                    );
+                }
+                return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {visibleMappings.map((m, i) => (
+                            <span key={i} style={{ fontSize: '0.7rem', background: 'rgba(37,99,235,0.08)', color: '#2563eb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                                {m.project}{m.block ? ` › ${m.block}` : ''}
+                            </span>
+                        ))}
+                        {extraCount > 0 && (
+                            <span style={{ fontSize: '0.7rem', background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '99px', border: '1px solid var(--border-color)' }}>
+                                +{extraCount} more
+                            </span>
+                        )}
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'actions',
+            header: '',
+            headerStyle: { padding: '16px', width: '160px', textAlign: 'right' },
+            cellStyle: { padding: '14px 16px', textAlign: 'right' },
+            render: (size) => (
+                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                    <button
+                        onClick={() => setAvailabilityModalSize(size)}
+                        title="Manage Project Availability"
+                        aria-label={`Manage Project Availability for ${size.name}`}
+                        style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: 'none', background: 'rgba(37,99,235,0.08)', color: '#2563eb', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                        onMouseOver={e => e.currentTarget.style.background = 'rgba(37,99,235,0.2)'}
+                        onMouseOut={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}
+                    >
+                        <i className="fas fa-project-diagram" style={{ marginRight: '4px' }}></i>Projects
+                    </button>
+                    <button
+                        onClick={() => handleEditOpen(size)}
+                        title="Edit Size"
+                        aria-label={`Edit ${size.name}`}
+                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                    >
+                        <i className="fas fa-edit"></i>
+                    </button>
+                    <button
+                        onClick={() => handleDeleteSize(size.id)}
+                        title="Delete Size"
+                        aria-label={`Delete ${size.name}`}
+                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                    >
+                        <i className="fas fa-trash"></i>
+                    </button>
+                </div>
+            )
+        }
+    ], [paginatedSizes, selectedSizeIds, handleSelectAll, handleToggleSelect, handleEditOpen, handleDeleteSize, setAvailabilityModalSize]);
+
+    const importPreviewColumns = useMemo(() => {
+        if (!importPreview || importPreview.length === 0) return [];
+        return Object.keys(importPreview[0])
+            .filter(k => k !== '__preview_id')
+            .map(k => ({
+                key: k,
+                header: k,
+                headerStyle: { padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' },
+                cellStyle: { padding: '8px 12px', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' },
+                render: (row) => row[k]
+            }));
+    }, [importPreview]);
 
     return (
         <div style={{ flex: 1, background: 'var(--bg-light)', padding: '24px', overflowY: 'auto' }}>
@@ -1260,7 +1641,7 @@ const PropertySettingsPage = () => {
                                 <button
                                     className="btn-primary"
                                     type="button"
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }}
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingSize(null); setIsModalOpen(true); }}
                                     style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#ffffff', border: 'none', cursor: 'pointer' }}
                                 >
                                     <i className="fas fa-plus"></i> Add Size
@@ -1366,41 +1747,16 @@ const PropertySettingsPage = () => {
                         <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
                             {/* Table Column */}
                             <div style={{ flex: 1, background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                    <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                        <tr>
-                                            <th style={{ padding: '16px', width: '40px' }}>
-                                                <input type="checkbox"
-                                                    checked={paginatedSizes.length > 0 && selectedSizeIds.length === paginatedSizes.length}
-                                                    onChange={handleSelectAll}
-                                                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
-                                                />
-                                            </th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Area</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available In (Projects)</th>
-                                            <th style={{ padding: '16px', width: '160px' }}></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {paginatedSizes.length > 0 ? (
-                                            paginatedSizes.map(size => (
-                                                <SizeItem
-                                                    key={size.id}
-                                                    size={size}
-                                                    isSelected={selectedSizeIds.includes(size.id)}
-                                                    onToggleSelect={() => handleToggleSelect(size.id)}
-                                                    onEdit={() => handleEditOpen(size)}
-                                                    onDelete={handleDeleteSize}
-                                                    onManageAvailability={sz => setAvailabilityModalSize(sz)}
-                                                />
-                                            ))
-                                        ) : (
-                                            <tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No sizes found matching your search.</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                <DataTable
+                                    columns={sizeColumns}
+                                    data={paginatedSizes || []}
+                                    keyField="id"
+                                    emptyMessage={
+                                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                            No sizes found matching your search.
+                                        </div>
+                                    }
+                                />
                             </div>
 
                             {/* Filter Sidebar */}
@@ -1620,7 +1976,7 @@ const PropertySettingsPage = () => {
                                     {masterFields && ['facings', 'roadWidths', 'directions', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'numberOfOwners', 'unitTypes', 'relations', 'floorLevels', 'floorPlans', 'zoneNames', 'soilTypes', 'currentCrops', 'ownerships']
                                         .map(field => (
                                             <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : 'var(--text-main)', background: activeOrientationField === field ? 'var(--bg-card)' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
-                                                {field === 'zoneNames' ? 'Zone' : field.replace(/([A-Z])/g, ' $1').trim()}
+                                                {field === 'zoneNames' ? 'Zone' : field === 'ownerships' ? 'Ownership' : field.replace(/([A-Z])/g, ' $1').trim()}
                                             </div>
                                         ))}
                                 </div>
@@ -1801,20 +2157,11 @@ const PropertySettingsPage = () => {
                                 <div style={{ marginBottom: '20px' }}>
                                     <p style={{ margin: '0 0 10px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>Preview (first {importPreview.length} rows):</p>
                                     <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                            <thead style={{ background: 'var(--bg-light)' }}>
-                                                <tr>
-                                                    {Object.keys(importPreview[0]).map(k => <th key={k} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' }}>{k}</th>)}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {importPreview.map((row, i) => (
-                                                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                                        {Object.values(row).map((v, j) => <td key={j} style={{ padding: '8px 12px', color: 'var(--text-main)' }}>{v}</td>)}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                        <DataTable
+                                            columns={importPreviewColumns}
+                                            data={importPreview}
+                                            keyField="__preview_id"
+                                        />
                                     </div>
                                 </div>
                             )}

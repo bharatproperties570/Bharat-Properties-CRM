@@ -617,7 +617,7 @@ Schema structure:
 }`;
         const userPrompt = `Address: "${rawAddress}"`;
         try {
-            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1, capability: 'AI_ADDRESS_PARSING' });
             return this._cleanAndParseJSON(rawResponse);
         } catch (error) {
             console.error(`[AddressParsingService] AI LLM Fallback failed:`, error.message);
@@ -959,7 +959,7 @@ If you cannot confidently determine a missing field, leave it empty.`;
 
         try {
             console.log(`[AddressParsingService] Enriching address via AI LLM...`);
-            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1, capability: 'AI_ADDRESS_PARSING' });
             const aiEnriched = this._cleanAndParseJSON(rawResponse);
             
             if (aiEnriched) {
@@ -1116,7 +1116,7 @@ Based on the full context of both addresses, output the JSON resolution mapping.
 
         try {
             console.log(`[AddressParsingService] Auto-resolving ${targetDiffs.length} address conflicts via AI LLM...`);
-            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1, capability: 'AI_ADDRESS_CONFLICT_RESOLUTION' });
             const decisionMap = this._cleanAndParseJSON(rawResponse);
             return decisionMap || {};
         } catch (error) {

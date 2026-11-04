@@ -1,8 +1,10 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 import Booking from "../models/Booking.js";
 import Activity from "../models/Activity.js";
 import AuditLog from "../models/AuditLog.js";
 import Lookup from "../models/Lookup.js";
+import OutboxEvent from "../models/OutboxEvent.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 
 /**
@@ -33,7 +35,12 @@ export const createBooking = async (req, res) => {
             }
         }
 
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department, teams, and tenantId
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            bookingData.tenantId = effectiveTenantId;
+        }
+
         if (req.user) {
             if (req.user.department && !bookingData.department) bookingData.department = req.user.department;
             if (req.user.teams && req.user.teams.length > 0 && (!bookingData.teams || bookingData.teams.length === 0)) {
@@ -121,6 +128,35 @@ export const createBooking = async (req, res) => {
                 const savedBookings = await Booking.create([bookingData], { session });
                 const savedBooking = savedBookings[0];
                 bookingId = savedBooking._id;
+
+                // ─── Phase D.1: OutboxEvent (BookingCreated) ───────────────────────────
+                const outboxEntry = {
+                    eventId:       crypto.randomUUID(),
+                    eventType:     'BookingCreated',
+                    occurredAt:    new Date(),
+                    aggregateType: 'Booking',
+                    aggregateId:   savedBooking._id,
+                    entityType:    'Booking',
+                    entityId:      savedBooking._id,
+                    correlationId: req.headers['x-correlation-id'] || idK || req.headers['idempotency-key'] || null,
+                    actor:         req.user?._id || null,
+                    payload: {
+                        bookingId:       savedBooking._id,
+                        applicationNo:   savedBooking.applicationNo || null,
+                        dealId:          savedBooking.dealId || null,
+                        property:        savedBooking.property || null,
+                        lead:            savedBooking.lead || null,
+                        status:          savedBooking.status || 'Pending',
+                        totalDealAmount: savedBooking.totalDealAmount || 0,
+                        tokenAmount:     savedBooking.tokenAmount || 0,
+                        bookingDate:     savedBooking.bookingDate || new Date()
+                    }
+                };
+                if (effectiveTenantId) {
+                    outboxEntry.tenantId = effectiveTenantId;
+                }
+                const OutboxEvent = mongoose.model('OutboxEvent');
+                await OutboxEvent.create([outboxEntry], { session: session || undefined });
 
                 // Backlink initiating Site Visit activity
                 if (savedBooking.siteVisitId) {
@@ -210,7 +246,7 @@ export const createBooking = async (req, res) => {
 
                 // 📝 Record Activity
                 const Activity = mongoose.model('Activity');
-                await Activity.create([{
+                const activityDoc = {
                     type: 'Task',
                     subject: `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
                     entityType: savedBooking.dealId ? 'Deal' : 'Lead',
@@ -227,7 +263,11 @@ export const createBooking = async (req, res) => {
                         model: 'Lead'
                     }],
                     createdBy: req.user?._id
-                }], { session: session || undefined });
+                };
+                if (effectiveTenantId) {
+                    activityDoc.tenantId = effectiveTenantId;
+                }
+                await Activity.create([activityDoc], { session: session || undefined });
             };
 
             if (session && typeof session.withTransaction === 'function') {

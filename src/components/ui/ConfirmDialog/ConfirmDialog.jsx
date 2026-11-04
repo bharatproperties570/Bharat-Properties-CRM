@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Modal } from '../Modal/Modal';
 import { Button } from '../Button/Button';
 
@@ -12,14 +12,35 @@ export const ConfirmDialog = ({
   cancelText = 'Cancel',
   confirmVariant = 'primary', // primary, danger
   isLoading = false,
-  icon = 'fas fa-exclamation-triangle'
+  icon = 'fas fa-exclamation-triangle',
+  'aria-describedby': callerAriaDescribedBy,
+  'aria-labelledby': callerAriaLabelledBy
 }) => {
+  const titleId = useId();
+  const descId = useId();
+
+  const handleClose = () => {
+    if (!isLoading && typeof onCancel === 'function') {
+      onCancel();
+    }
+  };
+
+  const renderIcon = () => {
+    if (React.isValidElement(icon)) {
+      return icon;
+    }
+    if (typeof icon === 'string') {
+      return <i className={icon} aria-hidden="true"></i>;
+    }
+    return null;
+  };
+
   const footer = (
     <>
-      <Button variant="secondary" onClick={onCancel} disabled={isLoading}>
+      <Button variant="secondary" onClick={handleClose} disabled={isLoading}>
         {cancelText}
       </Button>
-      <Button variant={confirmVariant} onClick={onConfirm} loading={isLoading}>
+      <Button variant={confirmVariant} onClick={onConfirm} loading={isLoading} disabled={isLoading}>
         {confirmText}
       </Button>
     </>
@@ -28,9 +49,14 @@ export const ConfirmDialog = ({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onCancel}
+      onClose={handleClose}
       size="sm"
       hideCloseButton={true}
+      closeOnEscape={!isLoading}
+      closeOnBackdrop={!isLoading}
+      role="alertdialog"
+      aria-labelledby={callerAriaLabelledBy || titleId}
+      aria-describedby={callerAriaDescribedBy || descId}
       footer={footer}
     >
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px', paddingTop: '12px' }}>
@@ -40,10 +66,10 @@ export const ConfirmDialog = ({
           color: confirmVariant === 'danger' ? '#ef4444' : '#3b82f6',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem'
         }}>
-          <i className={icon}></i>
+          {renderIcon()}
         </div>
-        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{title}</h3>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: '#64748b', lineHeight: '1.5' }}>
+        <h3 id={titleId} style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{title}</h3>
+        <p id={descId} style={{ margin: 0, fontSize: '0.9rem', color: '#64748b', lineHeight: '1.5' }}>
           {message}
         </p>
       </div>

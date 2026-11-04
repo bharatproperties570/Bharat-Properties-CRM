@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAutomatedActions } from '../../../context/AutomatedActionsContext';
 import CreateAutomatedActionModal from '../../../components/CreateAutomatedActionModal';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const AutomatedActionsSettingsPage = () => {
-    const { actions, auditLogs, toggleAction, deleteAction } = useAutomatedActions();
+    const { actions, auditLogs, fetchAuditLogs, toggleAction, deleteAction } = useAutomatedActions();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAction, setEditingAction] = useState(null);
     const [activeTab, setActiveTab] = useState('list'); // 'list' or 'audit'
@@ -12,6 +13,74 @@ const AutomatedActionsSettingsPage = () => {
         setEditingAction(action);
         setIsModalOpen(true);
     };
+
+    const auditColumns = useMemo(() => [
+        {
+            key: 'time',
+            header: 'Time',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
+            render: (log) => log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+        },
+        {
+            key: 'action',
+            header: 'Action / Rule',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', fontWeight: 700 },
+            render: (log) => log.actionName || '—'
+        },
+        {
+            key: 'targetModule',
+            header: 'Module',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', textTransform: 'capitalize' },
+            render: (log) => log.targetModule || '—'
+        },
+        {
+            key: 'entity',
+            header: 'Entity ID',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', fontSize: '0.75rem', fontFamily: 'monospace' },
+            render: (log) => log.entityId ? String(log.entityId) : '—'
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px' },
+            render: (log) => {
+                const status = (log.status || (log.success ? 'success' : 'failed')).toLowerCase();
+                const isSuccess = status === 'success';
+                const isPending = status === 'pending' || status === 'processing';
+                return (
+                    <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.7rem',
+                        background: isSuccess ? 'rgba(34, 197, 94, 0.15)' : isPending ? 'rgba(234, 179, 8, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                        color: isSuccess ? '#166534' : isPending ? '#854d0e' : '#991b1b',
+                        fontWeight: 800
+                    }}>
+                        {status.toUpperCase()}
+                    </span>
+                );
+            }
+        },
+        {
+            key: 'ruleType',
+            header: 'Rule Type',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', color: 'var(--text-muted)', fontSize: '0.75rem' },
+            render: (log) => log.ruleType || '—'
+        },
+        {
+            key: 'execution',
+            header: 'Execution',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', color: 'var(--text-muted)' },
+            render: (log) => log.executionTime != null ? `${log.executionTime}ms` : '—'
+        }
+    ], []);
 
     return (
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -45,13 +114,21 @@ const AutomatedActionsSettingsPage = () => {
                         Audit Logs
                     </div>
                 </div>
-                {activeTab === 'list' && (
+                {activeTab === 'list' ? (
                     <button
                         className="btn-primary"
                         onClick={() => { setEditingAction(null); setIsModalOpen(true); }}
                         style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}
                     >
                         + Create Action
+                    </button>
+                ) : (
+                    <button
+                        className="btn-secondary"
+                        onClick={() => fetchAuditLogs()}
+                        style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <i className="fas fa-sync-alt"></i> Refresh Logs
                     </button>
                 )}
             </div>
@@ -69,8 +146,8 @@ const AutomatedActionsSettingsPage = () => {
                                     </div>
                                     <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <span><i className="fas fa-bullseye" style={{ marginRight: '4px' }}></i>Target: <b>{action.targetModule}</b></span>
-                                        <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace('_', ' ')}</b></span>
-                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTrigger}</b></span>
+                                        <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace(/_/g, ' ')}</b></span>
+                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTriggerName || (action.invokedByTrigger ? (/^[0-9a-fA-F]{24}$/.test(action.invokedByTrigger) ? 'Unknown Trigger' : action.invokedByTrigger.replace(/_/g, ' ')) : '—')}</b></span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -104,40 +181,15 @@ const AutomatedActionsSettingsPage = () => {
                     </div>
                 ) : (
                     <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                            <thead>
-                                <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Time</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Action</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Entity</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Status</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Execution</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {auditLogs.map((log, i) => (
-                                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleTimeString()}</td>
-                                        <td style={{ padding: '12px', fontWeight: 700 }}>{log.actionName}</td>
-                                        <td style={{ padding: '12px' }}>{log.entityId}</td>
-                                        <td style={{ padding: '12px' }}>
-                                            <span style={{
-                                                padding: '2px 8px',
-                                                borderRadius: '4px',
-                                                fontSize: '0.7rem',
-                                                background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                                color: log.success ? '#166534' : '#991b1b',
-                                                fontWeight: 800
-                                            }}>
-                                                {log.success ? 'SUCCESS' : 'FAILED'}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.executionTime}ms</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        {auditLogs.length === 0 && <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No logs yet</div>}
+                        <DataTable
+                            columns={auditColumns}
+                            data={auditLogs}
+                            emptyMessage={
+                                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    No audit logs yet. Logs will appear here when triggers and automated actions execute.
+                                </div>
+                            }
+                        />
                     </div>
                 )}
             </div>

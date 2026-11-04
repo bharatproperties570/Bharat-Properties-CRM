@@ -10,31 +10,68 @@ import { useSequences } from '../context/SequenceContext';
  *   3. Passes source: 'manual' to enrollInSequence for full audit trail
  *   4. Shows enrolledBy source so admin can see if a Trigger or Sequence Engine auto-enrolled
  */
-const EnrollSequenceModal = ({ isOpen, onClose, entityId, entityName }) => {
+const EnrollSequenceModal = ({ isOpen, onClose, entityId, entityName, module = 'deals' }) => {
     const { sequences, enrollInSequence, isEnrolled, getActiveEnrollments } = useSequences();
     const [selectedSequenceId, setSelectedSequenceId] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [enrollSuccess, setEnrollSuccess] = useState(false);
 
     if (!isOpen) return null;
 
     // Active sequences only (inactive are hidden from admin)
-    const activeSequences = sequences.filter(s => s.active);
+    const activeSequences = Array.isArray(sequences) ? sequences.filter(s => s && (s.active || s.isActive)) : [];
 
     // Current active/paused enrollments for this entity
-    const currentEnrollments = getActiveEnrollments(entityId);
+    const currentEnrollments = typeof getActiveEnrollments === 'function' ? getActiveEnrollments(entityId) : [];
 
     // Per-sequence enrollment status for the selected sequence
-    const selectedEnrollmentStatus = selectedSequenceId
+    const selectedEnrollmentStatus = (selectedSequenceId && typeof isEnrolled === 'function')
         ? isEnrolled(entityId, selectedSequenceId)
         : { enrolled: false, status: null, enrolledBy: null };
 
     const isEnrollBlocked = selectedEnrollmentStatus.enrolled;
 
-    const handleEnroll = () => {
-        if (!selectedSequenceId || isEnrollBlocked) return;
-        // ── Enterprise: Source Stamp 'manual' ─────────────────────────────────────
-        // Idempotency guard in enrollInSequence will log and block if already enrolled.
-        enrollInSequence(entityId, selectedSequenceId, { source: 'manual' });
-        onClose();
+    const handleEnroll = async () => {
+        if (!selectedSequenceId || isEnrollBlocked || isSubmitting) return;
+        try {
+            setIsSubmitting(true);
+            const res = await enrollInSequence(entityId, selectedSequenceId, { source: 'manual', module });
+            if (res && res.success === false && res.reason === 'already_enrolled') {
+                setIsSubmitting(false);
+                return;
+            }
+            setEnrollSuccess(true);
+            setTimeout(() => {
+                setIsSubmitting(false);
+                setEnrollSuccess(false);
+                onClose();
+            }, 500);
+        } catch (err) {
+            console.error('[EnrollSequenceModal] Enrollment error:', err);
+            setIsSubmitting(false);
+            onClose();
+        }
+    };
+
+    const formatActionType = (type) => {
+        if (!type) return 'Automated Step';
+        const map = {
+            'fire_automated_action': 'Automated Action',
+            'send_whatsapp': 'WhatsApp Message',
+            'send_email': 'Email Message',
+            'create_task': 'Create Task',
+            'broadcast_deal': 'Broadcast Deal',
+            'send_communication': 'Communication'
+        };
+        return map[type] || String(type).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    };
+
+    const getDayLabel = (step, idx) => {
+        if (!step) return `Day ${idx}`;
+        const day = step.day ?? step.delay?.amount ?? (step.delayMs ? Math.floor(step.delayMs / 86400000) : idx);
+        const unit = step.delay?.unit || 'days';
+        const prefix = unit === 'minutes' ? 'Min' : (unit === 'hours' || unit === 'hourly') ? 'Hr' : 'Day';
+        return `${prefix} ${day}`;
     };
 
     const statusColors = {
@@ -157,15 +194,19 @@ const EnrollSequenceModal = ({ isOpen, onClose, entityId, entityName }) => {
                                 Sequence Preview
                             </h4>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                {sequences.find(s => s.id === selectedSequenceId)?.steps.map((step, idx) => (
-                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.82rem' }}>
+                                {(sequences.find(s => s && (s.id === selectedSequenceId || s._id === selectedSequenceId))?.steps || []).map((step, idx) => (
+                                    <div key={step?.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.82rem' }}>
                                         <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                                            {idx + 1}
+                                            {step?.stepNumber || (idx + 1)}
                                         </div>
-                                        <div style={{ fontWeight: 600, color: '#1e293b' }}>{step.type}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{step.instruction}</div>
+                                        <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                            {formatActionType(step?.type || step?.action?.type)}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {step?.instruction || step?.action?.instruction || (step?.action?.automatedActionId ? 'Automated Action' : '')}
+                                        </div>
                                         <div style={{ marginLeft: 'auto', color: '#3b82f6', fontSize: '0.7rem', fontWeight: 700, flexShrink: 0 }}>
-                                            Day {step.day}
+                                            {getDayLabel(step, idx)}
                                         </div>
                                     </div>
                                 ))}
@@ -176,28 +217,47 @@ const EnrollSequenceModal = ({ isOpen, onClose, entityId, entityName }) => {
 
                 {/* Footer */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>
+                    <button onClick={onClose} disabled={isSubmitting} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: isSubmitting ? 'not-allowed' : 'pointer' }}>
                         Cancel
                     </button>
                     <button
                         onClick={handleEnroll}
-                        disabled={!selectedSequenceId || isEnrollBlocked}
+                        disabled={!selectedSequenceId || isEnrollBlocked || isSubmitting}
                         style={{
                             padding: '10px 20px',
                             borderRadius: '8px',
                             border: 'none',
-                            background: (!selectedSequenceId || isEnrollBlocked) ? '#cbd5e1' : '#3b82f6',
+                            background: enrollSuccess ? '#10b981' : (!selectedSequenceId || isEnrollBlocked || isSubmitting) ? '#cbd5e1' : '#3b82f6',
                             color: '#fff',
                             fontWeight: 700,
-                            cursor: (!selectedSequenceId || isEnrollBlocked) ? 'not-allowed' : 'pointer',
-                            boxShadow: (!selectedSequenceId || isEnrollBlocked) ? 'none' : '0 4px 12px rgba(59, 130, 246, 0.2)',
+                            cursor: (!selectedSequenceId || isEnrollBlocked || isSubmitting) ? 'not-allowed' : 'pointer',
+                            boxShadow: (!selectedSequenceId || isEnrollBlocked || isSubmitting) ? 'none' : '0 4px 12px rgba(59, 130, 246, 0.2)',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '8px'
                         }}
                     >
-                        <i className="fas fa-play" />
-                        {isEnrollBlocked ? 'Already Enrolled' : 'Enroll Now'}
+                        {isSubmitting ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin" />
+                                Enrolling...
+                            </>
+                        ) : enrollSuccess ? (
+                            <>
+                                <i className="fas fa-check" />
+                                Enrolled!
+                            </>
+                        ) : isEnrollBlocked ? (
+                            <>
+                                <i className="fas fa-ban" />
+                                Already Enrolled
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-play" />
+                                Enroll Now
+                            </>
+                        )}
                     </button>
                 </div>
             </div>

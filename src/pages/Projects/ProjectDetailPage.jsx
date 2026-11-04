@@ -13,6 +13,7 @@ import PublishModal from '../../components/Marketing/PublishModal';
 import SocialPostModal from '../../components/SocialPostModal';
 import BulkInventoryModal from '../../components/inventory/BulkInventoryModal';
 import AddInventoryModal from '../../components/AddInventoryModal';
+import { DataTable } from '../../components/ui/DataTable/DataTable';
 
 const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNavigate, onEditProject }) => {
     const { id: routeProjectId } = useParams();
@@ -107,6 +108,108 @@ useEffect(() => {
         window.addEventListener('project-updated', handleProjectUpdate);
         return () => window.removeEventListener('project-updated', handleProjectUpdate);
     }, [projectId, fetchProjectDetails]);
+
+    const unitColumns = useMemo(() => [
+        {
+            header: 'Block / Unit',
+            accessor: 'unitNo',
+            render: (unit) => (
+                <div>
+                    <div
+                        onClick={(e) => { e.stopPropagation(); onNavigate?.('inventory-detail', unit._id || unit.id); }}
+                        style={{ fontWeight: 800, color: 'var(--primary, #3b82f6)', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
+                        title="View Unit Details"
+                        className="hover-text-primary"
+                    >
+                        {unit.unitNo || unit.unitNumber}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 }}>
+                        {renderValue(unit.block) || 'Default Block'}
+                    </div>
+                </div>
+            )
+        },
+        {
+            header: 'Unit Type',
+            accessor: 'unitType',
+            render: (unit) => (
+                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                    {renderValue(unit.unitType) || renderValue(unit.category) || 'N/A'}
+                </div>
+            )
+        },
+        {
+            header: 'Attributes',
+            accessor: 'attributes',
+            render: (unit) => (
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {unit.facing && (
+                        <span style={{ padding: '2px 6px', background: 'var(--bg-gray)', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                            {renderValue(unit.facing)} Facing
+                        </span>
+                    )}
+                    {unit.direction && (
+                        <span style={{ padding: '2px 6px', background: 'var(--bg-gray)', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                            {renderValue(unit.direction)}
+                        </span>
+                    )}
+                    {!unit.facing && !unit.direction && (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>-</span>
+                    )}
+                </div>
+            )
+        },
+        {
+            header: 'Status',
+            accessor: 'status',
+            render: (unit) => (
+                <span style={{
+                    fontSize: '0.7rem',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    background: unit.status === 'Available' ? '#dcfce7' : (unit.status === 'Sold Out' ? '#fee2e2' : '#fef3c7'),
+                    color: unit.status === 'Available' ? '#166534' : (unit.status === 'Sold Out' ? '#991b1b' : '#92400e'),
+                    fontWeight: 800
+                }}>
+                    {renderValue(unit.status)}
+                </span>
+            )
+        },
+        {
+            header: 'Actions',
+            accessor: 'actions',
+            align: 'right',
+            render: (unit) => (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', alignItems: 'center' }}>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleEditUnit(unit); }}
+                        style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1rem', transition: 'color 0.2s' }}
+                        title="Edit Unit"
+                        aria-label={`Edit unit ${unit.unitNo || unit.unitNumber || unit.id}`}
+                        className="hover-text-blue"
+                    >
+                        <i className="fas fa-edit"></i>
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteUnit(unit._id || unit.id); }}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', transition: 'color 0.2s' }}
+                        title="Delete Unit"
+                        aria-label={`Delete unit ${unit.unitNo || unit.unitNumber || unit.id}`}
+                        className="hover-text-red"
+                    >
+                        <i className="fas fa-trash"></i>
+                    </button>
+                </div>
+            )
+        }
+    ], [onNavigate]);
+
+    const unitData = useMemo(() => {
+        return inventoryData.map((unit, idx) => ({
+            ...unit,
+            id: unit._id || unit.id || `unit-${idx}`
+        }));
+    }, [inventoryData]);
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-gray)' }}>
@@ -452,69 +555,17 @@ useEffect(() => {
                                         </div>
                                     </div>
                                     <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <div style={{ overflowX: 'auto' }}>
-                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
-                                                <thead>
-                                                    <tr style={{ background: 'var(--bg-gray)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' }}>
-                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Block / Unit</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unit Type</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Attributes</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {inventoryData.map((unit, idx) => (
-                                                        <tr key={unit._id || unit.id || idx} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }} className="hover-row">
-                                                            <td style={{ padding: '12px 16px' }}>
-                                                                <div 
-                                                                    onClick={(e) => { e.stopPropagation(); onNavigate('inventory-detail', unit._id || unit.id); }}
-                                                                    style={{ fontWeight: 800, color: 'var(--primary, #3b82f6)', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
-                                                                    title="View Unit Details"
-                                                                    className="hover-text-primary"
-                                                                >
-                                                                    {unit.unitNo || unit.unitNumber}
-                                                                </div>
-                                                                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 }}>{renderValue(unit.block) || 'Default Block'}</div>
-                                                            </td>
-                                                            <td style={{ padding: '12px 16px' }}>
-                                                                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{renderValue(unit.unitType) || renderValue(unit.category) || 'N/A'}</div>
-                                                            </td>
-                                                            <td style={{ padding: '12px 16px' }}>
-                                                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                                                    {unit.facing && <span style={{ padding: '2px 6px', background: 'var(--bg-gray)', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)' }}>{renderValue(unit.facing)} Facing</span>}
-                                                                    {unit.direction && <span style={{ padding: '2px 6px', background: 'var(--bg-gray)', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)' }}>{renderValue(unit.direction)}</span>}
-                                                                    {!unit.facing && !unit.direction && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>-</span>}
-                                                                </div>
-                                                            </td>
-                                                            <td style={{ padding: '12px 16px' }}>
-                                                                <span style={{ fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', background: unit.status === 'Available' ? '#dcfce7' : (unit.status === 'Sold Out' ? '#fee2e2' : '#fef3c7'), color: unit.status === 'Available' ? '#166534' : (unit.status === 'Sold Out' ? '#991b1b' : '#92400e'), fontWeight: 800 }}>
-                                                                    {renderValue(unit.status)}
-                                                                </span>
-                                                            </td>
-                                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', alignItems: 'center' }}>
-                                                                    <button onClick={(e) => { e.stopPropagation(); handleEditUnit(unit); }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1rem', transition: 'color 0.2s' }} title="Edit Unit" className="hover-text-blue">
-                                                                        <i className="fas fa-edit"></i>
-                                                                    </button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteUnit(unit._id || unit.id); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', transition: 'color 0.2s' }} title="Delete Unit" className="hover-text-red">
-                                                                        <i className="fas fa-trash"></i>
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                    {inventoryData.length === 0 && (
-                                                        <tr>
-                                                            <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                                                <i className="fas fa-box-open" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.5, display: 'block' }}></i>
-                                                                No units added to this project yet. Use "Bulk Add" to create inventory.
-                                                            </td>
-                                                        </tr>
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                        <DataTable
+                                            columns={unitColumns}
+                                            data={unitData}
+                                            keyField="id"
+                                            emptyMessage={
+                                                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                                    <i className="fas fa-box-open" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.5, display: 'block' }}></i>
+                                                    No units added to this project yet. Use &quot;Bulk Add&quot; to create inventory.
+                                                </div>
+                                            }
+                                        />
                                     </div>
                                 </div>
                             )}

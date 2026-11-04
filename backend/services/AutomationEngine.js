@@ -116,8 +116,10 @@ class AutomationEngine {
                 console.log(`[AutomationEngine] Trigger ${trigger.name} conditions MET. Executing actions...`);
 
                 // Execute Actions
-                for (const action of trigger.actions || []) {
-                    await this.executeAction(action, entity, entityType);
+                const actions = trigger.actions || [];
+                for (let i = 0; i < actions.length; i++) {
+                    const action = actions[i];
+                    await this.executeAction(action, entity, entityType, trigger, i);
                 }
             }
 
@@ -126,22 +128,26 @@ class AutomationEngine {
         }
     }
 
-    async executeAction(action, entity, entityType) {
+    async executeAction(action, entity, entityType, trigger = null, actionIndex = 0) {
         try {
-            if (action.type === 'send_communication') {
-                console.log(`[AutomationEngine] Dispatching ${action.channel} to entity ${entity._id}`);
-                // In production, invoke dispatcher here.
-            } else if (action.type === 'fire_automated_action' || action.automatedActionId) {
-                const autoAction = await AutomatedAction.findById(action.automatedActionId);
-                if (autoAction && autoAction.isActive) {
-                    console.log(`[AutomationEngine] Executing Automated Action: ${autoAction.name}`);
-                    // Execute specific rules (e.g. update field)
-                }
-            } else {
-                console.log(`[AutomationEngine] Executing Action: ${action.type || 'Unknown'}`);
-            }
+            const { WorkflowEngine } = await import('../src/utils/WorkflowEngine.js');
+            const targetModule = trigger?.module || (String(entityType || 'lead').toLowerCase() + 's');
+            const triggerObj = trigger || {
+                _id: action.triggerId || null,
+                module: targetModule,
+                event: (action.event || 'automation_event').toLowerCase()
+            };
+            return await WorkflowEngine.executeAction(
+                action,
+                entity,
+                triggerObj,
+                entity.companyId || null,
+                false,
+                { actionIndex, propagateError: true }
+            );
         } catch (error) {
             console.error(`[AutomationEngine] Action Execution Failed:`, error);
+            throw error;
         }
     }
 }

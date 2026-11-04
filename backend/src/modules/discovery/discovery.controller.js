@@ -1,5 +1,6 @@
 import DiscoveryConfig from '../../../models/DiscoveryConfig.js';
 import googleDiscoveryService from '../../../services/discovery/GoogleDiscoveryService.js';
+import { validateDiscoveryConfigPayload } from '../../../services/discovery/DiscoveryFilterEngine.js';
 
 export const getConfigs = async (req, res) => {
     try {
@@ -12,7 +13,16 @@ export const getConfigs = async (req, res) => {
 
 export const createConfig = async (req, res) => {
     try {
-        const config = new DiscoveryConfig(req.body);
+        const validation = validateDiscoveryConfigPayload(req.body);
+        if (!validation.valid) {
+            return res.status(400).json({ 
+                success: false, 
+                message: validation.errors[0],
+                errors: validation.errors 
+            });
+        }
+
+        const config = new DiscoveryConfig(validation.cleanPayload);
         await config.save();
         
         if (config.is_active) {
@@ -27,7 +37,20 @@ export const createConfig = async (req, res) => {
 
 export const updateConfig = async (req, res) => {
     try {
-        const config = await DiscoveryConfig.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const validation = validateDiscoveryConfigPayload(req.body, { isPartial: true });
+        if (!validation.valid) {
+            return res.status(400).json({ 
+                success: false, 
+                message: validation.errors[0],
+                errors: validation.errors 
+            });
+        }
+
+        const config = await DiscoveryConfig.findByIdAndUpdate(
+            req.params.id, 
+            { $set: validation.cleanPayload }, 
+            { new: true, runValidators: true }
+        );
         if (!config) return res.status(404).json({ success: false, message: 'Config not found' });
 
         if (config.is_active) {
@@ -58,6 +81,9 @@ export const deleteConfig = async (req, res) => {
 export const triggerConfig = async (req, res) => {
     try {
         const { id } = req.params;
+        const config = await DiscoveryConfig.findById(id);
+        if (!config) return res.status(404).json({ success: false, message: 'Config not found' });
+
         // Fire asynchronously so we don't block the HTTP request
         googleDiscoveryService.runDiscovery(id);
         res.status(200).json({ success: true, message: 'Discovery job triggered successfully' });

@@ -175,7 +175,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 roadWidth: property.roadWidth ? (property.roadWidth._id || property.roadWidth.id || property.roadWidth) : '',
                 builtupType: resolveField(property.builtupType, 'BuiltupType'),
                 assignedTo: property.assignedTo?._id || property.assignedTo || '',
-                team: property.team?._id || property.team || '',
+                team: property.team?._id || property.team || (property.teams?.[0]?._id || property.teams?.[0]) || '',
                 visibleTo: property.visibleTo || 'Public',
                 possessionStatus: resolveField(property.possessionStatus, 'PossessionStatus'),
                 furnishType: resolveField(property.furnishType, 'FurnishType'),
@@ -195,7 +195,17 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 waterPumpType: resolveField(property.waterPumpType, 'WaterPumpType'),
                 frontOnRoad: resolveField(property.frontOnRoad, 'FrontOnRoad'),
                 numberOfOwner: property.numberOfOwner || '',
-                owners: property.owners || [],
+                owners: (property.owners || []).map(o => {
+                    if (!o) return null;
+                    if (typeof o === 'string') return { id: o, name: 'Contact', mobile: '', role: 'Property Owner' };
+                    return {
+                        id: o._id || o.id,
+                        name: o.fullName || o.name || `${o.firstName || ''} ${o.lastName || ''}`.trim() || 'Owner',
+                        mobile: o.phones?.[0]?.number || o.mobile || '',
+                        role: o.role || 'Property Owner',
+                        relationship: o.relationship || 'Owner'
+                    };
+                }).filter(Boolean),
                 address: {
                     ...prev.address,
                     ...(property.address || {}),
@@ -586,9 +596,9 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         if (!selectedContactToLink || (linkData.role === 'Associate' && !linkData.relationship)) return;
 
         const newOwner = {
-            id: selectedContactToLink._id,
-            name: selectedContactToLink.name,
-            mobile: selectedContactToLink.mobile,
+            id: selectedContactToLink._id || selectedContactToLink.id,
+            name: selectedContactToLink.fullName || selectedContactToLink.name || `${selectedContactToLink.firstName || ''} ${selectedContactToLink.lastName || ''}`.trim() || 'Owner',
+            mobile: selectedContactToLink.phones?.[0]?.number || selectedContactToLink.mobile || '',
             role: linkData.role,
             relationship: linkData.role === 'Property Owner' ? 'Owner' : linkData.relationship,
             source: linkData.source,
@@ -636,9 +646,9 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
             if (payload.owners && Array.isArray(payload.owners)) {
                 payload.owners = payload.owners.map(o => {
                     if (!o) return null;
-                    if (typeof o === 'object') return o._id || o.id;
-                    return o;
-                }).filter(o => o && typeof o === 'string' && o.length === 24);
+                    const id = (typeof o === 'object') ? (o._id || o.id) : o;
+                    return id ? String(id) : null;
+                }).filter(id => id && id.length === 24);
             }
 
             // 3. Normalize Associates (IDs only)
@@ -720,6 +730,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 soilType: getLookupId('SoilType', payload.soilType),
                 currentCrop: getLookupId('CurrentCrop', payload.currentCrop),
                 team: (typeof payload.team === 'object' && payload.team !== null) ? (payload.team._id || payload.team.id) : (payload.team || null),
+                teams: (payload.team ? [(typeof payload.team === 'object' && payload.team !== null) ? (payload.team._id || payload.team.id) : payload.team] : (payload.teams || []).map(t => (typeof t === 'object' && t !== null) ? (t._id || t.id) : t)).filter(Boolean),
                 assignedTo: (typeof payload.assignedTo === 'object' && payload.assignedTo !== null) ? (payload.assignedTo._id || payload.assignedTo.id) : (payload.assignedTo || null),
                 projectId: (typeof payload.projectId === 'object' && payload.projectId !== null) ? (payload.projectId._id || payload.projectId.id) : (payload.projectId || null),
                 occupationDate: payload.occupationDate === '' ? null : payload.occupationDate,

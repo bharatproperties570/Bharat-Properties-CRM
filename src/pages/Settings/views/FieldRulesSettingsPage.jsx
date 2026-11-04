@@ -3,7 +3,7 @@ import { useFieldRules } from '../../../context/FieldRulesContext';
 import { FIELD_RULE_TYPES, MODULES, PATTERNS } from '../../../utils/fieldRuleEngine';
 
 const FieldRulesSettingsPage = () => {
-    const { rules, addRule, updateRule, deleteRule, toggleRuleStatus } = useFieldRules();
+    const { rules = [], addRule = () => {}, updateRule = () => {}, deleteRule = () => {}, toggleRuleStatus = () => {} } = useFieldRules() || {};
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRule, setEditingRule] = useState(null);

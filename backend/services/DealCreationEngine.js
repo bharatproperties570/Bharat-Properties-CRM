@@ -2,9 +2,11 @@ import mongoose from 'mongoose';
 import AutomationLog from '../models/AutomationLog.js';
 import Deal from '../models/Deal.js';
 import Inventory from '../models/Inventory.js';
+import Lead from '../models/Lead.js';
 import AuditLog from '../models/AuditLog.js';
 import SystemSetting from '../models/SystemSetting.js';
 import OutboxEvent from '../models/OutboxEvent.js';
+import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => {
@@ -16,12 +18,16 @@ export const syncInventoryStatus = async (deal, opts = {}, forceTransition = fal
 
     const availableLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
     const activeLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    const soldOutLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).lean();
+    const blockedLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Blocked', 'Booked'] } }).lean();
 
     const availableId = availableLookup ? availableLookup._id : 'Available';
     const activeId = activeLookup ? activeLookup._id : 'Active';
+    const soldOutId = soldOutLookup ? soldOutLookup._id : 'Sold Out';
+    const blockedId = blockedLookup ? blockedLookup._id : 'Blocked';
 
     if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
-        await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: soldOutId }, opts);
         return;
     }
 
@@ -31,11 +37,13 @@ export const syncInventoryStatus = async (deal, opts = {}, forceTransition = fal
             $or: [
                 { status: availableId },
                 { status: activeId },
+                { status: 'Available' },
+                { status: 'Active' },
                 { status: null },
                 { status: { $exists: false } }
             ]
         };
-        const result = await InventoryModel.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
+        const result = await InventoryModel.findOneAndUpdate(filter, { status: blockedId }, opts);
         if (!result) {
             const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
             err.code = 'INVENTORY_UNAVAILABLE';
@@ -47,11 +55,12 @@ export const syncInventoryStatus = async (deal, opts = {}, forceTransition = fal
     if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
         const activeDeals = await DealModel.countDocuments({
             inventoryId: deal.inventoryId,
+            _id: { $ne: deal._id },
             stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
         }).session(opts.session || null);
 
         if (activeDeals === 0) {
-            await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+            await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: availableId }, opts);
         }
         return;
     }
@@ -81,25 +90,11 @@ export const createStandardizedDeal = async (input, options = {}) => {
     if (!source) throw new Error('Source is required');
     if (!dealData) throw new Error('dealData is required');
 
-    let deal = null;
-    let isIdempotentReplay = false;
-    let warnings = [];
-    const postCommitTasks = [];
-
-    const isExternalSession = !!parentSession;
-    let session = parentSession;
-    if (!session && mongoose.connection && mongoose.connection.readyState === 1 && typeof mongoose.startSession === 'function') {
-        try {
-            session = await mongoose.startSession();
-        } catch (sErr) {
-            session = null;
-        }
-    }
-
-    try {
-        if (!isExternalSession && session && typeof session.startTransaction === 'function') {
-            session.startTransaction();
-        }
+    const executeInSession = async (session) => {
+        let deal = null;
+        let isIdempotentReplay = false;
+        let warnings = [];
+        const postCommitTasks = [];
 
         // 1. Idempotency Lock
         let activeIdK = null;
@@ -184,7 +179,27 @@ export const createStandardizedDeal = async (input, options = {}) => {
                 }
             }
 
+            // Inherit Attribution from Lead if present
+            let inheritedTouchId = undefined;
+            if (linkage?.leadId) {
+                let leadQuery = Lead.findById(linkage.leadId);
+                if (leadQuery && typeof leadQuery.session === 'function') {
+                    leadQuery = leadQuery.session(session);
+                }
+                if (leadQuery && typeof leadQuery.select === 'function') {
+                    leadQuery = leadQuery.select('attributedTouchId');
+                }
+                if (leadQuery && typeof leadQuery.lean === 'function') {
+                    leadQuery = leadQuery.lean();
+                }
+                const sourceLead = await leadQuery;
+                if (sourceLead?.attributedTouchId) {
+                    inheritedTouchId = sourceLead.attributedTouchId;
+                }
+            }
+
             // 4. Normalize and Inject Geo (Bypass unsafe hook)
+            const effectiveTenantId = dealData.tenantId || input.tenantId || null;
             const normalizedDealPayload = {
                 ...dealData,
                 source,
@@ -198,6 +213,14 @@ export const createStandardizedDeal = async (input, options = {}) => {
                     channelPartner: ownerInfo?.channelPartner
                 }
             };
+            if (effectiveTenantId) {
+                normalizedDealPayload.tenantId = effectiveTenantId;
+            }
+            if (inheritedTouchId) {
+                normalizedDealPayload.attributedTouchId = inheritedTouchId;
+            } else if (dealData.attributedTouchId) {
+                normalizedDealPayload.attributedTouchId = dealData.attributedTouchId;
+            }
 
             if (inventory) {
                 normalizedDealPayload.latitude = inventory.latitude || inventory.lat || null;
@@ -400,49 +423,40 @@ export const createStandardizedDeal = async (input, options = {}) => {
             }
 
             // R56 STAGE 2: Durable Outbox Integration
-            if (mongoose.connection?.readyState === 1) {
-                await OutboxEvent.create([{
-                    eventId: uuidv4(),
-                    eventType: 'DealCreated',
-                    aggregateType: 'Deal',
-                    aggregateId: deal._id,
-                    payload: {
-                        triggerDistribution: triggerDistribution,
-                        triggerMarketing: triggerMarketing,
-                        triggerSms: triggerSms,
-                        triggerAiMatch: triggerAiMatch,
-                        triggerDiscovery: triggerDiscovery,
-                        inventoryId: linkage?.inventoryId || null,
-                        documents: (triggerDocumentSync && dealData.documents?.length) ? dealData.documents : []
-                    }
-                }], { session });
+            // R56 STAGE 2: Durable Outbox Integration
+            const outboxEntry = {
+                eventId: uuidv4(),
+                eventType: 'DealCreated',
+                aggregateType: 'Deal',
+                aggregateId: deal._id,
+                payload: {
+                    triggerDistribution: triggerDistribution,
+                    triggerMarketing: triggerMarketing,
+                    triggerSms: triggerSms,
+                    triggerAiMatch: triggerAiMatch,
+                    triggerDiscovery: triggerDiscovery,
+                    inventoryId: linkage?.inventoryId || null,
+                    documents: (triggerDocumentSync && dealData.documents?.length) ? dealData.documents : []
+                }
+            };
+            if (effectiveTenantId) {
+                outboxEntry.tenantId = effectiveTenantId;
             }
+            await OutboxEvent.create([outboxEntry], { session });
         }
 
-        if (!isExternalSession && session && typeof session.commitTransaction === 'function') {
-            await session.commitTransaction();
-        }
-    } catch (err) {
-        if (!isExternalSession && session && typeof session.inTransaction === 'function' && session.inTransaction()) {
-            await session.abortTransaction();
-        }
-        if (err.code !== 'IDEMPOTENT_CONFLICT' && err.code !== 'DUPLICATE_DEAL' && err.code !== 'INVENTORY_UNAVAILABLE') {
-            err.code = 'TRANSACTION_FAILED';
-        }
-        throw err;
-    } finally {
-        if (!isExternalSession && session && typeof session.endSession === 'function') {
-            session.endSession();
-        }
-    }
-
-    // R56 STAGE 2: Post-commit tasks are now durably queued in OutboxEvent.
-    // We return an empty postCommitTasks array to preserve controller contract.
-    return {
-        success: true,
-        deal,
-        isIdempotentReplay,
-        warnings,
-        postCommitTasks: []
+        return {
+            success: true,
+            deal,
+            isIdempotentReplay,
+            warnings,
+            postCommitTasks: []
+        };
     };
+
+    if (parentSession) {
+        return await executeInSession(parentSession);
+    } else {
+        return await withMongoTransaction(executeInSession);
+    }
 };

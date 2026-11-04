@@ -335,7 +335,7 @@ const ProfessionalMap = ({
                     let pricingHtml = '';
                     let rpuHtml = '';
                     if (!isInventory && item.price) {
-                        const sizeId = typeof item.sizeConfig === 'object' ? (item.sizeConfig._id || item.sizeConfig.id) : item.sizeConfig;
+                        const sizeId = (item.sizeConfig && typeof item.sizeConfig === 'object') ? (item.sizeConfig._id || item.sizeConfig.id) : item.sizeConfig;
                         const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : null;
                         const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : item.size;
                         const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : item.sizeUnit || 'sq.ft.';

@@ -8,6 +8,7 @@ import { applyActivityFilters } from '../../utils/activityFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { STAGE_PIPELINE } from '../../utils/stageEngine';
 import { renderValue } from '../../utils/renderUtils';
+import { DataTable } from '../../components/ui/DataTable/DataTable';
 
 // ─── MEMOIZED SUB-COMPONENTS ──────────────────────────────────────────────────
 
@@ -29,188 +30,6 @@ const LeadStageChip = memo(function LeadStageChip({ stage }) {
     );
 });
 LeadStageChip.displayName = 'LeadStageChip';
-
-
-const ActivityRow = memo(function ActivityRow({
-    activity,
-    isSelected,
-    toggleSelect,
-    selectedActivityId,
-    setSelectedActivity,
-    setIsOutcomeModalOpen
-}) {
-    const { isDark } = useTheme();
-    const isRowSelected = selectedActivityId === activity._id;
-
-    return (
-        <div
-            onClick={() => setSelectedActivity(activity)}
-            style={{
-                padding: '16px 12px',
-                marginBottom: '8px',
-                borderRadius: '8px',
-                border: isRowSelected ? '2px solid #10b981' : '1px solid var(--border-color)',
-                background: isRowSelected ? isDark ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4' : 'var(--bg-card)',
-                display: 'grid',
-                gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px',
-                gap: '12px',
-                alignItems: 'center',
-                transition: 'all 0.2s',
-                cursor: 'pointer',
-                boxShadow: isRowSelected ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
-                width: '100%',
-                minWidth: '1300px'
-            }}
-        >
-            {/* Checkbox */}
-            <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={(e) => {
-                    e.stopPropagation();
-                    toggleSelect(activity._id);
-                }}
-            />
-
-            {/* Details */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                <div title={renderValue(activity.entityType === 'Inventory' ? activity.participants?.[0]?.name : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name))} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                    {renderValue(activity.entityType === 'Inventory' 
-                        ? (activity.participants?.[0]?.name || activity.contactName || 'Unknown Owner') 
-                        : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client')
-                    )}
-                </div>
-                
-                {/* Mobile / Phone - Enterprise Multi-Path Lookup */}
-                <div style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 700 }}>
-                    <i className="fas fa-phone" style={{ marginRight: '6px', transform: 'scaleX(-1) rotate(5deg)', opacity: 0.8 }}></i>
-                    {renderValue(activity.participants?.[0]?.mobile || activity.details?.mobile || activity.mobile || activity.contactPhone || '--')}
-                </div>
-
-                {/* Email - Enterprise Multi-Path Lookup */}
-                {(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email) && (
-                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                        <i className="fas fa-envelope" style={{ marginRight: '6px', opacity: 0.7 }}></i>
-                        {renderValue(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email)}
-                    </div>
-                )}
-            </div>
-
-            {/* Scheduled Date */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 700 }}>
-                    <i className="far fa-calendar" style={{ marginRight: '6px', color: '#6366f1' }}></i>
-                    {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>
-                    <i className="far fa-clock" style={{ marginRight: '6px', color: '#10b981' }}></i>
-                    {activity.dueTime || (activity.dueDate && !activity.dueDate.toString().includes('00:00:00') 
-                        ? new Date(activity.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-                        : '--')}
-                </div>
-            </div>
-
-            {/* Agenda */}
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, overflow: 'hidden' }}>
-                <div className="address-clamp" style={{ fontStyle: 'italic' }}>
-                    {(() => {
-                        if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
-                        if (activity.details?.feedback && activity.details?.formSource === 'InventoryFeedbackForm') return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(activity.details.feedback)}</span>;
-                        
-                        const strToSearch = activity.details?.agenda || activity.subject || '';
-                        const match = String(strToSearch).match(/discuss (.*?) for Unit/i);
-                        if (match && match[1]) return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(match[1].trim())}</span>;
-
-                        return renderValue(activity.subject || activity.details?.agenda);
-                    })()}
-                </div>
-            </div>
-
-            {/* Activity Type */}
-            <div>
-                <span style={{
-                    fontSize: '0.7rem',
-                    padding: '5px 12px',
-                    borderRadius: '16px',
-                    fontWeight: 700,
-                    background: activity.type === 'Meeting' ? isDark ? 'rgba(59, 130, 246, 0.15)' : '#dbeafe' : activity.type === 'Call' || activity.type === 'Call Back' ? isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7' : isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5',
-                    color: activity.type === 'Meeting' ? isDark ? '#93c5fd' : '#1e40af' : activity.type === 'Call' || activity.type === 'Call Back' ? isDark ? '#fcd34d' : '#92400e' : isDark ? '#6ee7b7' : '#065f46',
-                }}>
-                    {renderValue(activity.type)}
-                </span>
-            </div>
-
-            {/* Project / Feedback / Details */}
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, overflow: 'hidden' }}>
-                {(activity.details?.visitedProperties?.[0]?.project || activity.entityType === 'Inventory') && (
-                    <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
-                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>
-                        {activity.entityType === 'Inventory' && activity.relatedTo?.[0]?.name 
-                            ? `Unit ${activity.relatedTo[0].name}${activity.details?.project ? ` | ${activity.details.project}` : ''}${activity.details?.block ? ` (${String(activity.details.block).toLowerCase()})` : ''}`
-                            : renderValue(activity.details?.visitedProperties?.[0]?.project)}
-                    </div>
-                )}
-                {activity.details?.specificReason && (
-                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 600, padding: '4px 8px', background: isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', borderRadius: '4px', borderLeft: '3px solid #f59e0b', marginBottom: '4px' }}>
-                        <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.specificReason)}
-                    </div>
-                )}
-                {!activity.details?.specificReason && activity.description && activity.type === 'Call Back' && (
-                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
-                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{renderValue(activity.description)}
-                    </div>
-                )}
-                {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && !['visitedProperties', 'formSource', 'platform', 'source', 'agenda', 'outcome', 'specificReason', 'project', 'block', 'feedback', 'unitNo', 'inventoryId'].includes(k)).slice(0, 2).map(([key, value], i) => (
-                            <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: 'var(--bg-gray)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-color)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
-                            </span>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Scheduled By */}
-            <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
-                {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
-            </div>
-
-            {/* Scheduled For */}
-            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.performedBy || activity.createdBy ? 'Self' : '--'))}
-            </div>
-
-            {/* Stage / Status */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                {activity.relatedTo?.[0]?.stage && (
-                    <LeadStageChip stage={activity.relatedTo[0].stage} />
-                )}
-                <span style={{
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    padding: '3px 8px',
-                    borderRadius: '10px',
-                    background: activity.status?.toLowerCase() === 'completed'
-                        ? isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5'
-                        : activity.status?.toLowerCase() === 'overdue'
-                            ? '#fee2e2'
-                            : isDark ? 'rgba(251, 191, 36, 0.15)' : '#fffbeb',
-                    color: activity.status?.toLowerCase() === 'completed'
-                        ? isDark ? '#6ee7b7' : '#065f46'
-                        : activity.status?.toLowerCase() === 'overdue'
-                            ? '#991b1b'
-                            : isDark ? '#fcd34d' : '#92400e',
-                    width: 'fit-content'
-                }}>
-                    {renderValue(activity.status)}
-                </span>
-            </div>
-
-        </div>
-    );
-});
-ActivityRow.displayName = 'ActivityRow';
 
 
 // ─── MAIN ACTIVITIES PAGE ───────────────────────────────────────────────────
@@ -386,6 +205,227 @@ function ActivitiesPage() {
     }, [filters]);
 
     const currentTab = getActiveTabRaw() === 'All' ? 'Today' : getActiveTabRaw();
+
+    const getRowStyle = useCallback((activity) => {
+        const isRowSelected = selectedActivity?._id === activity?._id;
+        if (isRowSelected) {
+            return {
+                outline: '2px solid #10b981',
+                borderLeft: '4px solid #10b981',
+                background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4'
+            };
+        }
+        return null;
+    }, [selectedActivity, isDark]);
+
+    const columns = useMemo(() => [
+        {
+            key: 'selection',
+            isSelection: true,
+            header: (
+                <input
+                    type="checkbox"
+                    aria-label="Select all activities"
+                    onChange={toggleSelectAll}
+                    checked={selectedIds.length === filteredActivities.length && filteredActivities.length > 0}
+                />
+            ),
+            headerStyle: { width: '45px', padding: '16px 12px', textAlign: 'center' },
+            cellStyle: { width: '45px', padding: '16px 12px', textAlign: 'center' },
+            render: (activity) => (
+                <input
+                    type="checkbox"
+                    aria-label={`Select activity ${activity._id}`}
+                    checked={selectedIds.includes(activity._id)}
+                    onChange={(e) => {
+                        e.stopPropagation();
+                        toggleSelect(activity._id);
+                    }}
+                />
+            )
+        },
+        {
+            key: 'details',
+            header: 'Details',
+            headerStyle: { width: '250px', padding: '16px 12px' },
+            cellStyle: { width: '250px', padding: '16px 12px' },
+            render: (activity) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                    <div title={renderValue(activity.entityType === 'Inventory' ? activity.participants?.[0]?.name : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name))} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                        {renderValue(activity.entityType === 'Inventory'
+                            ? (activity.participants?.[0]?.name || activity.contactName || 'Unknown Owner')
+                            : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client')
+                        )}
+                    </div>
+
+                    <div style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 700 }}>
+                        <i className="fas fa-phone" style={{ marginRight: '6px', transform: 'scaleX(-1) rotate(5deg)', opacity: 0.8 }}></i>
+                        {renderValue(activity.participants?.[0]?.mobile || activity.details?.mobile || activity.mobile || activity.contactPhone || '--')}
+                    </div>
+
+                    {(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email) && (
+                        <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                            <i className="fas fa-envelope" style={{ marginRight: '6px', opacity: 0.7 }}></i>
+                            {renderValue(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email)}
+                        </div>
+                    )}
+                </div>
+            )
+        },
+        {
+            key: 'scheduledDate',
+            header: 'Scheduled Date',
+            headerStyle: { width: '140px', padding: '16px 12px' },
+            cellStyle: { width: '140px', padding: '16px 12px' },
+            render: (activity) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 700 }}>
+                        <i className="far fa-calendar" style={{ marginRight: '6px', color: '#6366f1' }}></i>
+                        {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>
+                        <i className="far fa-clock" style={{ marginRight: '6px', color: '#10b981' }}></i>
+                        {activity.dueTime || (activity.dueDate && !activity.dueDate.toString().includes('00:00:00')
+                            ? new Date(activity.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            : '--')}
+                    </div>
+                </div>
+            )
+        },
+        {
+            key: 'agenda',
+            header: 'Agenda',
+            headerStyle: { minWidth: '160px', padding: '16px 12px' },
+            cellStyle: { minWidth: '160px', padding: '16px 12px' },
+            render: (activity) => (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, overflow: 'hidden' }}>
+                    <div className="address-clamp" style={{ fontStyle: 'italic' }}>
+                        {(() => {
+                            if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
+                            if (activity.details?.feedback && activity.details?.formSource === 'InventoryFeedbackForm') return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(activity.details.feedback)}</span>;
+
+                            const strToSearch = activity.details?.agenda || activity.subject || '';
+                            const match = String(strToSearch).match(/discuss (.*?) for Unit/i);
+                            if (match && match[1]) return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(match[1].trim())}</span>;
+
+                            return renderValue(activity.subject || activity.details?.agenda);
+                        })()}
+                    </div>
+                </div>
+            )
+        },
+        {
+            key: 'type',
+            header: 'Activity Type',
+            headerStyle: { width: '110px', padding: '16px 12px' },
+            cellStyle: { width: '110px', padding: '16px 12px' },
+            render: (activity) => (
+                <div>
+                    <span style={{
+                        fontSize: '0.7rem',
+                        padding: '5px 12px',
+                        borderRadius: '16px',
+                        fontWeight: 700,
+                        background: activity.type === 'Meeting' ? isDark ? 'rgba(59, 130, 246, 0.15)' : '#dbeafe' : activity.type === 'Call' || activity.type === 'Call Back' ? isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7' : isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5',
+                        color: activity.type === 'Meeting' ? isDark ? '#93c5fd' : '#1e40af' : activity.type === 'Call' || activity.type === 'Call Back' ? isDark ? '#fcd34d' : '#92400e' : isDark ? '#6ee7b7' : '#065f46',
+                    }}>
+                        {renderValue(activity.type)}
+                    </span>
+                </div>
+            )
+        },
+        {
+            key: 'projectFeedback',
+            header: 'Project / Feedback',
+            headerStyle: { minWidth: '160px', padding: '16px 12px' },
+            cellStyle: { minWidth: '160px', padding: '16px 12px' },
+            render: (activity) => (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, overflow: 'hidden' }}>
+                    {(activity.details?.visitedProperties?.[0]?.project || activity.entityType === 'Inventory') && (
+                        <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
+                            <i className="fas fa-building" style={{ marginRight: '4px' }}></i>
+                            {activity.entityType === 'Inventory' && activity.relatedTo?.[0]?.name
+                                ? `Unit ${activity.relatedTo[0].name}${activity.details?.project ? ` | ${activity.details.project}` : ''}${activity.details?.block ? ` (${String(activity.details.block).toLowerCase()})` : ''}`
+                                : renderValue(activity.details?.visitedProperties?.[0]?.project)}
+                        </div>
+                    )}
+                    {activity.details?.specificReason && (
+                        <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 600, padding: '4px 8px', background: isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', borderRadius: '4px', borderLeft: '3px solid #f59e0b', marginBottom: '4px' }}>
+                            <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.specificReason)}
+                        </div>
+                    )}
+                    {!activity.details?.specificReason && activity.description && activity.type === 'Call Back' && (
+                        <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
+                            <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{renderValue(activity.description)}
+                        </div>
+                    )}
+                    {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && !['visitedProperties', 'formSource', 'platform', 'source', 'agenda', 'outcome', 'specificReason', 'project', 'block', 'feedback', 'unitNo', 'inventoryId'].includes(k)).slice(0, 2).map(([key, value], i) => (
+                                <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: 'var(--bg-gray)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-color)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                    <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )
+        },
+        {
+            key: 'scheduledBy',
+            header: 'Scheduled By',
+            headerStyle: { width: '130px', padding: '16px 12px' },
+            cellStyle: { width: '130px', padding: '16px 12px' },
+            render: (activity) => (
+                <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
+                    {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
+                </div>
+            )
+        },
+        {
+            key: 'scheduledFor',
+            header: 'Scheduled For',
+            headerStyle: { width: '130px', padding: '16px 12px' },
+            cellStyle: { width: '130px', padding: '16px 12px' },
+            render: (activity) => (
+                <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                    {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.performedBy || activity.createdBy ? 'Self' : '--'))}
+                </div>
+            )
+        },
+        {
+            key: 'stageStatus',
+            header: 'Stage / Status',
+            headerStyle: { width: '120px', padding: '16px 12px' },
+            cellStyle: { width: '120px', padding: '16px 12px' },
+            render: (activity) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                    {activity.relatedTo?.[0]?.stage && (
+                        <LeadStageChip stage={activity.relatedTo[0].stage} />
+                    )}
+                    <span style={{
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '10px',
+                        background: activity.status?.toLowerCase() === 'completed'
+                            ? isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5'
+                            : activity.status?.toLowerCase() === 'overdue'
+                                ? '#fee2e2'
+                                : isDark ? 'rgba(251, 191, 36, 0.15)' : '#fffbeb',
+                        color: activity.status?.toLowerCase() === 'completed'
+                            ? isDark ? '#6ee7b7' : '#065f46'
+                            : activity.status?.toLowerCase() === 'overdue'
+                                ? '#991b1b'
+                                : isDark ? '#fcd34d' : '#92400e',
+                        width: 'fit-content'
+                    }}>
+                        {renderValue(activity.status)}
+                    </span>
+                </div>
+            )
+        }
+    ], [selectedIds, filteredActivities, toggleSelectAll, toggleSelect, isDark]);
 
     const changeDate = useCallback((offset) => {
         setCurrentDate(prev => {
@@ -779,31 +819,16 @@ function ActivitiesPage() {
                                     )}
                             </div>
                             <ActiveFiltersChips filters={filters} onRemoveFilter={handleRemoveFilter} onClearAll={handleClearAll} />
-                            <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto' }}>
-                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 0.5rem', background: 'var(--bg-gray)', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px', gap: '12px', alignItems: 'center', width: '100%', minWidth: '1300px' }}>
-                                    <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredActivities.length && filteredActivities.length > 0} /></div>
-                                    <div>Details</div>
-                                    <div>Scheduled Date</div>
-                                    <div>Agenda</div>
-                                    <div>Activity Type</div>
-                                    <div>Project / Feedback</div>
-                                    <div>Scheduled By</div>
-                                    <div>Scheduled For</div>
-                                    <div>Stage / Status</div>
-                                </div>
-                                <div className="list-content" style={{ background: 'var(--bg-gray)', padding: '1rem 0.5rem' }}>
-                                    {paginatedActivities.map((activity) => (
-                                        <ActivityRow
-                                            key={activity._id}
-                                            activity={activity}
-                                            isSelected={selectedIds.includes(activity._id)}
-                                            toggleSelect={toggleSelect}
-                                            selectedActivityId={selectedActivity?._id}
-                                            setSelectedActivity={setSelectedActivity}
-                                            setIsOutcomeModalOpen={setIsOutcomeModalOpen}
-                                        />
-                                    ))}
-                                </div>
+                            <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto', padding: '1rem 0.5rem', background: 'var(--bg-gray)' }}>
+                                <DataTable
+                                    columns={columns}
+                                    data={paginatedActivities}
+                                    keyField="_id"
+                                    tableStyle={{ minWidth: '1300px', width: '100%', borderCollapse: 'collapse' }}
+                                    onRowClick={(activity) => setSelectedActivity(activity)}
+                                    getRowStyle={getRowStyle}
+                                    emptyMessage="No activities found."
+                                />
                             </div>
                         </div>
                     ) : (

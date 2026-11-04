@@ -124,6 +124,11 @@ const LeadSchema = new mongoose.Schema({
 
     customFields: mongoose.Schema.Types.Mixed,
 
+    // Communication & Consent Preferences (Phase 9)
+    whatsappOptOut: { type: Boolean, default: false, index: true },
+    whatsappOptOutAt: { type: Date },
+    whatsappOptInAt: { type: Date },
+
     // ━━ Stage Engine Fields (added for MongoDB integration) ━━━━━━━━━━━━━━━━━━━━
     stageChangedAt: { type: Date, index: true },             // When stage last changed
     isArchived: { type: Boolean, default: false, index: true }, // [ENTERPRISE] Cold Storage flag
@@ -149,11 +154,23 @@ const LeadSchema = new mongoose.Schema({
     leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Final authoritative score (backend-only)
     activityScore: { type: Number, default: 0, min: 0, max: 100 }, // Activity-driven component (no double-count with enrichment)
     ruleScoreBoost: { type: Number, default: 0 }, // Accumulated boosts from Weighted Transition Rules
-    intent_index: { type: Number, default: 0, min: 0, max: 100 }, // Static intent based on enrichment & keywords
+    intent_index: { type: Number, default: 0, min: 0, max: 100 },
+    enrichmentState: {
+        status: { type: String, enum: ['NONE', 'REQUESTED', 'CLAIMED', 'RUNNING', 'COMPLETED', 'FAILED'], default: 'NONE' },
+        requestedAt: { type: Date },
+        claimedAt: { type: Date },
+        completedAt: { type: Date },
+        failedAt: { type: Date },
+        jobId: { type: String },
+        lastJobId: { type: String },
+        claimTokenHash: { type: String, select: false },
+        enrichmentExecutionId: { type: String }
+    }, // Static intent based on enrichment & keywords
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty
     dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)
     dealHealthStatus: { type: String, enum: ['Healthy', 'Watch', 'At Risk', 'Unknown'], default: 'Unknown' }, // Computed status based on thresholds
     scoreBreakdown: { type: Object, default: {} }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
+    attributedTouchId: { type: mongoose.Schema.Types.ObjectId, ref: 'MarketingTouch', index: true },
     ai_intent_summary: { type: String },
     ai_closing_probability: { type: Number, min: 0, max: 100 },
 
@@ -165,17 +182,20 @@ const LeadSchema = new mongoose.Schema({
         daysInStage: { type: Number, default: 0 },         // Computed on exit
         triggeredBy: {
             type: String,
-            enum: ['activity', 'manual', 'manual_override', 'bulk_recalc', 'system', 'import'],
+            enum: ['activity', 'manual', 'manual_override', 'bulk_recalc', 'system', 'import', 'revival', 'requirement_qualification'],
             default: 'activity'
         },
         activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },
         activityType: { type: String },                      // 'Call', 'Meeting', 'Site Visit'...
         outcome: { type: String },                      // Outcome string from activity
         triggeredByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        reason: { type: String }                       // Human-readable reason
+        reason: { type: String },                       // Human-readable reason
+        revival: { type: Boolean, default: false }
     }],
     interestedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
     snoozedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null },
 }, { timestamps: true });
 
 // ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -319,6 +339,15 @@ LeadSchema.pre('save', async function (next) {
         this.owner = primaryRMId;
         if (!this.assignment) this.assignment = {};
         this.assignment.assignedTo = primaryRMId;
+    }
+    if (this.teams && Array.isArray(this.teams) && this.teams.length > 0) {
+        if (!this.assignment) this.assignment = {};
+        if (!this.assignment.team || this.assignment.team.length === 0) {
+            this.assignment.team = this.teams;
+        }
+    }
+    if (this.assignment && !this.assignment.visibleTo) {
+        this.assignment.visibleTo = 'Team';
     }
 
     next();
@@ -473,8 +502,9 @@ LeadSchema.post('save', async function (doc, next) {
     // We check if it was just created (approximate check via timestamps or custom flag)
     // In post-save, doc.isNew is false, but we can check if createdAt equals updatedAt
     const isNewLead = doc.createdAt && doc.updatedAt && doc.createdAt.getTime() === doc.updatedAt.getTime();
+    const hasSession = !!(this.$session && this.$session());
     
-    if (isNewLead) {
+    if (isNewLead && !hasSession) {
         try {
             // Lazy load NurtureBot to avoid circular dependency
             const { default: nurtureBot } = await import('../services/NurtureBot.js');
@@ -509,6 +539,8 @@ LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
 LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
 LeadSchema.index({ contactDetails: 1 }, { background: true }); // 🚀 [ENTERPRISE] CRM Linkage aggregation
 LeadSchema.index({ mobile: 1 }, { background: true }); // 🚀 [ENTERPRISE] Fast phone-based CRM Linkage
+LeadSchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+LeadSchema.index({ tenantId: 1, stage: 1 }, { background: true });
 
 // 🚀 [ENTERPRISE] Soft Delete Support
 LeadSchema.plugin(softDeletePlugin);
@@ -521,21 +553,26 @@ LeadSchema.pre('save', function(next) {
 
 LeadSchema.post('save', function(doc) {
     const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
+    const hasSession = !!(this.$session && this.$session());
     if (isNew) {
-        eventBus.emit('LEAD_CREATED', doc);
+        if (!hasSession) eventBus.emit('LEAD_CREATED', doc);
     } else {
-        eventBus.emit('LEAD_UPDATED', doc);
+        if (!hasSession) eventBus.emit('LEAD_UPDATED', doc);
     }
 });
 
 LeadSchema.post('insertMany', function(docs) {
     if (Array.isArray(docs)) {
-        docs.forEach(doc => eventBus.emit('LEAD_CREATED', doc));
+        const hasSession = !!(this && this.options && this.options.session);
+        docs.forEach(doc => {
+            if (!hasSession) eventBus.emit('LEAD_CREATED', doc);
+        });
     }
 });
 
 LeadSchema.post('findOneAndUpdate', async function(doc) {
-    if (doc) {
+    const hasSession = !!(this.options && this.options.session);
+    if (doc && !hasSession) {
         eventBus.emit('LEAD_UPDATED', doc);
     }
 });

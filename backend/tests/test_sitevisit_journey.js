@@ -781,6 +781,65 @@ async function runJourneyTests() {
         }
     });
 
+    // ------------------------------------------------------------------------
+    // Test 11: Dual-Key Rotation Backward Compatibility
+    // ------------------------------------------------------------------------
+    console.log('--- Test 11: Dual-Key Rotation Backward Compatibility ---');
+    await recordAsync('11. Verifies in-flight token signed with legacy JWT_SECRET verifies and reconstructs when FEEDBACK_JWT_SECRET is active', async () => {
+        const legacySecret = 'legacy_jwt_secret_32_characters_12345';
+        const newFeedbackSecret = 'new_feedback_jwt_secret_32_chars_6789';
+
+        process.env.JWT_SECRET = legacySecret;
+        process.env.FEEDBACK_JWT_SECRET = newFeedbackSecret;
+
+        try {
+            const fakeActId = new mongoose.Types.ObjectId();
+            const fakeLeadId = new mongoose.Types.ObjectId();
+
+            // 1. Issue an in-flight token using the legacy JWT_SECRET
+            const legacyTokenObj = SiteVisitJourneyService.generateJourneyToken(
+                { _id: fakeActId, entityId: fakeLeadId },
+                { secret: legacySecret }
+            );
+
+            const activity = {
+                _id: fakeActId,
+                entityId: fakeLeadId,
+                type: 'Site Visit',
+                status: 'Scheduled',
+                details: {
+                    journeyTokenHash: legacyTokenObj.tokenHash,
+                    journeyTokenJti: legacyTokenObj.jti,
+                    journeyTokenIat: legacyTokenObj.iat,
+                    journeyExpiresAt: legacyTokenObj.expiresAt,
+                    journeyRevoked: false
+                }
+            };
+
+            Activity.findById = () => Promise.resolve(activity);
+
+            // 2. verifyJourneyToken should succeed via secondary key
+            const verified = await SiteVisitJourneyService.verifyJourneyToken(legacyTokenObj.safeToken);
+            assert.strictEqual(String(verified.activity._id), String(fakeActId), 'Activity ID matches');
+            assert.strictEqual(verified.claims.iss, 'bharat-properties-crm');
+            assert.strictEqual(verified.tokenHash, legacyTokenObj.tokenHash);
+
+            // 3. reconstructActiveToken should succeed via secondary key fallback
+            const reconstructed = SiteVisitJourneyService.reconstructActiveToken(activity);
+            assert(reconstructed !== null, 'Reconstruction must not fail');
+            assert.strictEqual(reconstructed.tokenHash, legacyTokenObj.tokenHash, 'Reconstructed token hash matches');
+            assert.strictEqual(reconstructed.token, legacyTokenObj.token, 'Reconstructed token matches exactly');
+
+            // 4. Newly generated token without options.secret uses new primary FEEDBACK_JWT_SECRET
+            const newTokenObj = SiteVisitJourneyService.generateJourneyToken({ _id: fakeActId, entityId: fakeLeadId });
+            const decodedNew = jwt.verify(newTokenObj.token, newFeedbackSecret);
+            assert.strictEqual(decodedNew.iss, 'bharat-properties-crm');
+        } finally {
+            process.env.JWT_SECRET = 'enterprise_secure_testing_secret_key_2026_xyz';
+            process.env.FEEDBACK_JWT_SECRET = 'enterprise_secure_testing_secret_key_2026_xyz';
+        }
+    });
+
     // Cleanup globals
     Activity.findById = origActFindById;
     Activity.create = origActCreate;

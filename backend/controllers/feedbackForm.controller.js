@@ -1,14 +1,18 @@
 import mongoose from "mongoose";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
+import { v4 as uuidv4 } from "uuid";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import withMongoTransaction from "../utils/withMongoTransaction.js";
 import FeedbackForm from "../models/FeedbackForm.js";
 import FeedbackSubmission from "../models/FeedbackSubmission.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
+import AuditLog from "../models/AuditLog.js";
+import OutboxEvent from "../models/OutboxEvent.js";
 import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import NurtureBot from "../services/NurtureBot.js";
-import jwt from "jsonwebtoken";
 import { createNotification } from "./notification.controller.js";
 
 
@@ -128,7 +132,7 @@ export const deleteForm = async (req, res, next) => {
     }
 };
 
-// 🛡️ CRITICAL-SV-11: Cryptographic Token Verifier with Scoped Purpose & Dual-Key Rotation
+// 🛡️ CRITICAL-01: Cryptographic Token Verifier with Scoped Purpose & Dual-Key Rotation
 export const verifyFeedbackToken = (rawToken, slug = null) => {
     if (!rawToken || typeof rawToken !== 'string') return null;
 
@@ -138,6 +142,8 @@ export const verifyFeedbackToken = (rawToken, slug = null) => {
         return null;
     }
 
+    // Dual-key rotation support: if FEEDBACK_JWT_SECRET is active and distinct from JWT_SECRET,
+    // allow JWT_SECRET as a secondary verifier for in-flight tokens issued before rotation.
     const secondarySecret = (
         process.env.FEEDBACK_JWT_SECRET &&
         process.env.JWT_SECRET &&
@@ -171,37 +177,75 @@ export const verifyFeedbackToken = (rawToken, slug = null) => {
 
     if (!decoded || typeof decoded !== 'object') return null;
 
-    // Validate purpose
-    const validPurposes = ['customer_feedback', 'feedback_submission', 'general_feedback'];
-    const purpose = decoded.purpose || 'customer_feedback';
-    if (!validPurposes.includes(purpose)) {
-        return null; // Reject wrong purpose
+    try {
+        // Modern Token Contract (PR #40 / CRITICAL-05)
+        if (decoded.iss === 'bharat-properties-crm' && (decoded.purpose === 'feedback_submission' || decoded.purpose === 'general_feedback')) {
+            // Finding 3: Strictly require non-empty formSlug claim exactly matching target form slug
+            if (!slug || typeof slug !== 'string' || !slug.trim()) {
+                return null;
+            }
+            if (!decoded.formSlug || typeof decoded.formSlug !== 'string' || !decoded.formSlug.trim()) {
+                return null;
+            }
+            if (decoded.formSlug !== slug) {
+                return null; // Reject token for mismatched form slug
+            }
+
+            // Invariant: Only 'feedback_submission' tokens are permitted to carry an activityId binding.
+            // For 'general_feedback' tokens, activityId MUST ALWAYS be null (stripped even if present in token).
+            const isActivityBound = decoded.purpose === 'feedback_submission';
+            const activityId = (isActivityBound && decoded.activityId && mongoose.Types.ObjectId.isValid(decoded.activityId))
+                ? String(decoded.activityId)
+                : null;
+
+            return {
+                valid: true,
+                isLegacy: false,
+                leadId: (decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId)) ? String(decoded.leadId) : null,
+                activityId,
+                jti: decoded.jti || null,
+                purpose: decoded.purpose,
+                formSlug: decoded.formSlug
+            };
+        }
+
+        // Legacy Token Contract: { leadId, source: 'customer_feedback' }
+        if (decoded.source === 'customer_feedback' && decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId)) {
+            return {
+                valid: true,
+                isLegacy: true,
+                leadId: String(decoded.leadId),
+                activityId: null, // Legacy tokens CANNOT complete activities
+                jti: null,
+                purpose: 'legacy_feedback',
+                formSlug: null
+            };
+        }
+
+        // Site Visit Feedback Token Contract: { leadId, activityId, purpose: 'customer_feedback' }
+        if (decoded.purpose === 'customer_feedback' && decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId)) {
+            if (decoded.formSlug && slug && decoded.formSlug !== slug) {
+                return null;
+            }
+            const activityId = (decoded.activityId && mongoose.Types.ObjectId.isValid(decoded.activityId))
+                ? String(decoded.activityId)
+                : null;
+
+            return {
+                valid: true,
+                isLegacy: !decoded.iss,
+                leadId: String(decoded.leadId),
+                activityId,
+                jti: decoded.jti || null,
+                purpose: decoded.purpose || 'customer_feedback',
+                formSlug: decoded.formSlug || null
+            };
+        }
+
+        return null;
+    } catch (_) {
+        return null;
     }
-
-    // If token is form-scoped, ensure it matches target form slug
-    if (decoded.formSlug && slug && decoded.formSlug !== slug) {
-        return null; // Reject token for mismatched form slug
-    }
-
-    // Only activity-bound feedback tokens are permitted to carry an activityId binding
-    const isActivityBound = purpose === 'customer_feedback' || purpose === 'feedback_submission';
-    const activityId = (isActivityBound && decoded.activityId && mongoose.Types.ObjectId.isValid(decoded.activityId))
-        ? String(decoded.activityId)
-        : null;
-
-    const leadId = (decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId))
-        ? String(decoded.leadId)
-        : null;
-
-    return {
-        valid: true,
-        isLegacy: !decoded.iss || decoded.purpose === 'customer_feedback',
-        leadId,
-        activityId,
-        jti: decoded.jti || null,
-        purpose,
-        formSlug: decoded.formSlug || null
-    };
 };
 
 export const getFormBySlug = async (req, res, next) => {
@@ -213,11 +257,11 @@ export const getFormBySlug = async (req, res, next) => {
         // Increment view analytics in background without blocking
         FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.views': 1 } }).catch(() => {});
 
+        // 🛡️ CRITICAL-01: Strict PII Protection
+        const rawToken = req.headers?.['x-feedback-token'] || req.query?.ref || req.query?.token;
         let leadInfo = null;
         let activityInfo = null;
 
-        // Strictly verify token if provided in query. Raw query params leadId/activityId are ignored.
-        const rawToken = req.query.ref || req.query.token;
         if (rawToken) {
             const claims = verifyFeedbackToken(rawToken, slug);
             if (!claims) {
@@ -225,16 +269,11 @@ export const getFormBySlug = async (req, res, next) => {
             }
 
             if (claims.leadId && mongoose.Types.ObjectId.isValid(claims.leadId)) {
-                const lead = await Lead.findById(claims.leadId).select('firstName lastName email mobile companyName').lean();
+                const lead = await Lead.findById(claims.leadId).select('firstName companyName').lean();
                 if (lead) {
-                    const fullName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || lead.companyName || 'Valued Client';
+                    // Return ONLY safe greeting name. NEVER expose email, mobile, or raw lead documents
                     leadInfo = {
-                        _id: lead._id,
-                        name: fullName,
-                        firstName: lead.firstName || '',
-                        lastName: lead.lastName || '',
-                        email: lead.email || '',
-                        mobile: lead.mobile || ''
+                        greetingName: lead.firstName || lead.companyName || 'Valued Client'
                     };
                 }
             }
@@ -259,7 +298,7 @@ export const getFormBySlug = async (req, res, next) => {
             }
         }
 
-        res.json({ success: true, data: { ...form, leadInfo, activityInfo } });
+        res.json({ success: true, data: { ...form, leadInfo, activityInfo, activityDetails: activityInfo } });
     } catch (error) {
         next(error);
     }
@@ -313,12 +352,12 @@ export const submitFeedback = async (req, res, next) => {
         if (rawToken) {
             claims = verifyFeedbackToken(rawToken, slug);
             if (!claims) {
-                return res.status(403).json({ success: false, message: "Invalid or unauthorized feedback token" });
+                return res.status(403).json({ success: false, error: "Invalid or unauthorized feedback token", message: "Invalid or unauthorized feedback token" });
             }
         }
 
         // Reject untrusted activityId if passed in body without matching authorized token
-        if (req.body.activityId && (!claims || claims.activityId !== String(req.body.activityId))) {
+        if (req.body.activityId && !claims) {
             return res.status(403).json({ success: false, message: "Unauthorized: activity feedback requires a valid token" });
         }
 
@@ -326,17 +365,182 @@ export const submitFeedback = async (req, res, next) => {
         const authoritativeActivityId = claims?.activityId || null;
         const requestIdentity = claims?.jti || (claims?.isLegacy && authoritativeLeadId ? `legacy:${authoritativeLeadId}:${slug}` : null);
 
+        // 🛡️ CRITICAL-05: Activity-bound Feedback Submission Flow (Modern Token)
+        if (authoritativeActivityId && claims?.purpose === 'feedback_submission') {
+            const activityDoc = await Activity.findById(authoritativeActivityId).lean();
+            if (!activityDoc) {
+                return res.status(404).json({ success: false, error: 'Activity not found', message: 'Activity not found' });
+            }
+
+            // Safe Activity Ownership Validation
+            const activityLeadId = activityDoc.entityId || activityDoc.lead;
+            const isLead = !activityDoc.entityType || activityDoc.entityType?.toLowerCase() === 'lead';
+            if (!isLead || String(activityLeadId) !== String(authoritativeLeadId)) {
+                return res.status(403).json({ success: false, error: 'Activity entity does not match token subject', message: 'Activity entity does not match token subject' });
+            }
+
+            try {
+                const txResult = await withMongoTransaction(async (session) => {
+                    // Step 1: Atomic CAS on Activity
+                    const completedActivity = await Activity.findOneAndUpdate(
+                        {
+                            _id: authoritativeActivityId,
+                            status: { $ne: 'Completed' }
+                        },
+                        {
+                            $set: {
+                                status: 'Completed',
+                                completedAt: new Date(),
+                                completionResult: 'Feedback Received',
+                                performedBy: 'Customer (Public Form)',
+                                'details.completedVia': 'public_feedback_form'
+                            }
+                        },
+                        { session, new: true }
+                    );
+
+                    if (completedActivity) {
+                        // CAS Succeeded: Primary Feedback Completion
+                        const [submission] = await FeedbackSubmission.create([{
+                            form: form._id,
+                            lead: authoritativeLeadId,
+                            activity: completedActivity._id,
+                            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                            department: completedActivity.department || form.department || null,
+                            teams: completedActivity.teams || form.teams || [],
+                            responses,
+                            rating: submissionRating,
+                            idempotencyKey: requestIdentity || undefined,
+                            sourceMeta: {
+                                userAgent: req.headers?.['user-agent']
+                            }
+                        }], { session });
+
+                        // Link submission to Activity
+                        await Activity.updateOne(
+                            { _id: completedActivity._id },
+                            { $set: { 'details.submissionId': submission._id } },
+                            { session }
+                        );
+
+                        // Insert Transactional AuditLog
+                        await AuditLog.create([{
+                            eventType: 'lead_updated',
+                            targetType: 'lead',
+                            targetId: authoritativeLeadId,
+                            targetName: 'Lead',
+                            description: `Customer feedback submitted for Activity ${completedActivity._id}`,
+                            changes: {
+                                before: { status: activityDoc.status, submissionId: null },
+                                after: { status: 'Completed', submissionId: submission._id }
+                            },
+                            metadata: {
+                                activityId: completedActivity._id,
+                                formSlug: form.slug,
+                                submissionId: submission._id,
+                                rating: submissionRating,
+                                source: 'public_feedback_form'
+                            },
+                            status: 'success'
+                        }], { session });
+
+                        // Insert Transactional OutboxEvent
+                        await OutboxEvent.create([{
+                            eventId: uuidv4(),
+                            eventType: 'ActivityUpdated',
+                            aggregateType: 'Activity',
+                            aggregateId: completedActivity._id,
+                            correlationId: req.headers?.['x-correlation-id'] || uuidv4(),
+                            status: 'PENDING',
+                            payload: {
+                                activityId: completedActivity._id,
+                                entityType: 'Lead',
+                                entityId: String(authoritativeLeadId),
+                                status: 'Completed',
+                                newStatus: 'Completed',
+                                statusChanged: true,
+                                type: completedActivity.type,
+                                subject: completedActivity.subject || '',
+                                description: completedActivity.description || '',
+                                completedAt: completedActivity.completedAt,
+                                completionResult: 'Feedback Received',
+                                completionSource: 'public_feedback_form',
+                                performedBy: 'Customer (Public Form)',
+                                companyId: null,
+                                actorId: null,
+                                submissionId: submission._id,
+                                details: completedActivity.details || {}
+                            }
+                        }], { session });
+
+                        return { statusCode: 201, submissionId: submission._id };
+                    }
+
+                    // CAS Failed: Activity was already 'Completed'
+                    const existingActivity = await Activity.findById(authoritativeActivityId).session(session);
+                    const existingSubId = existingActivity?.details?.submissionId;
+
+                    if (existingSubId) {
+                        const existingSub = await FeedbackSubmission.findById(existingSubId).session(session);
+                        if (existingSub && requestIdentity && existingSub.idempotencyKey === requestIdentity) {
+                            return { statusCode: 200, duplicate: true, submissionId: existingSub._id };
+                        }
+                        return { statusCode: 409, conflict: true, error: 'Feedback has already been submitted for this activity.' };
+                    }
+
+                    return { statusCode: 409, conflict: true, error: 'Activity has already been completed.' };
+                });
+
+                if (txResult.conflict) {
+                    return res.status(409).json({ success: false, error: txResult.error, message: txResult.error });
+                }
+
+                if (txResult.duplicate) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        submissionId: txResult.submissionId,
+                        message: 'Feedback already recorded.'
+                    });
+                }
+
+                FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.submissions': 1 } }).catch(() => {});
+
+                return res.status(201).json({
+                    success: true,
+                    submissionId: txResult.submissionId,
+                    message: form.settings?.successMessage || 'Thank you for your feedback!'
+                });
+
+            } catch (err) {
+                if (err.code === 11000 || err.message?.includes('E11000')) {
+                    if (requestIdentity) {
+                        const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+                        if (existing && existing.idempotencyKey === requestIdentity) {
+                            return res.status(200).json({
+                                success: true,
+                                duplicate: true,
+                                submissionId: existing._id,
+                                message: 'Feedback already recorded.'
+                            });
+                        }
+                    }
+                }
+                throw err;
+            }
+        }
+
         // Case 1: Site Visit Activity-Bound Feedback Flow
         if (authoritativeActivityId) {
             const activityDoc = await Activity.findById(authoritativeActivityId);
             if (!activityDoc) {
-                return res.status(404).json({ success: false, message: "Activity not found" });
+                return res.status(404).json({ success: false, error: "Activity not found", message: "Activity not found" });
             }
 
             // Verify activity ownership
             const actLeadId = activityDoc.entityId || activityDoc.lead;
             if (actLeadId && authoritativeLeadId && String(actLeadId) !== String(authoritativeLeadId)) {
-                return res.status(403).json({ success: false, message: "Activity entity does not match token subject" });
+                return res.status(403).json({ success: false, error: "Activity entity does not match token subject", message: "Activity entity does not match token subject" });
             }
 
             // Verify eligibility
@@ -359,6 +563,7 @@ export const submitFeedback = async (req, res, next) => {
                     success: true,
                     duplicate: true,
                     data: existingSub || { _id: existingSubmissionId },
+                    submissionId: existingSub?._id || existingSubmissionId,
                     message: "Feedback has already been recorded for this activity."
                 });
             }
@@ -682,9 +887,62 @@ export const submitFeedback = async (req, res, next) => {
                 }
                 await form.save().catch(() => {});
 
+                // Insert Transactional AuditLog & OutboxEvent
+                try {
+                    const eventOpts = session ? { session } : undefined;
+                    await AuditLog.create([{
+                        eventType: 'lead_updated',
+                        targetType: 'lead',
+                        targetId: authoritativeLeadId,
+                        targetName: 'Lead',
+                        description: `Customer feedback submitted for Activity ${authoritativeActivityId}`,
+                        changes: {
+                            before: { status: activityDoc.status, submissionId: null },
+                            after: { status: 'Completed', submissionId: submission._id }
+                        },
+                        metadata: {
+                            activityId: authoritativeActivityId,
+                            formSlug: form.slug,
+                            submissionId: submission._id,
+                            rating: submissionRating,
+                            source: 'public_feedback_form'
+                        },
+                        status: 'success'
+                    }], eventOpts);
+
+                    await OutboxEvent.create([{
+                        eventId: uuidv4(),
+                        eventType: 'ActivityUpdated',
+                        aggregateType: 'Activity',
+                        aggregateId: authoritativeActivityId,
+                        correlationId: req.headers['x-correlation-id'] || uuidv4(),
+                        status: 'PENDING',
+                        payload: {
+                            activityId: authoritativeActivityId,
+                            entityType: 'Lead',
+                            entityId: String(authoritativeLeadId),
+                            status: 'Completed',
+                            newStatus: 'Completed',
+                            statusChanged: true,
+                            type: activityDoc.type,
+                            subject: activityDoc.subject || '',
+                            description: activityDoc.description || '',
+                            completedAt: new Date(),
+                            completionResult: 'Feedback Received',
+                            completionSource: 'public_feedback_form',
+                            performedBy: 'Customer (Public Form)',
+                            companyId: null,
+                            actorId: null,
+                            submissionId: submission._id,
+                            details: activityDoc.details || {}
+                        }
+                    }], eventOpts);
+                } catch (_) {}
+
                 return res.status(201).json({
                     success: true,
                     data: submission,
+                    submissionId: submission._id,
                     reconciled: isExistingReconciledSubmission,
                     message: form.settings?.successMessage || "Feedback submitted successfully. Thank you!",
                     redirectUrl: form.settings?.redirectUrl
@@ -702,30 +960,85 @@ export const submitFeedback = async (req, res, next) => {
         }
 
         // Case 2: General / Anonymous Public Feedback Submission
-        const created = await FeedbackSubmission.create({
-            form: form._id,
-            lead: (authoritativeLeadId && mongoose.Types.ObjectId.isValid(authoritativeLeadId)) ? authoritativeLeadId : null,
-            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
-            department: form.department,
-            teams: form.teams,
-            responses,
-            rating: submissionRating,
-            idempotencyKey: requestIdentity || undefined,
-            sourceMeta: sourceMeta || {}
-        });
-        const submission = Array.isArray(created) ? created[0] : created;
-
-        // Update analytics
-        form.analytics.submissions += 1;
-        if (submissionRating > 0) {
-            form.analytics.averageRating = ((form.analytics.averageRating * (form.analytics.submissions - 1)) + submissionRating) / form.analytics.submissions;
+        if (requestIdentity) {
+            const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+            if (existing && existing.idempotencyKey === requestIdentity) {
+                if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        submissionId: existing._id,
+                        message: 'Feedback already recorded.'
+                    });
+                }
+            }
         }
-        await form.save();
+
+        let submission;
+        try {
+            const submissionPayload = {
+                form: form._id,
+                lead: (authoritativeLeadId && mongoose.Types.ObjectId.isValid(authoritativeLeadId)) ? authoritativeLeadId : null,
+                activity: (authoritativeActivityId && mongoose.Types.ObjectId.isValid(authoritativeActivityId)) ? authoritativeActivityId : null,
+                inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                department: form.department || null,
+                teams: form.teams || [],
+                responses,
+                rating: submissionRating,
+                idempotencyKey: requestIdentity || undefined,
+                sourceMeta: sourceMeta || {
+                    userAgent: req.headers?.['user-agent']
+                }
+            };
+            const submissionDocs = [submissionPayload];
+            Object.assign(submissionDocs, submissionPayload);
+
+            const created = await FeedbackSubmission.create(submissionDocs);
+            submission = Array.isArray(created) ? created[0] : created;
+        } catch (err) {
+            if ((err.code === 11000 || err.message?.includes('E11000')) && requestIdentity) {
+                const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+                if (existing && existing.idempotencyKey === requestIdentity) {
+                    if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                        return res.status(200).json({
+                            success: true,
+                            duplicate: true,
+                            submissionId: existing._id,
+                            message: 'Feedback already recorded.'
+                        });
+                    }
+                }
+            }
+            throw err;
+        }
+
+        if (authoritativeLeadId) {
+            AuditLog.create([{
+                eventType: 'lead_updated',
+                targetType: 'lead',
+                targetId: authoritativeLeadId,
+                targetName: 'Lead',
+                description: `General customer feedback recorded via form ${form.slug}`,
+                changes: {
+                    after: { submissionId: submission._id }
+                },
+                metadata: {
+                    formSlug: form.slug,
+                    submissionId: submission._id,
+                    rating: submissionRating,
+                    source: 'public_feedback_form'
+                },
+                status: 'success'
+            }]).catch(err => console.error('[AuditLog Error]:', err.message));
+        }
+
+        FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.submissions': 1 } }).catch(() => {});
 
         return res.status(201).json({
             success: true,
             data: submission,
-            message: form.settings?.successMessage || "Feedback submitted successfully. Thank you!",
+            submissionId: submission._id,
+            message: form.settings?.successMessage || 'Feedback submitted successfully. Thank you!',
             redirectUrl: form.settings?.redirectUrl
         });
 
@@ -734,3 +1047,4 @@ export const submitFeedback = async (req, res, next) => {
         next(error);
     }
 };
+

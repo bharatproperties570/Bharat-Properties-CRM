@@ -1322,11 +1322,12 @@ export const getDeals = async (req, res) => {
 
         // Deal State Filters
         if (queryIntent) query.intent = await resolveMultiFilter('Intent', queryIntent);
-        if (queryStage) {
-            const stages = Array.isArray(queryStage) ? queryStage : queryStage.split(',').filter(Boolean);
+        const rawStage = queryStage || req.query['stage[]'];
+        if (rawStage) {
+            const stages = Array.isArray(rawStage) ? rawStage : (typeof rawStage === 'string' ? rawStage.split(',').filter(Boolean) : [rawStage]);
             if (stages.length > 0) query.stage = { $in: stages };
         } else {
-            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by defaul
+            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by default
             query.stage = { $nin: ['Closed Won', 'Closed Lost', 'Cancelled', 'Closed', 'Sold Out'] };
         }
         if (queryUnitType) {
@@ -1491,6 +1492,7 @@ export const getDeals = async (req, res) => {
         const dealListProjection = {
             _id: 1, dealId: 1, projectName: 1, unitNo: 1, unitType: 1, propertyType: 1,
             category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
+            sizeConfig: 1, sizeUnit: 1, width: 1, length: 1, widthMetric: 1, lengthMetric: 1, block: 1,
             price: 1, ratePrice: 1, pricingMode: 1, stage: 1, status: 1,
             dealProbability: 1, dealScore: 1, createdAt: 1, isVisible: 1,
             owner: 1, associatedContact: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1,
@@ -1502,7 +1504,7 @@ export const getDeals = async (req, res) => {
         };
 
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification direction facing roadWidth orientation builtupType latitude longitude lat lng builtUpArea ageOfConstruction constructionAge owners associates' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification direction facing roadWidth orientation builtupType latitude longitude lat lng builtUpArea ageOfConstruction constructionAge owners associates width length widthMetric lengthMetric dimensionMetric' },
             { path: 'projectId', select: 'name latitude longitude lat lng' },
             { path: 'owner', select: 'name phones emails mobile phone email', model: 'Contact' },
             { path: 'associatedContact', select: 'name phones emails mobile phone email', model: 'Contact' },
@@ -1526,11 +1528,17 @@ export const getDeals = async (req, res) => {
 
         // 🏎️ SENIOR OPTIMIZATION: Parallelize Pagination and Aggregation
         let categoryStatsPromise = Promise.resolve([]);
+        let subCategoryStatsPromise = Promise.resolve([]);
 
         if (Number(page) === 1) {
+            // Category breakdown: ignores category & subCategory filters so top-level distribution is always complete
+            const catStatsQuery = { ...query };
+            delete catStatsQuery.category;
+            delete catStatsQuery.subCategory;
+
             // 🚀 PHASE 2.3-S OPT1: Add pipeline projection to $lookup — only fetch 'category' from inventories
             categoryStatsPromise = Deal.aggregate([
-                { $match: { ...query } },
+                { $match: catStatsQuery },
                 {
                     $lookup: {
                         from: 'inventories',
@@ -1560,15 +1568,77 @@ export const getDeals = async (req, res) => {
                     count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
                 }));
             });
+
+            // 🎯 ENTERPRISE SUB-CATEGORY AGGREGATION: If category filter is active, aggregate sub-categories
+            if (category) {
+                const subCatStatsQuery = { ...query };
+                delete subCatStatsQuery.subCategory; // Exclude subCategory filter so sibling sub-categories remain visible
+
+                subCategoryStatsPromise = Deal.aggregate([
+                    { $match: subCatStatsQuery },
+                    {
+                        $lookup: {
+                            from: 'inventories',
+                            localField: 'inventoryId',
+                            foreignField: '_id',
+                            pipeline: [{ $project: { category: 1, subCategory: 1 } }],
+                            as: 'inventory'
+                        }
+                    },
+                    { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
+                    {
+                        $project: {
+                            activeCategory: { $ifNull: ["$category", "$inventory.category"] },
+                            activeSubCategory: { $ifNull: ["$subCategory", "$inventory.subCategory"] }
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: "$activeSubCategory",
+                            count: { $sum: 1 }
+                        }
+                    }
+                ]).then(async (subStatsAgg) => {
+                    const subResultIds = subStatsAgg
+                        .map(s => s._id)
+                        .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+                        .map(id => new mongoose.Types.ObjectId(id));
+                    const subDocs = subResultIds.length > 0
+                        ? await Lookup.find({ _id: { $in: subResultIds } }).select('_id lookup_value').lean()
+                        : [];
+                    const subMap = new Map(subDocs.map(d => [d._id.toString(), d.lookup_value]));
+
+                    const subCategoryStatsMap = new Map();
+                    subStatsAgg.forEach(item => {
+                        if (!item._id) return;
+                        const rawName = subMap.get(String(item._id)) || String(item._id);
+                        const cleanName = rawName.trim();
+                        if (!cleanName || cleanName === 'null' || cleanName === 'undefined') return;
+                        const key = cleanName.toLowerCase();
+                        const existing = subCategoryStatsMap.get(key);
+                        if (existing) {
+                            existing.count += item.count;
+                        } else {
+                            subCategoryStatsMap.set(key, { name: cleanName, count: item.count });
+                        }
+                    });
+
+                    return Array.from(subCategoryStatsMap.values()).sort((a, b) => b.count - a.count);
+                }).catch(err => {
+                    console.error('[DEALS_AGG] SubCategory aggregation error:', err.message);
+                    return [];
+                });
+            }
         }
 
         // Execute queries concurrently
         // 🚀 PHASE 2.3-S OPT2: Fetch lookups in parallel with paginate+categoryStats instead of sequentially after
         console.log(">> getDeals API: starting Promise.all");
         console.time("getDeals_Paginate_Category");
-        const [results, categoryCounts] = await Promise.all([
+        const [results, categoryCounts, subCategoryCounts] = await Promise.all([
             paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields, null, dealListProjection),
-            categoryStatsPromise
+            categoryStatsPromise,
+            subCategoryStatsPromise
         ]);
         console.timeEnd("getDeals_Paginate_Category");
         console.log(">> getDeals API: finished Promise.all");
@@ -1668,7 +1738,9 @@ export const getDeals = async (req, res) => {
             else if (typeof val === 'object' && val._id && isValidObjectId(val._id)) lookupIdSet.add(String(val._id));
         };
 
+        const projectNamesForSize = new Set();
         results.records.forEach(deal => {
+            if (deal.projectName) projectNamesForSize.add(deal.projectName);
             extractRef(deal.category);
             extractRef(deal.subCategory);
             extractRef(deal.propertyType);
@@ -1677,6 +1749,7 @@ export const getDeals = async (req, res) => {
             extractRef(deal.location);
             extractRef(deal.unitType);
             extractRef(deal.sizeConfig);
+            extractRef(deal.sizeLabel);
             extractRef(deal.direction);
             extractRef(deal.roadWidth);
             extractRef(deal.facing);
@@ -1690,6 +1763,7 @@ export const getDeals = async (req, res) => {
                 extractRef(deal.unitSpecification.builtupType);
                 extractRef(deal.unitSpecification.orientation);
                 extractRef(deal.unitSpecification.sizeConfig);
+                extractRef(deal.unitSpecification.sizeLabel);
             }
 
             const invId = deal.inventoryId?._id || deal.inventoryId;
@@ -1703,11 +1777,13 @@ export const getDeals = async (req, res) => {
             }
 
             if (inventory) {
+                if (inventory.projectName) projectNamesForSize.add(inventory.projectName);
                 extractRef(inventory.location);
                 extractRef(inventory.category);
                 extractRef(inventory.propertyType);
                 extractRef(inventory.unitType);
                 extractRef(inventory.sizeConfig);
+                extractRef(inventory.sizeLabel);
                 extractRef(inventory.direction);
                 extractRef(inventory.roadWidth);
                 extractRef(inventory.facing);
@@ -1720,6 +1796,7 @@ export const getDeals = async (req, res) => {
                     extractRef(inventory.unitSpecification.builtupType);
                     extractRef(inventory.unitSpecification.orientation);
                     extractRef(inventory.unitSpecification.sizeConfig);
+                    extractRef(inventory.unitSpecification.sizeLabel);
                 }
             }
         });
@@ -1733,11 +1810,20 @@ export const getDeals = async (req, res) => {
             const regexes = Array.from(lookupStringSet).map(s => new RegExp(`^\\s*${escapeRegExp(s)}\\s*$`, 'i'));
             conditions.push({ lookup_value: { $in: regexes } });
         }
+        if (projectNamesForSize.size > 0) {
+            conditions.push({
+                lookup_type: 'Size',
+                $or: [
+                    { 'metadata.project': { $in: Array.from(projectNamesForSize) } },
+                    { 'metadata.projectMappings.project': { $in: Array.from(projectNamesForSize) } }
+                ]
+            });
+        }
 
         let allLookups = [];
         if (conditions.length > 0) {
             lookupQuery.$or = conditions;
-            allLookups = await Lookup.find(lookupQuery).select('_id lookup_type lookup_value').lean();
+            allLookups = await Lookup.find(lookupQuery).select('_id lookup_type lookup_value metadata').lean();
         }
 
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
@@ -1777,15 +1863,15 @@ export const getDeals = async (req, res) => {
             }
 
             if (inventory) {
-                // Only fall back to inventory owner if deal does not already have a populated owner with name
+                // Only fall back to inventory owner if deal does not explicitly have isOwnerSelected: false, and does not already have a populated owner with name
                 const hasPopulatedOwner = dealObj.owner && typeof dealObj.owner === 'object' && dealObj.owner.name;
-                if (!hasPopulatedOwner && inventory.owners?.[0]) {
+                if (dealObj.isOwnerSelected !== false && !hasPopulatedOwner && inventory.owners?.[0]) {
                     dealObj.owner = inventory.owners[0];
                 }
 
-                // Only fall back to inventory associate if deal does not already have a populated associate with name
+                // Only fall back to inventory associate if deal does not explicitly have isAssociateSelected: false, and does not already have a populated associate with name
                 const hasPopulatedAssoc = dealObj.associatedContact && typeof dealObj.associatedContact === 'object' && dealObj.associatedContact.name;
-                if (!hasPopulatedAssoc && inventory.associates?.[0]?.contact) {
+                if (dealObj.isAssociateSelected !== false && !hasPopulatedAssoc && inventory.associates?.[0]?.contact) {
                     dealObj.associatedContact = inventory.associates[0].contact;
                 }
 
@@ -1812,6 +1898,10 @@ export const getDeals = async (req, res) => {
                 dealObj.sizeUnit = sizeUnit;
                 dealObj.sizeLabel = sizeLabel;
                 dealObj.sizeConfig = sizeConfig;
+                dealObj.width = dealObj.width || inventory.width || inventory.unitSpecification?.width;
+                dealObj.length = dealObj.length || inventory.length || inventory.unitSpecification?.length;
+                dealObj.widthMetric = dealObj.widthMetric || inventory.widthMetric || inventory.dimensionMetric || inventory.unitSpecification?.widthMetric || 'Feet';
+                dealObj.lengthMetric = dealObj.lengthMetric || inventory.lengthMetric || inventory.dimensionMetric || inventory.unitSpecification?.lengthMetric || 'Feet';
                 dealObj.unitSpecification = unitSpec;
 
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
@@ -1826,6 +1916,10 @@ export const getDeals = async (req, res) => {
                     inv.sizeConfig = sizeConfig;
                     inv.size = size;
                     inv.sizeUnit = sizeUnit;
+                    inv.width = dealObj.width;
+                    inv.length = dealObj.length;
+                    inv.widthMetric = dealObj.widthMetric;
+                    inv.lengthMetric = dealObj.lengthMetric;
                     inv.unitSpecification = unitSpec;
                 }
             }
@@ -1847,6 +1941,7 @@ export const getDeals = async (req, res) => {
             enrichWithLookup(dealObj, 'location');
             enrichWithLookup(dealObj, 'unitType');
             enrichWithLookup(dealObj, 'sizeConfig');
+            enrichWithLookup(dealObj, 'sizeLabel');
             enrichWithLookup(dealObj, 'direction');
             enrichWithLookup(dealObj, 'roadWidth');
             enrichWithLookup(dealObj, 'facing');
@@ -1860,6 +1955,7 @@ export const getDeals = async (req, res) => {
                 enrichWithLookup(dealObj.unitSpecification, 'builtupType');
                 enrichWithLookup(dealObj.unitSpecification, 'orientation');
                 enrichWithLookup(dealObj.unitSpecification, 'sizeConfig');
+                enrichWithLookup(dealObj.unitSpecification, 'sizeLabel');
             }
 
             if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
@@ -1868,11 +1964,80 @@ export const getDeals = async (req, res) => {
                 enrichWithLookup(dealObj.inventoryId, 'propertyType');
                 enrichWithLookup(dealObj.inventoryId, 'unitType');
                 enrichWithLookup(dealObj.inventoryId, 'sizeConfig');
+                enrichWithLookup(dealObj.inventoryId, 'sizeLabel');
                 enrichWithLookup(dealObj.inventoryId, 'direction');
                 enrichWithLookup(dealObj.inventoryId, 'roadWidth');
                 enrichWithLookup(dealObj.inventoryId, 'facing');
                 enrichWithLookup(dealObj.inventoryId, 'builtupType');
                 enrichWithLookup(dealObj.inventoryId, 'orientation');
+            }
+
+            // 🛡️ [ENTERPRISE RESOLUTION]: Ensure sizeLabel is never a raw 24-char ObjectId hex string
+            const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+            const extractDisplayLabel = (val) => {
+                if (!val) return null;
+                if (typeof val === 'object') {
+                    const lkVal = val.lookup_value || val.name || val.label;
+                    if (lkVal && !isHex(lkVal)) return String(lkVal);
+                    if (val._id && lookupMap.has(String(val._id))) {
+                        return lookupMap.get(String(val._id)).lookup_value;
+                    }
+                    return null;
+                }
+                if (typeof val === 'string') {
+                    if (isHex(val)) {
+                        const lk = lookupMap.get(val);
+                        return lk ? lk.lookup_value : null;
+                    }
+                    return val.trim() !== '-' ? val : null;
+                }
+                return null;
+            };
+
+            let finalSizeName = 
+                extractDisplayLabel(dealObj.sizeLabel) ||
+                extractDisplayLabel(dealObj.sizeConfig) ||
+                extractDisplayLabel(dealObj.unitSpecification?.sizeLabel) ||
+                extractDisplayLabel(dealObj.unitSpecification?.sizeConfig) ||
+                extractDisplayLabel(inventory?.sizeLabel) ||
+                extractDisplayLabel(inventory?.sizeConfig);
+
+            const dealWidth = dealObj.width || dealObj.unitSpecification?.width || inventory?.width;
+            const dealLength = dealObj.length || dealObj.unitSpecification?.length || inventory?.length;
+            const dealMetric = dealObj.widthMetric || dealObj.unitSpecification?.widthMetric || inventory?.widthMetric || 'Meter';
+
+            // Match by dimensions in allLookups if still unassigned
+            if (!finalSizeName && dealWidth && dealLength) {
+                const matchedLk = allLookups.find(lk => 
+                    lk.lookup_type === 'Size' &&
+                    lk.metadata &&
+                    Number(lk.metadata.width) === Number(dealWidth) &&
+                    Number(lk.metadata.length) === Number(dealLength)
+                );
+                if (matchedLk && matchedLk.lookup_value) {
+                    finalSizeName = matchedLk.lookup_value;
+                } else {
+                    finalSizeName = `${dealWidth} x ${dealLength} ${dealMetric}`;
+                }
+            }
+
+            // Fallback to deal.size number and unit
+            if (!finalSizeName) {
+                const sVal = typeof dealObj.size === 'object' ? dealObj.size?.value : dealObj.size;
+                const sUnit = typeof dealObj.size === 'object' ? dealObj.size?.unit : (dealObj.sizeUnit || 'Sq.Ft.');
+                if (sVal && sVal !== '0' && sVal !== 0) {
+                    finalSizeName = `${sVal} ${sUnit}`;
+                }
+            }
+
+            if (finalSizeName) {
+                dealObj.sizeLabel = {
+                    lookup_value: finalSizeName,
+                    name: finalSizeName,
+                    value: finalSizeName
+                };
+            } else if (isHex(dealObj.sizeLabel)) {
+                dealObj.sizeLabel = null;
             }
 
             const ownerId = dealObj.owner?._id || dealObj.owner;
@@ -1946,6 +2111,7 @@ export const getDeals = async (req, res) => {
             success: true,
             ...results,
             categoryStats: categoryCounts,
+            subCategoryStats: subCategoryCounts || [],
             records: enrichedRecords
         };
 
@@ -2072,12 +2238,12 @@ export const getDealById = async (req, res) => {
         const resolveLookupInDoc = async (doc) => {
             if (!doc) return;
             const fields = [
-                'category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig',
+                'category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig', 'sizeLabel',
                 'direction', 'roadWidth', 'facing', 'builtupType', 'orientation'
             ];
             const lookupTypeMap = {
                 category: 'Category', subCategory: 'SubCategory', intent: 'Intent',
-                status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size',
+                status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size', sizeLabel: 'Size',
                 direction: 'Direction', roadWidth: 'RoadWidth', facing: 'Facing', builtupType: 'BuiltupType', orientation: 'Orientation'
             };
             for (const field of fields) {
@@ -2099,7 +2265,7 @@ export const getDealById = async (req, res) => {
             }
 
             if (doc.unitSpecification && typeof doc.unitSpecification === 'object') {
-                for (const field of ['direction', 'roadWidth', 'facing', 'builtupType', 'orientation', 'sizeConfig']) {
+                for (const field of ['direction', 'roadWidth', 'facing', 'builtupType', 'orientation', 'sizeConfig', 'sizeLabel']) {
                     const val = doc.unitSpecification[field];
                     if (!val) continue;
                     if (typeof val === 'string' && !isValidObjectId(val)) {
@@ -2121,6 +2287,41 @@ export const getDealById = async (req, res) => {
         await resolveLookupInDoc(dealObj);
         if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
             await resolveLookupInDoc(dealObj.inventoryId);
+        }
+
+        // 🛡️ [ENTERPRISE RESOLUTION]: Ensure sizeLabel is never a raw 24-char ObjectId hex string in getDealById
+        const isHexId = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+        let finalDealSizeLabel = null;
+        if (dealObj.sizeLabel) {
+            if (typeof dealObj.sizeLabel === 'object') {
+                const lv = dealObj.sizeLabel.lookup_value || dealObj.sizeLabel.name || dealObj.sizeLabel.label;
+                if (lv && !isHexId(lv)) finalDealSizeLabel = lv;
+            } else if (!isHexId(dealObj.sizeLabel) && dealObj.sizeLabel !== '-') {
+                finalDealSizeLabel = dealObj.sizeLabel;
+            }
+        }
+        if (!finalDealSizeLabel && dealObj.sizeConfig) {
+            if (typeof dealObj.sizeConfig === 'object') {
+                const lv = dealObj.sizeConfig.lookup_value || dealObj.sizeConfig.name;
+                if (lv && !isHexId(lv)) finalDealSizeLabel = lv;
+            } else if (!isHexId(dealObj.sizeConfig)) {
+                finalDealSizeLabel = dealObj.sizeConfig;
+            }
+        }
+        if (!finalDealSizeLabel && (dealObj.width || dealObj.unitSpecification?.width) && (dealObj.length || dealObj.unitSpecification?.length)) {
+            const dw = dealObj.width || dealObj.unitSpecification?.width;
+            const dl = dealObj.length || dealObj.unitSpecification?.length;
+            const dm = dealObj.widthMetric || dealObj.unitSpecification?.widthMetric || 'Meter';
+            finalDealSizeLabel = `${dw} x ${dl} ${dm}`;
+        }
+        if (finalDealSizeLabel) {
+            dealObj.sizeLabel = {
+                lookup_value: finalDealSizeLabel,
+                name: finalDealSizeLabel,
+                value: finalDealSizeLabel
+            };
+        } else if (isHexId(dealObj.sizeLabel)) {
+            dealObj.sizeLabel = null;
         }
 
         const responseData = {
@@ -2190,12 +2391,16 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
 
     const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
     const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    const soldOutLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).lean();
+    const blockedLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Blocked', 'Booked'] } }).lean();
 
     const availableId = availableLookup ? availableLookup._id : 'Available';
     const activeId = activeLookup ? activeLookup._id : 'Active';
+    const soldOutId = soldOutLookup ? soldOutLookup._id : 'Sold Out';
+    const blockedId = blockedLookup ? blockedLookup._id : 'Blocked';
 
     if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
-        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: soldOutId }, opts);
         return;
     }
 
@@ -2205,11 +2410,13 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
             $or: [
                 { status: availableId },
                 { status: activeId },
+                { status: 'Available' },
+                { status: 'Active' },
                 { status: null },
                 { status: { $exists: false } }
             ]
         };
-        const result = await Inventory.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
+        const result = await Inventory.findOneAndUpdate(filter, { status: blockedId }, opts);
         if (!result) {
             const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
             err.code = 'INVENTORY_UNAVAILABLE';
@@ -2221,11 +2428,12 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
     if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
         const activeDeals = await Deal.countDocuments({
             inventoryId: deal.inventoryId,
+            _id: { $ne: deal._id },
             stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
         }).session(opts.session || null);
 
         if (activeDeals === 0) {
-            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId }, opts);
         }
         return;
     }
@@ -2236,6 +2444,8 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
     const validStates = [
         { status: availableId },
         { status: activeId },
+        { status: 'Available' },
+        { status: 'Active' },
         { status: null },
         { status: { $exists: false } }
     ];
@@ -2245,7 +2455,7 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
         $or: validStates
     };
 
-    const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
+    const result = await Inventory.findOneAndUpdate(filter, { status: activeId }, opts);
     if (!result) {
         const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
         err.code = 'INVENTORY_UNAVAILABLE';
@@ -2260,6 +2470,12 @@ export const addDeal = async (req, res) => {
         const sanitizedData = sanitizeData(req.body);
         const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
 
+        // 🏢 Multi-Tenancy Data Scope Isolation
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            sanitizedData.tenantId = effectiveTenantId;
+        }
+
         const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
         const { WorkflowEngine } = await import('../src/utils/WorkflowEngine.js');
         const mongoose = await import('mongoose');
@@ -2267,6 +2483,7 @@ export const addDeal = async (req, res) => {
         const input = {
             source: sanitizedData.source || 'API',
             idempotencyKey,
+            tenantId: effectiveTenantId,
             correlationId: req.headers['x-correlation-id'] || req.headers['x-request-id'] || 'web-form-fallback',
             dealData: sanitizedData,
             linkage: {
@@ -2299,7 +2516,9 @@ export const addDeal = async (req, res) => {
 
         // Trigger Workflow Engine (Legacy compatibility)
         try {
-            if (result.deal.inventoryId) {
+            const deal = result.deal;
+            await WorkflowEngine.fireEvent('deals', 'deal_created', deal, deal.companyId);
+            if (deal.inventoryId) {
                 const InventoryModel = mongoose.default ? mongoose.default.model('Inventory') : mongoose.model('Inventory');
                 const linkedInv = await InventoryModel.findById(result.deal.inventoryId).lean();
                 if (linkedInv) {
@@ -2336,6 +2555,42 @@ export const updateDeal = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
         }
 
+        const ALLOWED_STAGES = ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'];
+        if (stageProvided && !ALLOWED_STAGES.includes(sanitizedData.stage)) {
+            return res.status(400).json({
+                success: false,
+                error: `Invalid deal stage: '${sanitizedData.stage}'. Allowed stages: ${ALLOWED_STAGES.join(', ')}`
+            });
+        }
+
+        const now = new Date();
+        if (newStage === 'Closed Lost') {
+            sanitizedData.closingDetails = sanitizedData.closingDetails || {};
+            sanitizedData.closingDetails.isClosed = true;
+            if (sanitizedData.lossReasons && !sanitizedData.closingDetails.lossReasons) {
+                sanitizedData.closingDetails.lossReasons = Array.isArray(sanitizedData.lossReasons) ? sanitizedData.lossReasons : [sanitizedData.lossReasons];
+            }
+            if (sanitizedData.marketPrice && !sanitizedData.closingDetails.lostPrice) {
+                sanitizedData.closingDetails.lostPrice = Number(sanitizedData.marketPrice);
+            }
+            if (sanitizedData.lostPrice && !sanitizedData.closingDetails.lostPrice) {
+                sanitizedData.closingDetails.lostPrice = Number(sanitizedData.lostPrice);
+            }
+            if (!sanitizedData.closingDetails.lostDate && !sanitizedData.closingDetails.closingDate) {
+                sanitizedData.closingDetails.lostDate = now;
+                sanitizedData.closingDetails.closingDate = now;
+            }
+        } else if (newStage === 'Closed Won' || newStage === 'Closed') {
+            sanitizedData.closingDetails = sanitizedData.closingDetails || {};
+            sanitizedData.closingDetails.isClosed = true;
+            if (!sanitizedData.closingDetails.closingDate) {
+                sanitizedData.closingDetails.closingDate = now;
+            }
+            if (sanitizedData.closedPrice !== undefined && sanitizedData.closedPrice !== null && !isNaN(Number(sanitizedData.closedPrice))) {
+                sanitizedData.closedPrice = Number(sanitizedData.closedPrice);
+            }
+        }
+
         await withMongoTransaction(async (session) => {
             // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             const visibilityFilter = await getVisibilityFilter(req.user);
@@ -2348,13 +2603,14 @@ export const updateDeal = async (req, res) => {
                 previousStage = existing.stage || null;
                 stageChanged = stageProvided && sanitizedData.stage !== existing.stage;
 
-                const now = new Date();
                 const historyUpdate = {};
                 let requiresHistoryUpdate = false;
 
                 // 1. Stage History
                 if (stageChanged) {
                     requiresHistoryUpdate = true;
+                    sanitizedData.stageChangedAt = now;
+                    historyUpdate.stageChangedAt = now;
                     if (existing.stageHistory?.length > 0) {
                         const lastIdx = existing.stageHistory.length - 1;
                         const last = existing.stageHistory[lastIdx];
@@ -2464,7 +2720,7 @@ export const updateDeal = async (req, res) => {
                 if (!sanitizedData.assignment) sanitizedData.assignment = {};
                 sanitizedData.assignment.team = [sanitizedData.team];
             }
-            deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, session });
+            deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, runValidators: true, session });
             if (!deal) {
                 throw new Error('Deal not found');
             }
@@ -2490,14 +2746,16 @@ export const updateDeal = async (req, res) => {
                 await mongoose.model('Activity').create([{
                     entityId: deal.inventoryId,
                     entityType: 'Inventory',
-                    type: 'system_note',
-                    subType: 'deal_lost',
-                    user: req.user?.id || null,
+                    type: 'Task',
+                    subject: `Deal Lost after ${daysActive} days`,
+                    dueDate: lostAt,
                     title: `Deal Lost after ${daysActive} days`,
                     description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.closingDetails?.remarks || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.${lostPriceMsg}`,
-                    priority: 'medium',
-                    status: 'completed',
-                    completedAt: lostAt
+                    priority: 'Normal',
+                    status: 'Completed',
+                    completedAt: lostAt,
+                    createdBy: req.user?.id || null,
+                    performedBy: req.user?.name || 'System'
                 }], { session });
             }
 
@@ -2519,7 +2777,13 @@ export const updateDeal = async (req, res) => {
 
     } catch (error) {
         const msg = error.message || 'Transaction failed';
-        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('DUPLICATE PROTECTION') || msg.includes('Deal not found')) {
+        if (
+            msg.includes('INVENTORY_UNAVAILABLE') ||
+            msg.includes('DUPLICATE PROTECTION') ||
+            msg.includes('Deal not found') ||
+            msg.includes('Invalid deal stage') ||
+            error.name === 'ValidationError'
+        ) {
             return res.status(400).json({ success: false, error: msg, message: msg });
         }
         console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
@@ -2542,9 +2806,18 @@ export const deleteDeal = async (req, res) => {
         const deal = await Deal.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found or access denied" });
 
-        // Reset inventory status if the deal was deleted
+        // Reset inventory status if the deal was deleted and no other active deals remain
         if (deal.inventoryId) {
-            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' });
+            const activeDeals = await Deal.countDocuments({
+                inventoryId: deal.inventoryId,
+                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+            });
+            if (activeDeals === 0) {
+                const Lookup = mongoose.model('Lookup');
+                const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+                const availableId = availableLookup ? availableLookup._id : 'Available';
+                await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId });
+            }
         }
 
         res.json({ success: true, message: "Deal deleted successfully" });
@@ -2560,15 +2833,36 @@ export const bulkDeleteDeals = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
 
-        // Reset inventory status for all deals being deleted
-        const deals = await Deal.find({ _id: { $in: ids } }).select('inventoryId');
-        const inventoryIds = deals.map(d => d.inventoryId).filter(Boolean);
-        if (inventoryIds.length > 0) {
-            await Inventory.updateMany({ _id: { $in: inventoryIds } }, { status: 'Available' });
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
+        // Reset inventory status for all deals being deleted strictly within tenant scope
+        const deals = await Deal.find({ _id: { $in: ids }, ...tenantFilter }).select('_id inventoryId');
+        const allowedIds = deals.map(d => d._id);
+
+        if (allowedIds.length === 0) {
+            return res.json({ success: true, message: "0 deals deleted" });
         }
 
-        await Deal.deleteMany({ _id: { $in: ids } });
-        res.json({ success: true, message: `${ids.length} deals deleted successfully` });
+        const inventoryIds = deals.map(d => d.inventoryId).filter(Boolean);
+        if (inventoryIds.length > 0) {
+            const Lookup = mongoose.model('Lookup');
+            const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+            const availableId = availableLookup ? availableLookup._id : 'Available';
+            for (const invId of inventoryIds) {
+                const remainingActive = await Deal.countDocuments({
+                    _id: { $nin: allowedIds },
+                    inventoryId: invId,
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                });
+                if (remainingActive === 0) {
+                    await Inventory.updateOne({ _id: invId, ...tenantFilter }, { status: availableId });
+                }
+            }
+        }
+
+        await Deal.deleteMany({ _id: { $in: allowedIds }, ...tenantFilter });
+        res.json({ success: true, message: `${allowedIds.length} deals deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -2581,32 +2875,227 @@ export const importDeals = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data format" });
         }
 
+        const rawTenantId = req.user?.tenantId || req.user?.tenant || null;
+        const User = mongoose.model('User');
+        const Project = mongoose.model('Project');
+        const Inventory = mongoose.model('Inventory');
+
         const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
+        const { resolveContactIdentity } = await import('../services/contactIdentity.service.js');
+        const { normalizePhone } = await import('../utils/normalization.js');
 
-        const results = [];
-        let successCount = 0;
-        let failCount = 0;
+        let importedCount = 0;
+        let duplicateCount = 0;
+        let otherErrorCount = 0;
 
-        for (let i = 0; i < data.length; i++) {
-            const item = data[i];
+        const isDuplicateError = (err) => {
+            if (err.name === 'DuplicateDealError' || err.code === 'DUPLICATE_DEAL') return true;
+            if (err.code === 11000) {
+                if (err.keyPattern) {
+                    const keys = Object.keys(err.keyPattern).sort().join(',');
+                    if (keys === 'inventoryId' || keys === 'block,projectName,unitNo') return true;
+                }
+                if (err.message && (err.message.includes('deal_active_inventory_unique') || err.message.includes('deal_active_coordinates_unique') || err.message.includes('DUPLICATE DEAL DETECTED'))) {
+                    return true;
+                }
+            }
+            if (err.message && (err.message.includes('DUPLICATE DEAL DETECTED') || err.message.includes('Duplicate deal detected'))) {
+                return true;
+            }
+            return false;
+        };
+
+        const processRow = async (item, index) => {
             try {
-                // We let Engine handle the normalization, but we map raw CSV keys if needed
-                const dealData = { ...item };
-                if (item.latitude || item.lat) dealData.latitude = item.latitude || item.lat;
-                if (item.longitude || item.lng) dealData.longitude = item.longitude || item.lng;
+                // 1. Whitelist & Normalize Input
+                const dealData = {
+                    projectName: item.projectName ? String(item.projectName).trim() : null,
+                    block: item.block ? String(item.block).trim() : null,
+                    unitNo: item.unitNo ? String(item.unitNo).trim() : null,
+                    price: parseFloat(item.price) || 0,
+                    unitType: item.unitType,
+                    propertyType: item.propertyType,
+                    category: item.category,
+                    subCategory: item.subCategory,
+                    size: item.size,
+                    location: item.location,
+                    intent: item.intent,
+                    quotePrice: parseFloat(item.quotePrice) || 0,
+                    pricingMode: item.pricingMode || 'Total',
+                    ratePrice: parseFloat(item.ratePrice) || 0,
+                    quoteRatePrice: parseFloat(item.quoteRatePrice) || 0,
+                    pricingNature: {
+                        negotiable: item.negotiable === 'Yes' || item.negotiable === true,
+                        fixed: item.fixed === 'Yes' || item.fixed === true
+                    },
+                    stage: item.stage || item.status || 'Open',
+                    status: item.status || 'Open',
+                    dealType: item.dealType || 'Warm',
+                    transactionType: item.transactionType || 'Full White',
+                    flexiblePercentage: parseFloat(item.flexiblePercentage) || 50,
+                    team: item.team,
+                    visibleTo: item.visibleTo || 'Public',
+                    remarks: item.remarks,
+                    latitude: item.latitude || item.lat,
+                    longitude: item.longitude || item.lng,
+                    date: item.date ? new Date(item.date) : new Date()
+                };
 
-                const input = {
+                if (rawTenantId) {
+                    dealData.tenantId = rawTenantId;
+                }
+
+                let ownerPhone = item.ownerPhone ? String(item.ownerPhone).trim() : null;
+                let ownerName = item.ownerName ? String(item.ownerName).trim() : null;
+                let ownerEmail = item.ownerEmail ? String(item.ownerEmail).trim() : null;
+                let assignedTo = item.assignedTo || item.assignedUser || item.owner || item.ownerId || null;
+                let resolvedProjectId = item.projectId || null;
+                let resolvedInventoryId = item.inventoryId || null;
+                let resolvedOwnerContactId = null;
+
+                if (ownerPhone) {
+                    ownerPhone = normalizePhone(ownerPhone);
+                }
+
+                // 2. Validate assignedTo
+                if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
+                    const userExists = await User.exists({ _id: assignedTo, isActive: true, isDeleted: { $ne: true } });
+                    if (!userExists) {
+                        const err = new Error('User is inactive, deleted, or does not exist');
+                        err.errorCode = 'INVALID_ASSIGNED_USER';
+                        throw err;
+                    }
+                    dealData.assignedTo = assignedTo;
+                } else if (assignedTo && !mongoose.Types.ObjectId.isValid(assignedTo)) {
+                    const err = new Error('assignedTo is not a valid ObjectId');
+                    err.errorCode = 'INVALID_ASSIGNED_USER';
+                    throw err;
+                }
+
+                // 3. Project Resolution & Validation
+                if (resolvedProjectId) {
+                    if (!mongoose.Types.ObjectId.isValid(resolvedProjectId)) {
+                        const err = new Error('projectId is not a valid ObjectId');
+                        err.errorCode = 'INVALID_PROJECT';
+                        throw err;
+                    }
+                    const proj = await Project.findById(resolvedProjectId).lean();
+                    if (!proj) {
+                        const err = new Error('Project not found by ID');
+                        err.errorCode = 'PROJECT_NOT_FOUND';
+                        throw err;
+                    }
+                    if (dealData.projectName && proj.name !== dealData.projectName) {
+                        const err = new Error('projectId and projectName do not match');
+                        err.errorCode = 'INVALID_PROJECT';
+                        throw err;
+                    }
+                    dealData.projectName = proj.name;
+                } else if (dealData.projectName) {
+                    const proj = await Project.findOne({ name: dealData.projectName }).lean();
+                    if (!proj) {
+                        const err = new Error('Project not found by name');
+                        err.errorCode = 'PROJECT_NOT_FOUND';
+                        throw err;
+                    }
+                    resolvedProjectId = proj._id;
+                    dealData.projectName = proj.name;
+                }
+
+                // 4. Inventory Resolution & Coordinate Validation
+                if (resolvedInventoryId) {
+                    if (!mongoose.Types.ObjectId.isValid(resolvedInventoryId)) {
+                        const err = new Error('inventoryId is not a valid ObjectId');
+                        err.errorCode = 'INVALID_INVENTORY_ID';
+                        throw err;
+                    }
+                    const inv = await Inventory.findById(resolvedInventoryId).lean();
+                    if (!inv) {
+                        const err = new Error('Inventory not found by ID');
+                        err.errorCode = 'INVENTORY_NOT_FOUND';
+                        throw err;
+                    }
+
+                    if (resolvedProjectId && inv.projectId && String(inv.projectId) !== String(resolvedProjectId)) {
+                        const err = new Error('inventoryId project mismatch');
+                        err.errorCode = 'INVALID_PROJECT';
+                        throw err;
+                    }
+                    if (dealData.block && inv.block !== dealData.block) {
+                        const err = new Error('inventoryId block mismatch');
+                        err.errorCode = 'INVENTORY_COORDINATE_CONFLICT';
+                        throw err;
+                    }
+                    if (dealData.unitNo && inv.unitNo !== dealData.unitNo) {
+                        const err = new Error('inventoryId unitNo mismatch');
+                        err.errorCode = 'INVENTORY_COORDINATE_CONFLICT';
+                        throw err;
+                    }
+                    dealData.projectName = inv.projectName || dealData.projectName;
+                    resolvedProjectId = inv.projectId || resolvedProjectId;
+                    dealData.block = inv.block || dealData.block;
+                    dealData.unitNo = inv.unitNo || dealData.unitNo;
+                } else if (dealData.projectName && dealData.unitNo) {
+                    const invQuery = {
+                        projectName: dealData.projectName,
+                        unitNo: dealData.unitNo
+                    };
+                    if (dealData.block) invQuery.block = dealData.block;
+                    if (rawTenantId) invQuery.tenantId = rawTenantId;
+
+                    const invs = await Inventory.find(invQuery).lean();
+                    if (invs.length === 0) {
+                        const err = new Error('No matching Inventory found for coordinates');
+                        err.errorCode = 'INVENTORY_NOT_FOUND';
+                        throw err;
+                    }
+                    if (invs.length > 1) {
+                        const err = new Error('Multiple Inventory records found for coordinates');
+                        err.errorCode = 'INVENTORY_AMBIGUOUS';
+                        throw err;
+                    }
+                    resolvedInventoryId = invs[0]._id;
+                    resolvedProjectId = invs[0].projectId || resolvedProjectId;
+                    dealData.block = invs[0].block || dealData.block;
+                }
+
+                // 5. Contact Identity Resolution
+                if (ownerPhone || ownerEmail) {
+                    const contactRes = await resolveContactIdentity({
+                        mobile: ownerPhone,
+                        email: ownerEmail,
+                        tenantId: rawTenantId,
+                        contactData: { name: ownerName },
+                        createIfMissing: true
+                    });
+                    if (contactRes.conflict) {
+                        const err = new Error('Phone and email map to different Contacts');
+                        err.errorCode = 'CONTACT_IDENTITY_CONFLICT';
+                        throw err;
+                    }
+                    if (contactRes.success && contactRes.contact) {
+                        resolvedOwnerContactId = contactRes.contact._id;
+                        dealData.owner = resolvedOwnerContactId;
+                    }
+                }
+
+                // 6. Invoke DealCreationEngine
+                const correlationId = req.headers['x-correlation-id'] || 'bulk-import';
+                const idempotencyKey = `import_${correlationId}_row_${index}_${Date.now()}`;
+
+                const engineInput = {
                     source: 'Import',
-                    idempotencyKey: `import_${req.headers['x-correlation-id'] || Date.now()}_row_${i}`,
-                    correlationId: req.headers['x-correlation-id'] || 'import',
+                    idempotencyKey,
+                    correlationId,
+                    tenantId: rawTenantId,
                     dealData,
                     linkage: {
-                        inventoryId: item.inventoryId,
-                        projectId: item.projectId,
-                        leadId: item.leadId
+                        inventoryId: resolvedInventoryId,
+                        projectId: resolvedProjectId,
+                        leadId: item.leadId || null
                     },
                     ownerInfo: {
-                        owner: item.owner || item.ownerId
+                        owner: resolvedOwnerContactId || assignedTo || null
                     }
                 };
 
@@ -2615,21 +3104,77 @@ export const importDeals = async (req, res) => {
                     triggerAiMatch: false,
                     triggerMarketing: false,
                     triggerDocumentSync: false,
-                    triggerDiscovery: false
+                    triggerDiscovery: false,
+                    tenantId: rawTenantId
                 };
 
-                const resObj = await createStandardizedDeal(input, options);
-                results.push({ row: i, success: true, dealId: resObj.deal._id, duplicate: resObj.isIdempotentReplay, warnings: resObj.warnings });
-                successCount++;
+                const resObj = await createStandardizedDeal(engineInput, options);
+                importedCount++;
+
+                return {
+                    row: index,
+                    status: 'SUCCESS',
+                    success: true,
+                    dealId: resObj.deal._id,
+                    duplicate: resObj.isIdempotentReplay,
+                    warnings: resObj.warnings
+                };
+
             } catch (err) {
-                results.push({ row: i, success: false, error: err.message, code: err.code });
-                failCount++;
+                if (isDuplicateError(err)) {
+                    duplicateCount++;
+                    const isInv = err.message && (err.message.includes('inventory') || err.message.includes('DUPLICATE DEAL DETECTED'));
+                    return {
+                        row: index,
+                        status: 'FAILED',
+                        success: false,
+                        errorCode: isInv ? 'DUPLICATE_INVENTORY' : 'DUPLICATE_COORDINATES',
+                        errorMessage: err.message || 'Duplicate deal detected',
+                        error: err.message || 'Duplicate deal detected'
+                    };
+                } else {
+                    otherErrorCount++;
+                    return {
+                        row: index,
+                        status: 'FAILED',
+                        success: false,
+                        errorCode: err.errorCode || err.code || 'DATABASE_ERROR',
+                        errorMessage: err.message || 'Database error',
+                        error: err.message || 'Database error'
+                    };
+                }
             }
+        };
+
+        // Bounded Concurrency Executor
+        let concurrency = parseInt(process.env.IMPORT_DEAL_CONCURRENCY, 10);
+        if (isNaN(concurrency) || concurrency < 1 || concurrency > 20) {
+            concurrency = 5;
         }
+
+        const results = new Array(data.length);
+        let currentIndex = 0;
+
+        const worker = async () => {
+            while (currentIndex < data.length) {
+                const idx = currentIndex++;
+                results[idx] = await processRow(data[idx], idx);
+            }
+        };
+
+        const workers = [];
+        const workerCount = Math.min(concurrency, data.length);
+        for (let w = 0; w < workerCount; w++) {
+            workers.push(worker());
+        }
+        await Promise.all(workers);
 
         res.status(200).json({
             success: true,
-            message: `Import complete. ${successCount} succeeded, ${failCount} failed.`,
+            message: `Import complete. ${importedCount} succeeded, ${duplicateCount + otherErrorCount} failed (${duplicateCount} duplicates).`,
+            importedCount,
+            duplicateCount,
+            otherErrorCount,
             results
         });
     } catch (error) {
@@ -2640,7 +3185,7 @@ export const importDeals = async (req, res) => {
 export const closeDeal = async (req, res) => {
     try {
         const { id } = req.params;
-        const { checklist, closingDate, remarks } = req.body;
+        const { checklist, closingDate, remarks, closedPrice } = req.body;
 
         const deal = await Deal.findById(id).populate('inventoryId owner associatedContact partyStructure.buyer');
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
@@ -2678,6 +3223,7 @@ export const closeDeal = async (req, res) => {
 
         // Update Deal
         deal.stage = 'Closed';
+        deal.stageChangedAt = new Date();
         deal.closingDetails = {
             isClosed: true,
             closingDate: closingDate || new Date(),
@@ -2685,11 +3231,17 @@ export const closeDeal = async (req, res) => {
             remarks: remarks,
             feedbackStatus: { buyerContacted: false, sellerContacted: false }
         };
+        if (closedPrice !== undefined && closedPrice !== null && !isNaN(Number(closedPrice))) {
+            deal.closedPrice = Number(closedPrice);
+        }
         await deal.save();
 
         // Update Inventory Status
         if (deal.inventoryId) {
-            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' });
+            const Lookup = mongoose.model('Lookup');
+            const soldOutLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).lean();
+            const soldOutId = soldOutLookup ? soldOutLookup._id : 'Sold Out';
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: soldOutId });
         }
 
         // TODO: Notification trigger
@@ -3183,13 +3735,19 @@ export const verifyDeal = async (req, res) => {
         try {
             const Activity = mongoose.model('Activity');
             await Activity.create({
-                entityType: 'deal',
+                entityType: 'Deal',
                 entityId: deal._id,
-                type: 'Deal Verified',
+                type: 'Task',
+                subject: 'Deal Verified',
+                dueDate: new Date(),
                 action: 'Deal Verified',
                 description: `Deal #${deal.dealId || deal._id} verified via ${verificationMethod} by ${userName}`,
-                performedBy: req.user._id,
-                performedAt: new Date()
+                performedBy: userName,
+                createdBy: req.user?._id || req.user?.id || null,
+                performedAt: new Date(),
+                status: 'Completed',
+                priority: 'Normal',
+                completedAt: new Date()
             });
         } catch (actErr) {
             console.error('[DealController] Error creating verification Activity:', actErr.message);

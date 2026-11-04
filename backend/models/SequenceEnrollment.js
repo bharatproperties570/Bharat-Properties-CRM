@@ -21,12 +21,19 @@ const SequenceEnrollmentSchema = new mongoose.Schema({
     },
     currentStepNumber: { type: Number, default: 1 },
     nextExecutionAt: { type: Date, required: true },
+    claimToken: { type: String, default: null },
+    leaseUntil: { type: Date, default: null },
     exitReason: { type: String },
     executionLogs: [ExecutionLogSchema]
 }, { timestamps: true });
 
-// Compound index to ensure an entity isn't enrolled in the same sequence multiple times simultaneously
-SequenceEnrollmentSchema.index({ sequenceId: 1, entityId: 1 }, { unique: true });
-SequenceEnrollmentSchema.index({ companyId: 1, status: 1, nextExecutionAt: 1 }); // For the cron job picking up enrollments
+// Compound partial unique index to ensure an entity isn't enrolled in the same sequence multiple times actively/concurrently,
+// while allowing legitimate re-enrollment once a previous enrollment has completed or exited.
+SequenceEnrollmentSchema.index(
+    { sequenceId: 1, entityId: 1 },
+    { unique: true, partialFilterExpression: { status: { $in: ['active', 'paused'] } } }
+);
+SequenceEnrollmentSchema.index({ companyId: 1, status: 1, nextExecutionAt: 1 });
+SequenceEnrollmentSchema.index({ status: 1, nextExecutionAt: 1, leaseUntil: 1 });
 
 export default mongoose.model('SequenceEnrollment', SequenceEnrollmentSchema);

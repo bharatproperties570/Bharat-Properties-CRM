@@ -14,6 +14,9 @@ import Lookup from '../models/Lookup.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import { createStandardizedLead } from './LeadCreationEngine.js';
 
+// In-memory cache for synthesized studio speech to ensure 0ms latency on repeated phrases
+const ttsCache = new Map();
+
 const JARVIS_SYSTEM_INSTRUCTION = `You are JARVIS, the legendary AI Operating System for Bharat Properties CRM — a high-performance real estate enterprise operating in North India (Kurukshetra, Mohali, Chandigarh, Ambala, Panchkula).
 
 CORE PERSONA & VOICE:
@@ -482,6 +485,12 @@ class JarvisService {
 
             if (!cleanText) return null;
 
+            // Check in-memory cache first for instant 0ms playback
+            const cacheKey = `${selectedVoice}_${cleanText}`;
+            if (ttsCache.has(cacheKey)) {
+                return ttsCache.get(cacheKey);
+            }
+
             const payload = {
                 model: 'gemini-3.8-flash-tts',
                 input: [{
@@ -506,7 +515,7 @@ class JarvisService {
                     'x-goog-api-key': apiKey,
                     'Content-Type': 'application/json'
                 },
-                timeout: 15000
+                timeout: 8000
             });
 
             const steps = response.data?.steps || [];
@@ -514,11 +523,17 @@ class JarvisService {
             const audioBlock = audioStep?.content?.find(c => c.type === 'audio');
 
             if (audioBlock?.data) {
-                return {
+                const result = {
                     audioBase64: audioBlock.data,
                     mimeType: audioBlock.mime_type || 'audio/wav',
                     voice: selectedVoice
                 };
+                if (ttsCache.size > 200) {
+                    const firstKey = ttsCache.keys().next().value;
+                    ttsCache.delete(firstKey);
+                }
+                ttsCache.set(cacheKey, result);
+                return result;
             }
             return null;
         } catch (error) {
@@ -607,6 +622,101 @@ class JarvisService {
                     return await this.cancelAction(user, recentPending._id);
                 }
             }
+        }
+
+        // ⚡ Fast-Path 1: Standard Greetings & Identity Check (<10ms instant response)
+        const isGreeting = /^(hi|hello|hey|namaste|pranam|namaskar|good morning|good afternoon|good evening)\s*(jarvis|sir)?$/i.test(cleanTranscript);
+        if (isGreeting) {
+            const speech = "Hello Sir! Bharat Properties CRM mein aapka swagat hai. Main aapki kya sahayata kar sakta hoon?";
+            return {
+                success: true,
+                intent: 'conversation',
+                action: 'chat',
+                targetUrl: null,
+                speechResponse: speech,
+                audioBase64: null,
+                displayData: { type: 'chat_response', message: speech },
+                requiresConfirmation: false,
+                pendingAction: null,
+                safetyTier: 1,
+                latencyMs: Date.now() - startTime
+            };
+        }
+
+        // ⚡ Fast-Path 2: Instant Navigation Resolver (<15ms instant page jumps)
+        const navRegex = /(?:open|kholo|dikhao|le chalo|jao|chalo|navigate)\s*(?:to\s*)?(?:the\s*)?([a-z_]+)\s*(?:page|screen)?|([a-z_]+)\s*(?:page|screen)?\s*(?:open|kholo|dikhao|chalo)/i;
+        const navMatch = cleanTranscript.match(navRegex);
+        if (navMatch) {
+            const rawTarget = (navMatch[1] || navMatch[2] || '').toLowerCase().trim();
+            const pageMap = {
+                'lead': 'leads', 'leads': 'leads',
+                'deal': 'deals', 'deals': 'deals',
+                'contact': 'contacts', 'contacts': 'contacts',
+                'inventory': 'inventory', 'properties': 'inventory', 'property': 'inventory',
+                'project': 'projects', 'projects': 'projects',
+                'activity': 'activities', 'activities': 'activities', 'task': 'activities', 'tasks': 'activities',
+                'booking': 'booking', 'bookings': 'booking',
+                'dashboard': 'dashboard', 'home': 'dashboard',
+                'communication': 'communication', 'messages': 'communication', 'whatsapp': 'communication',
+                'settings': 'settings', 'setting': 'settings',
+                'report': 'reports', 'reports': 'reports'
+            };
+
+            const matchedPage = pageMap[rawTarget];
+            if (matchedPage) {
+                const targetUrl = this._resolvePagePath(matchedPage);
+                const prettyName = matchedPage.charAt(0).toUpperCase() + matchedPage.slice(1);
+                const speech = `Sir, ${prettyName} page open kar raha hoon.`;
+                
+                try {
+                    await JarvisCommand.create({
+                        userId: user?._id || new mongoose.Types.ObjectId(),
+                        inputType,
+                        transcript: cleanTranscript,
+                        intent: 'navigate_to_page',
+                        params: { page: matchedPage },
+                        safetyTier: 1,
+                        confidence: 100,
+                        status: 'executed',
+                        result: { action: 'navigate', targetUrl },
+                        speechResponse: speech,
+                        source,
+                        deviceInfo
+                    });
+                } catch (e) {}
+
+                return {
+                    success: true,
+                    intent: 'navigate_to_page',
+                    action: 'navigate',
+                    targetUrl,
+                    speechResponse: speech,
+                    audioBase64: null,
+                    displayData: { type: 'navigation', page: matchedPage, path: targetUrl },
+                    requiresConfirmation: false,
+                    pendingAction: null,
+                    safetyTier: 1,
+                    latencyMs: Date.now() - startTime
+                };
+            }
+        }
+
+        // ⚡ Fast-Path 3: Daily Executive Briefing (<100ms instant briefing)
+        if (/(?:daily briefing|aaj ka briefing|aaj ka schedule|today schedule|aaj ki summary|agenda)/i.test(cleanTranscript)) {
+            const briefingResult = await this.getDailyBriefing(user, { synthesizeAudio: false });
+            return {
+                success: true,
+                intent: 'get_daily_briefing',
+                action: 'daily_briefing',
+                targetUrl: null,
+                speechResponse: briefingResult.speechResponse,
+                audioBase64: null,
+                displayData: { type: 'daily_briefing', ...briefingResult },
+                requiresConfirmation: false,
+                pendingAction: null,
+                safetyTier: 1,
+                latencyMs: Date.now() - startTime
+            };
         }
 
         const apiKey = await this._getApiKey();
@@ -755,7 +865,7 @@ class JarvisService {
                     };
                 } else if (resultIntent === 'get_daily_briefing') {
                     action = 'daily_briefing';
-                    const briefingResult = await this.getDailyBriefing(user);
+                    const briefingResult = await this.getDailyBriefing(user, { synthesizeAudio: false });
                     speechResponse = briefingResult.speechResponse;
                     displayData = {
                         type: 'daily_briefing',
@@ -985,13 +1095,16 @@ class JarvisService {
             let audioMimeType = null;
             if (speechResponse && payload.returnAudio !== false) {
                 try {
-                    const audioRes = await this.synthesizeSpeech(speechResponse, { userId: user?._id });
+                    // Limit TTS synthesis wait to 4.5s to prevent browser HTTP timeouts
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TTS_TIMEOUT')), 4500));
+                    const synthPromise = this.synthesizeSpeech(speechResponse, { userId: user?._id });
+                    const audioRes = await Promise.race([synthPromise, timeoutPromise]);
                     if (audioRes?.audioBase64) {
                         audioBase64 = audioRes.audioBase64;
                         audioMimeType = audioRes.mimeType;
                     }
                 } catch (e) {
-                    console.warn('[JarvisService] Audio synthesis error:', e.message);
+                    console.log('[JarvisService] TTS skipped (non-blocking fallback to local speech):', e.message);
                 }
             }
 
@@ -1102,7 +1215,9 @@ class JarvisService {
             let audioMimeType = null;
             if (speechResponse) {
                 try {
-                    const audioRes = await this.synthesizeSpeech(speechResponse, { userId: user?._id });
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TTS_TIMEOUT')), 3500));
+                    const synthPromise = this.synthesizeSpeech(speechResponse, { userId: user?._id });
+                    const audioRes = await Promise.race([synthPromise, timeoutPromise]);
                     if (audioRes?.audioBase64) {
                         audioBase64 = audioRes.audioBase64;
                         audioMimeType = audioRes.mimeType;
@@ -1157,7 +1272,9 @@ class JarvisService {
             let audioBase64 = null;
             let audioMimeType = null;
             try {
-                const audioRes = await this.synthesizeSpeech(command.speechResponse, { userId: user?._id });
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TTS_TIMEOUT')), 3500));
+                const synthPromise = this.synthesizeSpeech(command.speechResponse, { userId: user?._id });
+                const audioRes = await Promise.race([synthPromise, timeoutPromise]);
                 if (audioRes?.audioBase64) {
                     audioBase64 = audioRes.audioBase64;
                     audioMimeType = audioRes.mimeType;
@@ -2234,7 +2351,7 @@ Return ONLY valid JSON.`;
      * Phase 4: Executive Daily Briefing
      * Synthesizes today's agenda, site visits, overdue tasks, and hot prospects
      */
-    async getDailyBriefing(user) {
+    async getDailyBriefing(user, options = {}) {
         const startTime = Date.now();
         const now = new Date();
         const hour = now.getHours();
@@ -2328,7 +2445,7 @@ Return ONLY valid JSON.`;
 
         let audioBase64 = null;
         let audioMimeType = null;
-        if (speech) {
+        if (speech && options.synthesizeAudio !== false) {
             try {
                 const audioRes = await this.synthesizeSpeech(speech, { userId: user?._id });
                 if (audioRes?.audioBase64) {

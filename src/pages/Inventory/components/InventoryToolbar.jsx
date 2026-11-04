@@ -2,6 +2,7 @@ import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import usePermissions, { PermissionGate } from '../../../hooks/usePermissions';
+import ActiveFiltersChips from '../../../components/ActiveFiltersChips';
 
 const InventoryToolbar = ({
     selectedIds,
@@ -29,12 +30,15 @@ const InventoryToolbar = ({
     handleFeedbackClick,
     handleDelete,
     handleBulkUpdateClick,
+    handleBulkVerifyClick,
     inventoryItems,
     sortConfig,
     setSortConfig,
     isSortOpen,
     setIsSortOpen,
     filters,
+    onRemoveFilter,
+    onClearAll,
     setIsFilterPanelOpen
 }) => {
     const { isDark } = useTheme();
@@ -99,6 +103,19 @@ const InventoryToolbar = ({
                         <button className="action-btn" title="Add Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
                         <button className="action-btn" title="Bulk Update" onClick={handleBulkUpdateClick}><i className="fas fa-layer-group"></i> Update</button>
                     </PermissionGate>
+                    {handleBulkVerifyClick && (
+                        <PermissionGate module="authorityVerification" action="create">
+                            <button
+                                type="button"
+                                className="action-btn"
+                                title="Verify with Authority"
+                                onClick={handleBulkVerifyClick}
+                                style={{ color: '#4f46e5', fontWeight: 600 }}
+                            >
+                                <i className="fas fa-shield-alt"></i> Verify Authority
+                            </button>
+                        </PermissionGate>
+                    )}
                     <div style={{ marginLeft: 'auto' }}>
                         <PermissionGate module="inventory" action="delete">
                             <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>
@@ -106,10 +123,10 @@ const InventoryToolbar = ({
                     </div>
                 </div>
             ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '15px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none' }}>
                         {/* Premium Search Input */}
-                        <div style={{ position: 'relative', width: '350px' }}>
+                        <div style={{ position: 'relative', width: '320px', minWidth: '240px', flexShrink: 0 }}>
                              <input
                                  type="text"
                                  className="search-input-premium"
@@ -136,9 +153,17 @@ const InventoryToolbar = ({
                              <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}>
                              </i>
                          </div>
+
+                         {/* Active Filters Chips shown right in front of the search box in the same header */}
+                         <ActiveFiltersChips
+                             inline
+                             filters={filters}
+                             onRemoveFilter={onRemoveFilter}
+                             onClearAll={onClearAll}
+                         />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexShrink: 0 }}>
                         <div style={{ fontSize: '0.8rem', color: '#68737d', fontWeight: 600 }}>
                             Total: <strong style={{ color: 'var(--text-main)' }}>{renderValue(totalRecords)} Properties</strong>
                         </div>

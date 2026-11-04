@@ -181,6 +181,12 @@ const UserSchema = new mongoose.Schema({
         default: 'active',
         index: true
     },
+    availability: {
+        type: String,
+        enum: ['Available', 'Busy', 'Offline', 'On Leave'],
+        default: 'Available',
+        index: true
+    },
     inactivationReason: {
         type: String,
         trim: true

@@ -20,6 +20,7 @@ import { normalizePhone } from "../utils/normalization.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
 import { WorkflowEngine } from "../src/utils/WorkflowEngine.js";
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
+import PricingBenchmark from "../models/PricingBenchmark.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 import { createNotification } from "./notification.controller.js";
 import AddressParsingService from '../services/AddressParsingService.js';
@@ -51,28 +52,28 @@ const resolveMultiFilter = async (type, values) => {
 
     await Promise.all(vals.map(async (v) => {
         const trimmedVal = String(v).trim();
-        
+
         // CASE 1: Value is already an ObjectId
         if (mongoose.Types.ObjectId.isValid(trimmedVal)) {
             const objId = new mongoose.Types.ObjectId(trimmedVal);
             results.ids.push(objId);
             results.idStrings.push(trimmedVal);
-            
+
             // Backfill name for mixed-type matching
             const lookup = await mongoose.model('Lookup').findById(objId).select('lookup_value').lean();
             if (lookup?.lookup_value) results.names.push(lookup.lookup_value.trim());
             return;
         }
-        
+
         // CASE 2: Value is a Name string
         results.names.push(trimmedVal);
-        
+
         // Find corresponding IDs in Lookup collection (Whitespace & Case Insensitive)
-        const lookups = await mongoose.model('Lookup').find({ 
-            lookup_type: type, 
-            lookup_value: { $regex: new RegExp(`^\\s*${escapeRegExp(trimmedVal)}\\s*$`, 'i') } 
+        const lookups = await mongoose.model('Lookup').find({
+            lookup_type: type,
+            lookup_value: { $regex: new RegExp(`^\\s*${escapeRegExp(trimmedVal)}\\s*$`, 'i') }
         }).select('_id lookup_value').lean();
-        
+
         if (lookups.length > 0) {
             lookups.forEach(l => {
                 results.ids.push(l._id);
@@ -84,20 +85,20 @@ const resolveMultiFilter = async (type, values) => {
 
     // Deduplicate all possible matches
     const allMatches = [...new Set([
-        ...results.ids.map(id => id.toString()), 
-        ...results.idStrings, 
+        ...results.ids.map(id => id.toString()),
+        ...results.idStrings,
         ...results.names
     ])];
 
     // Deduplicate all possible matches (Polymorphic: IDs + Strings + Names)
     // 🚀 [SENIOR HARDENING] Use flexible Regex for all names
-    // This allows matching "3 BHK" against "3 BHK Apartment" or "3 BHK Villa" 
+    // This allows matching "3 BHK" against "3 BHK Apartment" or "3 BHK Villa"
     // ensuring consistency with global search behavior.
     const nameRegexes = results.names.map(name => new RegExp(escapeRegExp(name.trim()), 'i'));
 
     const finalValues = [...new Set([
-        ...results.ids, 
-        ...results.idStrings, 
+        ...results.ids,
+        ...results.idStrings,
         ...nameRegexes
     ])];
 
@@ -154,10 +155,10 @@ const populateFields = [
 
 export const getInventory = async (req, res) => {
     try {
-        const { 
+        const {
             page = 1, limit = 10, search = "", sortBy, sortOrder,
-            category, subCategory, unitType, status, 
-            project, projectId, block, location, area, contactId, 
+            category, subCategory, unitType, status,
+            project, projectId, block, location, area, contactId,
             statusCategory, ownerPhone, feedbackOutcome, feedbackReason,
             minSize, maxSize, sizeMin, sizeMax, sizeType,
             followUpFrom, followUpTo, view
@@ -166,7 +167,7 @@ export const getInventory = async (req, res) => {
         // 🚀 COMPACT VIEW FLAG: Skip all non-essential heavy ops for mobile list
         const isCompactView = view === 'compact';
         const isPageOne = Number(page) === 1;
-        
+
         const finalProject = project || projectId;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
@@ -268,7 +269,7 @@ export const getInventory = async (req, res) => {
             }
 
             const uniqueIds = [...new Set(allIds)];
-            
+
             if (req.query.history === 'true') {
                 query['ownerHistory.contactId'] = { $in: uniqueIds };
             } else {
@@ -276,7 +277,7 @@ export const getInventory = async (req, res) => {
                     { owners: { $in: uniqueIds } },
                     { 'associates.contact': { $in: uniqueIds } }
                 ];
-                
+
                 // Heuristic fallback for legacy data fields if they exist
                 if (phones.length > 0) {
                     phones.forEach(p => {
@@ -307,7 +308,7 @@ export const getInventory = async (req, res) => {
                 { "sizeType.lookup_value": { $regex: search, $options: "i" } },
                 { "sizeConfig.lookup_value": { $regex: search, $options: "i" } }
             ];
-            
+
             // If the search term is a number, try matching against numeric size
             const searchNum = parseFloat(search.replace(/,/g, ''));
             if (!isNaN(searchNum)) {
@@ -351,23 +352,67 @@ export const getInventory = async (req, res) => {
             applyDeepFilter(query, 'status', statusFilter);
         }
 
-        const categoryFilter = await resolveMultiFilter('Category', categoryReq);
-        applyDeepFilter(query, 'category', categoryFilter);
+        let categoryCondition = null;
+        if (categoryReq) {
+            const catArr = Array.isArray(categoryReq) ? categoryReq : String(categoryReq).split(',').map(s => s.trim()).filter(Boolean);
+            const isUnknownCategory = catArr.some(c => String(c).toLowerCase() === 'unknown' || String(c).toLowerCase() === 'null' || String(c).toLowerCase() === 'n/a');
+            const otherCategoryVals = catArr.filter(c => String(c).toLowerCase() !== 'unknown' && String(c).toLowerCase() !== 'null' && String(c).toLowerCase() !== 'n/a');
+
+            const unknownOrConditions = [
+                { category: null },
+                { category: { $exists: false } },
+                { category: "" },
+                { category: { $in: ["Unknown", "UNKNOWN", "unknown"] } }
+            ];
+
+            let knownConditions = [];
+            if (otherCategoryVals.length > 0) {
+                const categoryFilter = await resolveMultiFilter('Category', otherCategoryVals);
+                if (categoryFilter) {
+                    knownConditions = [
+                        { category: categoryFilter },
+                        { 'category._id': categoryFilter },
+                        { 'category.id': categoryFilter },
+                        { 'category.lookup_value': categoryFilter },
+                        { 'category.name': categoryFilter }
+                    ];
+                }
+            }
+
+            if (isUnknownCategory && knownConditions.length > 0) {
+                categoryCondition = { $or: [...knownConditions, ...unknownOrConditions] };
+            } else if (isUnknownCategory) {
+                categoryCondition = { $or: unknownOrConditions };
+            } else if (knownConditions.length > 0) {
+                categoryCondition = { $or: knownConditions };
+            }
+        }
 
         const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
-        applyDeepFilter(query, 'subCategory', subCategoryFilter);
-        
+        let subCategoryCondition = null;
+        if (subCategoryFilter) {
+            subCategoryCondition = {
+                $or: [
+                    { subCategory: subCategoryFilter },
+                    { 'subCategory._id': subCategoryFilter },
+                    { 'subCategory.id': subCategoryFilter },
+                    { 'subCategory.lookup_value': subCategoryFilter },
+                    { 'subCategory.name': subCategoryFilter }
+                ]
+            };
+        }
+
         // 🚀 [SENIOR] Property Type / Size Type Filter (e.g. 1 BHK, 2 BHK, Shop, etc.)
         // Resolve against both 'PropertyType' and 'Size' to ensure full coverage (parity with frontend resolveInventoryLookup)
         const sizeTypeFilter1 = await resolveMultiFilter('PropertyType', sizeTypeReq);
         const sizeTypeFilter2 = await resolveMultiFilter('Size', sizeTypeReq);
-        
+
         // Combine values from both resolutions
         const combinedValues = [
             ...(sizeTypeFilter1?.$in || []),
             ...(sizeTypeFilter2?.$in || [])
         ];
-        
+
         const sizeTypeFilter = combinedValues.length > 0 ? { $in: [...new Set(combinedValues)] } : null;
 
         if (sizeTypeFilter) {
@@ -407,7 +452,7 @@ export const getInventory = async (req, res) => {
 
         const facingFilter = await resolveMultiFilter('Facing', req.query.facing || req.query['facing[]']);
         applyDeepFilter(query, 'facing', facingFilter);
-        
+
         // [SIZE RANGE FILTERS]
         const finalMinSize = minSize || sizeMin;
         const finalMaxSize = maxSize || sizeMax;
@@ -418,7 +463,7 @@ export const getInventory = async (req, res) => {
             if (!isNaN(min) || !isNaN(max)) {
                 // Support both new { value, unit } structure and legacy flat number structure
                 const sizeConditions = [];
-                
+
                 const buildQuery = (m, x) => {
                     const q = {};
                     if (!isNaN(m)) q.$gte = m;
@@ -455,8 +500,8 @@ export const getInventory = async (req, res) => {
             let projectVals = Array.isArray(finalProject) ? finalProject : String(finalProject).split(',').map(s => s.trim()).filter(Boolean);
             if (projectVals.length > 0) {
                 const projectIds = projectVals.filter(v => mongoose.Types.ObjectId.isValid(v));
-                const projectNames = projectVals.filter(v => !mongoose.Types.ObjectId.isValid(v)); 
-                
+                const projectNames = projectVals.filter(v => !mongoose.Types.ObjectId.isValid(v));
+
                 const projectConditions = [];
                 if (projectIds.length > 0) {
                     projectConditions.push({ projectId: { $in: projectIds } });
@@ -509,41 +554,89 @@ export const getInventory = async (req, res) => {
         const inactiveStatusIdStrings = inactiveStatusIds.map(id => id.toString());
 
         // Single aggregation for all stats
-        // We need a separate query for category stats that ignores the category filter
+        // We need a separate query for category stats that ignores the category filter and subCategory filter
         const categoryStatsQuery = { ...query };
-        delete categoryStatsQuery.category;
+        if (query.$and) categoryStatsQuery.$and = [...query.$and];
+        if (query.$or) categoryStatsQuery.$or = [...query.$or];
+
+        // 🎯 SUB-CATEGORY STATS QUERY: includes categoryCondition, but ignores subCategoryCondition
+        let subCategoryStatsQuery = null;
+        if (categoryCondition) {
+            subCategoryStatsQuery = { ...categoryStatsQuery };
+            if (categoryStatsQuery.$and) subCategoryStatsQuery.$and = [...categoryStatsQuery.$and];
+            if (categoryStatsQuery.$or) subCategoryStatsQuery.$or = [...categoryStatsQuery.$or];
+
+            if (subCategoryStatsQuery.$or) {
+                if (!subCategoryStatsQuery.$and) {
+                    const existingOr = subCategoryStatsQuery.$or;
+                    delete subCategoryStatsQuery.$or;
+                    subCategoryStatsQuery.$and = [{ $or: existingOr }];
+                }
+                subCategoryStatsQuery.$and.push(categoryCondition);
+            } else {
+                subCategoryStatsQuery.$or = categoryCondition.$or || [categoryCondition];
+            }
+        }
+
+        // Apply category filter to the operational query for fetching records and active/inactive counts
+        if (categoryCondition) {
+            if (query.$or) {
+                if (!query.$and) {
+                    const existingOr = query.$or;
+                    delete query.$or;
+                    query.$and = [{ $or: existingOr }];
+                }
+                query.$and.push(categoryCondition);
+            } else {
+                query.$or = categoryCondition.$or || [categoryCondition];
+            }
+        }
+
+        // Apply subCategory filter to the operational query for fetching records and active/inactive counts
+        if (subCategoryCondition) {
+            if (query.$or) {
+                if (!query.$and) {
+                    const existingOr = query.$or;
+                    delete query.$or;
+                    query.$and = [{ $or: existingOr }];
+                }
+                query.$and.push(subCategoryCondition);
+            } else {
+                query.$or = subCategoryCondition.$or || [subCategoryCondition];
+            }
+        }
 
         // 🚀 SENIOR OPTIMIZATION: Run heavy stats aggregations ONLY on page 1.
         // Scroll-triggered pages (2, 3...) don't need stats — saves 400–1000ms per scroll event.
-        let statsAggregation = [], categoryStatsAggregation = [];
+        let statsAggregation = [], categoryStatsAggregation = [], subCategoryStatsAggregation = [];
         if (isPageOne) {
             try {
-                [statsAggregation, categoryStatsAggregation] = await Promise.all([
+                const aggPromises = [
                     Inventory.aggregate([
                         { $match: query },
                         {
                             $facet: {
                                 active: [
-                                    { 
-                                        $match: { 
+                                    {
+                                        $match: {
                                             $or: [
-                                                { status: { $in: activeStatusIds } }, 
+                                                { status: { $in: activeStatusIds } },
                                                 { status: { $in: activeStatusIdStrings } },
                                                 { status: { $in: activeStatusNames } }
-                                            ] 
-                                        } 
+                                            ]
+                                        }
                                     },
                                     { $count: "count" }
                                 ],
                                 inactive: [
-                                    { 
-                                        $match: { 
+                                    {
+                                        $match: {
                                             $or: [
-                                                { status: { $in: inactiveStatusIds } }, 
+                                                { status: { $in: inactiveStatusIds } },
                                                 { status: { $in: inactiveStatusIdStrings } },
                                                 { status: { $in: inactiveStatusNames } }
-                                            ] 
-                                        } 
+                                            ]
+                                        }
                                     },
                                     { $count: "count" }
                                 ]
@@ -554,11 +647,26 @@ export const getInventory = async (req, res) => {
                         { $match: categoryStatsQuery },
                         { $group: { _id: "$category", count: { $sum: 1 } } }
                     ])
-                ]);
+                ];
+
+                if (subCategoryStatsQuery) {
+                    aggPromises.push(
+                        Inventory.aggregate([
+                            { $match: subCategoryStatsQuery },
+                            { $group: { _id: "$subCategory", count: { $sum: 1 } } }
+                        ])
+                    );
+                }
+
+                const aggResults = await Promise.all(aggPromises);
+                statsAggregation = aggResults[0];
+                categoryStatsAggregation = aggResults[1];
+                subCategoryStatsAggregation = aggResults[2] || [];
             } catch (aggError) {
                 console.error("[INVENTORY_AGG] Aggregation failed:", aggError.message);
                 statsAggregation = [{ active: [], inactive: [] }];
                 categoryStatsAggregation = [];
+                subCategoryStatsAggregation = [];
             }
         }
 
@@ -589,6 +697,36 @@ export const getInventory = async (req, res) => {
             count
         }));
 
+        // 🎯 Enrichment: Resolve subCategory names for stats and merge duplicates safely
+        let subCategoryStats = [];
+        if (Array.isArray(subCategoryStatsAggregation) && subCategoryStatsAggregation.length > 0) {
+            const subCategoryResultIds = subCategoryStatsAggregation
+                .map(c => c._id)
+                .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+                .map(id => new mongoose.Types.ObjectId(id));
+            const subCategoryDocs = subCategoryResultIds.length > 0
+                ? await Lookup.find({ _id: { $in: subCategoryResultIds } }).select('lookup_value').lean()
+                : [];
+            const subCategoryMap = new Map(subCategoryDocs.map(d => [d._id.toString(), d.lookup_value]));
+
+            const subStatsMap = new Map();
+            subCategoryStatsAggregation.forEach(c => {
+                if (!c._id) return;
+                const rawName = subCategoryMap.get(c._id?.toString()) || String(c._id);
+                const cleanName = rawName.trim();
+                if (!cleanName || cleanName === 'null' || cleanName === 'undefined') return;
+                const key = cleanName.toLowerCase();
+                const existing = subStatsMap.get(key);
+                if (existing) {
+                    existing.count += c.count;
+                } else {
+                    subStatsMap.set(key, { name: cleanName, count: c.count });
+                }
+            });
+
+            subCategoryStats = Array.from(subStatsMap.values()).sort((a, b) => b.count - a.count);
+        }
+
         // Apply Status Category Filter if requested (optimized + legacy string support)
         if (statusCategory === 'Active') {
             query.status = { $in: [...activeStatusIds, ...activeStatusIdStrings, ...activeStatusNames] };
@@ -598,7 +736,7 @@ export const getInventory = async (req, res) => {
 
         // ─── PROFESSIONAL SORTING ENGINE (Enterprise Grade) ───
         const collation = { locale: "en", numericOrdering: true };
-        
+
         // Handle nested and CRM-specific fields
         let finalSortOption = {};
         const sortField = sortBy || 'updatedAt';
@@ -613,7 +751,7 @@ export const getInventory = async (req, res) => {
         } else if (sortField === 'lastContacted') {
             finalSortOption = { lastContactedAt: order };
         } else if (sortField === 'category' || sortField === 'unitType' || sortField === 'status' || sortField === 'facing' || sortField === 'direction' || sortField === 'orientation') {
-            // [ENTERPRISE] For categorical fields, we sort by ID for now, 
+            // [ENTERPRISE] For categorical fields, we sort by ID for now,
             // but secondary sort ensures consistent ordering.
             finalSortOption = { [sortField]: order };
         } else {
@@ -746,7 +884,7 @@ export const getInventory = async (req, res) => {
 
         results.records = results.records.map((item) => {
             const itemObj = { ...item };
-            
+
             // Hydrate Categorical
             categoricalFields.forEach(f => {
                 const val = itemObj[f];
@@ -787,6 +925,32 @@ export const getInventory = async (req, res) => {
                     itemObj[f] = Array.from(uniqueMap.values());
                 }
             });
+
+            // 🛡️ [ENTERPRISE RESOLUTION]: Ensure sizeLabel is never a raw 24-char ObjectId hex string
+            const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+            if (itemObj.sizeLabel) {
+                if (typeof itemObj.sizeLabel === 'object') {
+                    const lkVal = itemObj.sizeLabel.lookup_value || itemObj.sizeLabel.name || itemObj.sizeLabel.label;
+                    if (lkVal && !isHex(lkVal)) {
+                        itemObj.sizeLabel = lkVal;
+                    }
+                } else if (isHex(itemObj.sizeLabel)) {
+                    const lk = lookupMap.get(itemObj.sizeLabel);
+                    if (lk && lk.lookup_value) {
+                        itemObj.sizeLabel = lk.lookup_value;
+                    } else if (itemObj.sizeConfig && typeof itemObj.sizeConfig === 'object' && itemObj.sizeConfig.lookup_value) {
+                        itemObj.sizeLabel = itemObj.sizeConfig.lookup_value;
+                    } else if (itemObj.width && itemObj.length) {
+                        itemObj.sizeLabel = `${itemObj.width} x ${itemObj.length} ${itemObj.widthMetric || 'Meter'}`;
+                    } else {
+                        itemObj.sizeLabel = null;
+                    }
+                }
+            } else if (itemObj.sizeConfig && typeof itemObj.sizeConfig === 'object' && itemObj.sizeConfig.lookup_value) {
+                itemObj.sizeLabel = itemObj.sizeConfig.lookup_value;
+            } else if (itemObj.width && itemObj.length) {
+                itemObj.sizeLabel = `${itemObj.width} x ${itemObj.length} ${itemObj.widthMetric || 'Meter'}`;
+            }
 
             // Hydrate Address
             const hydrateAddr = (addrObj) => {
@@ -836,7 +1000,7 @@ export const getInventory = async (req, res) => {
             let marketGapPct = null;
             let bmLoc = itemObj.address?.locality || itemObj.address?.location || itemObj.address?.area;
             if (bmLoc && typeof bmLoc === 'object') bmLoc = bmLoc.lookup_value;
-            
+
             let bmSubCat = itemObj.subCategory;
             if (bmSubCat && typeof bmSubCat === 'object' && !Array.isArray(bmSubCat)) bmSubCat = bmSubCat.lookup_value;
             else if (Array.isArray(bmSubCat) && bmSubCat.length > 0) bmSubCat = bmSubCat[0].lookup_value || bmSubCat[0];
@@ -867,6 +1031,7 @@ export const getInventory = async (req, res) => {
             activeCount,
             inactiveCount,
             categoryStats,
+            subCategoryStats,
             ...results
         });
     } catch (error) {
@@ -889,7 +1054,7 @@ export const getInventoryById = async (req, res) => {
         // [SECURITY] Enforce visibility — scoped users cannot bypass via direct ID lookup
         console.log(`[DIAGNOSTIC] 🔍 Fetching Inventory: ${id} | User: ${req.user?.email}`);
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         const populateFieldsReduced = [
             { path: "owners", select: "name phones emails title personalAddress" },
             {
@@ -920,7 +1085,7 @@ export const getInventoryById = async (req, res) => {
 
         // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
         const inventoryData = inventory.toObject();
-        
+
         const mixedFields = [
             { field: 'category', type: 'Category' },
             { field: 'subCategory', type: 'SubCategory' },
@@ -932,7 +1097,8 @@ export const getInventoryById = async (req, res) => {
             { field: 'intent', type: 'Intent' },
             { field: 'builtupType', type: 'BuiltupType' },
             { field: 'roadWidth', type: 'RoadWidth' },
-            { field: 'sizeConfig', type: 'Size' }
+            { field: 'sizeConfig', type: 'Size' },
+            { field: 'sizeLabel', type: 'Size' }
         ];
 
         for (const { field, type } of mixedFields) {
@@ -981,7 +1147,7 @@ export const getInventoryById = async (req, res) => {
                 if (typeof val === 'object' && val !== null && (val.lookup_value || val.name || val.fullName)) continue;
 
                 const valStr = String(val).trim();
-                
+
                 // Case 2: It's a valid Mongo ID (instance or string)
                 if (mongoose.Types.ObjectId.isValid(valStr)) {
                     const lookup = await Lookup.findById(valStr).lean();
@@ -991,21 +1157,21 @@ export const getInventoryById = async (req, res) => {
                         // Fallback: If ID not found in its primary type, it might be a generic lookup
                         inventoryData.address[field] = { _id: valStr, lookup_value: valStr };
                     }
-                } 
+                }
                 // Case 3: It's a raw string value
                 else {
                     // Try to find the lookup by value
-                    let lookup = await Lookup.findOne({ 
-                        lookup_type: type, 
-                        lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') } 
+                    let lookup = await Lookup.findOne({
+                        lookup_type: type,
+                        lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') }
                     }).lean();
-                    
+
                     // Area/Location Cross-fallback
                     if (!lookup && (type === 'Location' || type === 'Area')) {
                         const fallbackType = type === 'Location' ? 'Area' : 'Location';
-                        lookup = await Lookup.findOne({ 
-                            lookup_type: fallbackType, 
-                            lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') } 
+                        lookup = await Lookup.findOne({
+                            lookup_type: fallbackType,
+                            lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') }
                         }).lean();
                     }
 
@@ -1092,7 +1258,7 @@ const sanitizePayload = (data) => {
 const notifyMatchingLeads = async (inventory) => {
     try {
         if (!inventory || !inventory.projectId || !inventory.category) return;
-        
+
         // Find leads that match this project and property type
         const matches = await Lead.find({
             $or: [
@@ -1124,11 +1290,16 @@ export const addInventory = async (req, res) => {
         const { projectName, block, unitNo, unitNumber } = req.body;
         const finalUnitNo = unitNo || unitNumber;
 
+        // 🏢 Multi-Tenancy Data Scope Isolation
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+
         if (projectName && block && finalUnitNo) {
+            const tenantFilter = effectiveTenantId ? { tenantId: effectiveTenantId } : {};
             const existing = await Inventory.findOne({
                 projectName,
                 block,
-                $or: [{ unitNo: finalUnitNo }, { unitNumber: finalUnitNo }]
+                $or: [{ unitNo: finalUnitNo }, { unitNumber: finalUnitNo }],
+                ...tenantFilter
             });
 
             if (existing) {
@@ -1137,7 +1308,10 @@ export const addInventory = async (req, res) => {
         }
 
         const data = sanitizePayload({ ...req.body });
-        
+        if (effectiveTenantId) {
+            data.tenantId = effectiveTenantId;
+        }
+
         // Resolve Reference Fields to prevent CastErrors
         if (data.category !== undefined) data.category = await resolveLookup('Category', data.category);
         if (data.subCategory !== undefined) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
@@ -1242,7 +1416,7 @@ export const addInventory = async (req, res) => {
         }
 
         inventory = await inventory.populate(populateFields);
-        
+
         // 🌟 Trigger Match Notification
         if (inventory.status?.lookup_value !== 'Sold Out') {
             notifyMatchingLeads(inventory);
@@ -1416,11 +1590,11 @@ export const updateInventory = async (req, res) => {
                 }
             }
         }
-        
+
         // 🚀 [MEDIA ENGINE] Handle 'media' field from mobile clients for strict schema compatibility
         if (data.media && Array.isArray(data.media)) {
             console.log(`[DIAGNOSTIC] 📁 Processing ${data.media.length} media items from mobile upload...`);
-            
+
             // Map incoming generic media to specific schema arrays
             const images = data.media.filter(m => m.url && (m.url.match(/\.(jpg|jpeg|png|webp|gif)$/i) || m.type?.startsWith('image')));
             const videos = data.media.filter(m => m.url && (m.url.match(/\.(mp4|mov|wmv|avi)$/i) || m.type?.startsWith('video')));
@@ -1459,7 +1633,7 @@ export const updateInventory = async (req, res) => {
             }));
             if (!data.$push) data.$push = {};
             data.$push.history = { $each: historyToPush };
-            
+
             // [ENTERPRISE] Create Unified Activity Log for Timeline Parity
             // This ensures that interaction intelligence is visible on all related timelines.
             try {
@@ -1515,12 +1689,12 @@ export const updateInventory = async (req, res) => {
             } catch (actErr) {
                 console.error("[InventorySync] Failed to create activity log:", actErr.message);
             }
-            
+
             delete data.interactions;
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         // 🌟 SENIOR HARDENING: Explicitly split $set and $push to prevent Mongoose operator conflicts
         const mongoUpdate = { $set: {} };
         for (const key in data) {
@@ -1583,8 +1757,8 @@ export const updateInventory = async (req, res) => {
         res.status(200).json({ success: true, data: inventory });
     } catch (error) {
         console.error(`[DEBUG] updateInventory ERROR for ID ${req.params.id}:`, error);
-        res.status(400).json({ 
-            success: false, 
+        res.status(400).json({
+            success: false,
             error: error.message,
             validationErrors: error.errors ? Object.keys(error.errors) : undefined
         });
@@ -1612,8 +1786,19 @@ export const bulkDeleteInventory = async (req, res) => {
         if (!ids || !Array.isArray(ids)) {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
-        await Inventory.softDeleteMany({ _id: { $in: ids } }, { userId: req.user?._id });
-        res.status(200).json({ success: true, message: `${ids.length} items deleted successfully` });
+
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
+        const items = await Inventory.find({ _id: { $in: ids }, ...tenantFilter }).select('_id');
+        const allowedIds = items.map(item => item._id);
+
+        if (allowedIds.length === 0) {
+            return res.status(200).json({ success: true, message: "0 items deleted successfully" });
+        }
+
+        await Inventory.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
+        res.status(200).json({ success: true, message: `${allowedIds.length} items deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -1626,10 +1811,10 @@ const flattenToDotNotation = (obj, prefix = '') => {
         const val = obj[key];
         const path = prefix ? `${prefix}.${key}` : key;
         if (
-            val && 
-            typeof val === 'object' && 
-            !Array.isArray(val) && 
-            !(val instanceof mongoose.Types.ObjectId) && 
+            val &&
+            typeof val === 'object' &&
+            !Array.isArray(val) &&
+            !(val instanceof mongoose.Types.ObjectId) &&
             !(val instanceof Date)
         ) {
             Object.assign(flattened, flattenToDotNotation(val, path));
@@ -1682,7 +1867,7 @@ export const bulkUpdateInventory = async (req, res) => {
         // Enterprise Attribution Tracking
         sanitizedUpdates.updatedBy = req.user?._id;
         sanitizedUpdates.updatedAt = new Date();
-        
+
         const result = await Inventory.updateMany(
             { _id: { $in: ids }, ...visibilityFilter },
             { $set: sanitizedUpdates }
@@ -1744,9 +1929,9 @@ export const bulkUpdateInventory = async (req, res) => {
             // non-fatal
         }
 
-        res.status(200).json({ 
-            success: true, 
-            message: `${result.modifiedCount} items updated successfully out of ${result.matchedCount} matched.` 
+        res.status(200).json({
+            success: true,
+            message: `${result.modifiedCount} items updated successfully out of ${result.matchedCount} matched.`
         });
     } catch (error) {
         console.error("[BULK_UPDATE_ERROR]", error);
@@ -1882,7 +2067,7 @@ export const resolveSizeLookup = async (value, projectName, blockName, categoryN
 
     if (!matched) {
         // Fallback 1: Project + Category + SubCategory
-        matched = lookups.find(l => 
+        matched = lookups.find(l =>
             l.metadata?.project?.toLowerCase() === projectName?.toLowerCase() &&
             l.metadata?.category?.toLowerCase() === categoryName?.toLowerCase() &&
             l.metadata?.subCategory?.toLowerCase() === subCategoryName?.toLowerCase()
@@ -1918,7 +2103,7 @@ const resolveUser = async (identifier) => {
             { name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } }
         ]
     }).select('_id').lean();
-    
+
     const resultId = user ? user._id : null;
     if (resultId) userCache.set(cacheKey, resultId);
     return resultId;
@@ -1927,7 +2112,7 @@ const resolveUser = async (identifier) => {
 // Helper to resolve Team (By Name or ID)
 const resolveTeam = async (identifier) => {
     if (!identifier) return null;
-    
+
     // Handle array of teams
     if (Array.isArray(identifier)) {
         return await Promise.all(identifier.map(id => resolveTeam(id)));
@@ -1946,7 +2131,7 @@ const resolveTeam = async (identifier) => {
     const team = await Team.findOne({
         name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') }
     }).select('_id').lean();
-    
+
     const resultId = team ? team._id : null;
     if (resultId) teamCache.set(cacheKey, resultId);
     return resultId;
@@ -1969,7 +2154,7 @@ export const importInventory = async (req, res) => {
         const globalTeams = Array.isArray(bodyTeams) ? bodyTeams : (bodyTeams ? [bodyTeams] : []);
 
         console.log(`[IMPORT] Received ${data.length} items for import`);
-        
+
         // Clear cache for a fresh import session
         lookupCache.clear();
         userCache.clear();
@@ -1989,7 +2174,7 @@ export const importInventory = async (req, res) => {
 
         for (let i = 0; i < data.length; i++) {
             const item = data[i];
-            
+
             // DIAGNOSTIC SPY: Capture raw structure for first 3 records
             if (i < 3) {
                 try {
@@ -2073,7 +2258,7 @@ export const importInventory = async (req, res) => {
                             pincode: rawPincode,
                             area: rawLocality
                         };
-                        
+
                         const resolved = await resolveHierarchicalAddress(rawAddr);
                         this.address = resolved;
                         this.locArea = resolved.area;
@@ -2120,7 +2305,7 @@ export const importInventory = async (req, res) => {
                         result.size.unit = meta.areaMetrics || result.sizeUnit;
                     }
                 }
-                
+
                 result.facing = await resolveLookup('Facing', item.facing || item['Facing'] || item['Orientation']);
                 result.direction = await resolveLookup('Direction', item.direction || item['Direction'] || item['Orientation']);
                 result.orientation = await resolveLookup('Orientation', item.orientation || item['Orientation']);
@@ -2150,14 +2335,14 @@ export const importInventory = async (req, res) => {
                             if (query.length > 0) {
                                 contact = await Contact.findOne({ $or: query }).select('_id name personalAddress').lean();
                             }
-                            
+
                             // 🚀 [SENIOR] Advanced Matching: Name + FatherName + HouseNumber + Location
                             if (!contact && ownerName) {
                                 const nameQuery = { name: { $regex: new RegExp(`^${escapeRegExp(ownerName)}$`, 'i') } };
                                 if (ownerFatherName) {
                                     nameQuery.fatherName = { $regex: new RegExp(`^${escapeRegExp(ownerFatherName)}$`, 'i') };
                                 }
-                                
+
                                 // Address component matching for high-precision deduplication
                                 if (result.address?.hNo) {
                                     nameQuery['personalAddress.hNo'] = result.address.hNo;
@@ -2201,7 +2386,7 @@ export const importInventory = async (req, res) => {
                             } else {
                                 // 🚀 Update existing contact with assignment, tagging, and address
                                 const updatePayload = {
-                                    $addToSet: { 
+                                    $addToSet: {
                                         tags: { $each: ['Property Owner', propertyTag] }
                                     },
                                     $set: {
@@ -2211,7 +2396,7 @@ export const importInventory = async (req, res) => {
                                         visibleTo: result.visibleTo
                                     }
                                 };
-                                
+
                                 if (ownerPhone) {
                                     updatePayload.$addToSet.phones = { number: String(ownerPhone), type: 'Personal' };
                                 }
@@ -2249,7 +2434,7 @@ export const importInventory = async (req, res) => {
 
                     if (matchedSize) {
                         if (matchedSize.unitType) result.unitType = await resolveLookup('Size', matchedSize.unitType);
-                        result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; 
+                        result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea;
                         result.carpetArea = matchedSize.carpetArea;
                         result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
                         if (matchedSize.category) result.category = await resolveLookup('Category', matchedSize.category);
@@ -2424,8 +2609,8 @@ export const autoResolveConflicts = async (req, res) => {
 
             if (conflict.diffs && conflict.diffs.length > 0) {
                 const aiDecisions = await AddressParsingService.evaluateConflictViaAI(
-                    conflict.diffs, 
-                    conflict.existing, 
+                    conflict.diffs,
+                    conflict.existing,
                     conflict.incoming
                 );
 
@@ -2434,11 +2619,11 @@ export const autoResolveConflicts = async (req, res) => {
                         ownership: 'FIELD_LEVEL',
                         fields: aiDecisions
                     };
-                    
+
                     // Check if AI resolved all fields
                     const totalAddressDiffs = conflict.diffs.filter(d => ['Address PINCODE', 'Address STATE', 'Address CITY', 'Address AREA', 'Address LOCATION', 'Address STREET'].includes(d.field)).length;
                     const aiDecidedCount = Object.keys(aiDecisions).filter(k => aiDecisions[k] === 'KEEP' || aiDecisions[k] === 'UPDATE').length;
-                    
+
                     if (aiDecidedCount > 0) {
                         resolvedCount++;
                     }
@@ -2469,6 +2654,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
     try {
         const { rows, data, resolutions, dryRun = false, ownerUpdateMode = 'APPEND' } = req.body;
         const finalRows = rows || data;
+
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
 
         // 🕵️ [DIAGNOSTIC] Log first item to verify mapping
         if (finalRows && finalRows.length > 0) {
@@ -2509,16 +2697,16 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             if (!id) return null;
             const strId = String(id).trim();
             if (userCache.has(strId.toLowerCase())) return userCache.get(strId.toLowerCase());
-            
+
             const escaped = escapeRegExp(strId);
-            const res = await User.findOne({ 
+            const res = await User.findOne({
                 $or: [
                     { _id: mongoose.Types.ObjectId.isValid(strId) ? strId : null },
                     { fullName: { $regex: new RegExp(`^${escaped}$`, 'i') } },
                     { name: { $regex: new RegExp(`^${escaped}$`, 'i') } },
                     { username: { $regex: new RegExp(`^${escaped}$`, 'i') } },
                     { email: strId.toLowerCase() }
-                ] 
+                ]
             }).select('_id').lean();
             const result = res?._id || null;
             userCache.set(strId.toLowerCase(), result);
@@ -2528,11 +2716,11 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
         const cachedResolveTeam = async (id) => {
             if (!id) return null;
             if (teamCache.has(id)) return teamCache.get(id);
-            const res = await Team.findOne({ 
+            const res = await Team.findOne({
                 $or: [
                     { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
                     { name: { $regex: new RegExp(`^${escapeRegExp(id)}$`, 'i') } }
-                ] 
+                ]
             }).select('_id').lean();
             const result = res?._id || null;
             teamCache.set(id, result);
@@ -2541,17 +2729,17 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
         for (let i = 0; i < finalRows.length; i++) {
             const row = finalRows[i];
-            
+
             // 🚀 [SENIOR] Robust Header Mapping for Bulk Update
             const projectName = row.projectName || row['Project Name'] || row['Project'] || '';
             const block = row.block || row['Block'] || row['Phase'] || '';
             const unitNo = row.unitNo || row['Unit Number'] || row['Unit No'] || row['Unit'] || '';
-            
+
             const ownerName = row.ownerName || row['Owner Name'] || row['Name'] || '';
             const ownerFatherName = row.fatherName || row.ownerFatherName || row['Father Name'] || row['Owner Father Name'] || row['FatherName'] || '';
             const ownerMobile = row.ownerMobile || row['Owner Mobile'] || row['Mobile'] || row['Phone'] || row['Mobile Number'] || '';
             const alternateMobileRaw = row.alternateMobile || row['Alternate Mobile'] || row['Alt Mobile'] || row['Secondary Mobile'] || row['Mobile 2'] || '';
-            
+
             const ownerHNo = row.ownerHNo || row['Owner House No'] || row['House No'] || row['House Number'] || row['HNo'] || '';
             const ownerStreet = row.ownerStreet || row['Owner Street'] || row['Street'] || '';
             const ownerLocality = row.ownerLocality || row['Owner Locality'] || row['Locality'] || row['Sector'] || '';
@@ -2590,7 +2778,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     $or: [
                         { unitNo: { $regex: new RegExp(`^\\s*${escapeRegExp(cleanUnit)}\\s*$`, 'i') } },
                         { unitNumber: { $regex: new RegExp(`^\\s*${escapeRegExp(cleanUnit)}\\s*$`, 'i') } }
-                    ]
+                    ],
+                    ...tenantFilter
                 };
 
                 // Enterprise Grade: Handle optional blocks and variations (Null vs Empty vs N/A)
@@ -2626,9 +2815,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     };
                     if (!results.notFound) results.notFound = [];
                     results.notFound.push(notFoundEntry);
-                    results.errors.push({ 
-                        row: absoluteRow, 
-                        item: cleanUnit || 'Unknown Unit', 
+                    results.errors.push({
+                        row: absoluteRow,
+                        item: cleanUnit || 'Unknown Unit',
                         reason: notFoundEntry.reason
                     });
                     continue;
@@ -2679,20 +2868,20 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 let pincode = String(ownerPinCode || '').trim();
 
                 let fullAddress = row.address || row.ownerAddress || row.fullAddress || row['Full Address'] || row['Address'] || '';
-                
-                // 🚀 [USER FEEDBACK FIX] 
+
+                // 🚀 [USER FEEDBACK FIX]
                 // Only run parsing if the fullAddress field is mapped.
                 // Do NOT overwrite explicitly mapped individual fields with parsed data.
                 if (fullAddress) {
                     try {
                         const parsed = await AddressParsingService.parseAddress(fullAddress, true);
-                        
+
                         // Fill in gaps where individual fields were NOT mapped
                         hNo = hNo || parsed.houseNo;
                         street = street || parsed.street;
                         area = area || parsed.area;
                         locality = locality || parsed.location || parsed.area;
-                        
+
                         // Enforce mappings only for unmapped fields
                         if (!city && parsed.city) city = parsed.city;
                         if (!tehsil && parsed.tehsil) tehsil = parsed.tehsil;
@@ -2744,8 +2933,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         results.duplicates.push({ name: 'Cached Contact (Identity)', mobile: 'In-File Duplicate' });
                     } else {
                         // 🚀 [HARDENED] Search for existing contact (Mobile first, then Legal Identity)
-                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile }).populate('personalAddress.location') : null;
-                        
+                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile, ...tenantFilter }).populate('personalAddress.location') : null;
+
                         // 🚀 [HARDENED] Name Normalization for matching (Strip Sh., Shri, Late, Mr. etc)
                         const normalizeName = (n) => String(n || '').replace(/^(Sh\.|Shri|Sh|Mr\.|Mr|Mrs\.|Mrs|Late|Lt\.)\s+/i, '').trim();
                         const normName = normalizeName(name);
@@ -2753,17 +2942,18 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                         let contactByLegal = null;
                         if (normName && !contactByMobile) {
-                            const legalQuery = { 
-                                name: { $regex: new RegExp(`^\\s*(${escapeRegExp(name)}|${escapeRegExp(normName)})\\s*$`, 'i') }
+                            const legalQuery = {
+                                name: { $regex: new RegExp(`^\\s*(${escapeRegExp(name)}|${escapeRegExp(normName)})\\s*$`, 'i') },
+                                ...tenantFilter
                             };
-                            
+
                             // 🚀 [SENIOR] Tier 2 & 3 Matching logic
                             const matchConditions = [];
-                            
+
                             if (normFather) {
                                 matchConditions.push({ fatherName: { $regex: new RegExp(`^\\s*(${escapeRegExp(fatherName)}|${escapeRegExp(normFather)})\\s*$`, 'i') } });
                             }
-                            
+
                             if (hNo || locality || ownerCity) {
                                 const addrConditions = [];
                                 if (hNo) addrConditions.push({ 'personalAddress.hNo': { $regex: new RegExp(`^\\s*${escapeRegExp(hNo)}\\s*$`, 'i') } });
@@ -2772,12 +2962,12 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     if (resolvedLocId) addrConditions.push({ 'personalAddress.location': resolvedLocId });
                                 }
                                 if (ownerCity) addrConditions.push({ 'personalAddress.city': { $regex: new RegExp(`^\\s*${escapeRegExp(ownerCity)}\\s*$`, 'i') } });
-                                
+
                                 if (addrConditions.length > 0) {
                                     matchConditions.push({ $and: addrConditions });
                                 }
                             }
-                            
+
                             if (matchConditions.length > 0) {
                                 legalQuery.$or = matchConditions;
                                 contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location');
@@ -2800,10 +2990,10 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             if (resolution === 'MERGE_DATA_CUSTOM' && resolutions?.[rowKey]?.customData) {
                                 if (!dryRun) {
                                     const customData = resolutions[rowKey].customData;
-                                    
+
                                     if (customData.name) existingContact.name = customData.name;
                                     if (customData.fatherName) existingContact.fatherName = customData.fatherName;
-                                    
+
                                     if (customData.mobile) {
                                         if (!existingContact.phones) existingContact.phones = [];
                                         const phoneIndex = existingContact.phones.findIndex(p => p.type === 'Personal');
@@ -2813,7 +3003,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                             existingContact.phones.unshift({ type: 'Personal', number: customData.mobile });
                                         }
                                     }
-                                    
+
                                     if (customData.email) {
                                         if (!existingContact.emails) existingContact.emails = [];
                                         const emailIndex = existingContact.emails.findIndex(e => e.type === 'Personal');
@@ -2862,7 +3052,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                                 const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
                                 if (!existingContact.personalAddress) existingContact.personalAddress = {};
-                                
+
                                 const addrFields = ['hNo', 'street', 'area', 'city', 'state', 'pincode'];
                                 addrFields.forEach(f => {
                                     if (resolvedAddress[f] && existingContact.personalAddress[f] !== resolvedAddress[f]) {
@@ -2870,7 +3060,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                         needsSave = true;
                                     }
                                 });
-                                
+
                                 if (resolvedAddress.location && (!existingContact.personalAddress.location || existingContact.personalAddress.location.toString() !== resolvedAddress.location.toString())) {
                                     existingContact.personalAddress.location = resolvedAddress.location;
                                     needsSave = true;
@@ -2881,7 +3071,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     await existingContact.save();
                                 }
                             }
-                            
+
                             ownerId = existingContact._id.toString();
                             results.contactsFound++;
                             results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
@@ -2900,7 +3090,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     phones: newPhones,
                                     emails: email ? [{ address: email, type: 'Personal' }] : [],
                                     personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
-                                    tags: ['Property Owner', propertyTag]
+                                    tags: ['Property Owner', propertyTag],
+                                    ...(rawTenantId ? { tenantId: rawTenantId } : {})
                                 });
                                 ownerId = newContact._id.toString();
                                 results.contactsCreated++;
@@ -2978,7 +3169,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                                 const Contact = mongoose.models.Contact || mongoose.model('Contact');
                                                 const existingContact = await Contact.findById(primaryOwnerId);
                                                 const incomingContact = await Contact.findById(ownerId);
-                                                
+
                                                 if (existingContact && incomingContact) {
                                                     // Merge new phone numbers
                                                     const existingPhones = (existingContact.phones || []).map(p => p.number);
@@ -2988,7 +3179,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                                             existingContact.phones.push(p);
                                                         }
                                                     });
-                                                    
+
                                                     // Merge new emails
                                                     const existingEmails = (existingContact.emails || []).map(e => e.address);
                                                     const incomingEmails = incomingContact.emails || [];
@@ -2997,7 +3188,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                                             existingContact.emails.push(e);
                                                         }
                                                     });
-                                                    
+
                                                     // Merge scalar fields if missing in existing
                                                     const fieldsToFill = ['fatherName', 'name', 'professionCategory', 'professionSubCategory', 'designation', 'companyName'];
                                                     fieldsToFill.forEach(f => {
@@ -3005,9 +3196,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                                             existingContact[f] = incomingContact[f];
                                                         }
                                                     });
-                                                    
+
                                                     await existingContact.save();
-                                                    
+
                                                     // Soft-delete the duplicate contact that was just created from CSV
                                                     await Contact.findByIdAndUpdate(ownerId, {
                                                         isMerged: true,
@@ -3039,7 +3230,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                             type: 'Removed',
                                             source: 'Import'
                                         }));
-                                        
+
                                         if (!updates.$push) updates.$push = {};
                                         if (!updates.$push.ownerHistory) updates.$push.ownerHistory = { $each: [] };
                                         updates.$push.ownerHistory.$each.push(...ownerHistoryEntries);
@@ -3048,7 +3239,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                             const unitLabel = inventory.unitNo || inventory.unitNumber || 'unit';
                                             const projectLabel = inventory.projectName ? inventory.projectName.replace(/\s+/g, '') : 'project';
                                             const tagToAdd = `previous_owner_${unitLabel}_${projectLabel}`.toLowerCase();
-                                            
+
                                             const Contact = mongoose.models.Contact || mongoose.model('Contact');
                                             await Contact.updateMany(
                                                 { _id: { $in: removedOwnerIds } },
@@ -3087,13 +3278,14 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     } else {
                         // 🚀 [HARDENED] Associate Matching: Mobile first.
                         // We do NOT use the Owner's address (hNo, locality) to match the Associate.
-                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile }) : null;
-                        
+                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile, ...tenantFilter }) : null;
+
                         let contactByLegal = null;
                         if (!mobile && name) {
                             // If no mobile is provided for associate, try a strict name match as fallback.
-                            const legalQuery = { 
-                                name: { $regex: new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`, 'i') }
+                            const legalQuery = {
+                                name: { $regex: new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`, 'i') },
+                                ...tenantFilter
                             };
                             // In a robust system, matching only by name is risky, but it's the only fallback here.
                             contactByLegal = await Contact.findOne(legalQuery);
@@ -3105,7 +3297,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             associateId = existingContact._id;
                             if (!dryRun) {
                                 // 🚀 Update tags and assignment for existing associate
-                                await Contact.findByIdAndUpdate(associateId, {
+                                await Contact.findOneAndUpdate({ _id: associateId, ...tenantFilter }, {
                                     $addToSet: { tags: { $each: ['Property Owner', 'Associate', propertyTag] } },
                                     $set: {
                                         owner: rowAssignedTo,
@@ -3124,13 +3316,14 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 personalAddress: {}, // Empty address since Associate address fields are not in the mapping
                                 ...assignmentUpdate,
                                 source: await cachedResolveLookup('Source', 'Bulk Owner Update'),
-                                tags: ['Property Owner', 'Associate', propertyTag]
+                                tags: ['Property Owner', 'Associate', propertyTag],
+                                ...(rawTenantId ? { tenantId: rawTenantId } : {})
                             });
                             associateId = newContact._id;
                         } else {
                             associateId = "SIMULATED_ID";
                         }
-                        
+
                         if (associateId && associateId !== "SIMULATED_ID") {
                             if (mobile) contactCache.set(mobile, associateId);
                             if (name) contactCache.set(associateCompositeKey, associateId);
@@ -3140,7 +3333,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     if (associateId && associateId !== "SIMULATED_ID" && !dryRun) {
                         const existingAssociates = inventory.associates || [];
                         const existingIndex = existingAssociates.findIndex(a => a.contact && a.contact.toString() === associateId.toString());
-                        
+
                         if (existingIndex > -1) {
                             // 🚀 [SENIOR] Synchronize Relationship for existing associate
                             existingAssociates[existingIndex].relationship = relationship || existingAssociates[existingIndex].relationship || 'Associate';
@@ -3161,7 +3354,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     const mongoUpdate = {};
                     const setOps = { ...updates };
                     delete setOps.$push;
-                    
+
                     if (Object.keys(setOps).length > 0) {
                         mongoUpdate.$set = setOps;
                     }
@@ -3170,7 +3363,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     }
 
                     if (Object.keys(mongoUpdate).length > 0) {
-                        await Inventory.findByIdAndUpdate(inventory._id, mongoUpdate);
+                        await Inventory.findOneAndUpdate({ _id: inventory._id, ...tenantFilter }, mongoUpdate);
                     }
                 }
 
@@ -3217,13 +3410,13 @@ export const getUniqueBlocks = async (req, res) => {
     try {
         const { project } = req.query;
         let query = { block: { $ne: null, $exists: true } };
-        
+
         if (project) {
             query.projectName = { $regex: new RegExp(`^${escapeRegExp(project)}$`, 'i') };
         }
-        
+
         const blocks = await Inventory.distinct("block", query);
-        
+
         const sortedBlocks = blocks.filter(b => b && b.trim() !== "").sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         res.status(200).json({ success: true, blocks: sortedBlocks });
     } catch (error) {
@@ -3248,7 +3441,7 @@ export const getSuggestedOwners = async (req, res) => {
 
         // Fuzzy unit pattern: Matches "101" in "101", "A-101", "101/B", "Flat 101"
         const fuzzyUnitPattern = new RegExp(`.*${escapeRegExp(unitRaw)}.*`, 'i');
-        
+
         const existingContactIds = [
             ...(inventory.owners || []),
             ...(inventory.associates || []).map(a => a.contact)
@@ -3269,9 +3462,9 @@ export const getSuggestedOwners = async (req, res) => {
                 }
                 values.push(val.toString());
             } else {
-                const lookup = await Lookup.findOne({ 
-                    lookup_type: lookupType, 
-                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(val.toString())}$`, 'i') } 
+                const lookup = await Lookup.findOne({
+                    lookup_type: lookupType,
+                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(val.toString())}$`, 'i') }
                 }).lean();
                 if (lookup) {
                     values.push(lookup._id);
@@ -3356,7 +3549,7 @@ export const getSuggestedOwners = async (req, res) => {
         // 3. [EXECUTION] Run Exact matches first
         let suggestedContacts = [];
         if (exactSearchQueries.length > 0) {
-            suggestedContacts = await Contact.find({ 
+            suggestedContacts = await Contact.find({
                 $and: [
                     { $or: exactSearchQueries },
                     { _id: { $nin: existingContactIds } },
@@ -3381,7 +3574,7 @@ export const getSuggestedOwners = async (req, res) => {
             .select('name phones emails personalAddress correspondenceAddress title visibleTo assignedTo assignment teams')
             .limit(10 - suggestedContacts.length)
             .lean();
-            
+
             suggestedContacts = [...suggestedContacts, ...fallbacks];
         }
 
@@ -3401,8 +3594,8 @@ export const getSuggestedOwners = async (req, res) => {
             if (c.title && mongoose.Types.ObjectId.isValid(c.title)) uniqueLookupIds.add(c.title.toString());
         });
 
-        const lookups = uniqueLookupIds.size > 0 
-            ? await Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value').lean() 
+        const lookups = uniqueLookupIds.size > 0
+            ? await Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value').lean()
             : [];
         const lookupMap = new Map(lookups.map(l => [l._id.toString(), l.lookup_value]));
 
@@ -3420,12 +3613,12 @@ export const getSuggestedOwners = async (req, res) => {
             hydrate(cObj.personalAddress);
             hydrate(cObj.correspondenceAddress);
             if (cObj.title && mongoose.Types.ObjectId.isValid(cObj.title)) cObj.title = lookupMap.get(cObj.title.toString()) || cObj.title;
-            
+
             // Intelligence Scoring with Prioritization Rules
             let score = 0;
             const personalHNo = (cObj.personalAddress?.hNo || "").toString().trim();
             const corresHNo = (cObj.correspondenceAddress?.hNo || "").toString().trim();
-            
+
             const matchHNo = (hNo) => {
                 if (!hNo) return 0; // Blank/empty
                 const val = hNo.toLowerCase();
@@ -3437,7 +3630,7 @@ export const getSuggestedOwners = async (req, res) => {
 
             const personalScore = matchHNo(personalHNo);
             const corresScore = matchHNo(corresHNo);
-            
+
             // Determine maximum score. If both are blank, it remains a suggested option at low priority.
             const maxScore = Math.max(personalScore, corresScore);
             if (maxScore > 0) {
@@ -3447,7 +3640,7 @@ export const getSuggestedOwners = async (req, res) => {
             } else {
                 score = 0; // Fallback Mismatch
             }
-            
+
             cObj.matchConfidence = score;
             return cObj;
         }).sort((a, b) => b.matchConfidence - a.matchConfidence);
@@ -3479,13 +3672,13 @@ export const bulkAddInventory = async (req, res) => {
         // Use bulkWrite with upsert to prevent duplicates and update existing units
         const bulkOps = preparedItems.map(item => {
             const { status, createdBy, tenantId, _id, team, visibleTo, assignedTo, ...updateFields } = item;
-            
-            const setOnInsert = { 
-                createdBy, 
+
+            const setOnInsert = {
+                createdBy,
                 tenantId,
                 assignedTo: assignedTo || [req.user._id]
             };
-            
+
             // Preserve existing status and assignment if we are just updating the unit (e.g. from map plotting)
             if (status) setOnInsert.status = status;
             if (team) setOnInsert.team = team;
@@ -3493,12 +3686,12 @@ export const bulkAddInventory = async (req, res) => {
 
             return {
                 updateOne: {
-                    filter: { 
-                        projectId: item.projectId, 
-                        block: item.block || "", 
-                        unitNo: item.unitNo 
+                    filter: {
+                        projectId: item.projectId,
+                        block: item.block || "",
+                        unitNo: item.unitNo
                     },
-                    update: { 
+                    update: {
                         $set: updateFields,
                         $setOnInsert: setOnInsert
                     },
