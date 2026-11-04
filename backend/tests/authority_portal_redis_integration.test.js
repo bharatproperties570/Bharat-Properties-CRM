@@ -640,13 +640,13 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
 
         // Inspect Redis hash directly
         const redisHash = await redisClient.hgetall('quota:canonical:HSVP');
-        assert.equal(redisHash.policyReference, canonicalRef);
+        assert.equal(redisHash.ref, canonicalRef);
         assert.equal(redisHash.minIntervalMs, '250');
-        assert.equal(redisHash.maxRequestsPerMinute, '4');
-        assert.equal(redisHash.maxRequestsPerHour, '40');
-        assert.equal(redisHash.maxRequestsPerDay, '200');
+        assert.equal(redisHash.maxPerMin, '4');
+        assert.equal(redisHash.maxPerHour, '40');
+        assert.equal(redisHash.maxPerDay, '200');
         assert.equal(redisHash.approvedBy, 'audit-officer-pr42');
-        assert.equal(redisHash.policyVersion, '1');
+        assert.equal(redisHash.version, '1');
         assert.equal(redisHash.contentHash, contentHash);
 
         const keyTtl = await redisClient.ttl('quota:canonical:HSVP');
@@ -768,6 +768,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         const authorityCode = 'GMADA';
 
         // 12.1 Register authority-global canonical policy in Mongo and Redis
+        const submitterId = new mongoose.Types.ObjectId().toString();
         const reviewerId = new mongoose.Types.ObjectId().toString();
         const approverId = new mongoose.Types.ObjectId().toString();
 
@@ -799,7 +800,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             readOnlySearchAuthorized: true,
             termsReviewed: true,
             termsReference: 'https://gmada.gov.in/terms',
-            submittedBy: reviewerId,
+            submittedBy: submitterId,
             approvedBy: approverId,
             reviewedBy: reviewerId,
             permittedFields: ['propertyId', 'sectorNumber'],
