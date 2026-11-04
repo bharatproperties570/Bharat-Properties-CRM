@@ -26,7 +26,8 @@ import { createConfiguredPortalRuntime } from '../services/authority/portal/port
 import {
     registerOrRotateCanonicalPolicy,
     publishCanonicalPolicyToRedis,
-    markCanonicalPolicyAudited
+    markCanonicalPolicyAudited,
+    getCanonicalPolicy
 } from '../services/authority/portal/canonicalPolicyService.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
 import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
