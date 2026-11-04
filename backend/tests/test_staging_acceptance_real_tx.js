@@ -1199,11 +1199,12 @@ async function main() {
         if (testFailed > 0) {
             process.exit(1);
         }
+        await teardownDatabase();
+        process.exit(0);
     } catch (err) {
         console.error('Fatal execution error:', err);
+        try { await teardownDatabase(); } catch (_) {}
         process.exit(1);
-    } finally {
-        await teardownDatabase();
     }
 }
 

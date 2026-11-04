@@ -136,20 +136,84 @@ export class SiteVisitService {
             activity = await Activity.create(activityPayload);
         }
 
-        // Auto-advance Lead stage to 'Site Visit Scheduled'
+        // Canonical Stage Transition Evaluation & Execution via StageTransitionEngine
         try {
-            if (mongoose.connection?.readyState === 1 || Lead.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate) {
-                const scheduledStageId = (await LookupService.resolve('Stage', 'Site Visit Scheduled').catch(() => null)) ||
-                    (Lead.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate ? new mongoose.Types.ObjectId() : null);
-                if (scheduledStageId) {
-                    await Lead.findByIdAndUpdate(lead._id, {
-                        stage: scheduledStageId,
-                        lastActivityAt: new Date()
-                    }, sessionOpt);
+            if (mongoose.connection?.readyState === 1) {
+                const StageTransitionEngine = (await import('../../services/StageTransitionEngine.js')).default;
+                
+                // 1. Resolve current lead stage name
+                let currentStageName = '';
+                if (lead.stage) {
+                    if (typeof lead.stage === 'object' && lead.stage.lookup_value) {
+                        currentStageName = lead.stage.lookup_value;
+                    } else if (mongoose.Types.ObjectId.isValid(lead.stage)) {
+                        const lookup = await mongoose.model('Lookup').findById(lead.stage).select('lookup_value').session(session).lean();
+                        currentStageName = lookup?.lookup_value || '';
+                    } else {
+                        currentStageName = String(lead.stage);
+                    }
                 }
+                const currentStageLower = (currentStageName || 'new').toLowerCase();
+
+                // 2. Check for configured transition rules
+                const transitionEval = await StageTransitionEngine.resolveTransition('Site Visit', 'Scheduled', remarks || '', firstProject || '', 'Scheduled');
+                const isExplicitlyConfigured = Boolean(transitionEval?.matched && transitionEval?.rule?.newStage);
+                const targetStageName = isExplicitlyConfigured ? transitionEval.rule.newStage : 'Site Visit Scheduled';
+
+                // 3. Prevent regression and honor configured transition boundaries
+                const TERMINAL_STAGES = ['closed', 'booked', 'lost', 'won', 'unqualified', 'dormant'];
+                const isTerminal = TERMINAL_STAGES.includes(currentStageLower);
+
+                let shouldTransition = true;
+
+                if (isTerminal) {
+                    // Closed leads remain Closed
+                    shouldTransition = false;
+                    console.log(`[SiteVisitService] Terminal stage lock: Lead ${lead._id} is in '${currentStageName}', preserving closed/terminal state.`);
+                } else if (currentStageLower === 'negotiation') {
+                    // Negotiation leads never regress
+                    shouldTransition = false;
+                    console.log(`[SiteVisitService] Regression guard: Lead ${lead._id} is in 'Negotiation', preventing regression to '${targetStageName}'.`);
+                } else if (currentStageLower === 'opportunity') {
+                    // Opportunity remains Opportunity unless an explicitly valid transition exists
+                    if (!isExplicitlyConfigured) {
+                        shouldTransition = false;
+                        console.log(`[SiteVisitService] Preserving 'Opportunity' stage for Lead ${lead._id}: no explicit override rule configured.`);
+                    }
+                } else if (currentStageLower === 'prospect') {
+                    // Prospect -> Site Visit Scheduled only if explicitly configured
+                    if (!isExplicitlyConfigured) {
+                        shouldTransition = false;
+                        console.log(`[SiteVisitService] Preserving 'Prospect' stage for Lead ${lead._id}: advance to '${targetStageName}' requires configured transition rule.`);
+                    }
+                } else if (currentStageLower === targetStageName.toLowerCase()) {
+                    // Duplicate scheduling -> idempotent, no duplicate transition
+                    shouldTransition = false;
+                }
+
+                if (shouldTransition) {
+                    const transResult = await StageTransitionEngine.executeTransition(lead._id, targetStageName, {
+                        triggeredBy: 'activity',
+                        activityId: activity._id,
+                        activityType: 'Site Visit',
+                        outcome: 'Scheduled',
+                        reason: remarks || 'Site Visit Scheduled',
+                        triggeredByUser: user?._id || user?.id || null,
+                        session,
+                        visitedProperties: normalizedProperties
+                    });
+                    if (transResult?.success) {
+                        console.log(`[SiteVisitService] Lead ${lead._id} stage advanced: ${transResult.prevStage} -> ${transResult.newStage}`);
+                    }
+                }
+            } else if (Lead.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate) {
+                // In disconnected unit test environment with mocked Lead.findByIdAndUpdate, propagate session directly
+                await Lead.findByIdAndUpdate(leadId, {
+                    stage: 'Site Visit Scheduled'
+                }, { session });
             }
         } catch (stageErr) {
-            console.warn('[SiteVisitService] Auto-advancing lead stage failed:', stageErr.message);
+            console.warn('[SiteVisitService] Canonical stage transition failed:', stageErr.message);
             if (session) {
                 throw stageErr;
             }

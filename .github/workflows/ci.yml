@@ -94,7 +94,6 @@ jobs:
           npm run test:phase10
 
       - name: Run Phase 11 Document Storage Tests
-        continue-on-error: true
         run: |
           cd backend
           npm run test:phase11

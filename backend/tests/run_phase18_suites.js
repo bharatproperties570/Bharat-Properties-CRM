@@ -19,6 +19,7 @@
  * 13. End-to-End Enterprise Integration & Verification (10-Stage Lifecycle)
  * 14. P0 Security & Data Integrity Remediation Regression Suite
  * 15. Enterprise withMongoTransaction Hardened Wrapper Unit Suite
+ * 16. Site Visit Lifecycle & Stage Transition Regression Suite
  */
 
 import { spawn } from 'child_process';
@@ -104,6 +105,11 @@ const suites = [
         name: 'Hardened withMongoTransaction Wrapper Suite',
         cmd: 'node',
         args: ['tests/utils/withMongoTransaction.test.js']
+    },
+    {
+        name: 'Site Visit Lifecycle & Stage Transition Regression Suite',
+        cmd: 'node',
+        args: ['--test', '--test-force-exit', 'tests/test_sitevisit_lifecycle_regression.js']
     }
 ];
 

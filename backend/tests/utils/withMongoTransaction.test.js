@@ -150,7 +150,7 @@ export const runTransactionTests = async () => {
 
         console.log("✅ TEST F PASSED: Existing callers remain compatible (API backwards compatibility maintained)");
         console.log("\nAll withMongoTransaction tests PASSED successfully!");
-
+        process.exit(0);
     } catch (err) {
         mongoose.startSession = originalStartSession;
         setMockConnectionReady(originalReadyState === 1);
