@@ -50,13 +50,13 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci --legacy-peer-deps
 
-      - name: Gate 1 & 5: Backend Unit/Integration & Site Visit Security Suites (13 Suites / 126 Tests)
+      - name: "Gate 1 & 5: Backend Unit/Integration & Site Visit Security Suites (13 Suites / 126 Tests)"
         run: npm run test:backend
 
-      - name: Gate 2: Frontend Component Tests (Vitest)
+      - name: "Gate 2: Frontend Component Tests (Vitest)"
         run: npm run test:frontend
 
-      - name: Gate 3: Frontend Production Build Verification (Vite)
+      - name: "Gate 3: Frontend Production Build Verification (Vite)"
         run: npm run build
 
   replica-set-acceptance:
@@ -93,7 +93,7 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci --legacy-peer-deps
 
-      - name: Gate 4: Real MongoDB Replica Set Acceptance & Concurrency Race Verification
+      - name: "Gate 4: Real MongoDB Replica Set Acceptance & Concurrency Race Verification"
         run: npm run test:sitevisit:replica
 
       - name: Upload Logs on Failure
@@ -103,4 +103,4 @@ jobs:
           name: replica-set-failure-logs
           path: |
             backend/tests/*.log
-            ~/.cache/mongodb-binaries
+          if-no-files-found: ignore
