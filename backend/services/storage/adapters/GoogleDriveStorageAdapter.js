@@ -78,6 +78,7 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
         this.getDriveService = deps.getDriveService || null;
         this.tokenSigner = deps.tokenSigner || null;
         this._fileIdMap = new Map(); // Local in-memory cache for fast key -> fileId resolution
+        this._inflightPuts = new Map(); // Mutex to prevent duplicate uploads during concurrent retries
     }
 
     /**
@@ -180,6 +181,11 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
                     }
                 }
 
+                // If search failure occurred during retry idempotency check, fail closed immediately
+                if (err.isSearchFailure) {
+                    throw this._translateError(err, operationName, objectKey);
+                }
+
                 const status = err.code || err.status || err.response?.status;
                 const message = err.message || '';
                 const isTransient = status === 429 || status === 500 || status === 503 ||
@@ -201,9 +207,14 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
     /**
      * Checks if a file with the deterministic objectKey in appProperties already exists in Google Drive.
      * Prevents duplicate files when an upload succeeds on Google's servers but the client response is lost.
+     * 
+     * Distinguishes confirmed match, confirmed no-match (returns null), and search failure (fails closed).
      */
     async _findExistingFileByObjectKey(objectKey, folderId = null) {
         const driveClient = await this._getDriveClient();
+        if (!driveClient?.files?.list || typeof driveClient.files.list !== 'function') {
+            return null;
+        }
         try {
             const escapedKey = objectKey.replace(/'/g, "\\'");
             let q = `appProperties has { key='objectKey' and value='${escapedKey}' } and trashed = false`;
@@ -220,10 +231,13 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
             if (res.data?.files && res.data.files.length > 0) {
                 return res.data.files[0];
             }
+            return null; // Confirmed no-match: search executed successfully with 0 results
         } catch (err) {
-            // Best-effort check; continue to create if search is unavailable
+            // Search failure must fail closed: never silently treat search failure as a no-match
+            const normErr = this._translateError(err, 'SEARCH_EXISTING', objectKey);
+            normErr.isSearchFailure = true;
+            throw normErr;
         }
-        return null;
     }
 
     /**
@@ -244,10 +258,14 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
         }
 
         // Search Drive files by appProperties
-        const existing = await this._findExistingFileByObjectKey(objectKey, options.folderId);
-        if (existing) {
-            this._fileIdMap.set(objectKey, existing.id);
-            return existing.id;
+        try {
+            const existing = await this._findExistingFileByObjectKey(objectKey, options.folderId);
+            if (existing) {
+                this._fileIdMap.set(objectKey, existing.id);
+                return existing.id;
+            }
+        } catch (err) {
+            // In resolution fallback for non-PUT operations, if search fails, continue to raw objectKey
         }
 
         return objectKey;
@@ -264,106 +282,122 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
      */
     async _put(objectKey, data, options = {}) {
         this._resolveProviderKey(objectKey);
-        const driveClient = await this._getDriveClient();
 
-        // Prepare fresh stream factory so every retry receives an unread stream from byte 0
-        let streamFactory;
-        if (typeof data === 'function') {
-            streamFactory = data;
-        } else if (Buffer.isBuffer(data)) {
-            streamFactory = () => Readable.from(Buffer.from(data));
-        } else if (typeof data === 'string') {
-            const buf = Buffer.from(data);
-            streamFactory = () => Readable.from(Buffer.from(buf));
-        } else if (data && typeof data.pipe === 'function') {
-            // Buffer the input stream to support deterministic retries
-            const chunks = [];
-            for await (const chunk of data) {
-                chunks.push(chunk);
-            }
-            const buffered = Buffer.concat(chunks);
-            streamFactory = () => Readable.from(Buffer.from(buffered));
-        } else {
-            throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
+        // Concurrency mutex: join existing in-flight upload for the same logical objectKey
+        if (this._inflightPuts.has(objectKey)) {
+            return await this._inflightPuts.get(objectKey);
         }
 
-        const folderId = options.folderId || this.config.parentFolderId || this.config.folderId || undefined;
-        const fileName = options.originalFilename || options.filename || objectKey;
+        const putPromise = (async () => {
+            const driveClient = await this._getDriveClient();
 
-        // PRIVATE BY DEFAULT: NO public permissions are created!
-        const requestBody = {
-            name: fileName,
-            mimeType: options.mimeType,
-            appProperties: {
-                objectKey: objectKey,
-                uploadedBy: options.userId ? String(options.userId) : 'crm',
-                documentId: options.documentId || '',
-                versionId: options.versionId || ''
-            }
-        };
-
-        if (folderId) {
-            requestBody.parents = [folderId];
-        }
-
-        let createdFileId = null;
-
-        const result = await this._executeWithRetry(async (attempt) => {
-            // Remote idempotency: if an earlier attempt succeeded remotely but response was lost, avoid duplicate
-            if (attempt > 1) {
-                const existingFile = await this._findExistingFileByObjectKey(objectKey, folderId);
-                if (existingFile) {
-                    return { data: existingFile };
+            // Prepare fresh stream factory so every retry receives an unread stream from byte 0
+            let streamFactory;
+            if (typeof data === 'function') {
+                streamFactory = data;
+            } else if (Buffer.isBuffer(data)) {
+                streamFactory = () => Readable.from(Buffer.from(data));
+            } else if (typeof data === 'string') {
+                const buf = Buffer.from(data);
+                streamFactory = () => Readable.from(Buffer.from(buf));
+            } else if (data && typeof data.pipe === 'function') {
+                // Buffer the input stream to support deterministic retries
+                const chunks = [];
+                for await (const chunk of data) {
+                    chunks.push(chunk);
                 }
+                const buffered = Buffer.concat(chunks);
+                streamFactory = () => Readable.from(Buffer.from(buffered));
+            } else {
+                throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
             }
 
-            // Generate fresh, unread readable stream for this specific attempt
-            const freshMediaStream = streamFactory();
+            const folderId = options.folderId || this.config.parentFolderId || this.config.folderId || undefined;
+            const fileName = options.originalFilename || options.filename || objectKey;
 
-            const response = await driveClient.files.create({
-                requestBody,
-                media: {
-                    mimeType: options.mimeType || 'application/octet-stream',
-                    body: freshMediaStream
-                },
-                fields: 'id, name, mimeType, size, md5Checksum, webViewLink, webContentLink, createdTime, modifiedTime',
-                supportsAllDrives: true,
-                supportsTeamDrives: true
+            // PRIVATE BY DEFAULT: NO public permissions are created!
+            const requestBody = {
+                name: fileName,
+                mimeType: options.mimeType,
+                appProperties: {
+                    objectKey: objectKey,
+                    uploadedBy: options.userId ? String(options.userId) : 'crm',
+                    documentId: options.documentId || '',
+                    versionId: options.versionId || ''
+                }
+            };
+
+            if (folderId) {
+                requestBody.parents = [folderId];
+            }
+
+            let createdFileId = null;
+
+            const result = await this._executeWithRetry(async (attempt) => {
+                // Remote idempotency: if an earlier attempt succeeded remotely but response was lost, avoid duplicate
+                if (attempt > 1) {
+                    const existingFile = await this._findExistingFileByObjectKey(objectKey, folderId);
+                    if (existingFile) {
+                        return { data: existingFile };
+                    }
+                }
+
+                // Generate fresh, unread readable stream for this specific attempt
+                const freshMediaStream = streamFactory();
+
+                const response = await driveClient.files.create({
+                    requestBody,
+                    media: {
+                        mimeType: options.mimeType || 'application/octet-stream',
+                        body: freshMediaStream
+                    },
+                    fields: 'id, name, mimeType, size, md5Checksum, webViewLink, webContentLink, createdTime, modifiedTime',
+                    supportsAllDrives: true,
+                    supportsTeamDrives: true
+                });
+
+                if (response?.data?.id) {
+                    createdFileId = response.data.id;
+                }
+
+                return response;
+            }, 'PUT', objectKey, 3, 150, async (err, attempt) => {
+                // Partial upload cleanup: If this attempt created a file but threw before completion, clean it up safely
+                if (createdFileId) {
+                    try {
+                        await driveClient.files.delete({ fileId: createdFileId, supportsAllDrives: true });
+                    } catch (cleanupErr) {
+                        // Ignore cleanup error
+                    }
+                    createdFileId = null;
+                }
             });
 
-            if (response?.data?.id) {
-                createdFileId = response.data.id;
-            }
+            const file = result.data;
+            const fileId = file.id;
 
-            return response;
-        }, 'PUT', objectKey, 3, 150, async (err, attempt) => {
-            // Partial upload cleanup: If this attempt created a file but threw before completion, clean it up safely
-            if (createdFileId) {
-                try {
-                    await driveClient.files.delete({ fileId: createdFileId, supportsAllDrives: true });
-                } catch (cleanupErr) {
-                    // Ignore cleanup error
-                }
-                createdFileId = null;
-            }
-        });
+            // Cache resolution mapping
+            this._fileIdMap.set(objectKey, fileId);
 
-        const file = result.data;
-        const fileId = file.id;
+            return {
+                objectKey,
+                fileId,
+                providerVersionId: fileId,
+                sizeBytes: file.size ? parseInt(file.size, 10) : (options.sizeBytes || null),
+                mimeType: file.mimeType || options.mimeType,
+                checksum: file.md5Checksum || null,
+                etag: file.md5Checksum || null,
+                isPrivate: true
+            };
+        })();
 
-        // Cache resolution mapping
-        this._fileIdMap.set(objectKey, fileId);
+        this._inflightPuts.set(objectKey, putPromise);
 
-        return {
-            objectKey,
-            fileId,
-            providerVersionId: fileId,
-            sizeBytes: file.size ? parseInt(file.size, 10) : (options.sizeBytes || null),
-            mimeType: file.mimeType || options.mimeType,
-            checksum: file.md5Checksum || null,
-            etag: file.md5Checksum || null,
-            isPrivate: true
-        };
+        try {
+            return await putPromise;
+        } finally {
+            this._inflightPuts.delete(objectKey);
+        }
     }
 
     /**

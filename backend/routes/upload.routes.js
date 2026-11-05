@@ -1,14 +1,177 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import mongoose from 'mongoose';
 import { uploadGeneric } from '../src/middlewares/upload.middleware.js';
 import { uploadFileToDrive, deleteFileFromDrive, getFileMetadata, downloadFileBuffer } from '../services/drive.service.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
+import Document from '../models/Document.js';
+import DocumentVersion from '../models/DocumentVersion.js';
+import DocumentAccessService from '../services/storage/DocumentAccessService.js';
+import { getVisibilityFilter } from '../utils/visibility.js';
 
 const router = express.Router();
 
 // Apply authentication to all routes
 router.use(authenticate);
+
+/**
+ * In-memory registry for uploaded file ownership to protect direct uploads
+ * before or alongside MongoDB document association.
+ */
+export const fileUploadOwnership = new Map();
+
+/**
+ * Register file upload ownership for IDOR protection.
+ */
+export function registerUploadedFile(fileId, user) {
+    if (!fileId || !user) return;
+    const sanitized = path.basename(fileId);
+    const userId = user._id || user.id;
+    const rawTenantId = user.tenantId || user.tenant;
+    const tenantId = rawTenantId ? String(rawTenantId) : null;
+    const record = {
+        userId: userId ? String(userId) : null,
+        tenantId,
+        timestamp: Date.now()
+    };
+    fileUploadOwnership.set(sanitized, record);
+    fileUploadOwnership.set(fileId, record);
+}
+
+/**
+ * Enforces strict document-level authorization on legacy file access endpoints.
+ * Prevents Insecure Direct Object References (IDOR) across users and tenants.
+ *
+ * Rules:
+ * 1. Checks memory ownership table for direct uploads.
+ *    - Verifies user ownership and enforces strict cross-tenant isolation.
+ * 2. Checks canonical DocumentVersion & Document models using DocumentAccessService.
+ *    - Respects entity visibility, lifecycle rules, legal hold, and RBAC permissions.
+ * 3. Checks CRM entities (Lead, Deal, Contact, Inventory, Project) using getVisibilityFilter.
+ * 4. Disallowed or nonexistent resources return false (triggering a generic 404).
+ */
+export async function authorizeFileAccess(user, fileId, operation = 'READ') {
+    if (!user) return false;
+    if (!fileId || typeof fileId !== 'string') return false;
+
+    const sanitized = path.basename(fileId.trim());
+    if (!sanitized) return false;
+
+    const userId = user._id || user.id;
+    const rawTenantId = user.tenantId || user.tenant;
+    const userTenantId = rawTenantId ? String(rawTenantId) : null;
+
+    // 1. Check in-memory upload registry for direct uploads
+    if (fileUploadOwnership.has(sanitized) || fileUploadOwnership.has(fileId)) {
+        const record = fileUploadOwnership.get(sanitized) || fileUploadOwnership.get(fileId);
+        // Cross-tenant check: if file belongs to a tenant and current user is in another tenant -> DENIED
+        if (record.tenantId && userTenantId && record.tenantId !== userTenantId) {
+            return false;
+        }
+        // If file was uploaded by this exact user within same tenant -> ALLOWED
+        if (record.userId && userId && String(record.userId) === String(userId)) {
+            return true;
+        }
+    }
+
+    // 2. If MongoDB is connected, query canonical Document & Entity layers
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        const accessService = new DocumentAccessService();
+
+        // 2a. Check DocumentVersion by providerVersionId, objectKey, or versionId
+        try {
+            const version = await DocumentVersion.findOne({
+                $or: [
+                    { providerVersionId: sanitized },
+                    { providerVersionId: fileId },
+                    { objectKey: sanitized },
+                    { objectKey: fileId },
+                    { versionId: sanitized },
+                    { versionId: fileId }
+                ]
+            }).lean();
+
+            if (version) {
+                try {
+                    await accessService.authorizeAccess(user, version.documentId, operation, version.versionId);
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+        } catch (dbErr) {
+            console.error('[UploadAuth] DocumentVersion check failed:', dbErr.message);
+        }
+
+        // 2b. Check Document by documentId, metadata.fileId, or URL
+        try {
+            const doc = await Document.findOne({
+                $or: [
+                    { documentId: sanitized },
+                    { documentId: fileId },
+                    { 'metadata.fileId': sanitized },
+                    { 'metadata.fileId': fileId }
+                ]
+            }).lean();
+
+            if (doc) {
+                try {
+                    await accessService.authorizeAccess(user, doc.documentId, operation);
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+        } catch (dbErr) {
+            console.error('[UploadAuth] Document check failed:', dbErr.message);
+        }
+
+        // 2c. Check CRM entities (Lead, Deal, Contact, Inventory, Project) using canonical visibility filter
+        try {
+            const visibilityFilter = await getVisibilityFilter(user);
+            const entityModels = ['Lead', 'Deal', 'Contact', 'Inventory', 'Project'];
+            for (const modelName of entityModels) {
+                if (mongoose.models[modelName]) {
+                    const Model = mongoose.model(modelName);
+                    const fileRegex = new RegExp(sanitized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                    const query = {
+                        ...visibilityFilter,
+                        $or: [
+                            { 'documents.fileId': { $in: [sanitized, fileId] } },
+                            { 'documents.url': fileRegex },
+                            { 'files.fileId': { $in: [sanitized, fileId] } },
+                            { 'attachments.fileId': { $in: [sanitized, fileId] } }
+                        ]
+                    };
+                    const exists = await Model.exists(query);
+                    if (exists) {
+                        if (operation === 'DELETE') {
+                            const hasPerm = await accessService.hasPermission(user, modelName.toLowerCase(), 'delete');
+                            if (!hasPerm) return false;
+                        }
+                        return true;
+                    }
+                }
+            }
+        } catch (entityErr) {
+            console.error('[UploadAuth] CRM entity check failed:', entityErr.message);
+        }
+
+        // In connected DB mode: file does not match any authorized Document or Entity -> FAIL CLOSED
+        return false;
+    }
+
+    // 3. Fallback for non-connected database environments (e.g. lightweight isolated unit tests)
+    // Only platform super-admins with dataScope 'all' and no tenant restriction are permitted
+    const roleName = user.role?.name?.toLowerCase() || (typeof user.role === 'string' ? user.role.toLowerCase() : '');
+    const dataScope = user.dataScope?.toLowerCase() || '';
+    if (!userTenantId && (roleName === 'admin' || roleName === 'super admin') && dataScope === 'all') {
+        return true;
+    }
+
+    return false;
+}
 
 /**
  * @route   POST /api/upload
@@ -30,8 +193,12 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                 entityName, 
                 folderId,
                 docCategory,
-                docType
+                docType,
+                userId: req.user?._id || req.user?.id
             });
+
+            registerUploadedFile(result.id, req.user);
+            registerUploadedFile(req.file.filename, req.user);
 
             return res.status(200).json({
                 success: true,
@@ -47,6 +214,7 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
             
             // Fallback: Return local URL (the file is already saved in uploads/ by multer)
             const localUrl = `/uploads/${req.file.filename}`;
+            registerUploadedFile(req.file.filename, req.user);
             
             return res.status(200).json({
                 success: true,
@@ -92,8 +260,11 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                     entityName,
                     folderId,
                     docCategory,
-                    docType
+                    docType,
+                    userId: req.user?._id || req.user?.id
                 });
+                registerUploadedFile(driveRes.id, req.user);
+                registerUploadedFile(file.filename, req.user);
                 return {
                     success: true,
                     url: driveRes.url,
@@ -106,6 +277,7 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
             } catch (driveErr) {
                 console.warn(`[UploadRoute] Multiple upload: Drive failed for ${file.originalname}, falling back to LOCAL:`, driveErr.message);
                 const localUrl = `/uploads/${file.filename}`;
+                registerUploadedFile(file.filename, req.user);
                 return {
                     success: true,
                     url: localUrl,
@@ -141,13 +313,22 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
 /**
  * @route   DELETE /api/upload/:fileId
  * @desc    Delete a document from Google Drive or local storage
- * @access  Private
+ * @access  Private (authorized users only)
  */
 router.delete('/:fileId', async (req, res) => {
     try {
         const { fileId } = req.params;
         if (!fileId) {
             return res.status(400).json({ success: false, error: 'File ID is required.' });
+        }
+
+        // Enforce document-level authorization
+        const isAuthorized = await authorizeFileAccess(req.user, fileId, 'DELETE');
+        if (!isAuthorized) {
+            return res.status(404).json({
+                success: false,
+                error: 'Document not found or unauthorized'
+            });
         }
 
         // Sanitize to prevent path traversal on local checks
@@ -157,6 +338,8 @@ router.delete('/:fileId', async (req, res) => {
         if (fs.existsSync(localPath)) {
             try {
                 fs.unlinkSync(localPath);
+                fileUploadOwnership.delete(sanitized);
+                fileUploadOwnership.delete(fileId);
                 return res.status(200).json({
                     success: true,
                     message: `Local file ${sanitized} deleted successfully.`,
@@ -171,6 +354,8 @@ router.delete('/:fileId', async (req, res) => {
         // Otherwise attempt Google Drive deletion
         try {
             const driveResult = await deleteFileFromDrive(fileId);
+            fileUploadOwnership.delete(sanitized);
+            fileUploadOwnership.delete(fileId);
             return res.status(200).json({
                 success: true,
                 message: driveResult.message,
@@ -192,13 +377,22 @@ router.delete('/:fileId', async (req, res) => {
 /**
  * @route   GET /api/upload/metadata/:fileId
  * @desc    Get document metadata from Google Drive or local storage
- * @access  Private
+ * @access  Private (authorized users only)
  */
 router.get('/metadata/:fileId', async (req, res) => {
     try {
         const { fileId } = req.params;
         if (!fileId) {
             return res.status(400).json({ success: false, error: 'File ID is required.' });
+        }
+
+        // Enforce document-level authorization
+        const isAuthorized = await authorizeFileAccess(req.user, fileId, 'READ');
+        if (!isAuthorized) {
+            return res.status(404).json({
+                success: false,
+                error: 'Document not found or unauthorized'
+            });
         }
 
         const sanitized = path.basename(fileId);
@@ -242,13 +436,22 @@ router.get('/metadata/:fileId', async (req, res) => {
 /**
  * @route   GET /api/upload/file/:fileId
  * @desc    CRM-mediated secure preview and download of Drive or local file
- * @access  Private (authenticated CRM users)
+ * @access  Private (authenticated and authorized CRM users)
  */
 router.get('/file/:fileId', async (req, res) => {
     try {
         const { fileId } = req.params;
         if (!fileId) {
             return res.status(400).json({ success: false, error: 'File ID is required.' });
+        }
+
+        // Enforce document-level authorization
+        const isAuthorized = await authorizeFileAccess(req.user, fileId, 'READ');
+        if (!isAuthorized) {
+            return res.status(404).json({
+                success: false,
+                error: 'Document not found or unauthorized'
+            });
         }
 
         const isDownload = req.query.download === 'true';
