@@ -81,7 +81,7 @@ const DashboardSidebar = ({ metrics, users, onNavigate }) => {
     const hasItems = filteredVisits.length > 0 || filteredTasks.length > 0;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <style>{SIDEBAR_STYLES}</style>
 
             {/* ═══ MISSION AGENDA ═══════════════════════════════════ */}

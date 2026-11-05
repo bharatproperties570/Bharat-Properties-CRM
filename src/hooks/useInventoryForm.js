@@ -154,16 +154,33 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 return '';
             };
 
+            const targetProjId = property.project?._id || property.projectId || '';
+            const targetProjName = property.project?.name || property.projectName || (typeof property.project === 'string' ? property.project : '');
+            const matchedProject = (allProjects || []).find(p => 
+                (targetProjId && (p._id === targetProjId || p.id === targetProjId)) ||
+                (targetProjName && p.name && p.name.trim().toLowerCase() === targetProjName.trim().toLowerCase())
+            );
+            const rawBlock = property.block?.name || property.block || '';
+            let canonicalBlock = rawBlock;
+            if (matchedProject && Array.isArray(matchedProject.blocks) && rawBlock) {
+                const matchedProjBlock = matchedProject.blocks.find(b => 
+                    (typeof b === 'object' ? b.name : b)?.trim()?.toLowerCase() === String(rawBlock).trim().toLowerCase()
+                );
+                if (matchedProjBlock) {
+                    canonicalBlock = typeof matchedProjBlock === 'object' ? matchedProjBlock.name : matchedProjBlock;
+                }
+            }
+
             setFormData(prev => {
                 const newFormData = {
                     ...prev,
                     ...property,
-                    projectName: property.project?.name || property.projectName || (typeof property.project === 'string' ? property.project : ''),
-                    projectId: property.project?._id || property.projectId || '',
+                    projectName: targetProjName,
+                    projectId: targetProjId,
                 unitNo: property.unitNo || property.unitNumber || '',
                 unitType: resolveField(property.unitType, 'UnitType').toLowerCase(),
                 category: resolveField(property.category, 'Category') || 'Residential',
-                block: property.block?.name || property.block || '',
+                block: canonicalBlock,
                 size: property.sizeConfig?.lookup_value || property.sizeConfig?.name || property.sizeLabel || property.size || '',
                 sizeType: resolveField(property.sizeType, 'PropertyType'),
                 locationSearch: property.locationSearch || property.location || '',

@@ -194,7 +194,11 @@ class WhatsAppAccountAuthorizationService {
         }
 
         // 2. Default Account Target (no explicit target provided or 'legacy_default')
-        const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
+        // Prefer official Cloud API default; fallback to any active default if not present
+        let defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+        if (!defaultIntegration) {
+            defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
+        }
         const accountToCheck = defaultIntegration || {
             id: 'legacy_default',
             accountLabel: 'Main Official WhatsApp API',

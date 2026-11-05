@@ -38,29 +38,29 @@ const MiniSparkline = ({ trend, color }) => {
     const positive = trend > 0;
     // bar heights: [low, mid, high] for upward; reversed for downward; flat for zero
     const bars = positive
-        ? [4, 8, 14]
+        ? [3, 6, 11]
         : trend < 0
-            ? [14, 8, 4]
-            : [8, 8, 8];
+            ? [11, 6, 3]
+            : [6, 6, 6];
 
     return (
         <div style={{
             position: 'absolute',
-            bottom: '10px',
-            right: '10px',
+            bottom: '6px',
+            right: '6px',
             display: 'flex',
             alignItems: 'flex-end',
-            gap: '3px',
-            opacity: 0.45,
+            gap: '2px',
+            opacity: 0.4,
             pointerEvents: 'none',
         }}>
             {bars.map((h, i) => (
                 <div
                     key={i}
                     style={{
-                        width: '4px',
+                        width: '3px',
                         height: `${h}px`,
-                        borderRadius: '2px',
+                        borderRadius: '1px',
                         background: color,
                     }}
                 />
@@ -85,96 +85,102 @@ const KpiCard = memo(function KpiCard({
         <div
             className={`glass-card kpi-hover-card${isCritical && hovered ? ' kpi-critical-pulse' : ''}`}
             data-color={color}
+            title={`${title}: ${value} (${subtitle})`}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
-            style={{ padding: '16px 14px', position: 'relative', overflow: 'hidden', minHeight: '120px' }}
+            style={{ padding: '10px 10px', position: 'relative', overflow: 'hidden', minHeight: '94px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
         >
-            {/* Header row: icon + trend badge */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                {/* Icon box */}
+            <div>
+                {/* Header row: icon + trend badge */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    {/* Icon box */}
+                    <div style={{
+                        width: '28px', height: '28px', borderRadius: '8px',
+                        background: `${color}18`, border: `1px solid ${color}35`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: color, boxShadow: `0 0 12px ${color}15`,
+                        flexShrink: 0,
+                    }}>
+                        <i className={icon} style={{ fontSize: '0.72rem' }}></i>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {/* Pulsing alert dot for critical card */}
+                        {isCritical && (
+                            <div
+                                className="kpi-dot-blink"
+                                style={{
+                                    width: '6px', height: '6px', borderRadius: '50%',
+                                    background: '#ef4444',
+                                    boxShadow: '0 0 6px rgba(239,68,68,0.7)',
+                                }}
+                            />
+                        )}
+
+                        {/* Trend badge */}
+                        {trend !== undefined && (
+                            <div style={{
+                                fontSize: '0.55rem', fontWeight: 700,
+                                color: isPositive ? '#10b981' : '#94a3b8',
+                                background: isPositive ? 'rgba(16,185,129,0.1)' : 'rgba(148,163,184,0.05)',
+                                padding: '2px 5px', borderRadius: '12px',
+                                display: 'flex', alignItems: 'center', gap: '2px',
+                                border: `1px solid ${isPositive ? 'rgba(16,185,129,0.2)' : 'rgba(148,163,184,0.1)'}`,
+                            }}>
+                                <i className={`fas fa-caret-${isPositive ? 'up' : 'down'}`} style={{ fontSize: '0.5rem' }}></i>
+                                {Math.abs(trend)}%
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Label */}
+                <h3 style={{
+                    fontSize: '0.58rem', color: 'var(--text-muted)', fontWeight: 700,
+                    margin: '0 0 2px 0', letterSpacing: '0.04em', textTransform: 'uppercase',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', opacity: 0.8,
+                }}>
+                    {title}
+                </h3>
+
+                {/* Value */}
                 <div style={{
-                    width: '38px', height: '38px', borderRadius: '11px',
-                    background: `${color}18`, border: `1px solid ${color}35`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: color, boxShadow: `0 0 18px ${color}15`,
-                    flexShrink: 0,
+                    fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-main)',
+                    letterSpacing: '-0.02em', lineHeight: 1.1, marginBottom: '2px',
                 }}>
-                    <i className={`${icon} fa-sm`}></i>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {/* Pulsing alert dot for critical card */}
-                    {isCritical && (
-                        <div
-                            className="kpi-dot-blink"
-                            style={{
-                                width: '8px', height: '8px', borderRadius: '50%',
-                                background: '#ef4444',
-                                boxShadow: '0 0 6px rgba(239,68,68,0.7)',
-                            }}
-                        />
-                    )}
-
-                    {/* Trend badge */}
-                    {trend !== undefined && (
-                        <div style={{
-                            fontSize: '0.62rem', fontWeight: 700,
-                            color: isPositive ? '#10b981' : '#94a3b8',
-                            background: isPositive ? 'rgba(16,185,129,0.1)' : 'rgba(148,163,184,0.05)',
-                            padding: '3px 7px', borderRadius: '20px',
-                            display: 'flex', alignItems: 'center', gap: '3px',
-                            border: `1px solid ${isPositive ? 'rgba(16,185,129,0.2)' : 'rgba(148,163,184,0.1)'}`,
-                        }}>
-                            <i className={`fas fa-caret-${isPositive ? 'up' : 'down'}`}></i>
-                            {Math.abs(trend)}%
-                        </div>
-                    )}
+                    {value}
                 </div>
             </div>
 
-            {/* Label */}
-            <h3 style={{
-                fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700,
-                margin: '0 0 4px 0', letterSpacing: '0.06em', textTransform: 'uppercase',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', opacity: 0.75,
-            }}>
-                {title}
-            </h3>
-
-            {/* Value */}
-            <div style={{
-                fontSize: '1.55rem', fontWeight: 900, color: 'var(--text-main)',
-                letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: '4px',
-            }}>
-                {value}
-            </div>
-
-            {/* Subtitle */}
-            <p style={{
-                fontSize: '0.63rem', color: '#64748b', margin: 0,
-                fontWeight: 500, lineHeight: 1.3,
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-                {subtitle}
-            </p>
-
-            {/* Revenue context note */}
-            {showRevNote && (
+            <div>
+                {/* Subtitle */}
                 <p style={{
-                    fontSize: '0.58rem', color: '#475569', margin: '4px 0 0 0',
-                    fontWeight: 600, letterSpacing: '0.02em',
+                    fontSize: '0.55rem', color: '#64748b', margin: 0,
+                    fontWeight: 500, lineHeight: 1.2,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
-                    Target not yet tracked
+                    {subtitle}
                 </p>
-            )}
+
+                {/* Revenue context note */}
+                {showRevNote && (
+                    <p style={{
+                        fontSize: '0.52rem', color: '#475569', margin: '2px 0 0 0',
+                        fontWeight: 600, letterSpacing: '0.01em',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                        Target not yet tracked
+                    </p>
+                )}
+            </div>
 
             {/* Mini sparkline (bottom-right) */}
             {trend !== undefined && <MiniSparkline trend={trend} color={color} />}
 
             {/* Decorative background icon */}
             <div style={{
-                position: 'absolute', right: '-12px', bottom: '-12px',
-                fontSize: '3.5rem', color: `${color}06`,
+                position: 'absolute', right: '-8px', bottom: '-8px',
+                fontSize: '2.5rem', color: `${color}06`,
                 transform: 'rotate(-15deg)', pointerEvents: 'none',
             }}>
                 <i className={icon}></i>
@@ -199,9 +205,9 @@ const DashboardKPIs = ({ metrics, formatters }) => {
                 className="kpi-grid"
                 style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))',
-                    gap: '12px',
-                    marginBottom: '24px',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))',
+                    gap: '8px',
+                    marginBottom: '0px',
                 }}
             >
                 <KpiCard

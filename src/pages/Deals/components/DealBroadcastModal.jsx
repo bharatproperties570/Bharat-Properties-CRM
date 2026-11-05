@@ -993,7 +993,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             const res = await api.post('/marketing/broadcast/bna', payload);
 
             if (res.data?.success) {
-                toast.success(`🎉 Broadcast successfully dispatched to ${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients!`);
+                toast.success(`🚀 Broadcast queued for dispatch to ${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients! Track real-time delivery on the live board.`);
                 if (onSuccess) onSuccess(res.data.campaignId);
                 onClose();
             } else {
@@ -1763,7 +1763,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                         if (activeTab === 'matched_leads') setSelectedMatchedLeads(filteredMatchedLeads.map(l => String(l._id)));
                                                         if (activeTab === 'broker') setSelectedGroups(groups.map(g => g._id));
                                                         if (activeTab === 'contact') setSelectedContactGroups(contactGroups.map(g => g._id));
-                                                        if (activeTab === 'wa_group') setSelectedWaGroups(waGroups.map(g => g.id));
+                                                        if (activeTab === 'wa_group') setSelectedWaGroups(waGroups.filter(g => g.canSend !== false).map(g => g.id));
                                                     }}
                                                     style={{ fontSize: '0.68rem', fontWeight: 700, color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                                                 >
@@ -2150,6 +2150,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                                         onClick={() => {
                                                                             if (g.canSend === false) {
                                                                                 toast.warning(`"${g.subject}" is an Admin-only Announcement channel. Only community admins can post here.`);
+                                                                                return;
                                                                             }
                                                                             if (isSelected) setSelectedWaGroups(selectedWaGroups.filter(id => id !== g.id));
                                                                             else setSelectedWaGroups([...selectedWaGroups, g.id]);
@@ -2159,11 +2160,11 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                                             border: `1.5px solid ${isSelected ? '#10b981' : (isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1')}`,
                                                                             background: isSelected ? '#10b981' : (isDark ? '#1e293b' : '#fff'),
                                                                             color: isSelected ? '#fff' : (isDark ? '#f8fafc' : '#334155'),
-                                                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                                                                            cursor: g.canSend === false ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
                                                                             maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                                                            opacity: g.canSend === false ? 0.75 : 1
+                                                                            opacity: g.canSend === false ? 0.55 : 1
                                                                         }}
-                                                                        title={g.canSend === false ? `${g.subject} (Admin-only Channel)` : g.subject}
+                                                                        title={g.canSend === false ? `${g.subject} (Admin-only Channel — Cannot post)` : g.subject}
                                                                     >
                                                                         <i className="fab fa-whatsapp" style={{ fontSize: '11px', color: isSelected ? '#fff' : '#10b981' }}></i>
                                                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.subject || g.name || 'Group'}</span>

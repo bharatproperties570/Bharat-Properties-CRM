@@ -396,6 +396,8 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
                 ws: { isOpen: true },
                 sendMessage: async (jid, content) => {
                     socketSendInvocations++;
+                    // Steal lock in Redis while socket write is in flight so renewal fails
+                    await redisProxy.set(lockKey, 'stolen_token_012');
                     // Socket send remains unresolved while renewal fails in the background
                     return new Promise(() => {});
                 },
@@ -415,13 +417,7 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
                     provider: 'BAILEYS',
                     channel: 'whatsapp_web',
                     useBaileys: true,
-                    lockOptions: { heartbeatIntervalMs: 40, skipCooloff: true },
-                    hooks: {
-                        beforeSocketSend: async () => {
-                            // Steal lock in Redis immediately so renewal fails
-                            await redisProxy.set(lockKey, 'stolen_token_012');
-                        }
-                    }
+                    lockOptions: { heartbeatIntervalMs: 40, skipCooloff: true }
                 });
 
                 const result = await sendPromise;
