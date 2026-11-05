@@ -73,13 +73,29 @@ export function isRestrictedPreviewRequest(req) {
         return true;
     }
 
-    // 3. Explicit preview environment client header
+    // 3. Authorization header Bearer token inspection (e.g. CLI/curl without Origin/Referer)
+    const authHeader = req.headers?.authorization;
+    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+        try {
+            const tokenParts = authHeader.substring(7).trim().split('.');
+            if (tokenParts.length >= 2) {
+                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString('utf8'));
+                if (payload.isRestrictedPreview === true || payload.previewOnly === true) return true;
+                const tokenRole = String(payload.role?.name || payload.role || '').toLowerCase();
+                if (tokenRole === 'preview' || tokenRole === 'restricted_preview' || tokenRole === 'guest_preview') {
+                    return true;
+                }
+            }
+        } catch {}
+    }
+
+    // 4. Explicit preview environment client header
     const previewHeader = req.headers['x-client-environment'] || req.headers['x-preview-mode'] || req.headers['x-vercel-deployment'];
     if (previewHeader && String(previewHeader).toLowerCase() === 'preview') {
         return true;
     }
 
-    // 4. Origin or Referer header inspection (browser security prevents client forgery of Origin)
+    // 5. Origin or Referer header inspection (browser security prevents client forgery of Origin)
     const originHost = extractHostname(req.headers['origin']);
     const refererHost = extractHostname(req.headers['referer']);
 

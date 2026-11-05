@@ -179,6 +179,42 @@ test('Preview-to-Production Write Protection Suite', async (t) => {
         assert.equal(jsonBody?.code, 'PREVIEW_WRITE_PROHIBITED');
     });
 
+    await t.test('11b. Direct API caller with JWT Bearer token containing preview role is blocked', () => {
+        let statusCode = null;
+        let jsonBody = null;
+        let nextCalled = false;
+
+        const fakeJwtPayload = Buffer.from(JSON.stringify({
+            userId: 'usr_preview_99',
+            role: 'preview',
+            isRestrictedPreview: true
+        })).toString('base64');
+        const fakeToken = `header.${fakeJwtPayload}.signature`;
+
+        const req = {
+            method: 'POST',
+            url: '/api/leads/bulk-import',
+            headers: {
+                authorization: `Bearer ${fakeToken}`
+            }
+        };
+
+        const res = {
+            status: (code) => {
+                statusCode = code;
+                return {
+                    json: (data) => { jsonBody = data; }
+                };
+            }
+        };
+
+        previewWriteGuard(req, res, () => { nextCalled = true; });
+
+        assert.equal(nextCalled, false, 'Expected bulk import with preview JWT to be blocked');
+        assert.equal(statusCode, 403);
+        assert.equal(jsonBody?.code, 'PREVIEW_WRITE_PROHIBITED');
+    });
+
     await t.test('12. Legitimate production user retains full write permissions', () => {
         let nextCalled = false;
 

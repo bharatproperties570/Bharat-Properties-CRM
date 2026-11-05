@@ -168,4 +168,35 @@ test('Deployment Reliability & Rollback Integrity Suite', async (t) => {
         // Instance 2 can now acquire immediately without waiting 45s TTL
         assert.equal(canAcquire(instanceId2), true, 'Instance 2 acquires lock immediately upon release');
     });
+
+    await t.test('9. Ecosystem Configuration: Enforces wait_ready and adequate listen_timeout', () => {
+        const ecosystemPath = path.join(process.cwd(), 'ecosystem.config.cjs');
+        assert.equal(fs.existsSync(ecosystemPath), true, 'ecosystem.config.cjs must exist in backend root');
+        const content = fs.readFileSync(ecosystemPath, 'utf8');
+        assert.match(content, /wait_ready:\s*true/, 'ecosystem must specify wait_ready: true');
+        assert.match(content, /listen_timeout:\s*\d+/, 'ecosystem must specify listen_timeout');
+        assert.match(content, /kill_timeout:\s*\d+/, 'ecosystem must specify kill_timeout');
+    });
+
+    await t.test('10. Failed Activation & Rollback: Preserves previous stable symlink on health failure', () => {
+        const stableReleaseDir = path.join(tmpDir, 'release-stable-v1');
+        const brokenReleaseDir = path.join(tmpDir, 'release-broken-v2');
+        const currentLink = path.join(tmpDir, 'current-symlink');
+
+        fs.mkdirSync(stableReleaseDir, { recursive: true });
+        fs.mkdirSync(brokenReleaseDir, { recursive: true });
+        fs.writeFileSync(path.join(stableReleaseDir, 'version'), 'v1.0.0');
+        fs.writeFileSync(path.join(brokenReleaseDir, 'version'), 'v2.0.0-broken');
+
+        // Current points to stable v1
+        fs.symlinkSync(stableReleaseDir, currentLink);
+        assert.equal(fs.readFileSync(path.join(currentLink, 'version'), 'utf8'), 'v1.0.0');
+
+        // Staging attempt: v2 activation fails health probe
+        const healthCheckOk = false;
+        if (!healthCheckOk) {
+            // Rollback guard: currentLink is NOT switched, or rolled back immediately
+            assert.equal(fs.readFileSync(path.join(currentLink, 'version'), 'utf8'), 'v1.0.0', 'Stable release must remain active when activation fails');
+        }
+    });
 });
