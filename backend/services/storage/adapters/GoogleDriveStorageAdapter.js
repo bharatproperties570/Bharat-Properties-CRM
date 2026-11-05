@@ -140,8 +140,10 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
         }
 
         if (status === 429 || status === 500 || status === 503 ||
+            status === 'ECONNRESET' || status === 'ETIMEDOUT' || status === 'ENOTFOUND' || status === 'EAI_AGAIN' ||
             message.includes('rateLimitExceeded') || message.includes('userRateLimitExceeded') ||
-            message.includes('backendError') || message.includes('ECONNRESET') || message.includes('ETIMEDOUT')) {
+            message.includes('backendError') || message.includes('ECONNRESET') || message.includes('ETIMEDOUT') ||
+            message.includes('timed out') || message.includes('timeout')) {
             return new ProviderUnavailableError(
                 this.providerInstanceId,
                 `Google Drive network or rate limit error during ${operation}: ${message}`
@@ -208,13 +210,23 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
      * Checks if a file with the deterministic objectKey in appProperties already exists in Google Drive.
      * Prevents duplicate files when an upload succeeds on Google's servers but the client response is lost.
      * 
-     * Distinguishes confirmed match, confirmed no-match (returns null), and search failure (fails closed).
+     * Fail-closed contract:
+     * - Throws ProviderUnavailableError if driveClient.files.list is missing or not a function.
+     * - Throws ProviderUnavailableError if response is malformed.
+     * - Throws translated ProviderUnavailableError on 429, 500, 503, ECONNRESET, ETIMEDOUT.
+     * - Only returns null when Google Drive successfully completed search and confirmed 0 results.
      */
     async _findExistingFileByObjectKey(objectKey, folderId = null) {
         const driveClient = await this._getDriveClient();
         if (!driveClient?.files?.list || typeof driveClient.files.list !== 'function') {
-            return null;
+            const err = new ProviderUnavailableError(
+                this.providerInstanceId,
+                'Google Drive files.list capability is unavailable or not implemented by driveClient'
+            );
+            err.isSearchFailure = true;
+            throw err;
         }
+
         try {
             const escapedKey = objectKey.replace(/'/g, "\\'");
             let q = `appProperties has { key='objectKey' and value='${escapedKey}' } and trashed = false`;
@@ -228,16 +240,130 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
                 includeItemsFromAllDrives: true,
                 pageSize: 1
             });
-            if (res.data?.files && res.data.files.length > 0) {
-                return res.data.files[0];
+
+            // Validate response shape: never return null unless search completed and confirmed 0 results
+            if (!res || typeof res !== 'object' || !res.data || !Array.isArray(res.data.files)) {
+                const malformedErr = new ProviderUnavailableError(
+                    this.providerInstanceId,
+                    'Google Drive files.list returned a malformed or non-array response'
+                );
+                malformedErr.isSearchFailure = true;
+                throw malformedErr;
             }
-            return null; // Confirmed no-match: search executed successfully with 0 results
+
+            if (res.data.files.length > 0) {
+                return res.data.files[0]; // Confirmed match
+            }
+            return null; // Confirmed zero results from valid search
         } catch (err) {
             // Search failure must fail closed: never silently treat search failure as a no-match
+            if (err.isSearchFailure) {
+                throw err;
+            }
             const normErr = this._translateError(err, 'SEARCH_EXISTING', objectKey);
             normErr.isSearchFailure = true;
             throw normErr;
         }
+    }
+
+    /**
+     * Normalizes payload into a deterministic streamFactory and payload identity.
+     */
+    async _normalizePayload(data, options = {}) {
+        if (options.checksum) {
+            const payloadIdentity = `chk:${options.checksum}`;
+            let streamFactory;
+            if (typeof data === 'function') {
+                streamFactory = data;
+            } else if (Buffer.isBuffer(data)) {
+                const copy = Buffer.from(data);
+                streamFactory = () => Readable.from(Buffer.from(copy));
+            } else if (typeof data === 'string') {
+                const buf = Buffer.from(data);
+                streamFactory = () => Readable.from(Buffer.from(buf));
+            } else if (data && typeof data.pipe === 'function') {
+                const chunks = [];
+                for await (const chunk of data) {
+                    chunks.push(chunk);
+                }
+                const buf = Buffer.concat(chunks);
+                streamFactory = () => Readable.from(Buffer.from(buf));
+            } else {
+                throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
+            }
+            return { streamFactory, payloadIdentity };
+        }
+
+        if (options.contentHash) {
+            const payloadIdentity = `hash:${options.contentHash}`;
+            let streamFactory;
+            if (typeof data === 'function') {
+                streamFactory = data;
+            } else if (Buffer.isBuffer(data)) {
+                const copy = Buffer.from(data);
+                streamFactory = () => Readable.from(Buffer.from(copy));
+            } else if (typeof data === 'string') {
+                const buf = Buffer.from(data);
+                streamFactory = () => Readable.from(Buffer.from(buf));
+            } else if (data && typeof data.pipe === 'function') {
+                const chunks = [];
+                for await (const chunk of data) {
+                    chunks.push(chunk);
+                }
+                const buf = Buffer.concat(chunks);
+                streamFactory = () => Readable.from(Buffer.from(buf));
+            } else {
+                throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
+            }
+            return { streamFactory, payloadIdentity };
+        }
+
+        if (Buffer.isBuffer(data)) {
+            const hash = crypto.createHash('sha256').update(data).digest('hex');
+            const copy = Buffer.from(data);
+            return {
+                streamFactory: () => Readable.from(Buffer.from(copy)),
+                payloadIdentity: `sha256:${hash}`
+            };
+        }
+
+        if (typeof data === 'string') {
+            const buf = Buffer.from(data);
+            const hash = crypto.createHash('sha256').update(buf).digest('hex');
+            return {
+                streamFactory: () => Readable.from(Buffer.from(buf)),
+                payloadIdentity: `sha256:${hash}`
+            };
+        }
+
+        if (data && typeof data.pipe === 'function') {
+            const chunks = [];
+            for await (const chunk of data) {
+                chunks.push(chunk);
+            }
+            const buf = Buffer.concat(chunks);
+            const hash = crypto.createHash('sha256').update(buf).digest('hex');
+            return {
+                streamFactory: () => Readable.from(Buffer.from(buf)),
+                payloadIdentity: `sha256:${hash}`
+            };
+        }
+
+        if (typeof data === 'function') {
+            const testStream = data();
+            const chunks = [];
+            for await (const chunk of testStream) {
+                chunks.push(chunk);
+            }
+            const buf = Buffer.concat(chunks);
+            const hash = crypto.createHash('sha256').update(buf).digest('hex');
+            return {
+                streamFactory: () => Readable.from(Buffer.from(buf)),
+                payloadIdentity: `sha256:${hash}`
+            };
+        }
+
+        throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
     }
 
     /**
@@ -279,40 +405,28 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
      * Upload (PUT)
      * Stores file in Google Drive, maintains privacy (NO public sharing), and captures metadata.
      * Guarantees fresh stream on every retry attempt and prevents duplicate files.
+     * Mutex key includes provider, folder, objectKey, and payload identity.
      */
     async _put(objectKey, data, options = {}) {
         this._resolveProviderKey(objectKey);
 
-        // Concurrency mutex: join existing in-flight upload for the same logical objectKey
-        if (this._inflightPuts.has(objectKey)) {
-            return await this._inflightPuts.get(objectKey);
+        const folderId = options.folderId || this.config.parentFolderId || this.config.folderId || undefined;
+        const normalizedFolder = folderId || 'default_folder';
+        const providerId = this.providerInstanceId || 'google-drive-primary';
+
+        // Normalize payload: compute cryptographic hash and deterministic streamFactory
+        const { streamFactory, payloadIdentity } = await this._normalizePayload(data, options);
+
+        // Composite concurrency mutex identity: provider + folder + objectKey + payloadIdentity
+        const mutexKey = `${providerId}::${normalizedFolder}::${objectKey}::${payloadIdentity}`;
+
+        // Concurrency mutex: join existing in-flight upload for the exact same logical upload
+        if (this._inflightPuts.has(mutexKey)) {
+            return await this._inflightPuts.get(mutexKey);
         }
 
         const putPromise = (async () => {
             const driveClient = await this._getDriveClient();
-
-            // Prepare fresh stream factory so every retry receives an unread stream from byte 0
-            let streamFactory;
-            if (typeof data === 'function') {
-                streamFactory = data;
-            } else if (Buffer.isBuffer(data)) {
-                streamFactory = () => Readable.from(Buffer.from(data));
-            } else if (typeof data === 'string') {
-                const buf = Buffer.from(data);
-                streamFactory = () => Readable.from(Buffer.from(buf));
-            } else if (data && typeof data.pipe === 'function') {
-                // Buffer the input stream to support deterministic retries
-                const chunks = [];
-                for await (const chunk of data) {
-                    chunks.push(chunk);
-                }
-                const buffered = Buffer.concat(chunks);
-                streamFactory = () => Readable.from(Buffer.from(buffered));
-            } else {
-                throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
-            }
-
-            const folderId = options.folderId || this.config.parentFolderId || this.config.folderId || undefined;
             const fileName = options.originalFilename || options.filename || objectKey;
 
             // PRIVATE BY DEFAULT: NO public permissions are created!
@@ -391,12 +505,12 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
             };
         })();
 
-        this._inflightPuts.set(objectKey, putPromise);
+        this._inflightPuts.set(mutexKey, putPromise);
 
         try {
             return await putPromise;
         } finally {
-            this._inflightPuts.delete(objectKey);
+            this._inflightPuts.delete(mutexKey);
         }
     }
 

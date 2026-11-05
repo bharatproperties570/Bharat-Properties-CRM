@@ -30,7 +30,9 @@ import config from '../src/config/env.js';
 import User from '../models/User.js';
 import Document from '../models/Document.js';
 import DocumentVersion from '../models/DocumentVersion.js';
+import DirectUploadRecord from '../models/DirectUploadRecord.js';
 import uploadRoutes, { authorizeFileAccess, registerUploadedFile, fileUploadOwnership } from '../routes/upload.routes.js';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
 test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => {
 
@@ -357,7 +359,8 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                     return {
                         data: { id: 'retry-succeeded-file-id', size: '100' }
                     };
-                }
+                },
+                list: async () => ({ data: { files: [] } })
             }
         };
 
@@ -374,7 +377,8 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                     const err = new Error('Persistent 429');
                     err.code = 429;
                     throw err;
-                }
+                },
+                list: async () => ({ data: { files: [] } })
             }
         };
 
@@ -692,7 +696,8 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                         return {
                             data: { id: 'stream-retry-success-file', size: '18' }
                         };
-                    }
+                    },
+                    list: async () => ({ data: { files: [] } })
                 }
             };
 
@@ -971,13 +976,12 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
     });
 
     // =========================================================================
-    // 18. Finding 2: Upload Retry Idempotency & Fail-Closed Concurrency
+    // 18. Fail-Closed Capability Check & Search Failures
     // =========================================================================
-    await t.test('18. Upload Retry Idempotency & Fail-Closed Concurrency', async (sub) => {
-        await sub.test('18a. Search failure on retry attempt fails closed immediately with ProviderUnavailableError', async () => {
+    await t.test('18. Fail-Closed Capability Check & Search Failures', async (sub) => {
+        await sub.test('18a. Missing files.list capability fails closed immediately with ProviderUnavailableError', async () => {
             let createCalls = 0;
-            let listCalls = 0;
-            const objectKey = 'doc-fail-search-test/v1';
+            const objectKey = 'doc-missing-list-capability/v1';
 
             const fakeDriveClient = {
                 files: {
@@ -986,10 +990,124 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                         const err = new Error('Transient 503 Backend Error on attempt 1');
                         err.code = 503;
                         throw err;
+                    }
+                    // files.list is deliberately NOT defined
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            await assert.rejects(
+                async () => {
+                    await adapter.put(objectKey, Buffer.from('Payload'), { mimeType: 'text/plain' });
+                },
+                (err) => {
+                    assert.ok(err instanceof ProviderUnavailableError);
+                    assert.ok(err.message.includes('files.list capability is unavailable'));
+                    assert.strictEqual(err.isSearchFailure, true);
+                    return true;
+                }
+            );
+
+            // Verified: create called on attempt 1, missing list capability caused immediate fail-closed termination
+            assert.strictEqual(createCalls, 1, 'files.create must NOT be called on retry if capability is missing');
+        });
+
+        await sub.test('18b. Malformed response from files.list fails closed immediately with ProviderUnavailableError', async () => {
+            let createCalls = 0;
+            let listCalls = 0;
+            const objectKey = 'doc-malformed-list-response/v1';
+
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        createCalls++;
+                        const err = new Error('Transient 500 error');
+                        err.code = 500;
+                        throw err;
                     },
                     list: async () => {
                         listCalls++;
-                        const err = new Error('Google Drive search/list API timeout');
+                        // Malformed: null data or missing files array
+                        return { data: null };
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            await assert.rejects(
+                async () => {
+                    await adapter.put(objectKey, Buffer.from('Payload'), { mimeType: 'text/plain' });
+                },
+                (err) => {
+                    assert.ok(err instanceof ProviderUnavailableError);
+                    assert.ok(err.message.includes('malformed') || err.message.includes('non-array'));
+                    assert.strictEqual(err.isSearchFailure, true);
+                    return true;
+                }
+            );
+
+            assert.strictEqual(createCalls, 1, 'files.create must NOT be called on retry if response is malformed');
+            assert.strictEqual(listCalls, 1);
+        });
+
+        await sub.test('18c. 429 rate limit in files.list fails closed immediately as terminal condition', async () => {
+            let createCalls = 0;
+            let listCalls = 0;
+            const objectKey = 'doc-list-429/v1';
+
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        createCalls++;
+                        const err = new Error('Transient 503 error');
+                        err.code = 503;
+                        throw err;
+                    },
+                    list: async () => {
+                        listCalls++;
+                        const err = new Error('Rate limit exceeded during search');
+                        err.code = 429;
+                        throw err;
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            await assert.rejects(
+                async () => {
+                    await adapter.put(objectKey, Buffer.from('Payload'), { mimeType: 'text/plain' });
+                },
+                (err) => {
+                    assert.ok(err instanceof ProviderUnavailableError);
+                    assert.ok(err.message.includes('rate limit') || err.message.includes('SEARCH_EXISTING'));
+                    assert.strictEqual(err.isSearchFailure, true);
+                    return true;
+                }
+            );
+
+            assert.strictEqual(createCalls, 1, 'files.create must NOT retry when search hits 429');
+            assert.strictEqual(listCalls, 1);
+        });
+
+        await sub.test('18d. 500 internal server error in files.list fails closed immediately', async () => {
+            let createCalls = 0;
+            let listCalls = 0;
+            const objectKey = 'doc-list-500/v1';
+
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        createCalls++;
+                        const err = new Error('Transient 500 create error');
+                        err.code = 500;
+                        throw err;
+                    },
+                    list: async () => {
+                        listCalls++;
+                        const err = new Error('Google internal server error on list');
                         err.code = 500;
                         throw err;
                     }
@@ -1003,18 +1121,95 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                     await adapter.put(objectKey, Buffer.from('Payload'), { mimeType: 'text/plain' });
                 },
                 (err) => {
-                    assert.ok(err instanceof ProviderUnavailableError || err instanceof StorageError);
-                    assert.ok(err.message.includes('SEARCH_EXISTING') || err.message.includes('search') || err.message.includes('timeout'));
+                    assert.ok(err instanceof ProviderUnavailableError);
+                    assert.strictEqual(err.isSearchFailure, true);
                     return true;
                 }
             );
 
-            // Verified: create called on attempt 1, list failed on retry check, retry failed closed immediately
-            assert.strictEqual(createCalls, 1, 'files.create must NOT be called on retry if search fails');
-            assert.strictEqual(listCalls, 1, 'files.list must have been attempted once for remote idempotency');
+            assert.strictEqual(createCalls, 1, 'files.create must NOT retry when search hits 500');
+            assert.strictEqual(listCalls, 1);
         });
 
-        await sub.test('18b. Confirmed no-match proceeds to upload with fresh stream', async () => {
+        await sub.test('18e. 503 backend error in files.list fails closed immediately', async () => {
+            let createCalls = 0;
+            let listCalls = 0;
+            const objectKey = 'doc-list-503/v1';
+
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        createCalls++;
+                        const err = new Error('Transient 503 create error');
+                        err.code = 503;
+                        throw err;
+                    },
+                    list: async () => {
+                        listCalls++;
+                        const err = new Error('Backend unavailable on list');
+                        err.code = 503;
+                        throw err;
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            await assert.rejects(
+                async () => {
+                    await adapter.put(objectKey, Buffer.from('Payload'), { mimeType: 'text/plain' });
+                },
+                (err) => {
+                    assert.ok(err instanceof ProviderUnavailableError);
+                    assert.strictEqual(err.isSearchFailure, true);
+                    return true;
+                }
+            );
+
+            assert.strictEqual(createCalls, 1, 'files.create must NOT retry when search hits 503');
+            assert.strictEqual(listCalls, 1);
+        });
+
+        await sub.test('18f. Network timeout / ETIMEDOUT in files.list fails closed immediately', async () => {
+            let createCalls = 0;
+            let listCalls = 0;
+            const objectKey = 'doc-list-timeout/v1';
+
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        createCalls++;
+                        const err = new Error('Connection reset on create');
+                        err.code = 'ECONNRESET';
+                        throw err;
+                    },
+                    list: async () => {
+                        listCalls++;
+                        const err = new Error('Connection timed out on list');
+                        err.code = 'ETIMEDOUT';
+                        throw err;
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            await assert.rejects(
+                async () => {
+                    await adapter.put(objectKey, Buffer.from('Payload'), { mimeType: 'text/plain' });
+                },
+                (err) => {
+                    assert.ok(err instanceof ProviderUnavailableError);
+                    assert.strictEqual(err.isSearchFailure, true);
+                    return true;
+                }
+            );
+
+            assert.strictEqual(createCalls, 1, 'files.create must NOT retry when search times out');
+            assert.strictEqual(listCalls, 1);
+        });
+
+        await sub.test('18g. Confirmed no-match proceeds to upload with fresh stream', async () => {
             let createCalls = 0;
             let listCalls = 0;
             const objectKey = 'doc-confirmed-no-match/v1';
@@ -1051,7 +1246,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             assert.strictEqual(result.fileId, 'confirmed-no-match-created-file-id');
         });
 
-        await sub.test('18c. Lost response / Confirmed match returns existing file without calling files.create on retry', async () => {
+        await sub.test('18h. Lost response / Confirmed match returns existing file without calling files.create on retry', async () => {
             let createCalls = 0;
             let listCalls = 0;
             const objectKey = 'doc-lost-response-test/v1';
@@ -1088,21 +1283,26 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             assert.strictEqual(listCalls, 1, 'files.list must have been called on retry');
             assert.strictEqual(result.fileId, 'pre-existing-remote-file-id');
         });
+    });
 
-        await sub.test('18d. Concurrent retries for same logical objectKey join in-flight promise and create exactly 1 file', async () => {
+    // =========================================================================
+    // 19. Concurrency Mutex Identity (Provider + Folder + ObjectKey + Payload Identity)
+    // =========================================================================
+    await t.test('19. Concurrency Mutex Identity', async (sub) => {
+        await sub.test('19a. Same key, same payload, same folder joins in-flight promise and calls files.create exactly once', async () => {
             let createCalls = 0;
-            const objectKey = 'doc-concurrent-mutex-test/v1';
+            const objectKey = 'doc-mutex-same-payload/v1';
+            const identicalPayload = Buffer.from('Identical immutable contract content');
 
             const fakeDriveClient = {
                 files: {
                     create: async () => {
                         createCalls++;
-                        // Simulate network latency
-                        await new Promise(res => setTimeout(res, 50));
+                        await new Promise(res => setTimeout(res, 40));
                         return {
                             data: {
-                                id: 'mutex-created-file-single-id',
-                                size: '25',
+                                id: 'same-payload-shared-file-id',
+                                size: '38',
                                 mimeType: 'application/pdf'
                             }
                         };
@@ -1113,36 +1313,107 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
 
             const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
 
-            // Launch 3 concurrent upload attempts for the exact same objectKey
+            // 3 concurrent uploads with identical payload, key, and folder
             const [res1, res2, res3] = await Promise.all([
-                adapter.put(objectKey, Buffer.from('Concurrent content 1'), { mimeType: 'application/pdf' }),
-                adapter.put(objectKey, Buffer.from('Concurrent content 2'), { mimeType: 'application/pdf' }),
-                adapter.put(objectKey, Buffer.from('Concurrent content 3'), { mimeType: 'application/pdf' })
+                adapter.put(objectKey, identicalPayload, { mimeType: 'application/pdf' }),
+                adapter.put(objectKey, identicalPayload, { mimeType: 'application/pdf' }),
+                adapter.put(objectKey, identicalPayload, { mimeType: 'application/pdf' })
             ]);
 
-            assert.strictEqual(createCalls, 1, 'files.create must be invoked exactly once for concurrent requests with same key');
-            assert.strictEqual(res1.fileId, 'mutex-created-file-single-id');
-            assert.strictEqual(res2.fileId, 'mutex-created-file-single-id');
-            assert.strictEqual(res3.fileId, 'mutex-created-file-single-id');
+            assert.strictEqual(createCalls, 1, 'files.create must be invoked exactly once for identical uploads');
+            assert.strictEqual(res1.fileId, 'same-payload-shared-file-id');
+            assert.strictEqual(res2.fileId, 'same-payload-shared-file-id');
+            assert.strictEqual(res3.fileId, 'same-payload-shared-file-id');
         });
 
-        await sub.test('18e. Concurrency error cleanup allows subsequent attempts after failure', async () => {
+        await sub.test('19b. Same key, different payload executes separate uploads and never shares promise', async () => {
             let createCalls = 0;
-            const objectKey = 'doc-concurrent-cleanup-test/v1';
+            const objectKey = 'doc-mutex-different-payload/v1';
+            const payloadA = Buffer.from('Version A payload content');
+            const payloadB = Buffer.from('Version B different payload content');
+
+            const fakeDriveClient = {
+                files: {
+                    create: async (params) => {
+                        createCalls++;
+                        await new Promise(res => setTimeout(res, 40));
+                        const isA = params.requestBody.name.includes('A');
+                        return {
+                            data: {
+                                id: isA ? 'file-id-payload-A' : 'file-id-payload-B',
+                                size: '25'
+                            }
+                        };
+                    },
+                    list: async () => ({ data: { files: [] } })
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            // Concurrent calls with different payload content for same key
+            const [resA, resB] = await Promise.all([
+                adapter.put(objectKey, payloadA, { filename: 'file-A.pdf', mimeType: 'application/pdf' }),
+                adapter.put(objectKey, payloadB, { filename: 'file-B.pdf', mimeType: 'application/pdf' })
+            ]);
+
+            assert.strictEqual(createCalls, 2, 'files.create must execute separately for different payloads');
+            assert.strictEqual(resA.fileId, 'file-id-payload-A');
+            assert.strictEqual(resB.fileId, 'file-id-payload-B');
+        });
+
+        await sub.test('19c. Different folders with same key and same payload execute separate uploads', async () => {
+            let createCalls = 0;
+            const objectKey = 'doc-mutex-different-folders/v1';
+            const payload = Buffer.from('Shared content across folders');
+
+            const fakeDriveClient = {
+                files: {
+                    create: async (params) => {
+                        createCalls++;
+                        await new Promise(res => setTimeout(res, 40));
+                        const folder = params.requestBody.parents?.[0] || 'default';
+                        return {
+                            data: {
+                                id: `file-in-${folder}`,
+                                size: '30'
+                            }
+                        };
+                    },
+                    list: async () => ({ data: { files: [] } })
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            const [resFolder1, resFolder2] = await Promise.all([
+                adapter.put(objectKey, payload, { folderId: 'folder-alpha-111' }),
+                adapter.put(objectKey, payload, { folderId: 'folder-beta-222' })
+            ]);
+
+            assert.strictEqual(createCalls, 2, 'Different folders must generate distinct mutex identities');
+            assert.strictEqual(resFolder1.fileId, 'file-in-folder-alpha-111');
+            assert.strictEqual(resFolder2.fileId, 'file-in-folder-beta-222');
+        });
+
+        await sub.test('19d. Concurrency failure recovery: failed promise removed from mutex, subsequent attempt succeeds', async () => {
+            let createCalls = 0;
+            const objectKey = 'doc-mutex-failure-recovery/v1';
+            const payload = Buffer.from('Payload for failure recovery test');
 
             const fakeDriveClient = {
                 files: {
                     create: async () => {
                         createCalls++;
                         if (createCalls === 1) {
-                            const err = new Error('First attempt fatal error');
-                            err.code = 400; // Non-retryable
+                            const err = new Error('Fatal non-retryable 400 error');
+                            err.code = 400;
                             throw err;
                         }
                         return {
                             data: {
-                                id: 'subsequent-attempt-success-id',
-                                size: '30'
+                                id: 'recovered-successful-file-id',
+                                size: '35'
                             }
                         };
                     },
@@ -1154,14 +1425,138 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
 
             // First call fails
             await assert.rejects(
-                async () => adapter.put(objectKey, Buffer.from('Attempt 1'), { mimeType: 'text/plain' }),
+                async () => adapter.put(objectKey, payload, { mimeType: 'text/plain' }),
                 StorageError
             );
 
             // Subsequent call succeeds because in-flight promise was cleaned up in finally
-            const res2 = await adapter.put(objectKey, Buffer.from('Attempt 2'), { mimeType: 'text/plain' });
-            assert.strictEqual(res2.fileId, 'subsequent-attempt-success-id');
+            const res2 = await adapter.put(objectKey, payload, { mimeType: 'text/plain' });
+            assert.strictEqual(res2.fileId, 'recovered-successful-file-id');
             assert.strictEqual(createCalls, 2);
         });
+    });
+
+    // =========================================================================
+    // 20. Finding 3: Durable Direct-Upload Ownership (Server Restart & Multi-Instance)
+    // =========================================================================
+    await t.test('20. Durable Direct-Upload Ownership', async (sub) => {
+        let mongod;
+        try {
+            mongod = await MongoMemoryServer.create();
+            const uri = mongod.getUri();
+            await mongoose.connect(uri);
+        } catch (mErr) {
+            console.warn('[Test20] MongoMemoryServer setup note:', mErr.message);
+        }
+
+        const userA = {
+            _id: new mongoose.Types.ObjectId('65d111111111111111111111'),
+            name: 'User A (Tenant 1)',
+            email: 'usera@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const userB = {
+            _id: new mongoose.Types.ObjectId('65d222222222222222222222'),
+            name: 'User B (Tenant 1)',
+            email: 'userb@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const userC_crossTenant = {
+            _id: new mongoose.Types.ObjectId('65d333333333333333333333'),
+            name: 'User C (Tenant 2)',
+            email: 'userc@tenant2.com',
+            tenantId: new mongoose.Types.ObjectId('65d888888888888888888888'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        try {
+            await sub.test('20a. Direct upload persists ownership and tenant association in durable DirectUploadRecord', async () => {
+                const fileId = 'durable-drive-file-abc-123';
+                await registerUploadedFile(fileId, userA, {
+                    storage: 'google_drive',
+                    originalName: 'passport.pdf',
+                    mimeType: 'application/pdf',
+                    sizeBytes: 2048
+                });
+
+                // Verify durable record exists in MongoDB
+                const record = await DirectUploadRecord.findOne({ fileId }).lean();
+                assert.ok(record, 'Durable DirectUploadRecord must exist in MongoDB');
+                assert.strictEqual(String(record.userId), String(userA._id));
+                assert.strictEqual(String(record.tenantId), String(userA.tenantId));
+                assert.strictEqual(record.originalName, 'passport.pdf');
+                assert.strictEqual(record.storage, 'google_drive');
+            });
+
+            await sub.test('20b. Server restart simulation: verified via durable record when in-memory map is cleared', async () => {
+                const fileId = 'durable-restart-file-xyz-456';
+                await registerUploadedFile(fileId, userA, { storage: 'google_drive' });
+
+                // SIMULATE SERVER RESTART: completely wipe in-memory ownership map
+                fileUploadOwnership.clear();
+                assert.strictEqual(fileUploadOwnership.size, 0, 'In-memory map must be empty after restart');
+
+                // Authorization request on restarted server verifies against durable MongoDB record
+                const authorizedA = await authorizeFileAccess(userA, fileId, 'READ');
+                assert.strictEqual(authorizedA, true, 'User A must be authorized via durable record after server restart');
+
+                // Verify cache was repopulated from durable record
+                assert.ok(fileUploadOwnership.has(fileId), 'Cache must be repopulated from durable record');
+            });
+
+            await sub.test('20c. Multi-instance simulation: instance 1 writes, instance 2 reads with empty local memory', async () => {
+                const fileId = 'durable-multi-instance-789';
+
+                // Instance 1 receives upload and registers file
+                await registerUploadedFile(fileId, userA, { storage: 'google_drive' });
+
+                // Instance 2 receives subsequent request (its local memory map does NOT have this file)
+                fileUploadOwnership.clear(); // Clear local instance memory
+
+                const authorizedInstance2 = await authorizeFileAccess(userA, fileId, 'READ');
+                assert.strictEqual(authorizedInstance2, true, 'Instance 2 must authorize User A via durable CRM record');
+            });
+
+            await sub.test('20d. Multi-instance cross-tenant isolation: instance 2 strictly denies cross-tenant access', async () => {
+                const fileId = 'durable-cross-tenant-isolation-101';
+                await registerUploadedFile(fileId, userA, { storage: 'google_drive' });
+
+                // Instance 2 memory is clean
+                fileUploadOwnership.clear();
+
+                // Cross-tenant user C attempts to access User A's file on Instance 2
+                const authCrossTenant = await authorizeFileAccess(userC_crossTenant, fileId, 'READ');
+                assert.strictEqual(authCrossTenant, false, 'Instance 2 must strictly reject cross-tenant access with false (404)');
+
+                // Unauthorized user B in same tenant (non-admin) also denied
+                const authUserB = await authorizeFileAccess(userB, fileId, 'READ');
+                assert.strictEqual(authUserB, false, 'Instance 2 must deny unauthorized user in same tenant');
+            });
+
+            await sub.test('20e. Unverified ownership fails closed', async () => {
+                const unverifiedFileId = 'unregistered-arbitrary-file-999';
+                fileUploadOwnership.clear();
+
+                const auth = await authorizeFileAccess(userA, unverifiedFileId, 'READ');
+                assert.strictEqual(auth, false, 'Unverified file ID must fail closed with false (404)');
+            });
+        } finally {
+            if (mongod) {
+                try {
+                    await mongoose.disconnect();
+                    await mongod.stop();
+                } catch (cleanupErr) {}
+            }
+        }
     });
 });

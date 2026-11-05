@@ -7,6 +7,7 @@ import { uploadFileToDrive, deleteFileFromDrive, getFileMetadata, downloadFileBu
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 import Document from '../models/Document.js';
 import DocumentVersion from '../models/DocumentVersion.js';
+import DirectUploadRecord from '../models/DirectUploadRecord.js';
 import DocumentAccessService from '../services/storage/DocumentAccessService.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 
@@ -23,8 +24,9 @@ export const fileUploadOwnership = new Map();
 
 /**
  * Register file upload ownership for IDOR protection.
+ * Updates the in-memory cache and persists a durable record in MongoDB.
  */
-export function registerUploadedFile(fileId, user) {
+export async function registerUploadedFile(fileId, user, options = {}) {
     if (!fileId || !user) return;
     const sanitized = path.basename(fileId);
     const userId = user._id || user.id;
@@ -33,10 +35,52 @@ export function registerUploadedFile(fileId, user) {
     const record = {
         userId: userId ? String(userId) : null,
         tenantId,
+        storage: options.storage || (fileId.startsWith('gdrive:') ? 'google_drive' : 'local'),
+        originalName: options.originalName || null,
+        mimeType: options.mimeType || null,
+        sizeBytes: options.sizeBytes || null,
         timestamp: Date.now()
     };
     fileUploadOwnership.set(sanitized, record);
     fileUploadOwnership.set(fileId, record);
+
+    // Persist to durable CRM record in MongoDB if connected
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        try {
+            await DirectUploadRecord.findOneAndUpdate(
+                { fileId },
+                {
+                    fileId,
+                    sanitizedFileId: sanitized,
+                    userId: record.userId,
+                    tenantId: record.tenantId,
+                    storage: record.storage,
+                    originalName: record.originalName,
+                    mimeType: record.mimeType,
+                    sizeBytes: record.sizeBytes
+                },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+            if (sanitized !== fileId) {
+                await DirectUploadRecord.findOneAndUpdate(
+                    { fileId: sanitized },
+                    {
+                        fileId: sanitized,
+                        sanitizedFileId: sanitized,
+                        userId: record.userId,
+                        tenantId: record.tenantId,
+                        storage: record.storage,
+                        originalName: record.originalName,
+                        mimeType: record.mimeType,
+                        sizeBytes: record.sizeBytes
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+            }
+        } catch (dbErr) {
+            console.error('[UploadAuth] Failed to persist durable DirectUploadRecord:', dbErr.message);
+        }
+    }
 }
 
 /**
@@ -44,12 +88,12 @@ export function registerUploadedFile(fileId, user) {
  * Prevents Insecure Direct Object References (IDOR) across users and tenants.
  *
  * Rules:
- * 1. Checks memory ownership table for direct uploads.
- *    - Verifies user ownership and enforces strict cross-tenant isolation.
- * 2. Checks canonical DocumentVersion & Document models using DocumentAccessService.
+ * 1. Checks memory ownership table for fast direct upload lookup.
+ * 2. Queries durable DirectUploadRecord in MongoDB (handles server restarts and multi-instance deployments).
+ * 3. Checks canonical DocumentVersion & Document models using DocumentAccessService.
  *    - Respects entity visibility, lifecycle rules, legal hold, and RBAC permissions.
- * 3. Checks CRM entities (Lead, Deal, Contact, Inventory, Project) using getVisibilityFilter.
- * 4. Disallowed or nonexistent resources return false (triggering a generic 404).
+ * 4. Checks CRM entities (Lead, Deal, Contact, Inventory, Project) using getVisibilityFilter.
+ * 5. Disallowed or unverified resources return false (triggering a generic 404).
  */
 export async function authorizeFileAccess(user, fileId, operation = 'READ') {
     if (!user) return false;
@@ -75,11 +119,49 @@ export async function authorizeFileAccess(user, fileId, operation = 'READ') {
         }
     }
 
-    // 2. If MongoDB is connected, query canonical Document & Entity layers
+    // 2. If MongoDB is connected, query durable CRM records
     if (mongoose.connection && mongoose.connection.readyState === 1) {
+        // 2a. Query durable DirectUploadRecord (handles server restarts and multi-instance deployments)
+        try {
+            const durableRecord = await DirectUploadRecord.findOne({
+                $or: [
+                    { fileId },
+                    { sanitizedFileId: sanitized },
+                    { fileId: sanitized }
+                ]
+            }).lean();
+
+            if (durableRecord) {
+                // Populate into in-memory cache for subsequent requests
+                fileUploadOwnership.set(fileId, durableRecord);
+                fileUploadOwnership.set(sanitized, durableRecord);
+
+                // Enforce tenant isolation: cross-tenant access is strictly denied
+                if (durableRecord.tenantId && userTenantId && durableRecord.tenantId !== userTenantId) {
+                    return false;
+                }
+
+                // If uploaded by this user -> ALLOWED
+                if (durableRecord.userId && userId && String(durableRecord.userId) === String(userId)) {
+                    return true;
+                }
+
+                // If in same tenant and user has tenant administrative privileges
+                const roleName = user.role?.name?.toLowerCase() || (typeof user.role === 'string' ? user.role.toLowerCase() : '');
+                if (durableRecord.tenantId === userTenantId && (roleName === 'admin' || roleName === 'super admin' || roleName === 'manager')) {
+                    return true;
+                }
+
+                // Different user in same tenant without elevated permission cannot delete/access private upload
+                return false;
+            }
+        } catch (dbErr) {
+            console.error('[UploadAuth] DirectUploadRecord check failed:', dbErr.message);
+        }
+
         const accessService = new DocumentAccessService();
 
-        // 2a. Check DocumentVersion by providerVersionId, objectKey, or versionId
+        // 2b. Check DocumentVersion by providerVersionId, objectKey, or versionId
         try {
             const version = await DocumentVersion.findOne({
                 $or: [
@@ -104,7 +186,7 @@ export async function authorizeFileAccess(user, fileId, operation = 'READ') {
             console.error('[UploadAuth] DocumentVersion check failed:', dbErr.message);
         }
 
-        // 2b. Check Document by documentId, metadata.fileId, or URL
+        // 2c. Check Document by documentId, metadata.fileId, or URL
         try {
             const doc = await Document.findOne({
                 $or: [
@@ -127,7 +209,7 @@ export async function authorizeFileAccess(user, fileId, operation = 'READ') {
             console.error('[UploadAuth] Document check failed:', dbErr.message);
         }
 
-        // 2c. Check CRM entities (Lead, Deal, Contact, Inventory, Project) using canonical visibility filter
+        // 2d. Check CRM entities (Lead, Deal, Contact, Inventory, Project) using canonical visibility filter
         try {
             const visibilityFilter = await getVisibilityFilter(user);
             const entityModels = ['Lead', 'Deal', 'Contact', 'Inventory', 'Project'];
@@ -197,8 +279,18 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                 userId: req.user?._id || req.user?.id
             });
 
-            registerUploadedFile(result.id, req.user);
-            registerUploadedFile(req.file.filename, req.user);
+            await registerUploadedFile(result.id, req.user, {
+                storage: 'google_drive',
+                originalName: req.file.originalname,
+                mimeType: req.file.mimetype,
+                sizeBytes: req.file.size
+            });
+            await registerUploadedFile(req.file.filename, req.user, {
+                storage: 'google_drive',
+                originalName: req.file.originalname,
+                mimeType: req.file.mimetype,
+                sizeBytes: req.file.size
+            });
 
             return res.status(200).json({
                 success: true,
@@ -214,7 +306,12 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
             
             // Fallback: Return local URL (the file is already saved in uploads/ by multer)
             const localUrl = `/uploads/${req.file.filename}`;
-            registerUploadedFile(req.file.filename, req.user);
+            await registerUploadedFile(req.file.filename, req.user, {
+                storage: 'local',
+                originalName: req.file.originalname,
+                mimeType: req.file.mimetype,
+                sizeBytes: req.file.size
+            });
             
             return res.status(200).json({
                 success: true,
@@ -263,8 +360,18 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                     docType,
                     userId: req.user?._id || req.user?.id
                 });
-                registerUploadedFile(driveRes.id, req.user);
-                registerUploadedFile(file.filename, req.user);
+                await registerUploadedFile(driveRes.id, req.user, {
+                    storage: 'google_drive',
+                    originalName: file.originalname,
+                    mimeType: file.mimetype,
+                    sizeBytes: file.size
+                });
+                await registerUploadedFile(file.filename, req.user, {
+                    storage: 'google_drive',
+                    originalName: file.originalname,
+                    mimeType: file.mimetype,
+                    sizeBytes: file.size
+                });
                 return {
                     success: true,
                     url: driveRes.url,
@@ -277,7 +384,12 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
             } catch (driveErr) {
                 console.warn(`[UploadRoute] Multiple upload: Drive failed for ${file.originalname}, falling back to LOCAL:`, driveErr.message);
                 const localUrl = `/uploads/${file.filename}`;
-                registerUploadedFile(file.filename, req.user);
+                await registerUploadedFile(file.filename, req.user, {
+                    storage: 'local',
+                    originalName: file.originalname,
+                    mimeType: file.mimetype,
+                    sizeBytes: file.size
+                });
                 return {
                     success: true,
                     url: localUrl,
@@ -340,6 +452,11 @@ router.delete('/:fileId', async (req, res) => {
                 fs.unlinkSync(localPath);
                 fileUploadOwnership.delete(sanitized);
                 fileUploadOwnership.delete(fileId);
+                if (mongoose.connection && mongoose.connection.readyState === 1) {
+                    await DirectUploadRecord.deleteMany({
+                        $or: [{ fileId }, { sanitizedFileId: sanitized }, { fileId: sanitized }]
+                    }).catch(() => {});
+                }
                 return res.status(200).json({
                     success: true,
                     message: `Local file ${sanitized} deleted successfully.`,
@@ -356,6 +473,11 @@ router.delete('/:fileId', async (req, res) => {
             const driveResult = await deleteFileFromDrive(fileId);
             fileUploadOwnership.delete(sanitized);
             fileUploadOwnership.delete(fileId);
+            if (mongoose.connection && mongoose.connection.readyState === 1) {
+                await DirectUploadRecord.deleteMany({
+                    $or: [{ fileId }, { sanitizedFileId: sanitized }, { fileId: sanitized }]
+                }).catch(() => {});
+            }
             return res.status(200).json({
                 success: true,
                 message: driveResult.message,
