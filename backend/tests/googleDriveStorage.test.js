@@ -1915,4 +1915,386 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             }
         }
     });
+
+    // =========================================================================
+    // 21. Multiple Upload Partial-Failure Cleanup & Atomic Batch Rollback
+    // =========================================================================
+    await t.test('21. Multiple Upload Partial-Failure Cleanup & Atomic Batch Rollback', async (sub) => {
+        let mongod;
+        try {
+            mongod = await MongoMemoryServer.create();
+            const uri = mongod.getUri();
+            await mongoose.connect(uri);
+        } catch (mErr) {
+            assert.fail(`Fatal test failure: MongoMemoryServer could not be initialized for Suite 21: ${mErr.message}`);
+        }
+
+        const userA = {
+            _id: new mongoose.Types.ObjectId('65d111111111111111111111'),
+            name: 'User A (Tenant 1)',
+            email: 'usera@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const userB = {
+            _id: new mongoose.Types.ObjectId('65d222222222222222222222'),
+            name: 'User B (Tenant 1)',
+            email: 'userb@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const originalFindById = User.findById;
+        User.findById = (id) => ({
+            populate: () => ({
+                lean: async () => {
+                    const sId = String(id);
+                    if (sId === String(userA._id)) return userA;
+                    if (sId === String(userB._id)) return userB;
+                    return null;
+                }
+            })
+        });
+
+        const tokenA = jwt.sign({ id: userA._id }, config.jwtSecret, { expiresIn: '1h' });
+
+        function buildMultipartBatch(boundary, files) {
+            let body = '';
+            for (const f of files) {
+                body += `--${boundary}\r\n`;
+                body += `Content-Disposition: form-data; name="files"; filename="${f.filename}"\r\n`;
+                body += `Content-Type: ${f.mimeType || 'text/plain'}\r\n\r\n`;
+                body += `${f.content || 'Dummy test file content'}\r\n`;
+            }
+            body += `--${boundary}--\r\n`;
+            return body;
+        }
+
+        try {
+            // -----------------------------------------------------------------
+            // 21a. First file succeeds, second file registration fails
+            // -----------------------------------------------------------------
+            await sub.test('21a. First file succeeds, second file registration fails -> rolls back all batch entries', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                let testServer;
+                try {
+                    // Fail bulkWrite ONLY when registering the second file
+                    DirectUploadRecord.bulkWrite = async (ops) => {
+                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        if (fileId.includes('batch-fail-file-2')) {
+                            throw new Error('Simulated write failure on second file registration');
+                        }
+                        return await originalBulkWrite.call(DirectUploadRecord, ops);
+                    };
+
+                    const testApp = express();
+                    testApp.use(express.json());
+                    testApp.use('/api/upload', uploadRoutes);
+
+                    testServer = http.createServer(testApp);
+                    await new Promise(res => testServer.listen(0, '127.0.0.1', res));
+                    const port = testServer.address().port;
+
+                    const boundary = '----BoundarySuite21a';
+                    const payload = buildMultipartBatch(boundary, [
+                        { filename: 'batch-file-1-success.txt', content: 'Content of File 1' },
+                        { filename: 'batch-fail-file-2.txt', content: 'Content of File 2' }
+                    ]);
+
+                    const response = await fetch(`http://127.0.0.1:${port}/api/upload/multiple`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'Authorization': `Bearer ${tokenA}`
+                        },
+                        body: payload
+                    });
+
+                    const json = await response.json();
+                    assert.strictEqual(response.status, 500, 'Must return HTTP 500 when any file in batch fails');
+                    assert.strictEqual(json.success, false);
+                    assert.strictEqual(json.failedCount, 1);
+                    assert.strictEqual(json.totalCount, 2);
+
+                    // VERIFY ROLLBACK: File 1's registration must be removed from both cache and DB
+                    const remainingRecords = await DirectUploadRecord.find({
+                        fileId: { $in: [/batch-file-1-success/, /batch-fail-file-2/] }
+                    }).lean();
+                    assert.strictEqual(remainingRecords.length, 0, 'No durable records must remain for any file in failed batch');
+
+                    // Cache check
+                    for (const [k] of fileUploadOwnership) {
+                        assert.ok(!k.includes('batch-file-1-success'), 'Cache must not retain File 1 after batch failure');
+                        assert.ok(!k.includes('batch-fail-file-2'), 'Cache must not retain File 2 after batch failure');
+                    }
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                    if (testServer) await new Promise(res => testServer.close(res));
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 21b. Drive ID registration succeeds but local filename registration fails
+            // -----------------------------------------------------------------
+            await sub.test('21b. Drive ID registration succeeds but local filename alias fails -> removes first registration', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                let testServer;
+                const mockDriveId = 'mock-drive-id-first-success-777';
+
+                try {
+                    // Mock drive client that returns a successful Drive upload
+                    const mockDriveClient = {
+                        files: {
+                            create: async () => ({
+                                data: {
+                                    id: mockDriveId,
+                                    webViewLink: `https://drive.google.com/file/d/${mockDriveId}/view`,
+                                    webContentLink: `https://drive.google.com/uc?id=${mockDriveId}&export=download`
+                                }
+                            })
+                        }
+                    };
+
+                    // Fail bulkWrite ONLY when registering the local filename alias (second registration)
+                    DirectUploadRecord.bulkWrite = async (ops) => {
+                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        if (fileId !== mockDriveId) {
+                            throw new Error('Simulated DB failure on second registration (local filename alias)');
+                        }
+                        return await originalBulkWrite.call(DirectUploadRecord, ops);
+                    };
+
+                    const testApp = express();
+                    testApp.set('driveService', mockDriveClient);
+                    testApp.use(express.json());
+                    testApp.use('/api/upload', uploadRoutes);
+
+                    testServer = http.createServer(testApp);
+                    await new Promise(res => testServer.listen(0, '127.0.0.1', res));
+                    const port = testServer.address().port;
+
+                    const boundary = '----BoundarySuite21b';
+                    const payload = buildMultipartBatch(boundary, [
+                        { filename: 'alias-failure-test.txt', content: 'Testing alias registration failure' }
+                    ]);
+
+                    const response = await fetch(`http://127.0.0.1:${port}/api/upload/multiple`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'Authorization': `Bearer ${tokenA}`
+                        },
+                        body: payload
+                    });
+
+                    const json = await response.json();
+                    assert.strictEqual(response.status, 500, 'Must return HTTP 500 when alias registration fails');
+                    assert.strictEqual(json.success, false);
+
+                    // VERIFY: The first registration (Drive ID) was removed from both memory and MongoDB!
+                    assert.strictEqual(fileUploadOwnership.has(mockDriveId), false, 'Drive ID must be removed from cache on alias failure');
+                    const driveDoc = await DirectUploadRecord.findOne({ fileId: mockDriveId });
+                    assert.strictEqual(driveDoc, null, 'Drive ID durable record must be deleted from DB on alias failure');
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                    if (testServer) await new Promise(res => testServer.close(res));
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 21c. Multiple files fail concurrently
+            // -----------------------------------------------------------------
+            await sub.test('21c. Multiple files fail concurrently -> all promises settle cleanly and batch rolls back', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                let testServer;
+                try {
+                    // All registrations fail
+                    DirectUploadRecord.bulkWrite = async () => {
+                        throw new Error('Simulated concurrent DB failure');
+                    };
+
+                    const testApp = express();
+                    testApp.use(express.json());
+                    testApp.use('/api/upload', uploadRoutes);
+
+                    testServer = http.createServer(testApp);
+                    await new Promise(res => testServer.listen(0, '127.0.0.1', res));
+                    const port = testServer.address().port;
+
+                    const boundary = '----BoundarySuite21c';
+                    const payload = buildMultipartBatch(boundary, [
+                        { filename: 'concurrent-fail-1.txt', content: 'File 1' },
+                        { filename: 'concurrent-fail-2.txt', content: 'File 2' },
+                        { filename: 'concurrent-fail-3.txt', content: 'File 3' }
+                    ]);
+
+                    const response = await fetch(`http://127.0.0.1:${port}/api/upload/multiple`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'Authorization': `Bearer ${tokenA}`
+                        },
+                        body: payload
+                    });
+
+                    const json = await response.json();
+                    assert.strictEqual(response.status, 500, 'Must return HTTP 500 when concurrent files fail');
+                    assert.strictEqual(json.success, false);
+                    assert.strictEqual(json.failedCount, 3);
+                    assert.strictEqual(json.totalCount, 3);
+
+                    // Zero records created
+                    const records = await DirectUploadRecord.find({
+                        fileId: { $in: [/concurrent-fail-1/, /concurrent-fail-2/, /concurrent-fail-3/] }
+                    }).lean();
+                    assert.strictEqual(records.length, 0);
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                    if (testServer) await new Promise(res => testServer.close(res));
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 21d. Pre-existing ownership records remain untouched
+            // -----------------------------------------------------------------
+            await sub.test('21d. Pre-existing ownership records remain untouched during batch failure rollback', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                let testServer;
+
+                // Create pre-existing file for User A
+                const preExistingA = 'pre-existing-user-a-doc-999';
+                await registerUploadedFile(preExistingA, userA, {
+                    storage: 'google_drive',
+                    originalName: 'passport_a.pdf'
+                });
+
+                // Create pre-existing file for User B
+                const preExistingB = 'pre-existing-user-b-doc-888';
+                await registerUploadedFile(preExistingB, userB, {
+                    storage: 'google_drive',
+                    originalName: 'id_b.pdf'
+                });
+
+                try {
+                    // Force batch upload to fail on write
+                    DirectUploadRecord.bulkWrite = async (ops) => {
+                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        if (fileId.includes('unrelated-batch-fail')) {
+                            throw new Error('Simulated DB failure during new batch');
+                        }
+                        return await originalBulkWrite.call(DirectUploadRecord, ops);
+                    };
+
+                    const testApp = express();
+                    testApp.use(express.json());
+                    testApp.use('/api/upload', uploadRoutes);
+
+                    testServer = http.createServer(testApp);
+                    await new Promise(res => testServer.listen(0, '127.0.0.1', res));
+                    const port = testServer.address().port;
+
+                    const boundary = '----BoundarySuite21d';
+                    const payload = buildMultipartBatch(boundary, [
+                        { filename: 'unrelated-batch-fail.txt', content: 'New failing file' }
+                    ]);
+
+                    const response = await fetch(`http://127.0.0.1:${port}/api/upload/multiple`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'Authorization': `Bearer ${tokenA}`
+                        },
+                        body: payload
+                    });
+
+                    assert.strictEqual(response.status, 500);
+
+                    // VERIFY: Pre-existing records for User A and User B remain completely intact!
+                    assert.strictEqual(fileUploadOwnership.has(preExistingA), true, 'User A pre-existing file must remain in cache');
+                    assert.strictEqual(fileUploadOwnership.has(preExistingB), true, 'User B pre-existing file must remain in cache');
+
+                    const recordA = await DirectUploadRecord.findOne({ fileId: preExistingA }).lean();
+                    assert.ok(recordA, 'User A pre-existing record must remain in MongoDB');
+                    assert.strictEqual(String(recordA.userId), String(userA._id));
+
+                    const recordB = await DirectUploadRecord.findOne({ fileId: preExistingB }).lean();
+                    assert.ok(recordB, 'User B pre-existing record must remain in MongoDB');
+                    assert.strictEqual(String(recordB.userId), String(userB._id));
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                    if (testServer) await new Promise(res => testServer.close(res));
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 21e. No stale in-memory or durable ownership records remain for rolled-back batch entries
+            // -----------------------------------------------------------------
+            await sub.test('21e. No stale in-memory or durable ownership records remain for rolled-back batch entries', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                let testServer;
+                try {
+                    DirectUploadRecord.bulkWrite = async (ops) => {
+                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        if (fileId.includes('stale-check-file-2')) {
+                            throw new Error('Simulated write error on second item');
+                        }
+                        return await originalBulkWrite.call(DirectUploadRecord, ops);
+                    };
+
+                    const testApp = express();
+                    testApp.use(express.json());
+                    testApp.use('/api/upload', uploadRoutes);
+
+                    testServer = http.createServer(testApp);
+                    await new Promise(res => testServer.listen(0, '127.0.0.1', res));
+                    const port = testServer.address().port;
+
+                    const boundary = '----BoundarySuite21e';
+                    const payload = buildMultipartBatch(boundary, [
+                        { filename: 'stale-check-file-1.txt', content: 'Item 1' },
+                        { filename: 'stale-check-file-2.txt', content: 'Item 2' }
+                    ]);
+
+                    const response = await fetch(`http://127.0.0.1:${port}/api/upload/multiple`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'Authorization': `Bearer ${tokenA}`
+                        },
+                        body: payload
+                    });
+
+                    assert.strictEqual(response.status, 500);
+
+                    // Confirm 0 matching records in DB
+                    const durableCount = await DirectUploadRecord.countDocuments({
+                        fileId: { $in: [/stale-check-file-1/, /stale-check-file-2/] }
+                    });
+                    assert.strictEqual(durableCount, 0, 'Must have zero durable records in MongoDB for rolled-back entries');
+
+                    // Confirm 0 matching records in memory
+                    for (const [k] of fileUploadOwnership) {
+                        assert.ok(!k.includes('stale-check-file-1'), 'No memory cache entry for stale item 1');
+                        assert.ok(!k.includes('stale-check-file-2'), 'No memory cache entry for stale item 2');
+                    }
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                    if (testServer) await new Promise(res => testServer.close(res));
+                }
+            });
+        } finally {
+            User.findById = originalFindById;
+            if (mongod) {
+                try {
+                    await mongoose.disconnect();
+                    await mongod.stop();
+                } catch (cleanupErr) {}
+            }
+        }
+    });
 });
