@@ -4476,6 +4476,265 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 } finally {
                     AuthorityCanonicalPolicy.updateOne = origPolicyUpdate;
                 }
+
+                // Case 4q: Worker A loses lease; Worker B reclaims; Worker A's delayed Redis failure must not overwrite Worker B's state
+                let delayedFailCalls = 0;
+                const delayedFailProvider = {
+                    async setCanonicalPolicy() {
+                        delayedFailCalls++;
+                        // Worker B reclaims the lease in MongoDB while Worker A is blocked in Redis
+                        await AuditLog.updateOne(
+                            { correlationId: `canonical_sync:${currentPolicy._id.toString()}:delayed-fail-lease-op-77` },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'worker-b-active-lease-token',
+                                    'metadata.leaseExpiresAt': new Date(Date.now() + 10000),
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        // Also simulate Worker B updating the canonical policy to SYNCED
+                        await AuthorityCanonicalPolicy.updateOne(
+                            { _id: currentPolicy._id },
+                            {
+                                $set: {
+                                    redisSyncStatus: 'SYNCED',
+                                    redisSyncError: null,
+                                    lastSyncedAt: new Date()
+                                }
+                            }
+                        );
+                        // Now Worker A's Redis sync fails
+                        const err = new Error('SIMULATED_DELAYED_REDIS_FAILURE');
+                        err.code = 'REDIS_SYNC_FAILED';
+                        throw err;
+                    },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(delayedFailProvider);
+
+                const delayedFailOpId = 'delayed-fail-lease-op-77';
+                const delayedFailReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: delayedFailOpId }
+                };
+                let dfCode = null, dfBody = null;
+                await syncCanonicalPolicy(delayedFailReq, {
+                    status(c) { dfCode = c; return this; },
+                    json(b) { dfBody = b; return this; }
+                });
+                assert.equal(dfCode, 409, 'Delayed Redis failure by stale worker whose lease was lost must fail closed with HTTP 409');
+                assert.equal(dfBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(delayedFailCalls, 1, 'Exactly one Redis publication attempted');
+
+                // Verify Worker A did NOT overwrite Worker B's audit lease or Worker B's policy status
+                const auditAfterDelayedFail = await AuditLog.findOne({
+                    correlationId: `canonical_sync:${currentPolicy._id.toString()}:${delayedFailOpId}`
+                });
+                assert.equal(auditAfterDelayedFail.metadata.leaseOwner, 'worker-b-active-lease-token', 'Worker B leaseOwner must be preserved');
+                assert.notEqual(auditAfterDelayedFail.status, 'failed', 'Audit must not be marked failed by stale Worker A');
+
+                const policyAfterDelayedFail = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(policyAfterDelayedFail.redisSyncStatus, 'SYNCED', 'Worker B SYNCED status must not be overwritten to FAILED by stale Worker A');
+
+                // Case 4r: Redis succeeds but MongoDB policy update throws; retry same operationId and verify actual reconciliation, not early success
+                let r4rRedisPublishes = 0;
+                let r4rRedisState = null;
+                const reconRetryProvider = {
+                    async setCanonicalPolicy(payload) {
+                        r4rRedisPublishes++;
+                        r4rRedisState = {
+                            version: payload.policyVersion,
+                            contentHash: payload.policy.contentHash
+                        };
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return r4rRedisState;
+                    }
+                };
+                setTestQuotaProvider(reconRetryProvider);
+
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'PENDING', redisSyncError: null } }
+                );
+
+                const origUpdateOne4r = AuthorityCanonicalPolicy.updateOne;
+                let updateOne4rAttempts = 0;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        updateOne4rAttempts++;
+                        if (updateOne4rAttempts === 1) {
+                            throw new Error('SIMULATED_DB_DISCONNECTION_DURING_POLICY_SYNC');
+                        }
+                    }
+                    return origUpdateOne4r.call(this, filter, update, options);
+                };
+
+                try {
+                    const retryOpId = 'retry-after-policy-throw-op-88';
+                    const retryReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: retryOpId }
+                    };
+
+                    // First call: Redis succeeds, but MongoDB policy update throws -> 500
+                    let r1Code = null, r1Body = null;
+                    await syncCanonicalPolicy(retryReq, {
+                        status(c) { r1Code = c; return this; },
+                        json(b) { r1Body = b; return this; }
+                    });
+                    assert.equal(r1Code, 500, 'First attempt must fail with 500 when policy update throws');
+                    assert.equal(r1Body.code, 'POLICY_UPDATE_FAILED');
+                    assert.equal(r4rRedisPublishes, 1, 'Redis publication succeeded on first attempt');
+
+                    // Verify DB states: policy is PENDING_RECONCILIATION, audit is PENDING_RECONCILIATION
+                    const polAfterThrow = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polAfterThrow.redisSyncStatus, 'PENDING_RECONCILIATION');
+
+                    const auditAfterThrow = await AuditLog.findOne({
+                        correlationId: `canonical_sync:${currentPolicy._id.toString()}:${retryOpId}`
+                    });
+                    assert.notEqual(auditAfterThrow.metadata.syncPhase, 'COMPLETED', 'Audit must NOT be marked COMPLETED when policy update threw');
+                    assert.equal(auditAfterThrow.metadata.syncPhase, 'PENDING_RECONCILIATION');
+
+                    // Second call: caller retries with the exact same operationId
+                    let r2Code = null, r2Body = null;
+                    await syncCanonicalPolicy(retryReq, {
+                        status(c) { r2Code = c; return this; },
+                        json(b) { r2Body = b; return this; }
+                    });
+                    assert.equal(r2Code, 200, 'Retry must reconcile from Redis and return HTTP 200');
+                    assert.equal(r2Body.success, true);
+                    assert.equal(r2Body.status, 'COMPLETED');
+                    assert.equal(r2Body.reconciled, true, 'Response must confirm reconciliation, not early naive success');
+                    assert.equal(r4rRedisPublishes, 1, 'Exactly one Redis publication must have occurred; reconciliation must not republish');
+
+                    // Verify DB states after reconciliation
+                    const polAfterRecon = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polAfterRecon.redisSyncStatus, 'SYNCED', 'Policy in MongoDB must now be durably SYNCED');
+
+                    const auditAfterRecon = await AuditLog.findOne({
+                        correlationId: `canonical_sync:${currentPolicy._id.toString()}:${retryOpId}`
+                    });
+                    assert.equal(auditAfterRecon.metadata.syncPhase, 'COMPLETED');
+                    assert.equal(auditAfterRecon.metadata.redisSyncStatus, 'SYNCED');
+
+                    // Case 4t: Duplicate retries remain idempotent
+                    let r3Code = null, r3Body = null;
+                    await syncCanonicalPolicy(retryReq, {
+                        status(c) { r3Code = c; return this; },
+                        json(b) { r3Body = b; return this; }
+                    });
+                    assert.equal(r3Code, 200, 'Duplicate retry of completed sync must return 200');
+                    assert.equal(r3Body.idempotent, true, 'Must indicate idempotent response');
+                    assert.equal(r3Body.status, 'COMPLETED');
+                    assert.equal(r4rRedisPublishes, 1, 'Zero additional Redis publications on idempotent retry');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4r;
+                }
+
+                // Case 4s: Zero matched writes on policy update
+                const zeroMatchProvider = {
+                    async setCanonicalPolicy() { return { success: true }; },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(zeroMatchProvider);
+
+                const origUpdateOne4s = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
+                    }
+                    return origUpdateOne4s.call(this, filter, update, options);
+                };
+
+                try {
+                    const zmOpId = 'zero-matched-policy-op-99';
+                    const zmReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: zmOpId }
+                    };
+                    let zmCode = null, zmBody = null;
+                    await syncCanonicalPolicy(zmReq, {
+                        status(c) { zmCode = c; return this; },
+                        json(b) { zmBody = b; return this; }
+                    });
+                    assert.equal(zmCode, 500, 'Zero matched write must fail closed with HTTP 500');
+                    assert.equal(zmBody.code, 'POLICY_NOT_MATCHED');
+
+                    const auditZm = await AuditLog.findOne({
+                        correlationId: `canonical_sync:${currentPolicy._id.toString()}:${zmOpId}`
+                    });
+                    assert.equal(auditZm.metadata.syncPhase, 'PENDING_RECONCILIATION');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4s;
+                }
+
+                // Case 4u: Authoritative Redis record with malformed/missing version or contentHash fails closed
+                let malformedPublishes = 0;
+                const malformedProvider = {
+                    async setCanonicalPolicy() {
+                        malformedPublishes++;
+                        return { success: true };
+                    },
+                    // Return malformed authoritative record (missing version and empty contentHash)
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return { version: null, contentHash: '' };
+                    }
+                };
+                setTestQuotaProvider(malformedProvider);
+
+                // Create an existing audit intent in PENDING_RECONCILIATION state
+                const malformedOpId = 'malformed-redis-record-op-102';
+                const malformedCorrId = `canonical_sync:${currentPolicy._id.toString()}:${malformedOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: malformedCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated pending reconciliation before malformed Redis check',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING_RECONCILIATION',
+                        syncPhase: 'PENDING_RECONCILIATION',
+                        operationId: malformedOpId
+                    },
+                    status: 'warning'
+                });
+
+                const malformedReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: malformedOpId }
+                };
+                let mfCode = null, mfBody = null;
+                await syncCanonicalPolicy(malformedReq, {
+                    status(c) { mfCode = c; return this; },
+                    json(b) { mfBody = b; return this; }
+                });
+                assert.equal(mfCode, 502, 'Malformed authoritative Redis record must fail closed with HTTP 502');
+                assert.equal(mfBody.code, 'MALFORMED_REDIS_POLICY');
+                assert.equal(mfBody.status, 'PENDING_RECONCILIATION');
+                assert.equal(malformedPublishes, 0, 'Must NEVER publish or republish when authoritative Redis record is malformed');
+
+                const polAfterMalformed = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(polAfterMalformed.redisSyncStatus, 'PENDING_RECONCILIATION', 'Policy must remain PENDING_RECONCILIATION');
             } finally {
                 setTestQuotaProvider(null);
             }
