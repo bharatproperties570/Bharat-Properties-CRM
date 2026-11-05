@@ -322,33 +322,53 @@ export class ContactReconciliationService {
     /**
      * Operator approves a reconciliation group decision.
      * Binds approval to the exact group fingerprint to prevent stale replay.
+     * Enforces mandatory expectedFingerprint and atomic conditional update.
      */
     static async approveGroup(groupId, { user, selectedMasterId, reviewNotes, expectedFingerprint }) {
+        if (!expectedFingerprint || typeof expectedFingerprint !== 'string' || expectedFingerprint.trim() === '') {
+            const err = new Error('expectedFingerprint is mandatory for approval to ensure group integrity');
+            err.statusCode = 400;
+            err.code = 'MISSING_EXPECTED_FINGERPRINT';
+            throw err;
+        }
+
+        const trimmedFingerprint = expectedFingerprint.trim();
+
         const group = await ReconciliationGroup.findById(groupId);
         if (!group) throw new Error('ReconciliationGroup not found');
 
-        // Verify fingerprint matches expectation
-        if (expectedFingerprint && expectedFingerprint !== group.fingerprint) {
-            const err = new Error('Group composition has changed since last loaded. Please refresh and review again.');
+        if (selectedMasterId) {
+            const valid = group.contactIds.some(c => c.toString() === selectedMasterId.toString());
+            if (!valid) throw new Error('Selected canonical master is not a member of this group');
+        }
+
+        // Atomic conditional update: matches _id AND fingerprint == expectedFingerprint
+        const updatedGroup = await ReconciliationGroup.findOneAndUpdate(
+            {
+                _id: groupId,
+                fingerprint: trimmedFingerprint
+            },
+            {
+                $set: {
+                    status: 'APPROVED',
+                    approvedFingerprint: trimmedFingerprint,
+                    reviewedBy: user?._id || user?.id || null,
+                    reviewedAt: new Date(),
+                    reviewNotes: reviewNotes?.trim() || 'Approved by operator',
+                    ...(selectedMasterId ? { selectedCanonicalMasterId: selectedMasterId } : {})
+                }
+            },
+            { new: true }
+        );
+
+        if (!updatedGroup) {
+            const err = new Error('Atomic approval failed: Group composition changed concurrently or fingerprint mismatch');
             err.statusCode = 409;
             err.code = 'FINGERPRINT_ALTERED';
             throw err;
         }
 
-        if (selectedMasterId) {
-            const valid = group.contactIds.some(c => c.toString() === selectedMasterId.toString());
-            if (!valid) throw new Error('Selected canonical master is not a member of this group');
-            group.selectedCanonicalMasterId = selectedMasterId;
-        }
-
-        group.status = 'APPROVED';
-        group.approvedFingerprint = group.fingerprint; // Cryptographically bind approval to exact fingerprint
-        group.reviewedBy = user?._id || user?.id || null;
-        group.reviewedAt = new Date();
-        group.reviewNotes = reviewNotes || 'Approved by operator';
-
-        await group.save();
-        return group;
+        return updatedGroup;
     }
 
     /**

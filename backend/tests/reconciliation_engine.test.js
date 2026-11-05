@@ -36,11 +36,13 @@ import { previewMerge, executeMerge, rollbackMerge } from '../services/contactMe
 import { ContactLockService } from '../services/contactLock.service.js';
 import { ContactReconciliationService } from '../services/contactReconciliation.service.js';
 import { MigrationReadinessService, MIGRATION_CHECK_CODES } from '../services/migrationReadiness.service.js';
+import { verifyGroupVisibility, getSummary, getGroups, getGroupById } from '../controllers/reconciliation.controller.js';
 
 describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', () => {
     let replset;
     let testAdminUser;
     let testAgentUser;
+    let testAgentUser2;
 
     before(async () => {
         replset = await MongoMemoryReplSet.create({
@@ -98,6 +100,19 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
             role: agentRole._id,
             dataScope: 'assigned'
         });
+
+        testAgentUser2 = await User.create({
+            fullName: 'Agent Test 2',
+            email: 'agent2.test@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: agentRole._id,
+            dataScope: 'assigned'
+        });
+
+        testAdminUser = await User.findById(testAdminUser._id).populate('role');
+        testAgentUser = await User.findById(testAgentUser._id).populate('role');
+        testAgentUser2 = await User.findById(testAgentUser2._id).populate('role');
     });
 
     after(async () => {
@@ -721,6 +736,240 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
 
         // Cleanup target index
         await Contact.collection.dropIndex('contacts_phones_number_active_unique');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 16. P1 GROUP VISIBILITY ENFORCEMENT (100% MEMBER ACCESS)
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('16. P1 Security: Group visibility enforces 100% member accessibility (no partial visibility bypass)', async () => {
+        // Contact 1 assigned to Agent 1
+        const c1 = await Contact.create({ name: 'Client 1', phones: [{ number: '9811112233' }], owner: testAgentUser._id, isDeleted: false, isMerged: false });
+        // Contact 2 assigned to Agent 2
+        const c2 = await Contact.create({ name: 'Client 2', phones: [{ number: '9811112233' }], owner: testAgentUser2._id, isDeleted: false, isMerged: false });
+        // Contact 3 assigned to Agent 1
+        const c3 = await Contact.create({ name: 'Client 3', phones: [{ number: '9811112233' }], owner: testAgentUser._id, isDeleted: false, isMerged: false });
+
+        // Case A: 1 of 2 visible to Agent 1 -> REJECTED (matchingCount === 1, uniqueIds === 2)
+        const canAgent1AccessC1C2 = await verifyGroupVisibility(testAgentUser, [c1._id, c2._id]);
+        assert.equal(canAgent1AccessC1C2, false, 'Agent 1 must NOT access group where Contact 2 is assigned to Agent 2');
+
+        // Case B: 2 of 3 visible to Agent 1 (c1, c3 visible, c2 hidden) -> REJECTED
+        const canAgent1AccessC1C2C3 = await verifyGroupVisibility(testAgentUser, [c1._id, c2._id, c3._id]);
+        assert.equal(canAgent1AccessC1C2C3, false, 'Agent 1 must NOT access group where 1 of 3 contacts is hidden');
+
+        // Case C: All contacts visible to Agent 1 (c1, c3) -> ALLOWED
+        const canAgent1AccessC1C3 = await verifyGroupVisibility(testAgentUser, [c1._id, c3._id]);
+        assert.equal(canAgent1AccessC1C3, true, 'Agent 1 must be granted access when ALL members are assigned to Agent 1');
+
+        // Case D: Global Admin -> ALLOWED
+        const canAdminAccess = await verifyGroupVisibility(testAdminUser, [c1._id, c2._id, c3._id]);
+        assert.equal(canAdminAccess, true, 'Global platform admin must have unrestricted visibility');
+
+        // Case E: Missing or deleted contact in array -> REJECTED (fail closed)
+        const fakeId = new mongoose.Types.ObjectId();
+        const canAccessMissing = await verifyGroupVisibility(testAdminUser, [c1._id, fakeId]);
+        assert.equal(canAccessMissing, false, 'Group with non-existent or inaccessible member must fail closed');
+
+        // Case F: Controller getGroupById HTTP 403 test
+        const group = await ReconciliationGroup.create({
+            fingerprint: 'fp_vis_test_1',
+            phoneNumber: '9811112233',
+            phoneMasked: '+91 98*** **233',
+            primaryClassification: 'DO_NOT_MERGE',
+            contactIds: [c1._id, c2._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        const mockReq = { params: { id: group._id.toString() }, user: testAgentUser };
+        let resCode = null;
+        let resData = null;
+        const mockRes = {
+            status: (code) => { resCode = code; return mockRes; },
+            json: (data) => { resData = data; return mockRes; }
+        };
+
+        await getGroupById(mockReq, mockRes);
+        assert.equal(resCode, 403, 'Partially visible group must return HTTP 403 Forbidden');
+        assert.equal(resData.code, 'GROUP_VISIBILITY_DENIED');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 17. P1 MIGRATION READINESS FAIL-OPEN FIXES (SIMULATED FAILURES)
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('17. P1 Security: Readiness evaluator strictly fails closed on database, Redis, or index failures', async () => {
+        // Case A: Disconnected DB connection
+        const disconnectedConn = { readyState: 0, db: null };
+        const evalDisconnected = await MigrationReadinessService.evaluateReadiness({ connection: disconnectedConn });
+        assert.equal(evalDisconnected.ready, false);
+        assert.equal(evalDisconnected.status, 'BLOCKED');
+        assert.ok(evalDisconnected.blockerReasons.some(r => r.includes('DATABASE_DISCONNECTED')));
+
+        // Case B: Simulated Redis failure (throws error or null)
+        const brokenRedis = {
+            keys: async () => { throw new Error('ECONNREFUSED: Redis cluster unreachable'); }
+        };
+        const evalBrokenRedis = await MigrationReadinessService.evaluateReadiness({ customRedis: brokenRedis });
+        assert.equal(evalBrokenRedis.ready, false);
+        assert.equal(evalBrokenRedis.status, 'BLOCKED');
+        assert.ok(evalBrokenRedis.blockerReasons.some(r => r.includes('REDIS_INSPECTION_FAILED')));
+
+        // Case C: Simulated indexes() inspection failure
+        const brokenIndexesConn = {
+            readyState: 1,
+            db: {
+                collection: () => ({
+                    aggregate: () => ({ toArray: async () => [] }),
+                    countDocuments: async () => 0,
+                    indexes: async () => { throw new Error('Index inspection timeout'); }
+                })
+            }
+        };
+        const evalBrokenIndexes = await MigrationReadinessService.evaluateReadiness({ connection: brokenIndexesConn });
+        assert.equal(evalBrokenIndexes.ready, false);
+        assert.equal(evalBrokenIndexes.status, 'BLOCKED');
+        assert.ok(evalBrokenIndexes.blockerReasons.some(r => r.includes('INDEX_INSPECTION_FAILED')));
+
+        // Case D: Simulated aggregation failure
+        const brokenAggConn = {
+            readyState: 1,
+            db: {
+                collection: () => ({
+                    aggregate: () => ({ toArray: async () => { throw new Error('Aggregation query failed'); } }),
+                    countDocuments: async () => 0,
+                    indexes: async () => [{ name: 'phones.number_1' }]
+                })
+            }
+        };
+        const evalBrokenAgg = await MigrationReadinessService.evaluateReadiness({ connection: brokenAggConn });
+        assert.equal(evalBrokenAgg.ready, false);
+        assert.equal(evalBrokenAgg.status, 'BLOCKED');
+        assert.ok(evalBrokenAgg.blockerReasons.some(r => r.includes('AGGREGATION_FAILED')));
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 18. P1 EXACT MIGRATION 004 FILTER COMPATIBILITY
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('18. P1 Filter Compatibility: Detects empty string and whitespace collisions per Migration 004 index spec', async () => {
+        // Ensure legacy index exists
+        try {
+            await Contact.collection.createIndex({ 'phones.number': 1 });
+        } catch (_) {}
+
+        // Case A: Two active contacts with empty string phone number ('') inserted directly to bypass schema hooks
+        await Contact.collection.insertMany([
+            { name: 'Empty Phone 1', phones: [{ number: '' }], isDeleted: false, isMerged: false, createdAt: new Date() },
+            { name: 'Empty Phone 2', phones: [{ number: '' }], isDeleted: false, isMerged: false, createdAt: new Date() }
+        ]);
+
+        const evalEmptyCollision = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalEmptyCollision.ready, false, 'Readiness MUST detect collision on empty string phones');
+        assert.equal(evalEmptyCollision.status, 'BLOCKED');
+        assert.equal(evalEmptyCollision.duplicateCount, 1);
+        assert.ok(evalEmptyCollision.blockerReasons.some(r => r.includes('ACTIVE_DUPLICATES_EXIST')));
+
+        // Clean up empty string contacts
+        await Contact.deleteMany({});
+
+        // Case B: Two active contacts with whitespace string phone number ('   ')
+        await Contact.collection.insertMany([
+            { name: 'Whitespace 1', phones: [{ number: '   ' }], isDeleted: false, isMerged: false, createdAt: new Date() },
+            { name: 'Whitespace 2', phones: [{ number: '   ' }], isDeleted: false, isMerged: false, createdAt: new Date() }
+        ]);
+
+        const evalWhitespaceCollision = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalWhitespaceCollision.ready, false, 'Readiness MUST detect collision on whitespace string phones');
+        assert.equal(evalWhitespaceCollision.status, 'BLOCKED');
+        assert.equal(evalWhitespaceCollision.duplicateCount, 1);
+
+        // Clean up
+        await Contact.deleteMany({});
+
+        // Case C: Non-string phones (null or missing number) are bypassed by $type: 'string'
+        await Contact.collection.insertMany([
+            { name: 'Null Phone 1', phones: [{ number: null }], isDeleted: false, isMerged: false, createdAt: new Date() },
+            { name: 'Null Phone 2', phones: [{ number: null }], isDeleted: false, isMerged: false, createdAt: new Date() }
+        ]);
+
+        const evalNullPhones = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalNullPhones.duplicateCount, 0, 'Null phones must not collide under $type: string');
+        assert.equal(evalNullPhones.ready, true);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 19. P2 MANDATORY & ATOMIC APPROVAL FINGERPRINT
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('19. P2 Security: Enforces mandatory expectedFingerprint and atomic conditional approval', async () => {
+        const c1 = await Contact.create({ name: 'Sameer Sen', phones: [{ number: '9811887766' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Sameer Sen', phones: [{ number: '9811887766' }], isDeleted: false, isMerged: false });
+
+        const correctFp = computeGroupFingerprint('9811887766', [c1._id, c2._id]);
+        const group = await ReconciliationGroup.create({
+            fingerprint: correctFp,
+            phoneNumber: '9811887766',
+            phoneMasked: '+91 98*** **766',
+            primaryClassification: 'SAFE_AUTO_MERGE',
+            contactIds: [c1._id, c2._id],
+            suggestedCanonicalMasterId: c1._id,
+            suggestedDuplicateIds: [c2._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        // Case A: Missing expectedFingerprint -> rejected with 400
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.approveGroup(group._id, {
+                    user: testAdminUser,
+                    reviewNotes: 'Test note'
+                });
+            },
+            (err) => {
+                assert.equal(err.code, 'MISSING_EXPECTED_FINGERPRINT');
+                return true;
+            }
+        );
+
+        // Case B: Incorrect expectedFingerprint -> rejected with 409
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.approveGroup(group._id, {
+                    user: testAdminUser,
+                    expectedFingerprint: 'sha256:wrong_fingerprint_hash',
+                    reviewNotes: 'Test note'
+                });
+            },
+            (err) => {
+                assert.equal(err.code, 'FINGERPRINT_ALTERED');
+                return true;
+            }
+        );
+
+        // Case C: Valid expectedFingerprint -> atomically approved
+        const approved = await ContactReconciliationService.approveGroup(group._id, {
+            user: testAdminUser,
+            expectedFingerprint: correctFp,
+            reviewNotes: 'Atomic approval'
+        });
+        assert.equal(approved.status, 'APPROVED');
+        assert.equal(approved.approvedFingerprint, correctFp);
+
+        // Case D: Concurrent modification check: if group fingerprint changes in DB, approval with old fingerprint fails
+        approved.status = 'PENDING_REVIEW';
+        approved.fingerprint = 'sha256:concurrently_updated_fingerprint';
+        await approved.save();
+
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.approveGroup(group._id, {
+                    user: testAdminUser,
+                    expectedFingerprint: correctFp,
+                    reviewNotes: 'Stale approval attempt'
+                });
+            },
+            (err) => {
+                assert.equal(err.code, 'FINGERPRINT_ALTERED');
+                return true;
+            }
+        );
     });
 
     // ─────────────────────────────────────────────────────────────────────────────

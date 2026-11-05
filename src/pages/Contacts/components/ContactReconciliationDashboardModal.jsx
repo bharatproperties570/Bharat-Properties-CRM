@@ -74,7 +74,8 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
         try {
             const res = await axios.post(`/api/reconciliation/groups/${selectedGroup._id}/approve`, {
                 selectedMasterId,
-                reviewNotes
+                reviewNotes,
+                expectedFingerprint: selectedGroup.fingerprint
             });
             if (res.data?.success) {
                 toast.success('Group approved for reconciliation');

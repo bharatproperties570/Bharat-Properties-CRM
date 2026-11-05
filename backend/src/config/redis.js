@@ -50,6 +50,12 @@ class MockRedis extends EventEmitter {
         return 'OK'; 
     }
     async del(key) { this.data.delete(key); return 1; }
+    async keys(pattern = '*') {
+        if (!pattern || pattern === '*') return Array.from(this.data.keys());
+        const regexStr = '^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+        const regex = new RegExp(regexStr);
+        return Array.from(this.data.keys()).filter(k => regex.test(k));
+    }
     async incr(key) {
         const current = parseInt(this.data.get(key) || '0', 10);
         const next = current + 1;

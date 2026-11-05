@@ -43,22 +43,111 @@ const sanitizeGroup = (g) => {
 };
 
 /**
- * Verify whether caller has visibility to the contacts in a group.
+ * Determine if caller has authorized global visibility.
  */
-const verifyGroupVisibility = async (user, contactIds) => {
-    const visibilityFilter = await getVisibilityFilter(user);
-    if (!visibilityFilter || Object.keys(visibilityFilter).length === 0) {
-        return true; // Global bypass
+const isCallerGlobalAdmin = (user) => {
+    if (!user) return false;
+    const userEmail = (user.email || '').toLowerCase().trim();
+    const roleName = (user.role?.name || user.role || '').toLowerCase().trim();
+    const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
+    const isSuperAdmin = roleName === 'super admin';
+    const hasAllScope = user.dataScope === 'all';
+    const hasTenant = Boolean(user.tenantId || user.tenant);
+
+    return (isSystemOwner || isSuperAdmin || hasAllScope) && !hasTenant;
+};
+
+/**
+ * Verify whether caller has visibility to ALL contacts in a group.
+ * Strictly fails closed:
+ * - Every contact ID in group must be distinctly matched by user's visibility filter.
+ * - Missing, deleted, or hidden contacts reject the entire operation.
+ * - Never silently treats a query error as global access.
+ */
+export const verifyGroupVisibility = async (user, contactIds) => {
+    if (!user) return false;
+    if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
+        return false;
     }
-    const matchingCount = await Contact.countDocuments({
-        _id: { $in: contactIds },
-        ...visibilityFilter
-    });
-    return matchingCount > 0;
+
+    const uniqueIds = [...new Set(contactIds.map(id => (id?._id || id).toString()))];
+
+    let resolvedUser = user;
+    if (user && user._id && (!user.role || typeof user.role !== 'object' || !user.role.name)) {
+        try {
+            const UserModel = mongoose.models.User || mongoose.model('User');
+            const foundUser = await UserModel.findById(user._id).populate('role').lean();
+            if (foundUser) resolvedUser = foundUser;
+        } catch (_) {}
+    }
+
+    let visibilityFilter;
+    try {
+        visibilityFilter = await getVisibilityFilter(resolvedUser);
+    } catch (err) {
+        console.error('[RECON_VISIBILITY] getVisibilityFilter threw error, failing closed:', err);
+        return false;
+    }
+
+    // Global access check: only authorized platform global admin
+    if (!visibilityFilter || Object.keys(visibilityFilter).length === 0) {
+        if (isCallerGlobalAdmin(resolvedUser)) {
+            // Verify that all contacts actually exist in the database
+            try {
+                const existingCount = await Contact.countDocuments({ _id: { $in: uniqueIds } });
+                return existingCount === uniqueIds.length;
+            } catch (err) {
+                console.error('[RECON_VISIBILITY] DB existence query failed, failing closed:', err);
+                return false;
+            }
+        }
+        // If not an authorized global admin, empty filter is NOT permitted
+        return false;
+    }
+
+    try {
+        const visibleContacts = await Contact.find({
+            _id: { $in: uniqueIds },
+            ...visibilityFilter
+        }).select('_id').lean();
+
+        const visibleIdSet = new Set(visibleContacts.map(c => c._id.toString()));
+        // EVERY contact ID must be accessible
+        const allVisible = uniqueIds.every(id => visibleIdSet.has(id));
+        return allVisible && uniqueIds.length === visibleContacts.length;
+    } catch (err) {
+        console.error('[RECON_VISIBILITY] DB visibility query failed, failing closed:', err);
+        return false;
+    }
 };
 
 export const getSummary = async (req, res, next) => {
     try {
+        const isGlobal = isCallerGlobalAdmin(req.user);
+        let groupFilter = {};
+
+        if (!isGlobal) {
+            let visibilityFilter;
+            try {
+                visibilityFilter = await getVisibilityFilter(req.user);
+            } catch (err) {
+                return res.status(500).json({
+                    success: false,
+                    code: 'VISIBILITY_EVALUATION_FAILED',
+                    message: 'Failed to evaluate caller visibility boundaries'
+                });
+            }
+
+            const visibleContactIds = await Contact.find(visibilityFilter).distinct('_id');
+            // Strict visibility: only groups where ALL contactIds belong to visibleContactIds
+            groupFilter = {
+                contactIds: {
+                    $not: { $elemMatch: { $nin: visibleContactIds } },
+                    $in: visibleContactIds
+                }
+            };
+        }
+
         const [
             totalGroups,
             safeCount,
@@ -71,16 +160,25 @@ export const getSummary = async (req, res, next) => {
             rolledBackCount,
             readiness
         ] = await Promise.all([
-            ReconciliationGroup.countDocuments({}),
-            ReconciliationGroup.countDocuments({ primaryClassification: 'SAFE_AUTO_MERGE' }),
-            ReconciliationGroup.countDocuments({ primaryClassification: 'REVIEW_REQUIRED' }),
-            ReconciliationGroup.countDocuments({ primaryClassification: 'DO_NOT_MERGE' }),
-            ReconciliationGroup.countDocuments({ status: 'PENDING_REVIEW' }),
-            ReconciliationGroup.countDocuments({ status: 'APPROVED' }),
-            ReconciliationGroup.countDocuments({ status: 'EXECUTED' }),
-            ReconciliationGroup.countDocuments({ status: 'DISASSOCIATED' }),
-            ReconciliationGroup.countDocuments({ status: 'ROLLED_BACK' }),
-            MigrationReadinessService.evaluateReadiness()
+            ReconciliationGroup.countDocuments(groupFilter),
+            ReconciliationGroup.countDocuments({ ...groupFilter, primaryClassification: 'SAFE_AUTO_MERGE' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, primaryClassification: 'REVIEW_REQUIRED' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, primaryClassification: 'DO_NOT_MERGE' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, status: 'PENDING_REVIEW' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, status: 'APPROVED' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, status: 'EXECUTED' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, status: 'DISASSOCIATED' }),
+            ReconciliationGroup.countDocuments({ ...groupFilter, status: 'ROLLED_BACK' }),
+            // Database-level Migration 004 readiness requires global administrative privileges
+            isGlobal
+                ? MigrationReadinessService.evaluateReadiness()
+                : {
+                    ready: false,
+                    status: 'BLOCKED',
+                    message: 'Restricted: Global administrator privileges required to evaluate migration readiness',
+                    checks: [],
+                    blockerReasons: ['ACCESS_RESTRICTED: Non-global callers cannot evaluate migration readiness.']
+                }
         ]);
 
         res.status(200).json({
@@ -103,7 +201,11 @@ export const getSummary = async (req, res, next) => {
             }
         });
     } catch (error) {
-        next(error);
+        res.status(500).json({
+            success: false,
+            code: 'SUMMARY_FETCH_FAILED',
+            message: 'Failed to retrieve reconciliation summary'
+        });
     }
 };
 
@@ -112,11 +214,30 @@ export const getGroups = async (req, res, next) => {
         const { classification, status, page = 1, limit = 20, search } = req.query;
         const query = {};
 
-        // Multi-Tenant / Ownership Visibility Filter
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        if (visibilityFilter && Object.keys(visibilityFilter).length > 0) {
-            const visibleContactIds = await Contact.find(visibilityFilter).distinct('_id');
-            query.contactIds = { $in: visibleContactIds };
+        const isGlobal = isCallerGlobalAdmin(req.user);
+        let visibleContactIds = null;
+        let visibleIdSet = null;
+
+        if (!isGlobal) {
+            let visibilityFilter;
+            try {
+                visibilityFilter = await getVisibilityFilter(req.user);
+            } catch (err) {
+                return res.status(500).json({
+                    success: false,
+                    code: 'VISIBILITY_EVALUATION_FAILED',
+                    message: 'Failed to evaluate caller visibility boundaries'
+                });
+            }
+
+            visibleContactIds = await Contact.find(visibilityFilter).distinct('_id');
+            visibleIdSet = new Set(visibleContactIds.map(id => id.toString()));
+
+            // Only return groups where EVERY contact is visible (no partially visible groups)
+            query.contactIds = {
+                $not: { $elemMatch: { $nin: visibleContactIds } },
+                $in: visibleContactIds
+            };
         }
 
         if (classification && classification !== 'ALL') {
@@ -143,7 +264,12 @@ export const getGroups = async (req, res, next) => {
             ReconciliationGroup.countDocuments(query)
         ]);
 
-        const sanitized = groups.map(sanitizeGroup);
+        // Secondary in-memory defense: filter out any group with even 1 hidden contact
+        const filteredGroups = !isGlobal && visibleIdSet
+            ? groups.filter(g => (g.contactIds || []).every(c => c && visibleIdSet.has((c._id || c).toString())))
+            : groups;
+
+        const sanitized = filteredGroups.map(sanitizeGroup);
 
         res.status(200).json({
             success: true,
@@ -156,7 +282,11 @@ export const getGroups = async (req, res, next) => {
             }
         });
     } catch (error) {
-        next(error);
+        res.status(500).json({
+            success: false,
+            code: 'GROUPS_FETCH_FAILED',
+            message: 'Failed to fetch reconciliation groups'
+        });
     }
 };
 
@@ -171,12 +301,13 @@ export const getGroupById = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Reconciliation group not found' });
         }
 
-        // Verify visibility
+        // Strict: verify EVERY contact in group is visible to caller
         const isVisible = await verifyGroupVisibility(req.user, group.contactIds.map(c => c._id));
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
@@ -184,7 +315,11 @@ export const getGroupById = async (req, res, next) => {
 
         res.status(200).json({ success: true, data: sanitized });
     } catch (error) {
-        next(error);
+        res.status(500).json({
+            success: false,
+            code: 'GROUP_FETCH_FAILED',
+            message: 'Failed to fetch reconciliation group'
+        });
     }
 };
 
@@ -200,14 +335,19 @@ export const generatePlan = async (req, res, next) => {
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
         const plan = await ContactReconciliationService.generateDryRunPlan(id);
         res.status(200).json({ success: true, data: plan });
     } catch (error) {
-        next(error);
+        res.status(500).json({
+            success: false,
+            code: 'PLAN_GENERATION_FAILED',
+            message: error.message || 'Failed to generate dry run plan'
+        });
     }
 };
 
@@ -216,22 +356,32 @@ export const approveGroup = async (req, res, next) => {
         const { id } = req.params;
         const { selectedMasterId, reviewNotes, expectedFingerprint } = req.body;
 
+        // Mandatory fingerprint validation: prevent stale approvals
+        if (!expectedFingerprint || typeof expectedFingerprint !== 'string' || expectedFingerprint.trim() === '') {
+            return res.status(400).json({
+                success: false,
+                code: 'MISSING_EXPECTED_FINGERPRINT',
+                message: 'expectedFingerprint is required to approve reconciliation'
+            });
+        }
+
         const group = await ReconciliationGroup.findById(id);
         if (!group) {
             return res.status(404).json({ success: false, message: 'Reconciliation group not found' });
         }
 
-        // Caller Visibility Check
+        // Caller Visibility Check: every member must be visible
         const isVisible = await verifyGroupVisibility(req.user, group.contactIds);
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
         // Fingerprint check: prevent approving altered group
-        if (expectedFingerprint && expectedFingerprint !== group.fingerprint) {
+        if (expectedFingerprint.trim() !== group.fingerprint) {
             return res.status(409).json({
                 success: false,
                 code: 'FINGERPRINT_ALTERED',
@@ -252,7 +402,12 @@ export const approveGroup = async (req, res, next) => {
             data: sanitizeGroup(updated)
         });
     } catch (error) {
-        next(error);
+        const status = error.statusCode || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || 'APPROVAL_FAILED',
+            message: error.message || 'Failed to approve reconciliation group'
+        });
     }
 };
 
@@ -270,7 +425,8 @@ export const rejectGroup = async (req, res, next) => {
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
@@ -285,7 +441,12 @@ export const rejectGroup = async (req, res, next) => {
             data: sanitizeGroup(updated)
         });
     } catch (error) {
-        next(error);
+        const status = error.statusCode || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || 'REJECTION_FAILED',
+            message: error.message || 'Failed to reject reconciliation group'
+        });
     }
 };
 
@@ -303,7 +464,8 @@ export const executeGroup = async (req, res, next) => {
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
@@ -318,7 +480,12 @@ export const executeGroup = async (req, res, next) => {
             data: result
         });
     } catch (error) {
-        next(error);
+        const status = error.statusCode || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || 'EXECUTION_FAILED',
+            message: error.message || 'Failed to execute reconciliation'
+        });
     }
 };
 
@@ -337,7 +504,8 @@ export const disassociatePhone = async (req, res, next) => {
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
@@ -355,7 +523,12 @@ export const disassociatePhone = async (req, res, next) => {
             data: result
         });
     } catch (error) {
-        next(error);
+        const status = error.statusCode || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || 'DISASSOCIATION_FAILED',
+            message: error.message || 'Failed to disassociate phone'
+        });
     }
 };
 
@@ -372,7 +545,8 @@ export const rollbackGroup = async (req, res, next) => {
         if (!isVisible) {
             return res.status(403).json({
                 success: false,
-                message: 'Forbidden: You do not have visibility access to the contacts in this group'
+                code: 'GROUP_VISIBILITY_DENIED',
+                message: 'Forbidden: One or more contacts in this group are outside your visibility scope'
             });
         }
 
@@ -386,16 +560,34 @@ export const rollbackGroup = async (req, res, next) => {
             data: result
         });
     } catch (error) {
-        next(error);
+        const status = error.statusCode || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || 'ROLLBACK_FAILED',
+            message: error.message || 'Failed to roll back reconciliation'
+        });
     }
 };
 
 export const getMigrationReadiness = async (req, res, next) => {
     try {
+        const isGlobal = isCallerGlobalAdmin(req.user);
+        if (!isGlobal) {
+            return res.status(403).json({
+                success: false,
+                code: 'ACCESS_RESTRICTED',
+                message: 'Forbidden: Global administrator privileges required to evaluate database migration readiness'
+            });
+        }
+
         const readiness = await MigrationReadinessService.evaluateReadiness();
         res.status(200).json({ success: true, data: readiness });
     } catch (error) {
-        next(error);
+        res.status(500).json({
+            success: false,
+            code: 'READINESS_EVALUATION_FAILED',
+            message: 'Failed to evaluate migration readiness'
+        });
     }
 };
 
@@ -404,6 +596,10 @@ export const syncGroups = async (req, res, next) => {
         const stats = await ContactReconciliationService.scanAndSyncGroups();
         res.status(200).json({ success: true, message: 'Groups scanned and synced successfully', data: stats });
     } catch (error) {
-        next(error);
+        res.status(500).json({
+            success: false,
+            code: 'SYNC_FAILED',
+            message: 'Failed to scan and sync reconciliation groups'
+        });
     }
 };
