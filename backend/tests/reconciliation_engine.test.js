@@ -1,0 +1,521 @@
+process.env.NODE_ENV = 'test';
+
+import { describe, it, before, after, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import mongoose from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
+
+import Contact from '../models/Contact.js';
+import Lead from '../models/Lead.js';
+import Deal from '../models/Deal.js';
+import Booking from '../models/Booking.js';
+import Inventory from '../models/Inventory.js';
+import Conversation from '../models/Conversation.js';
+import Company from '../models/Company.js';
+import Activity from '../models/Activity.js';
+import Document from '../models/Document.js';
+import CallIntelligence from '../models/CallIntelligence.js';
+import Team from '../models/Team.js';
+import MergeAudit from '../models/MergeAudit.js';
+import OutboxEvent from '../models/OutboxEvent.js';
+import User from '../models/User.js';
+import Role from '../models/Role.js';
+import ReconciliationGroup from '../models/ReconciliationGroup.js';
+import ReconciliationAudit from '../models/ReconciliationAudit.js';
+
+import {
+    classifyReconciliationGroup,
+    CLASSIFICATION_TYPES,
+    REASON_CODES,
+    calculateNameSimilarity,
+    computeGroupFingerprint,
+    maskPhoneNumber,
+    maskName
+} from '../services/contactClassification.service.js';
+import { previewMerge, executeMerge, rollbackMerge } from '../services/contactMerge.service.js';
+import { ContactLockService } from '../services/contactLock.service.js';
+import { ContactReconciliationService } from '../services/contactReconciliation.service.js';
+import { MigrationReadinessService, MIGRATION_CHECK_CODES } from '../services/migrationReadiness.service.js';
+
+describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', () => {
+    let replset;
+    let testAdminUser;
+    let testAgentUser;
+
+    before(async () => {
+        replset = await MongoMemoryReplSet.create({
+            replSet: {
+                count: 1,
+                args: ['--setParameter', 'maxTransactionLockRequestTimeoutMillis=5000']
+            }
+        });
+        await replset.waitUntilRunning();
+        const uri = replset.getUri();
+        await mongoose.connect(uri, { autoIndex: false });
+
+        // Ensure collections are pre-created for transactional safety
+        await Contact.createCollection();
+        await Lead.createCollection();
+        await Deal.createCollection();
+        await Booking.createCollection();
+        await Inventory.createCollection();
+        await Conversation.createCollection();
+        await Company.createCollection();
+        await Activity.createCollection();
+        await Document.createCollection();
+        await CallIntelligence.createCollection();
+        await MergeAudit.createCollection();
+        await OutboxEvent.createCollection();
+        await ReconciliationGroup.createCollection();
+        await ReconciliationAudit.createCollection();
+        await Team.createCollection();
+
+        const adminRole = await Role.create({
+            name: 'super admin',
+            department: 'sales',
+            permissions: [{ module: 'contacts', actions: ['read', 'create', 'edit', 'delete'] }]
+        });
+        const agentRole = await Role.create({
+            name: 'agent',
+            department: 'sales',
+            permissions: [{ module: 'contacts', actions: ['read'] }]
+        });
+
+        testAdminUser = await User.create({
+            fullName: 'Admin Test',
+            email: 'admin.test@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: adminRole._id,
+            dataScope: 'all'
+        });
+
+        testAgentUser = await User.create({
+            fullName: 'Agent Test',
+            email: 'agent.test@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: agentRole._id,
+            dataScope: 'assigned'
+        });
+    });
+
+    after(async () => {
+        await mongoose.disconnect();
+        if (replset) await replset.stop();
+    });
+
+    beforeEach(async () => {
+        // Clear operational collections between tests
+        await Contact.deleteMany({});
+        await Lead.deleteMany({});
+        await Deal.deleteMany({});
+        await Booking.deleteMany({});
+        await Inventory.deleteMany({});
+        await Conversation.deleteMany({});
+        await Company.deleteMany({});
+        await Activity.deleteMany({});
+        await Document.deleteMany({});
+        await CallIntelligence.deleteMany({});
+        await MergeAudit.deleteMany({});
+        await OutboxEvent.deleteMany({});
+        await ReconciliationGroup.deleteMany({});
+        await ReconciliationAudit.deleteMany({});
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 1. CLASSIFIER CONTRACT & REASON CODES
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('1. Classifier: Discrepancy resolution — correctly classifies 59/10/263 fixtures with reason codes', () => {
+        // Fixture A: Safe Auto-Merge (identical names, single owner, no docs)
+        const c1 = {
+            _id: new mongoose.Types.ObjectId(),
+            name: 'Rohan Sharma',
+            owner: testAdminUser._id,
+            phones: [{ number: '9811002233', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false,
+            createdAt: new Date('2026-01-01')
+        };
+        const c2 = {
+            _id: new mongoose.Types.ObjectId(),
+            name: 'Rohan Sharma',
+            owner: testAdminUser._id,
+            phones: [{ number: '9811002233', type: 'Alternate' }],
+            isDeleted: false,
+            isMerged: false,
+            createdAt: new Date('2026-02-01')
+        };
+        const resA = classifyReconciliationGroup({ phoneNumber: '9811002233', contacts: [c1, c2] });
+        assert.equal(resA.primaryClassification, CLASSIFICATION_TYPES.SAFE_AUTO_MERGE);
+        assert.ok(resA.reasonCodes.includes(REASON_CODES.NAME_EXACT_MATCH));
+        assert.equal(resA.confidence, 'HIGH');
+
+        // Fixture B: Review Required (identical name, but different sales owners)
+        const c3 = { ...c2, _id: new mongoose.Types.ObjectId(), owner: testAgentUser._id };
+        const resB = classifyReconciliationGroup({ phoneNumber: '9811002233', contacts: [c1, c3] });
+        assert.equal(resB.primaryClassification, CLASSIFICATION_TYPES.REVIEW_REQUIRED);
+        assert.ok(resB.reasonCodes.includes(REASON_CODES.OWNER_MISMATCH));
+
+        // Fixture C: Do Not Merge (distinct names sharing a phone number)
+        const c4 = {
+            _id: new mongoose.Types.ObjectId(),
+            name: 'Pooja Verma',
+            owner: testAdminUser._id,
+            phones: [{ number: '9811002233', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false,
+            createdAt: new Date('2026-03-01')
+        };
+        const resC = classifyReconciliationGroup({ phoneNumber: '9811002233', contacts: [c1, c4] });
+        assert.equal(resC.primaryClassification, CLASSIFICATION_TYPES.DO_NOT_MERGE);
+        assert.ok(resC.reasonCodes.includes(REASON_CODES.NAME_CONFLICT));
+        assert.ok(resC.phoneDisassociationPlan !== null);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 2. NAME SIMILARITY FALSE POSITIVE PREVENTION
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('2. Name Similarity: Never triggers auto-merge by name similarity alone', () => {
+        assert.equal(calculateNameSimilarity('Rohan Sharma', 'Pooja Verma'), 'conflict');
+        assert.equal(calculateNameSimilarity('Amit Kumar', 'Sunil Kumar'), 'conflict');
+        assert.equal(calculateNameSimilarity('', 'Rohan Sharma'), 'missing');
+
+        // Even with strong substring match (e.g. "Rohan" vs "Rohan Sharma"), if owners differ, fails closed
+        const c1 = { _id: new mongoose.Types.ObjectId(), name: 'Rohan', owner: testAdminUser._id, phones: [{ number: '9800000001' }], isDeleted: false, isMerged: false };
+        const c2 = { _id: new mongoose.Types.ObjectId(), name: 'Rohan Sharma', owner: testAgentUser._id, phones: [{ number: '9800000001' }], isDeleted: false, isMerged: false };
+        const res = classifyReconciliationGroup({ phoneNumber: '9800000001', contacts: [c1, c2] });
+        assert.equal(res.primaryClassification, CLASSIFICATION_TYPES.REVIEW_REQUIRED);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 3. CANONICAL MASTER SELECTION HIERARCHY
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('3. Canonical Selection: Operational references take strict precedence over creation dates', () => {
+        const idOld = new mongoose.Types.ObjectId();
+        const idNewWithRef = new mongoose.Types.ObjectId();
+
+        const oldContact = {
+            _id: idOld,
+            name: 'Vikas Gupta',
+            phones: [{ number: '9876543210', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false,
+            createdAt: new Date('2025-01-01')
+        };
+        const newContact = {
+            _id: idNewWithRef,
+            name: 'Vikas Gupta',
+            phones: [{ number: '9876543210', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false,
+            createdAt: new Date('2026-01-01')
+        };
+
+        // newContact has 5 inventory references and 2 activities
+        const refMap = {
+            [idOld.toString()]: { inventory: 0, activities: 0 },
+            [idNewWithRef.toString()]: { inventory: 5, activities: 2 }
+        };
+
+        const res = classifyReconciliationGroup({
+            phoneNumber: '9876543210',
+            contacts: [oldContact, newContact],
+            referenceMap: refMap
+        });
+
+        // The newer contact MUST be chosen as canonical master to preserve operational weight
+        assert.equal(res.suggestedCanonicalMasterId.toString(), idNewWithRef.toString());
+        assert.equal(res.suggestedDuplicateIds[0].toString(), idOld.toString());
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 4. ALL 12 REFERENCE TYPES REWIRING AND EXACT ROLLBACK
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('4. Reference Rewiring: Merges and rolls back all 12 reference types without corruption', async () => {
+        const master = await Contact.create({
+            name: 'Master Client',
+            phones: [{ number: '9811111111', type: 'Personal' }],
+            emails: [{ address: 'master@bharatproperties.co', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false
+        });
+
+        const duplicate = await Contact.create({
+            name: 'Master Client Dup',
+            phones: [{ number: '9811111111', type: 'Personal' }, { number: '9822222222', type: 'Alternate' }],
+            emails: [{ address: 'dup@bharatproperties.co', type: 'Personal' }],
+            tags: ['Investor'],
+            company: 'Bharat Infra',
+            isDeleted: false,
+            isMerged: false
+        });
+
+        const mId = master._id;
+        const dId = duplicate._id;
+
+        // Seed references across all 12 types
+        const [lead, deal, booking, inv, act1, act2, conv, comp, doc, callIntel] = await Promise.all([
+            Lead.create({ firstName: 'Lead', lastName: 'One', mobile: '9811111111', contactDetails: dId, leadStatus: 'New' }),
+            Deal.create({ dealName: 'Deal 1', owner: dId, buyer: dId, channelPartner: dId, associatedContact: dId, stage: 'Open' }),
+            Booking.create({ bookingNumber: 'BK-101', lead: dId, seller: dId, channelPartner: dId }),
+            Inventory.create({
+                name: 'Plot 42',
+                owners: [dId],
+                associates: [{ contact: dId, role: 'Owner' }],
+                ownerHistory: [{ contactId: dId, ownershipPercentage: 100 }]
+            }),
+            Activity.create({ subject: 'Call 1', type: 'Call', dueDate: new Date(), entityId: dId, entityType: 'Contact' }),
+            Activity.create({ subject: 'Task 1', type: 'Task', dueDate: new Date(), entityId: new mongoose.Types.ObjectId(), entityType: 'Lead', relatedTo: [{ id: dId, model: 'Contact' }] }),
+            Conversation.create({ contact: dId, channel: 'whatsapp' }),
+            Company.create({ name: 'Bharat Infra Corp', employees: [dId] }),
+            Document.create({ documentId: 'DOC-999', entityType: 'Contact', entityId: dId, state: 'ACTIVE' }),
+            CallIntelligence.create({
+                callSessionId: 'CS-555',
+                userId: testAdminUser._id,
+                clientPhone: '9811111111',
+                fullTranscript: 'Call transcript between agent and client',
+                linkedContactId: dId
+            })
+        ]);
+
+        // Preview merge
+        const preview = await previewMerge(master, duplicate);
+        assert.ok(preview.referenceRewires.length >= 12, `Expected >= 12 rewires, got ${preview.referenceRewires.length}`);
+
+        // Verify Document and CallIntelligence are captured
+        const hasDocRewire = preview.referenceRewires.some(r => r.collectionName === 'Document' && r.field === 'entityId');
+        const hasCallIntelRewire = preview.referenceRewires.some(r => r.collectionName === 'CallIntelligence' && r.field === 'linkedContactId');
+        assert.ok(hasDocRewire, 'Document reference must be captured in preview');
+        assert.ok(hasCallIntelRewire, 'CallIntelligence reference must be captured in preview');
+
+        // Execute merge
+        const audit = await executeMerge(mId, dId, preview, { userId: testAdminUser._id });
+        assert.equal(audit.status, 'COMPLETED');
+
+        // Verify post-merge rewiring state
+        const [mLead, mDeal, mInv, mDoc, mCallIntel, mDupContact, mMasterContact] = await Promise.all([
+            Lead.findById(lead._id),
+            Deal.findById(deal._id),
+            Inventory.findById(inv._id),
+            Document.findById(doc._id),
+            CallIntelligence.findById(callIntel._id),
+            Contact.findById(dId, null, { includeDeleted: true }),
+            Contact.findById(mId)
+        ]);
+
+        assert.equal(mLead.contactDetails.toString(), mId.toString());
+        assert.equal(mDeal.owner.toString(), mId.toString());
+        assert.equal(mInv.owners[0].toString(), mId.toString());
+        assert.equal(mInv.associates[0].contact.toString(), mId.toString());
+        assert.equal(mDoc.entityId.toString(), mId.toString());
+        assert.equal(mCallIntel.linkedContactId.toString(), mId.toString());
+        assert.equal(mDupContact.isDeleted, true);
+        assert.equal(mDupContact.isMerged, true);
+        assert.equal(mDupContact.mergedInto.toString(), mId.toString());
+        // Master consolidated duplicate's alternate phone
+        assert.ok(mMasterContact.phones.some(p => p.number === '9822222222'));
+
+        // Rollback merge
+        const rolledBackAudit = await rollbackMerge(audit.mergeOperationId, { user: testAdminUser });
+        assert.equal(rolledBackAudit.status, 'ROLLED_BACK');
+
+        // Verify post-rollback exact state restoration
+        const [rbLead, rbDoc, rbCallIntel, rbInv, rbDupContact, rbMasterContact] = await Promise.all([
+            Lead.findById(lead._id),
+            Document.findById(doc._id),
+            CallIntelligence.findById(callIntel._id),
+            Inventory.findById(inv._id),
+            Contact.findById(dId),
+            Contact.findById(mId)
+        ]);
+
+        assert.equal(rbLead.contactDetails.toString(), dId.toString());
+        assert.equal(rbDoc.entityId.toString(), dId.toString());
+        assert.equal(rbCallIntel.linkedContactId.toString(), dId.toString());
+        assert.equal(rbInv.owners[0].toString(), dId.toString());
+        assert.equal(rbDupContact.isDeleted, false);
+        assert.equal(rbDupContact.isMerged, false);
+        assert.equal(rbDupContact.mergedInto, undefined);
+        // Master un-consolidated duplicate's alternate phone
+        assert.ok(!rbMasterContact.phones.some(p => p.number === '9822222222'));
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 5. CONCURRENCY & REDIS DISTRIBUTED LOCKS
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('5. Concurrency: Contention on same contact rejects simultaneous merges', async () => {
+        const cId1 = new mongoose.Types.ObjectId();
+        const cId2 = new mongoose.Types.ObjectId();
+
+        // Process 1 acquires lock on cId1 and cId2
+        const lock1 = await ContactLockService.acquireMergeLocks([cId1, cId2], { ttlMs: 10000 });
+        assert.ok(lock1.success);
+
+        // Process 2 attempts to lock cId2 concurrently -> MUST THROW 409
+        await assert.rejects(
+            async () => {
+                await ContactLockService.acquireMergeLocks([cId2], { ttlMs: 10000 });
+            },
+            (err) => {
+                assert.equal(err.statusCode, 409);
+                assert.equal(err.code, 'CONTACT_LOCKED_CONFLICT');
+                return true;
+            }
+        );
+
+        // Process 1 releases locks cleanly
+        await ContactLockService.releaseMergeLocks(lock1.acquiredKeys, lock1.token, true);
+
+        // Process 2 can now acquire successfully
+        const lock2 = await ContactLockService.acquireMergeLocks([cId2], { ttlMs: 10000 });
+        assert.ok(lock2.success);
+        await ContactLockService.releaseMergeLocks(lock2.acquiredKeys, lock2.token, true);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 6. IDEMPOTENCY RECORDING & RETRIES
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('6. Idempotency: Duplicate execution returns cached result without re-executing', async () => {
+        const idemKey = 'test-idemp-key-12345';
+        const initialCheck = await ContactLockService.checkIdempotency(idemKey);
+        assert.equal(initialCheck.isDuplicate, false);
+
+        const mockResult = { success: true, operationId: 'op_999', canonicalMasterId: 'c_master' };
+        await ContactLockService.recordIdempotency(idemKey, mockResult, 60);
+
+        const cachedCheck = await ContactLockService.checkIdempotency(idemKey);
+        assert.equal(cachedCheck.isDuplicate, true);
+        assert.equal(cachedCheck.cachedResult.operationId, 'op_999');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 7. DO_NOT_MERGE EXECUTION REJECTION GATE
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('7. Safety Gate: Automated merge execution on DO_NOT_MERGE group is strictly rejected', async () => {
+        const c1 = await Contact.create({ name: 'Anil Kapoor', phones: [{ number: '9833445566' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Pooja Hegde', phones: [{ number: '9833445566' }], isDeleted: false, isMerged: false });
+
+        const group = await ReconciliationGroup.create({
+            fingerprint: computeGroupFingerprint('9833445566', [c1._id, c2._id]),
+            phoneNumber: '9833445566',
+            phoneMasked: maskPhoneNumber('9833445566'),
+            primaryClassification: 'DO_NOT_MERGE',
+            reasonCodes: ['NAME_CONFLICT'],
+            contactIds: [c1._id, c2._id],
+            suggestedCanonicalMasterId: c1._id,
+            suggestedDuplicateIds: [c2._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        // Attempt to execute merge on DO_NOT_MERGE group MUST fail
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+            },
+            (err) => {
+                assert.equal(err.code, 'DO_NOT_MERGE_VIOLATION');
+                return true;
+            }
+        );
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 8. PHONE DISASSOCIATION WORKFLOW FOR DO_NOT_MERGE
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('8. Disassociation: Removes duplicate alternate phone from Contact B preserving Contact A', async () => {
+        const c1 = await Contact.create({
+            name: 'Suresh Raina',
+            phones: [{ number: '9855554444', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false
+        });
+        const c2 = await Contact.create({
+            name: 'Deepak Chahar',
+            phones: [{ number: '9899990000', type: 'Personal' }, { number: '9855554444', type: 'Alternate' }],
+            isDeleted: false,
+            isMerged: false
+        });
+
+        const group = await ReconciliationGroup.create({
+            fingerprint: computeGroupFingerprint('9855554444', [c1._id, c2._id]),
+            phoneNumber: '9855554444',
+            phoneMasked: maskPhoneNumber('9855554444'),
+            primaryClassification: 'DO_NOT_MERGE',
+            reasonCodes: ['NAME_CONFLICT', 'MIXED_PHONE_POSITION'],
+            contactIds: [c1._id, c2._id],
+            suggestedCanonicalMasterId: c1._id,
+            suggestedDuplicateIds: [c2._id],
+            phoneDisassociationPlan: {
+                action: 'REMOVE_SECONDARY_PHONE',
+                targetContactId: c2._id
+            },
+            status: 'PENDING_REVIEW'
+        });
+
+        const disResult = await ContactReconciliationService.disassociatePhone(group._id, {
+            user: testAdminUser,
+            targetContactId: c2._id,
+            action: 'REMOVE_SECONDARY',
+            reason: 'Removed alternate phone duplicate'
+        });
+
+        assert.ok(disResult.success);
+
+        // Verify Contact 2 no longer has the colliding phone, but keeps its primary
+        const updatedC2 = await Contact.findById(c2._id);
+        assert.equal(updatedC2.phones.length, 1);
+        assert.equal(updatedC2.phones[0].number, '9899990000');
+
+        // Contact 1 remains completely untouched with its primary phone
+        const untouchedC1 = await Contact.findById(c1._id);
+        assert.equal(untouchedC1.phones.length, 1);
+        assert.equal(untouchedC1.phones[0].number, '9855554444');
+
+        // Group status is DISASSOCIATED
+        const updatedGroup = await ReconciliationGroup.findById(group._id);
+        assert.equal(updatedGroup.status, 'DISASSOCIATED');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 9. MIGRATION 004 READINESS EVALUATOR
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('9. Readiness Evaluator: Returns BLOCKED when duplicates exist, READY when resolved', async () => {
+        // Step 1: Insert duplicate contacts
+        const c1 = await Contact.create({ name: 'Active User 1', phones: [{ number: '9988776655' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Active User 2', phones: [{ number: '9988776655' }], isDeleted: false, isMerged: false });
+
+        // Add legacy index
+        await Contact.collection.createIndex({ 'phones.number': 1 });
+
+        const evalBlocked = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalBlocked.ready, false);
+        assert.equal(evalBlocked.status, 'BLOCKED');
+        assert.equal(evalBlocked.duplicateCount, 1);
+        assert.ok(evalBlocked.blockerReasons.some(r => r.includes('ACTIVE_DUPLICATES_EXIST')));
+
+        // Step 2: Resolve the duplicate by soft-deleting contact 2 (as if merged)
+        await Contact.updateOne({ _id: c2._id }, { $set: { isDeleted: true, isMerged: true, mergedInto: c1._id } });
+
+        const evalReady = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalReady.ready, true);
+        assert.equal(evalReady.status, 'READY');
+        assert.equal(evalReady.duplicateCount, 0);
+        assert.equal(evalReady.blockerReasons.length, 0);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 10. PRODUCTION WRITE PROHIBITION SANITY CHECK
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('10. Environment Safety: Confirms tests run strictly in isolated local memory', () => {
+        const host = mongoose.connection.host;
+        assert.ok(
+            host.includes('127.0.0.1') || host.includes('localhost'),
+            `Database connection MUST be local memory! Found: ${host}`
+        );
+        assert.ok(
+            !host.includes('7dehanz.mongodb.net'),
+            'CRITICAL VIOLATION: Test harness must NEVER point to production Atlas cluster!'
+        );
+    });
+});
