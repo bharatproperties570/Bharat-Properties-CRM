@@ -4735,6 +4735,269 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
                 const polAfterMalformed = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
                 assert.equal(polAfterMalformed.redisSyncStatus, 'PENDING_RECONCILIATION', 'Policy must remain PENDING_RECONCILIATION');
+
+                // Case 4v: Lease lost immediately before policy write (atomic FINALIZING CAS rejects stale worker)
+                let race4vPublishes = 0;
+                const race4vOpId = 'race-4v-lease-lost-before-policy';
+                const race4vCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4vOpId}`;
+
+                const race4vProvider = {
+                    async setCanonicalPolicy() {
+                        race4vPublishes++;
+                        // Preempt lease in MongoDB while Worker 1 is publishing to Redis
+                        await AuditLog.updateOne(
+                            { correlationId: race4vCorrId },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'competing-preempted-worker-4v',
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(race4vProvider);
+
+                // Ensure policy is in known non-synced state
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'PENDING', redisSyncError: null } }
+                );
+
+                const race4vReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4vOpId }
+                };
+                let r4vCode = null, r4vBody = null;
+                await syncCanonicalPolicy(race4vReq, {
+                    status(c) { r4vCode = c; return this; },
+                    json(b) { r4vBody = b; return this; }
+                });
+
+                assert.equal(r4vCode, 409, 'Worker that lost lease before policy write must fail with 409');
+                assert.equal(r4vBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(race4vPublishes, 1, 'Redis publication was called before CAS rejection');
+
+                // Verify policy in MongoDB was NOT marked SYNCED
+                const pol4v = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.notEqual(pol4v.redisSyncStatus, 'SYNCED', 'Policy must not be marked SYNCED by stale worker');
+
+                // Verify audit log was not finalized to COMPLETED by stale worker
+                const audit4v = await AuditLog.findOne({ correlationId: race4vCorrId });
+                assert.notEqual(audit4v.metadata?.syncPhase, 'COMPLETED');
+                assert.notEqual(audit4v.status, 'success');
+
+                // Case 4w: Lease lost during failure-marker write (stale failure CAS rejects overwriting active worker)
+                let race4wPublishes = 0;
+                const race4wOpId = 'race-4w-lease-lost-during-failure';
+                const race4wCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4wOpId}`;
+
+                const race4wProvider = {
+                    async setCanonicalPolicy() {
+                        race4wPublishes++;
+                        // Preempt lease in MongoDB during Redis publication
+                        await AuditLog.updateOne(
+                            { correlationId: race4wCorrId },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'new-active-worker-4w',
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        // Throw Redis error so worker enters failure path
+                        const err = new Error('REDIS_FAILURE_4W');
+                        err.code = 'REDIS_SYNC_FAILED';
+                        throw err;
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(race4wProvider);
+
+                // Set policy to SYNCED to verify stale worker failure does NOT overwrite SYNCED
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'SYNCED', redisSyncError: null } }
+                );
+
+                const race4wReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4wOpId }
+                };
+                let r4wCode = null, r4wBody = null;
+                await syncCanonicalPolicy(race4wReq, {
+                    status(c) { r4wCode = c; return this; },
+                    json(b) { r4wBody = b; return this; }
+                });
+
+                assert.equal(r4wCode, 409, 'Stale worker on failure path must fail with 409');
+                assert.equal(r4wBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(race4wPublishes, 1);
+
+                // Verify policy in MongoDB was NOT overwritten to FAILED
+                const pol4w = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(pol4w.redisSyncStatus, 'SYNCED', 'Active worker SYNCED state must not be overwritten to FAILED by stale worker');
+
+                // Case 4x: Policy version changes during sync (optimistic version fencing aborts write)
+                let race4xPublishes = 0;
+                const race4xOpId = 'race-4x-version-changed-during-sync';
+                const race4xCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4xOpId}`;
+
+                const race4xProvider = {
+                    async setCanonicalPolicy() {
+                        race4xPublishes++;
+                        // Concurrently advance policy version in MongoDB while sync is in flight
+                        await AuthorityCanonicalPolicy.updateOne(
+                            { _id: currentPolicy._id },
+                            {
+                                $set: {
+                                    version: Number(currentPolicy.version) + 1,
+                                    contentHash: 'concurrently-modified-content-hash-v' + (Number(currentPolicy.version) + 1),
+                                    redisSyncStatus: 'PENDING'
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(race4xProvider);
+
+                const race4xReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4xOpId }
+                };
+                let r4xCode = null, r4xBody = null;
+                await syncCanonicalPolicy(race4xReq, {
+                    status(c) { r4xCode = c; return this; },
+                    json(b) { r4xBody = b; return this; }
+                });
+
+                assert.equal(r4xCode, 409, 'Concurrent policy version modification must fail with HTTP 409');
+                assert.equal(r4xBody.code, 'STALE_POLICY_VERSION');
+                assert.equal(race4xPublishes, 1);
+
+                // Verify MongoDB policy version remains the incremented version and was NOT downgraded
+                const pol4x = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(pol4x.version, Number(currentPolicy.version) + 1, 'Policy version must remain the new incremented version');
+
+                // Restore original policy version in MongoDB for subsequent tests
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    {
+                        $set: {
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            redisSyncStatus: 'PENDING'
+                        }
+                    }
+                );
+
+                // Case 4y: Recovery worker succeeds while old worker is still returning
+                let race4yWorker1Entered = false;
+                let race4yWorker2Finished = false;
+                const race4yOpId = 'race-4y-recovery-succeeds-while-old-returns';
+                const race4yCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4yOpId}`;
+
+                const race4yProvider = {
+                    async setCanonicalPolicy() {
+                        race4yWorker1Entered = true;
+                        // Worker 1 simulates long processing until Worker 2 has recovered and finished
+                        while (!race4yWorker2Finished) {
+                            await new Promise(r => setTimeout(r, 50));
+                        }
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        assert.equal(authoritative, true);
+                        return {
+                            authorityCode,
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            policyReference: currentPolicy.policyReference
+                        };
+                    }
+                };
+                setTestQuotaProvider(race4yProvider);
+
+                const race4yReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4yOpId }
+                };
+                let r4y1Code = null, r4y1Body = null;
+                const worker1Promise = syncCanonicalPolicy(race4yReq1, {
+                    status(c) { r4y1Code = c; return this; },
+                    json(b) { r4y1Body = b; return this; }
+                });
+
+                // Wait until Worker 1 enters setCanonicalPolicy
+                while (!race4yWorker1Entered) {
+                    await new Promise(r => setTimeout(r, 20));
+                }
+
+                // Expire Worker 1's lease in MongoDB to simulate abandonment / lease timeout
+                await AuditLog.updateOne(
+                    { correlationId: race4yCorrId },
+                    {
+                        $set: {
+                            'metadata.leaseExpiresAt': new Date(Date.now() - 2000)
+                        }
+                    }
+                );
+
+                // Worker 2 runs recovery (reconcileExistingIntent -> Case A: Redis already has policy)
+                const race4yReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4yOpId }
+                };
+                let r4y2Code = null, r4y2Body = null;
+                await syncCanonicalPolicy(race4yReq2, {
+                    status(c) { r4y2Code = c; return this; },
+                    json(b) { r4y2Body = b; return this; }
+                });
+
+                assert.equal(r4y2Code, 200, 'Recovery Worker 2 must succeed with HTTP 200');
+                assert.equal(r4y2Body.status, 'COMPLETED');
+                assert.equal(r4y2Body.reconciled, true);
+
+                // Signal Worker 1 that Worker 2 is done, allowing Worker 1 to wake up and attempt finalization
+                race4yWorker2Finished = true;
+                await worker1Promise;
+
+                assert.equal(r4y1Code, 409, 'Delayed Worker 1 must fail with HTTP 409 STALE_WORKER_LEASE_LOST');
+                assert.equal(r4y1Body.code, 'STALE_WORKER_LEASE_LOST');
+
+                // Verify Worker 2's COMPLETED state was preserved
+                const audit4y = await AuditLog.findOne({ correlationId: race4yCorrId });
+                assert.equal(audit4y.metadata?.syncPhase, 'COMPLETED');
+                assert.equal(audit4y.status, 'success');
+                assert.equal(audit4y.metadata?.reconciled, true);
+
+                const pol4y = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(pol4y.redisSyncStatus, 'SYNCED');
             } finally {
                 setTestQuotaProvider(null);
             }
