@@ -7,13 +7,17 @@ import {
     createVersion,
     uploadContent,
     downloadContent,
+    downloadSignedContent,
     getDownloadUrl,
     deleteDocument
 } from '../controllers/documentAPI.controller.js';
 
 const router = express.Router();
 
-// CRM Authorization boundary is universally applied
+// Public / Token-authenticated signed download route (validated via HMAC signature & expiry)
+router.get('/download-signed/:objectKey(*)', downloadSignedContent);
+
+// CRM Authorization boundary is universally applied to all standard management endpoints
 router.use(authenticate);
 
 // 0. List Documents for Entity

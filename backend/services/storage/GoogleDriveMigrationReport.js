@@ -120,6 +120,72 @@ export class GoogleDriveMigrationReport {
                 : 'Storage topology is healthy. All documents adhere to primary storage architecture.'
         };
     }
+
+    /**
+     * Strictly read-only audit of legacy Google Drive permissions.
+     * Inspects Drive files to identify whether any legacy 'anyone with the link' permissions exist.
+     * GUARANTEE: Does NOT delete, update, or mutate any permissions or files.
+     * 
+     * @param {Object} driveClient - Authenticated Google Drive client instance
+     * @param {Object} [options]
+     * @param {number} [options.sampleLimit=50]
+     * @returns {Promise<Object>}
+     */
+    static async auditLegacyDrivePermissions(driveClient, { sampleLimit = 50 } = {}) {
+        if (!driveClient || !driveClient.files || typeof driveClient.files.list !== 'function') {
+            return {
+                status: 'AUDIT_SKIPPED',
+                reason: 'No authenticated Google Drive client provided or configured',
+                filesSampled: 0,
+                publicAnyoneFilesDetected: 0,
+                zeroMutationsEnforced: true
+            };
+        }
+
+        try {
+            const listRes = await driveClient.files.list({
+                q: "trashed = false",
+                pageSize: Math.min(sampleLimit, 100),
+                fields: 'files(id, name, mimeType, permissions(id, type, role))',
+                supportsAllDrives: true,
+                includeItemsFromAllDrives: true
+            });
+
+            const files = listRes?.data?.files || [];
+            const publicFiles = [];
+
+            for (const file of files) {
+                const perms = file.permissions || [];
+                const publicPerm = perms.find(p => p.type === 'anyone');
+                if (publicPerm) {
+                    publicFiles.push({
+                        id: file.id,
+                        name: file.name,
+                        role: publicPerm.role
+                    });
+                }
+            }
+
+            return {
+                status: 'AUDIT_COMPLETE_READ_ONLY',
+                dryRun: true,
+                zeroMutationsEnforced: true,
+                timestamp: new Date().toISOString(),
+                filesSampled: files.length,
+                publicAnyoneFilesDetected: publicFiles.length,
+                publicFiles,
+                recommendation: publicFiles.length > 0
+                    ? `${publicFiles.length} files have legacy 'anyone' permissions. Do NOT mutate or delete permissions automatically without explicit operator authorization.`
+                    : 'All sampled files are private to authenticated accounts. Zero public permissions detected.'
+            };
+        } catch (err) {
+            return {
+                status: 'AUDIT_ERROR',
+                error: err.message,
+                zeroMutationsEnforced: true
+            };
+        }
+    }
 }
 
 export default GoogleDriveMigrationReport;

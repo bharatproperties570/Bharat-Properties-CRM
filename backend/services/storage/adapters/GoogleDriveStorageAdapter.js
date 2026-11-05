@@ -22,6 +22,40 @@ const DEFAULT_CAPABILITIES = [
 ];
 
 /**
+ * Resolves the secret required to sign and verify document access tokens.
+ * Strict security requirement:
+ * - In production/staging: DOCUMENT_SIGNED_URL_SECRET is mandatory.
+ * - In development/test: DOCUMENT_SIGNED_URL_SECRET or JWT_SECRET is accepted.
+ * - Hardcoded fallbacks are strictly forbidden.
+ * - Minimum secret length of 16 characters is enforced.
+ */
+export function resolveDocumentSigningSecret(explicitSecret = null) {
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+    const candidate = explicitSecret || process.env.DOCUMENT_SIGNED_URL_SECRET || (!isProduction ? process.env.JWT_SECRET : null);
+
+    if (!candidate || typeof candidate !== 'string' || !candidate.trim()) {
+        const message = isProduction
+            ? 'CRITICAL SECURITY: DOCUMENT_SIGNED_URL_SECRET is strictly required in production/staging. Runtime fails closed.'
+            : 'CRITICAL SECURITY: DOCUMENT_SIGNED_URL_SECRET or JWT_SECRET must be configured for signed URLs. Runtime fails closed.';
+        const err = new ProviderConfigurationError('SIGNED_URL', message);
+        err.code = 'SIGNING_SECRET_MISSING';
+        throw err;
+    }
+
+    const trimmed = candidate.trim();
+    if (trimmed.length < 16) {
+        const err = new ProviderConfigurationError(
+            'SIGNED_URL',
+            'CRITICAL SECURITY: DOCUMENT_SIGNED_URL_SECRET is invalid or too weak (minimum 16 characters required). Runtime fails closed.'
+        );
+        err.code = 'SIGNING_SECRET_INVALID';
+        throw err;
+    }
+
+    return trimmed;
+}
+
+/**
  * Enterprise Google Drive Storage Adapter
  * 
  * Provides first-class, private-by-default document and media storage in Google Drive.
@@ -31,6 +65,8 @@ const DEFAULT_CAPABILITIES = [
  * - Stores Google Drive file IDs, MIME types, checksums, and byte sizes.
  * - Normalizes Google API errors to canonical StorageErrors.
  * - Resilient exponential backoff retry for transient rate-limit (429) and backend (500/503) errors.
+ * - Guarantees fresh, unconsumed streams on every retry attempt.
+ * - Uses deterministic object identity to prevent duplicate files on lost responses.
  * - Provides cryptographically signed, short-lived backend-mediated access URLs (PRESIGNED_READ).
  * - Never exposes OAuth tokens or service account credentials to client frontend.
  */
@@ -127,19 +163,30 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
 
     /**
      * Executes an operation with exponential backoff retry for transient Google API errors.
+     * Invokes onAttemptFailure callback if provided to allow cleanup of partial attempts.
      */
-    async _executeWithRetry(operationFn, operationName, objectKey = null, maxRetries = 3, baseDelayMs = 150) {
+    async _executeWithRetry(operationFn, operationName, objectKey = null, maxRetries = 3, baseDelayMs = 150, onAttemptFailure = null) {
         let attempt = 0;
         while (true) {
             attempt++;
             try {
-                return await operationFn();
+                return await operationFn(attempt);
             } catch (err) {
+                if (onAttemptFailure && typeof onAttemptFailure === 'function') {
+                    try {
+                        await onAttemptFailure(err, attempt);
+                    } catch (cleanupErr) {
+                        // Cleanup error should not mask primary failure
+                    }
+                }
+
                 const status = err.code || err.status || err.response?.status;
                 const message = err.message || '';
                 const isTransient = status === 429 || status === 500 || status === 503 ||
+                    status === 'ECONNRESET' || status === 'ETIMEDOUT' ||
                     message.includes('rateLimitExceeded') || message.includes('userRateLimitExceeded') ||
-                    message.includes('backendError') || message.includes('ECONNRESET') || message.includes('ETIMEDOUT');
+                    message.includes('backendError') || message.includes('ECONNRESET') || message.includes('ETIMEDOUT') ||
+                    message.includes('Connection reset') || message.includes('Premature close') || message.includes('stream interrupted');
 
                 if (isTransient && attempt <= maxRetries) {
                     const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 50);
@@ -149,6 +196,34 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
                 throw this._translateError(err, operationName, objectKey);
             }
         }
+    }
+
+    /**
+     * Checks if a file with the deterministic objectKey in appProperties already exists in Google Drive.
+     * Prevents duplicate files when an upload succeeds on Google's servers but the client response is lost.
+     */
+    async _findExistingFileByObjectKey(objectKey, folderId = null) {
+        const driveClient = await this._getDriveClient();
+        try {
+            const escapedKey = objectKey.replace(/'/g, "\\'");
+            let q = `appProperties has { key='objectKey' and value='${escapedKey}' } and trashed = false`;
+            if (folderId) {
+                q += ` and '${folderId}' in parents`;
+            }
+            const res = await driveClient.files.list({
+                q,
+                fields: 'files(id, name, mimeType, size, md5Checksum, webViewLink, webContentLink, createdTime, modifiedTime)',
+                supportsAllDrives: true,
+                includeItemsFromAllDrives: true,
+                pageSize: 1
+            });
+            if (res.data?.files && res.data.files.length > 0) {
+                return res.data.files[0];
+            }
+        } catch (err) {
+            // Best-effort check; continue to create if search is unavailable
+        }
+        return null;
     }
 
     /**
@@ -168,24 +243,11 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
             return objectKey;
         }
 
-        // Search Drive files by appProperties or name
-        const driveClient = await this._getDriveClient();
-        try {
-            const escapedKey = objectKey.replace(/'/g, "\\'");
-            const res = await driveClient.files.list({
-                q: `appProperties has { key='objectKey' and value='${escapedKey}' } and trashed = false`,
-                fields: 'files(id, name, appProperties)',
-                supportsAllDrives: true,
-                includeItemsFromAllDrives: true,
-                pageSize: 1
-            });
-            if (res.data.files && res.data.files.length > 0) {
-                const fileId = res.data.files[0].id;
-                this._fileIdMap.set(objectKey, fileId);
-                return fileId;
-            }
-        } catch (e) {
-            // Ignore list failure and fall back
+        // Search Drive files by appProperties
+        const existing = await this._findExistingFileByObjectKey(objectKey, options.folderId);
+        if (existing) {
+            this._fileIdMap.set(objectKey, existing.id);
+            return existing.id;
         }
 
         return objectKey;
@@ -198,20 +260,31 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
     /**
      * Upload (PUT)
      * Stores file in Google Drive, maintains privacy (NO public sharing), and captures metadata.
+     * Guarantees fresh stream on every retry attempt and prevents duplicate files.
      */
     async _put(objectKey, data, options = {}) {
         this._resolveProviderKey(objectKey);
         const driveClient = await this._getDriveClient();
 
-        let mediaBody;
-        if (Buffer.isBuffer(data)) {
-            mediaBody = Readable.from(data);
-        } else if (data && typeof data.pipe === 'function') {
-            mediaBody = data;
+        // Prepare fresh stream factory so every retry receives an unread stream from byte 0
+        let streamFactory;
+        if (typeof data === 'function') {
+            streamFactory = data;
+        } else if (Buffer.isBuffer(data)) {
+            streamFactory = () => Readable.from(Buffer.from(data));
         } else if (typeof data === 'string') {
-            mediaBody = Readable.from(Buffer.from(data));
+            const buf = Buffer.from(data);
+            streamFactory = () => Readable.from(Buffer.from(buf));
+        } else if (data && typeof data.pipe === 'function') {
+            // Buffer the input stream to support deterministic retries
+            const chunks = [];
+            for await (const chunk of data) {
+                chunks.push(chunk);
+            }
+            const buffered = Buffer.concat(chunks);
+            streamFactory = () => Readable.from(Buffer.from(buffered));
         } else {
-            throw new StorageError('Invalid data payload for PUT. Expected Buffer or Stream.');
+            throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
         }
 
         const folderId = options.folderId || this.config.parentFolderId || this.config.folderId || undefined;
@@ -233,18 +306,47 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
             requestBody.parents = [folderId];
         }
 
-        const result = await this._executeWithRetry(async () => {
-            return await driveClient.files.create({
+        let createdFileId = null;
+
+        const result = await this._executeWithRetry(async (attempt) => {
+            // Remote idempotency: if an earlier attempt succeeded remotely but response was lost, avoid duplicate
+            if (attempt > 1) {
+                const existingFile = await this._findExistingFileByObjectKey(objectKey, folderId);
+                if (existingFile) {
+                    return { data: existingFile };
+                }
+            }
+
+            // Generate fresh, unread readable stream for this specific attempt
+            const freshMediaStream = streamFactory();
+
+            const response = await driveClient.files.create({
                 requestBody,
                 media: {
                     mimeType: options.mimeType || 'application/octet-stream',
-                    body: mediaBody
+                    body: freshMediaStream
                 },
                 fields: 'id, name, mimeType, size, md5Checksum, webViewLink, webContentLink, createdTime, modifiedTime',
                 supportsAllDrives: true,
                 supportsTeamDrives: true
             });
-        }, 'PUT', objectKey);
+
+            if (response?.data?.id) {
+                createdFileId = response.data.id;
+            }
+
+            return response;
+        }, 'PUT', objectKey, 3, 150, async (err, attempt) => {
+            // Partial upload cleanup: If this attempt created a file but threw before completion, clean it up safely
+            if (createdFileId) {
+                try {
+                    await driveClient.files.delete({ fileId: createdFileId, supportsAllDrives: true });
+                } catch (cleanupErr) {
+                    // Ignore cleanup error
+                }
+                createdFileId = null;
+            }
+        });
 
         const file = result.data;
         const fileId = file.id;
@@ -447,14 +549,16 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
             return await this.tokenSigner(objectKey, expiresInSeconds, options);
         }
 
+        const secret = resolveDocumentSigningSecret(options.secret || this.config?.signedUrlSecret);
         const fileId = await this._resolveFileId(objectKey, options);
         const expiresAt = Date.now() + Math.max(1, expiresInSeconds) * 1000;
-        const secret = process.env.DOCUMENT_SIGNED_URL_SECRET || process.env.JWT_SECRET || 'crm-secure-document-sign-secret';
 
         const payload = {
             key: objectKey,
             fileId,
             provider: this.providerInstanceId,
+            docId: options.documentId || (objectKey.includes('/') ? objectKey.split('/')[0] : null),
+            verId: options.versionId || (objectKey.includes('/') ? objectKey.split('/')[1] : null),
             exp: expiresAt,
             op: 'READ'
         };
@@ -473,29 +577,70 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
 
     /**
      * Static utility to verify a signed download token.
+     * Enforces timing-safe comparison without throwing length exceptions,
+     * validates expiration, and enforces binding checks (provider, document, version, objectKey).
      */
-    static verifySignedToken(token, secret = (process.env.DOCUMENT_SIGNED_URL_SECRET || process.env.JWT_SECRET || 'crm-secure-document-sign-secret')) {
+    static verifySignedToken(token, secretOption = null, expectedBindings = {}) {
+        let secret;
+        try {
+            secret = resolveDocumentSigningSecret(secretOption);
+        } catch (err) {
+            return { valid: false, reason: 'SIGNING_SECRET_MISSING', error: err.message };
+        }
+
         if (!token || typeof token !== 'string' || !token.includes('.')) {
             return { valid: false, reason: 'MALFORMED_TOKEN' };
         }
 
         const [payloadB64, signature] = token.split('.');
+        if (!payloadB64 || !signature) {
+            return { valid: false, reason: 'MALFORMED_TOKEN' };
+        }
+
         const hmac = crypto.createHmac('sha256', secret);
         hmac.update(payloadB64);
         const expectedSignature = hmac.digest('base64url');
 
-        if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+        const sigBuf = Buffer.from(signature);
+        const expectedBuf = Buffer.from(expectedSignature);
+
+        // Constant-time comparison: Length check first to prevent buffer length mismatch exceptions
+        if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
             return { valid: false, reason: 'INVALID_SIGNATURE' };
         }
 
+        let payload;
         try {
-            const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
-            if (!payload.exp || Date.now() > payload.exp) {
-                return { valid: false, reason: 'EXPIRED' };
-            }
-            return { valid: true, payload };
+            payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
         } catch (err) {
             return { valid: false, reason: 'INVALID_PAYLOAD' };
         }
+
+        // Validate expiry
+        if (!payload.exp || typeof payload.exp !== 'number' || Date.now() > payload.exp) {
+            return { valid: false, reason: 'EXPIRED' };
+        }
+
+        // Validate provider ID binding
+        if (expectedBindings.providerId && payload.provider !== expectedBindings.providerId) {
+            return { valid: false, reason: 'PROVIDER_MISMATCH' };
+        }
+
+        // Validate document ID binding
+        if (expectedBindings.documentId && payload.docId !== expectedBindings.documentId) {
+            return { valid: false, reason: 'DOCUMENT_MISMATCH' };
+        }
+
+        // Validate version ID binding
+        if (expectedBindings.versionId && payload.verId !== expectedBindings.versionId) {
+            return { valid: false, reason: 'VERSION_MISMATCH' };
+        }
+
+        // Validate objectKey binding
+        if (expectedBindings.objectKey && payload.key !== expectedBindings.objectKey) {
+            return { valid: false, reason: 'KEY_MISMATCH' };
+        }
+
+        return { valid: true, payload };
     }
 }

@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { uploadGeneric } from '../src/middlewares/upload.middleware.js';
-import { uploadFileToDrive, deleteFileFromDrive, getFileMetadata } from '../services/drive.service.js';
+import { uploadFileToDrive, deleteFileFromDrive, getFileMetadata, downloadFileBuffer } from '../services/drive.service.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -235,6 +235,52 @@ router.get('/metadata/:fileId', async (req, res) => {
         }
     } catch (error) {
         console.error('Metadata Route Error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * @route   GET /api/upload/file/:fileId
+ * @desc    CRM-mediated secure preview and download of Drive or local file
+ * @access  Private (authenticated CRM users)
+ */
+router.get('/file/:fileId', async (req, res) => {
+    try {
+        const { fileId } = req.params;
+        if (!fileId) {
+            return res.status(400).json({ success: false, error: 'File ID is required.' });
+        }
+
+        const isDownload = req.query.download === 'true';
+
+        // Check local storage first
+        const sanitized = path.basename(fileId);
+        const localPath = path.join(process.cwd(), 'uploads', sanitized);
+        if (fs.existsSync(localPath)) {
+            if (isDownload) {
+                return res.download(localPath);
+            }
+            return res.sendFile(localPath);
+        }
+
+        // Fetch from Google Drive via backend buffer with CRM authorization
+        try {
+            const { buffer, mimeType, fileName } = await downloadFileBuffer(fileId);
+            res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+            res.setHeader(
+                'Content-Disposition',
+                `${isDownload ? 'attachment' : 'inline'}; filename="${fileName || 'file'}"`
+            );
+            return res.send(buffer);
+        } catch (driveErr) {
+            console.error(`[UploadRoute] Drive retrieval failed for ${fileId}:`, driveErr.message);
+            return res.status(404).json({
+                success: false,
+                error: `File not found or inaccessible in storage: ${driveErr.message}`
+            });
+        }
+    } catch (error) {
+        console.error('File Route Error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });

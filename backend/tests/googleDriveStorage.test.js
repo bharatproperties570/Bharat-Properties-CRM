@@ -1,9 +1,11 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'stream';
+import fs from 'fs';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import Lead from '../models/Lead.js';
-import GoogleDriveStorageAdapter from '../services/storage/adapters/GoogleDriveStorageAdapter.js';
+import GoogleDriveStorageAdapter, { resolveDocumentSigningSecret } from '../services/storage/adapters/GoogleDriveStorageAdapter.js';
 import DocumentService from '../services/storage/DocumentService.js';
 import DocumentAccessService, { AccessDeniedError, LifecycleRestrictionError } from '../services/storage/DocumentAccessService.js';
 import { 
@@ -13,11 +15,13 @@ import {
 } from '../services/storage/index.js';
 import { 
     ProviderUnavailableError, 
+    ProviderConfigurationError,
     ObjectNotFoundError, 
     PolicyViolationError,
     StorageError 
 } from '../services/storage/StorageErrors.js';
 import GoogleDriveMigrationReport from '../services/storage/GoogleDriveMigrationReport.js';
+import { uploadFileToDrive } from '../services/drive.service.js';
 
 test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => {
 
@@ -281,12 +285,18 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
     // 9. Signed or authorized download access with expiry
     // =========================================================================
     await t.test('9. Signed or authorized download access with expiry', async () => {
+        const testSecret = 'enterprise-test-secret-with-more-than-32-characters';
         const fakeDriveClient = {
             files: {
                 get: mock.fn()
             }
         };
-        const adapter = new GoogleDriveStorageAdapter('google-drive-primary', { baseUrl: 'https://api.bharatproperties.co' }, undefined, { driveClient: fakeDriveClient });
+        const adapter = new GoogleDriveStorageAdapter(
+            'google-drive-primary',
+            { baseUrl: 'https://api.bharatproperties.co', signedUrlSecret: testSecret },
+            undefined,
+            { driveClient: fakeDriveClient }
+        );
 
         const signedUrl = await adapter.getPresignedReadUrl('doc-99/v1', 60, { fileId: 'gdrive-file-99' });
         assert.ok(signedUrl.startsWith('https://api.bharatproperties.co/api/documents/download-signed/'));
@@ -298,25 +308,25 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
         assert.ok(token, 'Token param must be present');
 
         // Verify valid token
-        const verification = GoogleDriveStorageAdapter.verifySignedToken(token);
+        const verification = GoogleDriveStorageAdapter.verifySignedToken(token, testSecret);
         assert.strictEqual(verification.valid, true);
         assert.strictEqual(verification.payload.key, 'doc-99/v1');
         assert.strictEqual(verification.payload.fileId, 'gdrive-file-99');
 
         // Verify tampered token is rejected
         const tamperedToken = token.slice(0, -4) + 'abcd';
-        const tamperedVerif = GoogleDriveStorageAdapter.verifySignedToken(tamperedToken);
+        const tamperedVerif = GoogleDriveStorageAdapter.verifySignedToken(tamperedToken, testSecret);
         assert.strictEqual(tamperedVerif.valid, false);
         assert.strictEqual(tamperedVerif.reason, 'INVALID_SIGNATURE');
 
         // Verify expired token is rejected
         const expiredPayload = { key: 'doc-99/v1', fileId: 'gdrive-file-99', exp: Date.now() - 1000 };
         const expiredB64 = Buffer.from(JSON.stringify(expiredPayload)).toString('base64url');
-        const hmac = (await import('crypto')).default.createHmac('sha256', process.env.DOCUMENT_SIGNED_URL_SECRET || process.env.JWT_SECRET || 'crm-secure-document-sign-secret');
+        const hmac = crypto.createHmac('sha256', testSecret);
         hmac.update(expiredB64);
         const expiredToken = `${expiredB64}.${hmac.digest('base64url')}`;
 
-        const expiredVerif = GoogleDriveStorageAdapter.verifySignedToken(expiredToken);
+        const expiredVerif = GoogleDriveStorageAdapter.verifySignedToken(expiredToken, testSecret);
         assert.strictEqual(expiredVerif.valid, false);
         assert.strictEqual(expiredVerif.reason, 'EXPIRED');
     });
@@ -424,6 +434,360 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
         // ACTIVE state allows READ
         assert.doesNotThrow(() => {
             accessService._enforceLifecyclePolicy({ state: 'ACTIVE', documentId: 'doc-lifecycle' }, 'READ');
+        });
+    });
+
+    // =========================================================================
+    // 14. Finding 1: Signed URL Security (Fail-closed secrets, timing safety, and binding checks)
+    // =========================================================================
+    await t.test('14. Finding 1: Signed URL Security (Fail-closed secrets, timing safety, and binding checks)', async (sub) => {
+        const originalEnv = { ...process.env };
+
+        await sub.test('14a. resolveDocumentSigningSecret fails closed when secret is missing', () => {
+            delete process.env.DOCUMENT_SIGNED_URL_SECRET;
+            delete process.env.JWT_SECRET;
+            process.env.NODE_ENV = 'production';
+
+            assert.throws(
+                () => resolveDocumentSigningSecret(),
+                (err) => err instanceof ProviderConfigurationError && err.code === 'SIGNING_SECRET_MISSING'
+            );
+
+            process.env.NODE_ENV = 'development';
+            assert.throws(
+                () => resolveDocumentSigningSecret(),
+                (err) => err instanceof ProviderConfigurationError && err.code === 'SIGNING_SECRET_MISSING'
+            );
+        });
+
+        await sub.test('14b. resolveDocumentSigningSecret strictly rejects weak/short secrets (< 16 chars)', () => {
+            assert.throws(
+                () => resolveDocumentSigningSecret('too-short'),
+                (err) => err instanceof ProviderConfigurationError && err.code === 'SIGNING_SECRET_INVALID'
+            );
+            assert.throws(
+                () => resolveDocumentSigningSecret('   '),
+                (err) => err instanceof ProviderConfigurationError && err.code === 'SIGNING_SECRET_MISSING'
+            );
+        });
+
+        await sub.test('14c. resolveDocumentSigningSecret requires DOCUMENT_SIGNED_URL_SECRET in production even if JWT_SECRET exists', () => {
+            process.env.NODE_ENV = 'production';
+            delete process.env.DOCUMENT_SIGNED_URL_SECRET;
+            process.env.JWT_SECRET = 'valid-jwt-secret-that-is-long-enough-32-chars';
+
+            assert.throws(
+                () => resolveDocumentSigningSecret(),
+                (err) => err instanceof ProviderConfigurationError && err.code === 'SIGNING_SECRET_MISSING'
+            );
+
+            process.env.DOCUMENT_SIGNED_URL_SECRET = 'valid-prod-doc-secret-32-chars-long!';
+            assert.strictEqual(resolveDocumentSigningSecret(), 'valid-prod-doc-secret-32-chars-long!');
+        });
+
+        await sub.test('14d. Constant-time verification handles mismatched signature lengths safely', () => {
+            const secret = 'enterprise-safe-secret-32-chars-long!';
+            const payload = { key: 'doc-bind/v1', fileId: 'f1', exp: Date.now() + 60000, provider: 'google-drive-primary' };
+            const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+
+            // Token with truncated signature (different buffer length)
+            const malformedSigToken = `${payloadB64}.short`;
+            const result = GoogleDriveStorageAdapter.verifySignedToken(malformedSigToken, secret);
+            assert.strictEqual(result.valid, false);
+            assert.strictEqual(result.reason, 'INVALID_SIGNATURE');
+        });
+
+        await sub.test('14e. Binding validation: rejects provider, document, version, and objectKey mismatches', () => {
+            const secret = 'enterprise-safe-secret-32-chars-long!';
+            const payload = {
+                key: 'doc-bind-123/v2',
+                fileId: 'gdrive-f-789',
+                provider: 'google-drive-primary',
+                docId: 'doc-bind-123',
+                verId: 'v2',
+                exp: Date.now() + 60000
+            };
+            const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+            const hmac = crypto.createHmac('sha256', secret);
+            hmac.update(payloadB64);
+            const token = `${payloadB64}.${hmac.digest('base64url')}`;
+
+            // Valid matching all bindings
+            const validRes = GoogleDriveStorageAdapter.verifySignedToken(token, secret, {
+                providerId: 'google-drive-primary',
+                documentId: 'doc-bind-123',
+                versionId: 'v2',
+                objectKey: 'doc-bind-123/v2'
+            });
+            assert.strictEqual(validRes.valid, true);
+
+            // Provider mismatch
+            const provMismatch = GoogleDriveStorageAdapter.verifySignedToken(token, secret, {
+                providerId: 's3-backup-provider'
+            });
+            assert.strictEqual(provMismatch.valid, false);
+            assert.strictEqual(provMismatch.reason, 'PROVIDER_MISMATCH');
+
+            // Document ID mismatch
+            const docMismatch = GoogleDriveStorageAdapter.verifySignedToken(token, secret, {
+                documentId: 'doc-other-999'
+            });
+            assert.strictEqual(docMismatch.valid, false);
+            assert.strictEqual(docMismatch.reason, 'DOCUMENT_MISMATCH');
+
+            // Version ID mismatch
+            const verMismatch = GoogleDriveStorageAdapter.verifySignedToken(token, secret, {
+                versionId: 'v3'
+            });
+            assert.strictEqual(verMismatch.valid, false);
+            assert.strictEqual(verMismatch.reason, 'VERSION_MISMATCH');
+
+            // Object key mismatch
+            const keyMismatch = GoogleDriveStorageAdapter.verifySignedToken(token, secret, {
+                objectKey: 'other-key/v2'
+            });
+            assert.strictEqual(keyMismatch.valid, false);
+            assert.strictEqual(keyMismatch.reason, 'KEY_MISMATCH');
+        });
+
+        // Restore original env
+        process.env = originalEnv;
+    });
+
+    // =========================================================================
+    // 15. Finding 2: Legacy Google Drive Privacy (No anyone sharing & read-only audit)
+    // =========================================================================
+    await t.test('15. Finding 2: Legacy Google Drive Privacy (No anyone sharing & read-only audit)', async (sub) => {
+        await sub.test('15a. uploadFileToDrive never invokes permissions.create and returns CRM-mediated URLs', async () => {
+            let permissionsCreateCalled = false;
+            const fakeDriveService = {
+                files: {
+                    create: async (params) => {
+                        if (params.media?.body && typeof params.media.body[Symbol.asyncIterator] === 'function') {
+                            for await (const _ of params.media.body) {}
+                        }
+                        return {
+                            data: {
+                                id: 'legacy-drive-f123',
+                                webViewLink: 'https://drive.google.com/file/d/legacy-drive-f123/view',
+                                webContentLink: 'https://drive.google.com/uc?id=legacy-drive-f123&export=download'
+                            }
+                        };
+                    }
+                },
+                permissions: {
+                    create: async () => {
+                        permissionsCreateCalled = true;
+                        throw new Error('VIOLATION: permissions.create MUST NEVER be called on upload!');
+                    }
+                }
+            };
+
+            const IntegrationGuard = (await import('../src/utils/IntegrationGuard.js')).default;
+            mock.method(IntegrationGuard, 'canExecuteWebhooks', () => true);
+
+            const mockFile = {
+                originalname: 'customer_pan.pdf',
+                mimetype: 'application/pdf',
+                path: '/tmp/test_customer_pan.pdf'
+            };
+            fs.writeFileSync(mockFile.path, 'dummy pan content');
+
+            const uploadRes = await uploadFileToDrive(mockFile, {
+                entityType: 'Lead',
+                entityName: 'John Doe',
+                docType: 'PAN',
+                folderId: 'folder-root-123',
+                driveService: fakeDriveService
+            });
+
+            assert.strictEqual(permissionsCreateCalled, false, 'permissions.create must never be called');
+            assert.strictEqual(uploadRes.id, 'legacy-drive-f123');
+            assert.strictEqual(uploadRes.url, '/api/upload/file/legacy-drive-f123');
+            assert.strictEqual(uploadRes.downloadUrl, '/api/upload/file/legacy-drive-f123?download=true');
+            assert.ok(uploadRes.webViewLink.includes('drive.google.com'));
+
+            mock.restoreAll();
+        });
+
+        await sub.test('15b. GoogleDriveMigrationReport.auditLegacyDrivePermissions is strictly read-only', async () => {
+            let deleteCalled = false;
+            let createCalled = false;
+            let updateCalled = false;
+
+            const fakeDriveClient = {
+                files: {
+                    list: async () => ({
+                        data: {
+                            files: [
+                                { id: 'file-1', name: 'private.pdf', permissions: [{ id: 'p1', type: 'user', role: 'reader' }] },
+                                { id: 'file-2', name: 'public.pdf', permissions: [{ id: 'p2', type: 'anyone', role: 'reader' }] },
+                                { id: 'file-3', name: 'team.pdf', permissions: [{ id: 'p3', type: 'domain', role: 'writer' }] }
+                            ]
+                        }
+                    }),
+                    delete: async () => { deleteCalled = true; },
+                    create: async () => { createCalled = true; },
+                    update: async () => { updateCalled = true; }
+                },
+                permissions: {
+                    delete: async () => { deleteCalled = true; },
+                    create: async () => { createCalled = true; },
+                    update: async () => { updateCalled = true; }
+                }
+            };
+
+            const auditReport = await GoogleDriveMigrationReport.auditLegacyDrivePermissions(fakeDriveClient, { sampleLimit: 10 });
+
+            assert.strictEqual(auditReport.status, 'AUDIT_COMPLETE_READ_ONLY');
+            assert.strictEqual(auditReport.zeroMutationsEnforced, true);
+            assert.strictEqual(auditReport.filesSampled, 3);
+            assert.strictEqual(auditReport.publicAnyoneFilesDetected, 1);
+            assert.strictEqual(auditReport.publicFiles[0].id, 'file-2');
+            assert.strictEqual(deleteCalled, false, 'audit must NEVER call delete');
+            assert.strictEqual(createCalled, false, 'audit must NEVER call create');
+            assert.strictEqual(updateCalled, false, 'audit must NEVER call update');
+        });
+    });
+
+    // =========================================================================
+    // 16. Finding 3: Stream Retry Reliability (Fresh streams, remote idempotency, and partial upload cleanup)
+    // =========================================================================
+    await t.test('16. Finding 3: Stream Retry Reliability (Fresh streams, remote idempotency, and partial upload cleanup)', async (sub) => {
+        await sub.test('16a. Every retry receives a fresh, unconsumed stream from byte 0', async () => {
+            let attempts = 0;
+            const consumedPayloads = [];
+
+            const fakeDriveClient = {
+                files: {
+                    create: async (params) => {
+                        attempts++;
+                        const chunks = [];
+                        for await (const chunk of params.media.body) {
+                            chunks.push(chunk);
+                        }
+                        const consumedContent = Buffer.concat(chunks).toString('utf8');
+                        consumedPayloads.push(consumedContent);
+
+                        if (attempts === 1) {
+                            const err = new Error('Google backend transient error');
+                            err.code = 503;
+                            throw err;
+                        }
+                        if (attempts === 2) {
+                            const err = new Error('Stream interrupted / Premature close');
+                            err.code = 'ECONNRESET';
+                            throw err;
+                        }
+
+                        return {
+                            data: { id: 'stream-retry-success-file', size: '18' }
+                        };
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+            const originalData = 'Payload for retry!';
+            const inputStream = Readable.from(Buffer.from(originalData));
+
+            const result = await adapter.put('doc-stream-retry/v1', inputStream, { mimeType: 'text/plain' });
+
+            assert.strictEqual(attempts, 3, 'Must complete in 3 attempts');
+            assert.strictEqual(consumedPayloads.length, 3);
+            assert.strictEqual(consumedPayloads[0], originalData);
+            assert.strictEqual(consumedPayloads[1], originalData);
+            assert.strictEqual(consumedPayloads[2], originalData);
+            assert.strictEqual(result.fileId, 'stream-retry-success-file');
+        });
+
+        await sub.test('16b. Remote idempotency: prevents duplicate files when upload succeeded remotely but response was lost', async () => {
+            let createCalls = 0;
+            const objectKey = 'doc-idempotent/v1';
+
+            const existingFileMetadata = {
+                id: 'remote-file-already-created-123',
+                name: 'contract.pdf',
+                mimeType: 'application/pdf',
+                size: '2048',
+                appProperties: { objectKey }
+            };
+
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        createCalls++;
+                        const err = new Error('Connection reset by peer');
+                        err.code = 'ECONNRESET';
+                        throw err;
+                    },
+                    list: async (params) => {
+                        if (params.q && params.q.includes(objectKey)) {
+                            return {
+                                data: { files: [existingFileMetadata] }
+                            };
+                        }
+                        return { data: { files: [] } };
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+            const result = await adapter.put(objectKey, Buffer.from('Contract Content'), { mimeType: 'application/pdf' });
+
+            assert.strictEqual(createCalls, 1, 'files.create must NOT be called again if file exists on retry');
+            assert.strictEqual(result.fileId, 'remote-file-already-created-123');
+        });
+
+        await sub.test('16c. Partial upload cleanup: deletes partially uploaded file when attempt fails', async () => {
+            let cleanedUp = false;
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: {} });
+
+            await assert.rejects(
+                async () => {
+                    await adapter._executeWithRetry(
+                        async (attempt) => {
+                            throw new Error('mid-stream pipe error');
+                        },
+                        'PUT',
+                        'doc-partial/v1',
+                        1,
+                        10,
+                        async (err, attempt) => {
+                            cleanedUp = true;
+                        }
+                    );
+                },
+                StorageError
+            );
+
+            assert.strictEqual(cleanedUp, true, 'onAttemptFailure cleanup hook must be called on attempt failure');
+        });
+
+        await sub.test('16d. Retry exhaustion: fails closed after max retries with ProviderUnavailableError', async () => {
+            let attempts = 0;
+            const fakeDriveClient = {
+                files: {
+                    create: async () => {
+                        attempts++;
+                        const err = new Error('Persistent 500 Backend Error');
+                        err.code = 500;
+                        throw err;
+                    },
+                    list: async () => ({ data: { files: [] } })
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            await assert.rejects(
+                async () => {
+                    await adapter.put('doc-exhaust/v1', Buffer.from('Data'), { mimeType: 'text/plain' });
+                },
+                ProviderUnavailableError
+            );
+
+            assert.strictEqual(attempts, 4, 'Must exhaust 1 initial attempt + 3 retries (total 4 attempts)');
         });
     });
 });

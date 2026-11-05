@@ -15,8 +15,8 @@ import path from 'path';
  * @param {string} parentId 
  * @returns {Promise<string>} - Folder ID
  */
-export const getOrCreateFolder = async (folderName, parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID) => {
-    const driveService = await getDriveService();
+export const getOrCreateFolder = async (folderName, parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID, explicitDriveService = null) => {
+    const driveService = explicitDriveService || await getDriveService();
     if (!driveService) return parentId;
 
     try {
@@ -59,12 +59,12 @@ export const getOrCreateFolder = async (folderName, parentId = process.env.GOOGL
  * @param {string[]} pathSegments - Array of folder names in order
  * @returns {Promise<string>}
  */
-export const getStructuredFolder = async (pathSegments = []) => {
+export const getStructuredFolder = async (pathSegments = [], explicitDriveService = null) => {
     let parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID;
     
     for (const segment of pathSegments) {
         if (segment && segment.trim()) {
-            parentId = await getOrCreateFolder(segment.trim(), parentId);
+            parentId = await getOrCreateFolder(segment.trim(), parentId, explicitDriveService);
         }
     }
     
@@ -92,7 +92,7 @@ export const uploadFileToDrive = async (file, options = {}) => {
 
     let { folderId, entityType, entityName, docCategory, docType } = options;
     
-    const driveService = await getDriveService();
+    const driveService = options.driveService || await getDriveService();
     if (!driveService) {
         throw new Error('Google Drive authentication failed or is not configured.');
     }
@@ -102,7 +102,7 @@ export const uploadFileToDrive = async (file, options = {}) => {
         if (!folderId) {
             const pathSegments = [entityType, entityName, docCategory, docType].filter(Boolean);
             if (pathSegments.length > 0) {
-                folderId = await getStructuredFolder(pathSegments);
+                folderId = await getStructuredFolder(pathSegments, driveService);
             } else {
                 folderId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID;
             }
@@ -139,18 +139,6 @@ export const uploadFileToDrive = async (file, options = {}) => {
 
         const fileId = response.data.id;
 
-        // Set permissions to "anyone with the link can view"
-        // This is necessary for CRM users to access the file links directly
-        await driveService.permissions.create({
-            fileId: fileId,
-            requestBody: {
-                role: 'reader',
-                type: 'anyone',
-            },
-            supportsAllDrives: true,
-            supportsTeamDrives: true, // Legacy support
-        });
-
         // Clean up local temporary file
         if (file.path && fs.existsSync(file.path)) {
             try {
@@ -160,10 +148,15 @@ export const uploadFileToDrive = async (file, options = {}) => {
             }
         }
 
+        // Private by default: NO public 'anyone with link' permissions are created.
+        // Previews and downloads are mediated securely through authenticated CRM endpoints.
         return {
             id: fileId,
-            url: response.data.webViewLink,
-            downloadUrl: response.data.webContentLink,
+            fileId: fileId,
+            url: `/api/upload/file/${fileId}`,
+            downloadUrl: `/api/upload/file/${fileId}?download=true`,
+            webViewLink: response.data.webViewLink,
+            webContentLink: response.data.webContentLink,
             supportsAllDrives: true
         };
     } catch (error) {
