@@ -33,6 +33,7 @@ import DocumentVersion from '../models/DocumentVersion.js';
 import DirectUploadRecord from '../models/DirectUploadRecord.js';
 import uploadRoutes, { authorizeFileAccess, registerUploadedFile, fileUploadOwnership, isAuthorizedForRecord } from '../routes/upload.routes.js';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { preflightCheck, runMigration, TARGET_INDEX_NAME } from '../migrations/005-direct-upload-record-fileid-unique-index-migration.js';
 
 test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => {
 
@@ -2749,6 +2750,404 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                 } finally {
                     DirectUploadRecord.bulkWrite = originalBulkWrite;
                 }
+            });
+        } finally {
+            User.findById = originalFindById;
+            await DirectUploadRecord.deleteMany({}).catch(() => {});
+            fileUploadOwnership.clear();
+        }
+    });
+
+    // =========================================================================
+    // 23. Database-Enforced Unique Constraint, Alias Collision Protection & True Concurrency
+    // =========================================================================
+    await t.test('23. Database-Enforced Unique Constraint, Alias Collision Protection & True Concurrency', async (sub) => {
+        let mongod;
+        try {
+            mongod = await getOrStartMongo();
+            // Ensure unique index is created on collection
+            await DirectUploadRecord.collection.createIndex({ fileId: 1 }, { unique: true, name: TARGET_INDEX_NAME, background: false });
+        } catch (mErr) {
+            assert.fail(`Fatal test failure: MongoMemoryServer could not be initialized for Suite 23: ${mErr.message}`);
+        }
+
+        const userA = {
+            _id: new mongoose.Types.ObjectId('65d555555555555555555555'),
+            name: 'User A (Tenant 1)',
+            email: 'user-a-suite23@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const userB = {
+            _id: new mongoose.Types.ObjectId('65d666666666666666666666'),
+            name: 'User B (Tenant 1)',
+            email: 'user-b-suite23@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const originalFindById = User.findById;
+        User.findById = (id) => ({
+            select: () => ({
+                lean: async () => {
+                    const idStr = String(id);
+                    if (idStr === String(userA._id)) return userA;
+                    if (idStr === String(userB._id)) return userB;
+                    return null;
+                }
+            })
+        });
+
+        try {
+            // -----------------------------------------------------------------
+            // 23a. Unique index enforcement: MongoDB rejects duplicate fileId with E11000
+            // -----------------------------------------------------------------
+            await sub.test('23a. Unique index enforcement: MongoDB rejects duplicate fileId with E11000', async () => {
+                const uniqueFileId = 'db-unique-constraint-enforcement-101.txt';
+                await DirectUploadRecord.create({
+                    fileId: uniqueFileId,
+                    sanitizedFileId: uniqueFileId,
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    batchToken: 'initial-unique-batch'
+                });
+
+                // Attempt to insert duplicate record directly bypassing application checks
+                let insertErr = null;
+                try {
+                    await DirectUploadRecord.collection.insertOne({
+                        fileId: uniqueFileId,
+                        sanitizedFileId: uniqueFileId,
+                        userId: String(userB._id),
+                        tenantId: String(userB.tenantId),
+                        batchToken: 'bypassing-app-checks-batch'
+                    });
+                } catch (err) {
+                    insertErr = err;
+                }
+
+                assert.ok(insertErr, 'Direct collection insert of duplicate fileId must fail at database level');
+                assert.strictEqual(insertErr.code, 11000, 'Error code must be 11000 duplicate key');
+                assert.match(insertErr.message, /E11000 duplicate key error/);
+
+                const count = await DirectUploadRecord.countDocuments({ fileId: uniqueFileId });
+                assert.strictEqual(count, 1, 'Only exactly 1 document with fileId must exist');
+            });
+
+            // -----------------------------------------------------------------
+            // 23b. Duplicate-key error handling: E11000 is translated into controlled upload collision error
+            // -----------------------------------------------------------------
+            await sub.test('23b. Duplicate-key error handling: E11000 is translated into controlled upload collision error', async () => {
+                const targetFileId = 'controlled-collision-e11000-file-202.txt';
+                await DirectUploadRecord.create({
+                    fileId: targetFileId,
+                    sanitizedFileId: targetFileId,
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    batchToken: 'winner-batch-token'
+                });
+
+                let collisionErr = null;
+                try {
+                    await registerUploadedFile(targetFileId, userB, {
+                        batchToken: 'loser-batch-token'
+                    });
+                } catch (err) {
+                    collisionErr = err;
+                }
+
+                assert.ok(collisionErr, 'Must throw error');
+                assert.match(collisionErr.message, /Upload collision/);
+
+                // Confirm original record is untouched
+                const record = await DirectUploadRecord.findOne({ fileId: targetFileId }).lean();
+                assert.strictEqual(record.batchToken, 'winner-batch-token');
+                assert.strictEqual(String(record.userId), String(userA._id));
+            });
+
+            // -----------------------------------------------------------------
+            // 23c. Concurrent same-ID registration: barrier-controlled simultaneous execution results in exactly 1 winner, 1 controlled collision, and 1 durable record
+            // -----------------------------------------------------------------
+            await sub.test('23c. Concurrent same-ID registration: barrier-controlled simultaneous execution results in exactly 1 winner, 1 controlled collision, and 1 durable record', async () => {
+                const raceFileId = 'race-condition-barrier-test-303.txt';
+                const batchToken1 = `concurrent-batch-1-${Date.now()}`;
+                const batchToken2 = `concurrent-batch-2-${Date.now()}`;
+                const tracker1 = {
+                    batchToken: batchToken1,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+                const tracker2 = {
+                    batchToken: batchToken2,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+
+                let arrivals = 0;
+                let releaseBarrier;
+                const barrierPromise = new Promise(resolve => { releaseBarrier = resolve; });
+
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                try {
+                    DirectUploadRecord.bulkWrite = async function(ops, opts) {
+                        const isTarget = ops.some(op => op.insertOne?.document?.fileId === raceFileId);
+                        if (isTarget) {
+                            arrivals++;
+                            if (arrivals === 2) {
+                                // Both concurrent tasks have passed application pre-checks and arrived at DB write!
+                                releaseBarrier();
+                            } else {
+                                // Task 1 waits at barrier until Task 2 arrives
+                                await barrierPromise;
+                            }
+                        }
+                        return await originalBulkWrite.call(DirectUploadRecord, ops, opts);
+                    };
+
+                    // Launch both registration attempts concurrently
+                    const [res1, res2] = await Promise.allSettled([
+                        registerUploadedFile(raceFileId, userA, { batchToken: batchToken1, tracker: tracker1 }),
+                        registerUploadedFile(raceFileId, userB, { batchToken: batchToken2, tracker: tracker2 })
+                    ]);
+
+                    // Verify barrier release occurred with both arrivals
+                    assert.strictEqual(arrivals, 2, 'Both concurrent tasks must reach the database execution barrier');
+
+                    const fulfilled = [res1, res2].filter(r => r.status === 'fulfilled');
+                    const rejected = [res1, res2].filter(r => r.status === 'rejected');
+
+                    // Exactly one successful registration, exactly one controlled collision
+                    assert.strictEqual(fulfilled.length, 1, 'Exactly one registration must succeed');
+                    assert.strictEqual(rejected.length, 1, 'Exactly one registration must fail with collision');
+                    assert.match(rejected[0].reason.message, /Upload collision/);
+
+                    const winnerToken = fulfilled[0].value.batchToken;
+                    const loserTracker = winnerToken === batchToken1 ? tracker2 : tracker1;
+                    const winnerTracker = winnerToken === batchToken1 ? tracker1 : tracker2;
+                    const winnerUser = winnerToken === batchToken1 ? userA : userB;
+
+                    // Execute loser's batch rollback
+                    for (const id of loserTracker.registeredFileIds) {
+                        const mem = fileUploadOwnership.get(id);
+                        if (mem && mem.batchToken === loserTracker.batchToken) {
+                            fileUploadOwnership.delete(id);
+                        }
+                    }
+                    await DirectUploadRecord.deleteMany({
+                        $or: [
+                            { batchToken: loserTracker.batchToken },
+                            { _id: { $in: Array.from(loserTracker.createdRecordIds) } }
+                        ]
+                    });
+
+                    // VERIFY: Winning record remains completely intact in MongoDB
+                    const records = await DirectUploadRecord.find({ fileId: raceFileId }).lean();
+                    assert.strictEqual(records.length, 1, 'Exactly one durable record must exist in MongoDB');
+                    assert.strictEqual(records[0].batchToken, winnerToken, 'Winning record must retain its batchToken');
+                    assert.strictEqual(String(records[0].userId), String(winnerUser._id), 'Winning record must belong to winner');
+
+                    // VERIFY: Winning cache entry remains intact and uncorrupted
+                    const cached = fileUploadOwnership.get(raceFileId);
+                    assert.ok(cached, 'Winner cache entry must be present');
+                    assert.strictEqual(cached.batchToken, winnerToken);
+                    assert.strictEqual(String(cached.userId), String(winnerUser._id));
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 23d. Concurrent alias collision: two distinct logical IDs with identical sanitized alias collide safely at DB level
+            // -----------------------------------------------------------------
+            await sub.test('23d. Concurrent alias collision: two distinct logical IDs with identical sanitized alias collide safely at DB level', async () => {
+                const fileA = 'folder1/nested/invoice-alias-collision.pdf';
+                const fileB = 'folder2/different/invoice-alias-collision.pdf';
+                const sanitizedAlias = 'invoice-alias-collision.pdf';
+
+                const batchTokenA = `alias-batch-a-${Date.now()}`;
+                const batchTokenB = `alias-batch-b-${Date.now()}`;
+
+                // Register file A (which registers both full fileId and sanitizedFileId alias)
+                const resA = await registerUploadedFile(fileA, userA, { batchToken: batchTokenA });
+                assert.ok(resA);
+
+                // Attempt to register file B which shares the exact same sanitized alias
+                let aliasErr = null;
+                try {
+                    await registerUploadedFile(fileB, userB, { batchToken: batchTokenB });
+                } catch (err) {
+                    aliasErr = err;
+                }
+
+                assert.ok(aliasErr, 'Must reject alias collision');
+                assert.match(aliasErr.message, /Upload collision/);
+
+                // Verify file A's ownership remains intact for both fileId and sanitized alias
+                const durableRecordA = await DirectUploadRecord.findOne({ fileId: fileA }).lean();
+                assert.ok(durableRecordA);
+                assert.strictEqual(String(durableRecordA.userId), String(userA._id));
+
+                const durableAliasRecord = await DirectUploadRecord.findOne({ fileId: sanitizedAlias }).lean();
+                assert.ok(durableAliasRecord);
+                assert.strictEqual(String(durableAliasRecord.userId), String(userA._id));
+            });
+
+            // -----------------------------------------------------------------
+            // 23e. Winner preservation after loser rollback: loser batch rollback never deletes or corrupts winner record or cache
+            // -----------------------------------------------------------------
+            await sub.test('23e. Winner preservation after loser rollback: loser batch rollback never deletes or corrupts winner record or cache', async () => {
+                const winnerFileId = 'preserve-after-loser-rollback-505.txt';
+                const winnerToken = `winner-token-${Date.now()}`;
+                const loserToken = `loser-token-${Date.now()}`;
+
+                const winnerTracker = {
+                    batchToken: winnerToken,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+
+                const loserTracker = {
+                    batchToken: loserToken,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+
+                // Winner completes registration
+                await registerUploadedFile(winnerFileId, userA, {
+                    batchToken: winnerToken,
+                    tracker: winnerTracker
+                });
+
+                // Loser attempts same file and throws
+                try {
+                    await registerUploadedFile(winnerFileId, userB, {
+                        batchToken: loserToken,
+                        tracker: loserTracker
+                    });
+                    assert.fail('Loser must fail registration');
+                } catch (e) {
+                    assert.match(e.message, /Upload collision/);
+                }
+
+                // Execute loser batch rollback
+                for (const id of loserTracker.registeredFileIds) {
+                    const mem = fileUploadOwnership.get(id);
+                    if (mem && mem.batchToken === loserToken) {
+                        fileUploadOwnership.delete(id);
+                    }
+                }
+                await DirectUploadRecord.deleteMany({
+                    $or: [
+                        { batchToken: loserToken },
+                        { _id: { $in: Array.from(loserTracker.createdRecordIds) } }
+                    ]
+                });
+
+                // Check winner in DB
+                const winnerInDb = await DirectUploadRecord.findOne({ fileId: winnerFileId }).lean();
+                assert.ok(winnerInDb, 'Winner record must remain in MongoDB');
+                assert.strictEqual(winnerInDb.batchToken, winnerToken);
+                assert.strictEqual(String(winnerInDb.userId), String(userA._id));
+
+                // Check winner in Cache
+                const winnerInCache = fileUploadOwnership.get(winnerFileId);
+                assert.ok(winnerInCache, 'Winner cache entry must remain in memory');
+                assert.strictEqual(winnerInCache.batchToken, winnerToken);
+                assert.strictEqual(String(winnerInCache.userId), String(userA._id));
+            });
+
+            // -----------------------------------------------------------------
+            // 23f. Safe index migration when pre-existing duplicates are found: aborts index creation without deleting or modifying records
+            // -----------------------------------------------------------------
+            await sub.test('23f. Safe index migration when pre-existing duplicates are found: aborts index creation without deleting or modifying records', async () => {
+                const dupFileId = 'pre-existing-duplicate-fileId.txt';
+
+                // Drop unique index temporarily to simulate legacy duplicate state in collection
+                const indexes = await DirectUploadRecord.collection.indexes();
+                const singleFileIdIndexes = indexes.filter(i => i.key && Object.keys(i.key).length === 1 && i.key.fileId === 1);
+                for (const idx of singleFileIdIndexes) {
+                    await DirectUploadRecord.collection.dropIndex(idx.name).catch(() => {});
+                }
+
+                // Insert two records sharing identical fileId
+                await DirectUploadRecord.collection.insertMany([
+                    {
+                        fileId: dupFileId,
+                        sanitizedFileId: dupFileId,
+                        userId: String(userA._id),
+                        tenantId: String(userA.tenantId),
+                        originalName: 'dup1.txt',
+                        createdAt: new Date()
+                    },
+                    {
+                        fileId: dupFileId,
+                        sanitizedFileId: dupFileId,
+                        userId: String(userB._id),
+                        tenantId: String(userB.tenantId),
+                        originalName: 'dup2.txt',
+                        createdAt: new Date()
+                    }
+                ]);
+
+                // Run preflight check
+                const preflight = await preflightCheck(DirectUploadRecord);
+                assert.strictEqual(preflight.status, 'ABORT');
+                assert.strictEqual(preflight.hasDuplicates, true);
+                assert.strictEqual(preflight.duplicateCount, 1);
+                assert.strictEqual(preflight.duplicates[0].fileId, dupFileId);
+
+                // Run migration and verify it aborts safely
+                let migrationError = null;
+                try {
+                    await runMigration(DirectUploadRecord);
+                } catch (err) {
+                    migrationError = err;
+                }
+
+                assert.ok(migrationError, 'Migration must throw abort error when duplicates exist');
+                assert.match(migrationError.message, /ABORTED.*Pre-existing duplicates detected/);
+
+                // VERIFY: Zero records deleted! Both duplicates remain completely preserved
+                const remainingDuplicates = await DirectUploadRecord.find({ fileId: dupFileId }).lean();
+                assert.strictEqual(remainingDuplicates.length, 2, 'Migration must NOT delete or overwrite pre-existing records');
+
+                // Cleanup test duplicates and re-create unique index for remaining tests
+                await DirectUploadRecord.collection.deleteMany({ fileId: dupFileId });
+                await DirectUploadRecord.collection.createIndex({ fileId: 1 }, { unique: true, name: TARGET_INDEX_NAME, background: false });
+            });
+
+            // -----------------------------------------------------------------
+            // 23g. Safe index migration on clean collection: successfully creates unique index on fileId
+            // -----------------------------------------------------------------
+            await sub.test('23g. Safe index migration on clean collection: successfully creates unique index on fileId', async () => {
+                // Drop index if exists to verify creation
+                const indexes = await DirectUploadRecord.collection.indexes();
+                const singleFileIdIndexes = indexes.filter(i => i.key && Object.keys(i.key).length === 1 && i.key.fileId === 1);
+                for (const idx of singleFileIdIndexes) {
+                    await DirectUploadRecord.collection.dropIndex(idx.name).catch(() => {});
+                }
+
+                const migrationResult = await runMigration(DirectUploadRecord);
+                assert.strictEqual(migrationResult.success, true);
+                assert.strictEqual(migrationResult.indexName, TARGET_INDEX_NAME);
+
+                // Verify index exists on collection
+                const updatedIndexes = await DirectUploadRecord.collection.indexes();
+                const verified = updatedIndexes.find(i => i.key && Object.keys(i.key).length === 1 && i.key.fileId === 1 && i.unique);
+                assert.ok(verified, 'Unique index on fileId must exist after migration');
             });
         } finally {
             User.findById = originalFindById;

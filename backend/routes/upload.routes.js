@@ -124,9 +124,12 @@ export async function registerUploadedFile(fileId, user, options = {}) {
     if (isMongoConnected) {
         let docsToInsert = [];
         try {
-            // Collision detection query in MongoDB
+            // Collision detection query in MongoDB (checks both fileId and sanitizedFileId alias)
             const existingRecords = await DirectUploadRecord.find({
-                fileId: { $in: [fileId, sanitized] }
+                $or: [
+                    { fileId: { $in: [fileId, sanitized] } },
+                    { sanitizedFileId: { $in: [fileId, sanitized] } }
+                ]
             }).lean();
 
             for (const existing of existingRecords) {
@@ -188,6 +191,40 @@ export async function registerUploadedFile(fileId, user, options = {}) {
             fileUploadOwnership.set(sanitized, record);
             fileUploadOwnership.set(fileId, record);
         } catch (dbErr) {
+            // Check for MongoDB E11000 duplicate key error and handle as controlled upload collision (P1)
+            const isE11000 = dbErr.code === 11000 ||
+                             (dbErr.writeErrors && dbErr.writeErrors.some(e => e.code === 11000)) ||
+                             (dbErr.message && dbErr.message.includes('E11000'));
+
+            if (isE11000) {
+                // Roll back in-memory registrations for this specific attempt ONLY if set by this batchToken
+                const mem1 = fileUploadOwnership.get(sanitized);
+                if (mem1 && mem1.batchToken === batchToken) fileUploadOwnership.delete(sanitized);
+                const mem2 = fileUploadOwnership.get(fileId);
+                if (mem2 && mem2.batchToken === batchToken) fileUploadOwnership.delete(fileId);
+
+                // Clean up any partially inserted records in MongoDB for this specific batchToken
+                try {
+                    const cleanupConditions = [{ batchToken }];
+                    if (docsToInsert.length > 0) {
+                        cleanupConditions.push({ _id: { $in: docsToInsert.map(d => d._id) } });
+                    }
+                    const cleanupQuery = { $or: cleanupConditions };
+                    if (record.userId) {
+                        cleanupQuery.userId = record.userId;
+                    }
+                    await DirectUploadRecord.deleteMany(cleanupQuery);
+                } catch (cleanupErr) {
+                    console.error('[UploadAuth] Emergency cleanup failed on E11000:', cleanupErr.message);
+                }
+
+                const dupKey = dbErr.keyValue?.fileId || dbErr.writeErrors?.[0]?.keyValue?.fileId || fileId;
+                const collisionError = new Error(`Upload collision: duplicate key E11000 on fileId ${dupKey} already exists in database`);
+                collisionError.code = 11000;
+                collisionError.isCollision = true;
+                throw collisionError;
+            }
+
             if (dbErr.message && dbErr.message.includes('Upload collision:')) {
                 throw dbErr;
             }

@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 const DirectUploadRecordSchema = new mongoose.Schema({
-    fileId: { type: String, required: true, index: true },
+    fileId: { type: String, required: true },
     sanitizedFileId: { type: String, required: true, index: true },
     userId: { type: String, required: true, index: true },
     tenantId: { type: String, default: null, index: true },
@@ -15,6 +15,8 @@ const DirectUploadRecordSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Database-enforced unique ownership constraint on fileId (P1)
+DirectUploadRecordSchema.index({ fileId: 1 }, { unique: true, name: 'direct_upload_records_fileid_unique' });
 DirectUploadRecordSchema.index({ fileId: 1, tenantId: 1 });
 DirectUploadRecordSchema.index({ sanitizedFileId: 1, tenantId: 1 });
 DirectUploadRecordSchema.index({ batchToken: 1, userId: 1 });
