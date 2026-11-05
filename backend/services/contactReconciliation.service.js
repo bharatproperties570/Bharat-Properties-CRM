@@ -15,7 +15,7 @@ import ReconciliationGroup from '../models/ReconciliationGroup.js';
 import ReconciliationBatch from '../models/ReconciliationBatch.js';
 import ReconciliationAudit from '../models/ReconciliationAudit.js';
 import { classifyReconciliationGroup, CLASSIFICATION_TYPES, maskPhoneNumber, maskName } from './contactClassification.service.js';
-import { previewMerge, executeMerge, rollbackMerge } from './contactMerge.service.js';
+import { previewMerge, executeMerge, rollbackMerge, verifyMergeRollbackAuthorization } from './contactMerge.service.js';
 import { ContactLockService } from './contactLock.service.js';
 import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 
@@ -140,6 +140,8 @@ export class ContactReconciliationService {
 
     /**
      * Scan active contacts for duplicate phone groups and sync into ReconciliationGroup models.
+     * Guaranteed: Read-only scan of Contact collection. Zero writes to Contacts.
+     * Prevents silently overwriting existing approved decisions without invalidating altered ones.
      */
     static async scanAndSyncGroups() {
         const pipeline = [
@@ -196,8 +198,11 @@ export class ContactReconciliationService {
             else if (contract.primaryClassification === CLASSIFICATION_TYPES.REVIEW_REQUIRED) reviewCount++;
             else doNotMergeCount++;
 
-            // Upsert into ReconciliationGroup preserving prior reviews if present
-            const existing = await ReconciliationGroup.findOne({ fingerprint: contract.fingerprint });
+            // Check if group exists by phone or fingerprint
+            const existingByPhone = await ReconciliationGroup.findOne({ phoneNumber: contract.phoneNumber });
+            const existingByFingerprint = await ReconciliationGroup.findOne({ fingerprint: contract.fingerprint });
+            const existing = existingByFingerprint || existingByPhone;
+
             const updatePayload = {
                 fingerprint: contract.fingerprint,
                 phoneNumber: contract.phoneNumber,
@@ -212,12 +217,36 @@ export class ContactReconciliationService {
                 phoneDisassociationPlan: contract.phoneDisassociationPlan
             };
 
-            if (!existing || existing.status === 'PENDING_REVIEW') {
+            if (!existing) {
+                // New group
+                updatePayload.status = 'PENDING_REVIEW';
                 updatePayload.selectedCanonicalMasterId = contract.suggestedCanonicalMasterId;
+                updatePayload.approvedFingerprint = null;
+            } else if (existing.fingerprint !== contract.fingerprint) {
+                // FINGERPRINT CHANGED: Group membership, phones, or evidence altered since previous sync
+                // Invalidate prior approval to prevent stale replay attack
+                updatePayload.status = 'PENDING_REVIEW';
+                updatePayload.approvedFingerprint = null;
+                updatePayload.selectedCanonicalMasterId = contract.suggestedCanonicalMasterId;
+                updatePayload.reviewNotes = existing.status === 'APPROVED'
+                    ? 'Prior approval invalidated: group membership or evidence changed during sync'
+                    : existing.reviewNotes;
+            } else {
+                // Identical fingerprint: preserve operator decision state
+                if (existing.status === 'APPROVED' || existing.status === 'EXECUTED' || existing.status === 'DISASSOCIATED') {
+                    updatePayload.status = existing.status;
+                    updatePayload.approvedFingerprint = existing.approvedFingerprint;
+                    updatePayload.selectedCanonicalMasterId = existing.selectedCanonicalMasterId;
+                    updatePayload.reviewedBy = existing.reviewedBy;
+                    updatePayload.reviewedAt = existing.reviewedAt;
+                    updatePayload.reviewNotes = existing.reviewNotes;
+                } else {
+                    updatePayload.selectedCanonicalMasterId = existing.selectedCanonicalMasterId || contract.suggestedCanonicalMasterId;
+                }
             }
 
             const doc = await ReconciliationGroup.findOneAndUpdate(
-                { fingerprint: contract.fingerprint },
+                { phoneNumber: contract.phoneNumber },
                 { $set: updatePayload },
                 { upsert: true, new: true }
             );
@@ -236,6 +265,7 @@ export class ContactReconciliationService {
 
     /**
      * Generate or preview a dry-run execution plan for a specific group.
+     * Guaranteed: Read-only simulation. Zero writes to Contact or references.
      */
     static async generateDryRunPlan(groupId) {
         const group = await ReconciliationGroup.findById(groupId).populate('contactIds');
@@ -291,10 +321,19 @@ export class ContactReconciliationService {
 
     /**
      * Operator approves a reconciliation group decision.
+     * Binds approval to the exact group fingerprint to prevent stale replay.
      */
-    static async approveGroup(groupId, { user, selectedMasterId, reviewNotes }) {
+    static async approveGroup(groupId, { user, selectedMasterId, reviewNotes, expectedFingerprint }) {
         const group = await ReconciliationGroup.findById(groupId);
         if (!group) throw new Error('ReconciliationGroup not found');
+
+        // Verify fingerprint matches expectation
+        if (expectedFingerprint && expectedFingerprint !== group.fingerprint) {
+            const err = new Error('Group composition has changed since last loaded. Please refresh and review again.');
+            err.statusCode = 409;
+            err.code = 'FINGERPRINT_ALTERED';
+            throw err;
+        }
 
         if (selectedMasterId) {
             const valid = group.contactIds.some(c => c.toString() === selectedMasterId.toString());
@@ -303,6 +342,7 @@ export class ContactReconciliationService {
         }
 
         group.status = 'APPROVED';
+        group.approvedFingerprint = group.fingerprint; // Cryptographically bind approval to exact fingerprint
         group.reviewedBy = user?._id || user?.id || null;
         group.reviewedAt = new Date();
         group.reviewNotes = reviewNotes || 'Approved by operator';
@@ -319,6 +359,7 @@ export class ContactReconciliationService {
         if (!group) throw new Error('ReconciliationGroup not found');
 
         group.status = 'REJECTED';
+        group.approvedFingerprint = null;
         group.reviewedBy = user?._id || user?.id || null;
         group.reviewedAt = new Date();
         group.reviewNotes = reviewNotes || 'Rejected by operator';
@@ -329,12 +370,16 @@ export class ContactReconciliationService {
 
     /**
      * Execute approved reconciliation merge with distributed locking and audit.
+     * Enforces strict safety gates:
+     * 1. DO_NOT_MERGE is strictly barred from merge.
+     * 2. Approval must match exact current group fingerprint.
+     * 3. REVIEW_REQUIRED requires explicit operator adjudication.
      */
     static async executeReconciliation(groupId, { user, idempotencyKey } = {}) {
         const group = await ReconciliationGroup.findById(groupId);
         if (!group) throw new Error('ReconciliationGroup not found');
 
-        // Safety Gate: DO_NOT_MERGE groups are strictly barred from merge
+        // Safety Gate 1: DO_NOT_MERGE groups are strictly barred from merge
         if (group.primaryClassification === CLASSIFICATION_TYPES.DO_NOT_MERGE) {
             const err = new Error('Execution Rejected: Automated merge of DO_NOT_MERGE group is strictly prohibited. Use phone disassociation instead.');
             err.statusCode = 400;
@@ -342,12 +387,29 @@ export class ContactReconciliationService {
             throw err;
         }
 
-        // Safety Gate: Must be APPROVED or SAFE_AUTO_MERGE
+        // Safety Gate 2: Explicit Approval Requirement & Fingerprint Binding
         if (group.status !== 'APPROVED' && group.primaryClassification !== CLASSIFICATION_TYPES.SAFE_AUTO_MERGE) {
             const err = new Error(`Execution Rejected: Group is in status ${group.status}. Explicit operator approval required.`);
             err.statusCode = 400;
             err.code = 'UNAPPROVED_RECONCILIATION_ATTEMPT';
             throw err;
+        }
+
+        if (group.status === 'APPROVED' && group.approvedFingerprint && group.approvedFingerprint !== group.fingerprint) {
+            const err = new Error(`Execution Rejected: Group fingerprint has changed from ${group.approvedFingerprint} to ${group.fingerprint}. Approval is stale and invalidated.`);
+            err.statusCode = 409;
+            err.code = 'STALE_APPROVAL_REPLAY';
+            throw err;
+        }
+
+        // Safety Gate 3: REVIEW_REQUIRED Adjudication Completeness
+        if (group.primaryClassification === CLASSIFICATION_TYPES.REVIEW_REQUIRED) {
+            if (!group.reviewedBy || !group.reviewedAt || !group.reviewNotes || group.reviewNotes.trim() === '') {
+                const err = new Error('Execution Rejected: REVIEW_REQUIRED group requires explicit operator review notes and recorded reviewer before merge execution.');
+                err.statusCode = 400;
+                err.code = 'REVIEW_ADJUDICATION_INCOMPLETE';
+                throw err;
+            }
         }
 
         // Idempotency check
@@ -359,6 +421,14 @@ export class ContactReconciliationService {
         const canonicalId = group.selectedCanonicalMasterId || group.suggestedCanonicalMasterId;
         const allIds = group.contactIds.map(c => c.toString());
         const duplicateIds = allIds.filter(id => id !== canonicalId.toString());
+
+        // Dynamic re-validation of contacts in group: ensure no DO_NOT_MERGE condition exists
+        const contactDocs = await Contact.find({ _id: { $in: allIds } }).lean();
+        if (contactDocs.length < 2) {
+            const err = new Error('Execution Rejected: Fewer than 2 contacts remain in this group.');
+            err.statusCode = 400;
+            throw err;
+        }
 
         // Acquire distributed lock across all participating contacts
         const lock = await ContactLockService.acquireMergeLocks(allIds, { ttlMs: 45000 });
@@ -436,13 +506,28 @@ export class ContactReconciliationService {
 
     /**
      * Operator disassociates duplicate secondary phone from Contact B in DO_NOT_MERGE groups.
+     * Enforces target verification, preserves other phones, and supports idempotency.
      */
-    static async disassociatePhone(groupId, { user, targetContactId, action = 'REMOVE_SECONDARY', reason }) {
+    static async disassociatePhone(groupId, { user, targetContactId, action = 'REMOVE_SECONDARY', reason, idempotencyKey }) {
         const group = await ReconciliationGroup.findById(groupId);
         if (!group) throw new Error('ReconciliationGroup not found');
 
         const targetId = targetContactId || group.phoneDisassociationPlan?.targetContactId;
         if (!targetId) throw new Error('targetContactId is required for phone disassociation');
+
+        // Verify target contact belongs to this duplicate group
+        const isMember = group.contactIds.some(c => c.toString() === targetId.toString());
+        if (!isMember) {
+            const err = new Error('Target contact is not a member of this reconciliation group');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        // Idempotency check
+        if (idempotencyKey) {
+            const idemp = await ContactLockService.checkIdempotency(idempotencyKey);
+            if (idemp.isDuplicate) return idemp.cachedResult;
+        }
 
         const result = await withMongoTransaction(async (session) => {
             const contact = await Contact.findById(targetId).session(session);
@@ -503,11 +588,16 @@ export class ContactReconciliationService {
             };
         });
 
+        if (idempotencyKey) {
+            await ContactLockService.recordIdempotency(idempotencyKey, result);
+        }
+
         return result;
     }
 
     /**
      * Rollback a completed reconciliation operation.
+     * Enforces caller verification and exact restoration of state.
      */
     static async rollbackReconciliation(groupId, { user }) {
         const group = await ReconciliationGroup.findById(groupId);

@@ -50,6 +50,11 @@ const ReconciliationGroupSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Contact'
     },
+    approvedFingerprint: {
+        type: String,
+        default: null,
+        index: true
+    },
     status: {
         type: String,
         enum: ['PENDING_REVIEW', 'APPROVED', 'REJECTED', 'EXECUTED', 'ROLLED_BACK', 'DISASSOCIATED'],

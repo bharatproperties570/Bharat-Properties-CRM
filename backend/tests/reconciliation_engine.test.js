@@ -505,9 +505,228 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // 10. PRODUCTION WRITE PROHIBITION SANITY CHECK
+    // 10. STALE APPROVAL REPLAY & FINGERPRINT BINDING GATE
     // ─────────────────────────────────────────────────────────────────────────────
-    it('10. Environment Safety: Confirms tests run strictly in isolated local memory', () => {
+    it('10. Security: Rejects merge execution if group fingerprint changed after approval', async () => {
+        const c1 = await Contact.create({ name: 'Vikram Seth', phones: [{ number: '9877001122' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Vikram Seth', phones: [{ number: '9877001122' }], isDeleted: false, isMerged: false });
+
+        const initialFingerprint = computeGroupFingerprint('9877001122', [c1._id, c2._id]);
+        const group = await ReconciliationGroup.create({
+            fingerprint: initialFingerprint,
+            phoneNumber: '9877001122',
+            phoneMasked: maskPhoneNumber('9877001122'),
+            primaryClassification: 'SAFE_AUTO_MERGE',
+            contactIds: [c1._id, c2._id],
+            suggestedCanonicalMasterId: c1._id,
+            suggestedDuplicateIds: [c2._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        // Operator approves group under initialFingerprint
+        await ContactReconciliationService.approveGroup(group._id, {
+            user: testAdminUser,
+            reviewNotes: 'Initial approval',
+            expectedFingerprint: initialFingerprint
+        });
+
+        const approvedGroup = await ReconciliationGroup.findById(group._id);
+        assert.equal(approvedGroup.status, 'APPROVED');
+        assert.equal(approvedGroup.approvedFingerprint, initialFingerprint);
+
+        // Simulate group change: fingerprint altered (e.g. contact added/modified)
+        approvedGroup.fingerprint = 'sha256:altered_fingerprint_hash_99999';
+        await approvedGroup.save();
+
+        // Execution MUST fail closed with STALE_APPROVAL_REPLAY
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+            },
+            (err) => {
+                assert.equal(err.code, 'STALE_APPROVAL_REPLAY');
+                return true;
+            }
+        );
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 11. REVIEW_REQUIRED ADJUDICATION ENFORCEMENT
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('11. Security: REVIEW_REQUIRED requires explicit operator notes and adjudication before merge', async () => {
+        const c1 = await Contact.create({ name: 'Aarav Gupta', phones: [{ number: '9811223388' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Aarav Gupta', phones: [{ number: '9811223388' }], isDeleted: false, isMerged: false });
+
+        const fp = computeGroupFingerprint('9811223388', [c1._id, c2._id]);
+        const group = await ReconciliationGroup.create({
+            fingerprint: fp,
+            phoneNumber: '9811223388',
+            phoneMasked: maskPhoneNumber('9811223388'),
+            primaryClassification: 'REVIEW_REQUIRED',
+            reasonCodes: ['EXACT_NAME_DIFFERENT_OWNER'],
+            contactIds: [c1._id, c2._id],
+            suggestedCanonicalMasterId: c1._id,
+            suggestedDuplicateIds: [c2._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        // Case A: Unapproved REVIEW_REQUIRED attempt fails
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+            },
+            (err) => {
+                assert.equal(err.code, 'UNAPPROVED_RECONCILIATION_ATTEMPT');
+                return true;
+            }
+        );
+
+        // Case B: Approval without review notes fails adjudication check
+        group.status = 'APPROVED';
+        group.approvedFingerprint = fp;
+        group.reviewedBy = testAdminUser._id;
+        group.reviewedAt = new Date();
+        group.reviewNotes = '   '; // empty notes
+        await group.save();
+
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+            },
+            (err) => {
+                assert.equal(err.code, 'REVIEW_ADJUDICATION_INCOMPLETE');
+                return true;
+            }
+        );
+
+        // Case C: Full operator adjudication succeeds
+        group.reviewNotes = 'Verified KYC docs and sales agent ownership assignment.';
+        await group.save();
+
+        const result = await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+        assert.ok(result.success);
+        assert.equal(result.mergedDuplicateCount, 1);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 12. PHONE DISASSOCIATION OWNERSHIP & MEMBERSHIP VERIFICATION
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('12. Security: Phone disassociation validates target membership and preserves other phones', async () => {
+        const c1 = await Contact.create({ name: 'Contact 1', phones: [{ number: '9844112233' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Contact 2', phones: [{ number: '9844112233' }, { number: '9844998877' }], isDeleted: false, isMerged: false });
+        const unrelatedContact = await Contact.create({ name: 'Unrelated', phones: [{ number: '9999999999' }], isDeleted: false, isMerged: false });
+
+        const fp = computeGroupFingerprint('9844112233', [c1._id, c2._id]);
+        const group = await ReconciliationGroup.create({
+            fingerprint: fp,
+            phoneNumber: '9844112233',
+            phoneMasked: maskPhoneNumber('9844112233'),
+            primaryClassification: 'DO_NOT_MERGE',
+            contactIds: [c1._id, c2._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        // Case A: Target contact not in group fails
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.disassociatePhone(group._id, {
+                    user: testAdminUser,
+                    targetContactId: unrelatedContact._id,
+                    action: 'REMOVE_SECONDARY'
+                });
+            },
+            (err) => {
+                assert.ok(err.message.includes('not a member'));
+                return true;
+            }
+        );
+
+        // Case B: Valid disassociation on Contact 2 removes duplicate phone and keeps second phone
+        const disResult = await ContactReconciliationService.disassociatePhone(group._id, {
+            user: testAdminUser,
+            targetContactId: c2._id,
+            action: 'REMOVE_SECONDARY'
+        });
+        assert.ok(disResult.success);
+
+        const updatedC2 = await Contact.findById(c2._id);
+        assert.equal(updatedC2.phones.length, 1);
+        assert.equal(updatedC2.phones[0].number, '9844998877');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 13. READ-ONLY MUTATION SAFETY ON SCAN & READINESS
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('13. Mutation Safety: scanAndSyncGroups and evaluateReadiness perform zero Contact writes', async () => {
+        const c1 = await Contact.create({ name: 'Readonly User 1', phones: [{ number: '9812345678' }], isDeleted: false, isMerged: false });
+        const c2 = await Contact.create({ name: 'Readonly User 2', phones: [{ number: '9812345678' }], isDeleted: false, isMerged: false });
+
+        const c1Before = await Contact.findById(c1._id).lean();
+        const c2Before = await Contact.findById(c2._id).lean();
+
+        // Run scanAndSyncGroups
+        await ContactReconciliationService.scanAndSyncGroups();
+
+        // Run evaluateReadiness
+        await MigrationReadinessService.evaluateReadiness();
+
+        const c1After = await Contact.findById(c1._id).lean();
+        const c2After = await Contact.findById(c2._id).lean();
+
+        assert.deepEqual(c1Before, c1After, 'Contact 1 MUST be strictly identical before and after scan/readiness evaluation');
+        assert.deepEqual(c2Before, c2After, 'Contact 2 MUST be strictly identical before and after scan/readiness evaluation');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 14. READINESS FALSE-POSITIVE PREVENTION
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('14. Readiness Hardening: Returns BLOCKED if legacy index missing, lock held, or target exists', async () => {
+        // Ensure no active contacts
+        await Contact.deleteMany({});
+        try {
+            await Contact.collection.dropIndex('phones.number_1');
+        } catch (_) {}
+
+        // Case A: Missing legacy index phones.number_1
+        const evalMissingLegacy = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalMissingLegacy.ready, false);
+        assert.equal(evalMissingLegacy.status, 'BLOCKED');
+        assert.ok(evalMissingLegacy.blockerReasons.some(r => r.includes('LEGACY_INDEX_MISSING')));
+
+        // Add legacy index
+        await Contact.collection.createIndex({ 'phones.number': 1 });
+
+        // Case B: Unresolved group exists in ReconciliationGroup
+        await ReconciliationGroup.create({
+            fingerprint: 'fp_test_block',
+            phoneNumber: '9900112233',
+            phoneMasked: '+91 99*** **233',
+            primaryClassification: 'DO_NOT_MERGE',
+            status: 'PENDING_REVIEW'
+        });
+
+        const evalPendingGroup = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(evalPendingGroup.ready, false);
+        assert.equal(evalPendingGroup.status, 'BLOCKED');
+        assert.ok(evalPendingGroup.blockerReasons.some(r => r.includes('UNRESOLVED_GROUPS_EXIST')));
+
+        // Case C: Target unique index already exists
+        await ReconciliationGroup.deleteMany({});
+        await Contact.collection.createIndex(
+            { 'phones.number': 1 },
+            { name: 'contacts_phones_number_active_unique', unique: true }
+        );
+        const evalTargetExists = await MigrationReadinessService.evaluateReadiness();
+        assert.ok(evalTargetExists.checks.some(c => c.check === 'TARGET_INDEX_ABSENT' && c.passed === false));
+
+        // Cleanup target index
+        await Contact.collection.dropIndex('contacts_phones_number_active_unique');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 15. ENVIRONMENT SAFETY: LOCAL ISOLATION
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('15. Environment Safety: Confirms tests run strictly in isolated local memory', () => {
         const host = mongoose.connection.host;
         assert.ok(
             host.includes('127.0.0.1') || host.includes('localhost'),
