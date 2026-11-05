@@ -1029,18 +1029,79 @@ export const syncCanonicalPolicy = async (req, res) => {
             return res.status(404).json({ success: false, message: `No active, valid canonical policy found for authority ${code}.` });
         }
 
-        // P2-D: Clarified Idempotency Contract
-        // Each manual sync request can optionally carry a client-supplied operationId or Idempotency-Key.
-        // If provided and an operation with the same operationId has already completed successfully,
+        // Objective 2: Atomic Manual-Sync Idempotency Contract under Concurrency
+        // Validate and normalize operation ID, scope correlationId to target canonical policy,
+        // and rely on partial unique index { eventType: 1, correlationId: 1 } to arbitrate intent creation.
+        const rawOpId = req.body?.operationId || req.headers?.['idempotency-key'] || null;
+        let normalizedOpId = null;
+        let correlationId = undefined;
+
+        if (rawOpId !== null && rawOpId !== undefined) {
+            if (typeof rawOpId !== 'string' && typeof rawOpId !== 'number') {
+                return res.status(400).json({
+                    success: false,
+                    code: 'INVALID_OPERATION_ID',
+                    message: 'Operation ID must be a non-empty string under 128 characters.'
+                });
+            }
+            const trimmed = String(rawOpId).trim();
+            if (trimmed.length === 0 || trimmed.length > 128) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'INVALID_OPERATION_ID',
+                    message: 'Operation ID must be between 1 and 128 characters.'
+                });
+            }
+            if (!/^[a-zA-Z0-9_\-\.:#]+$/.test(trimmed)) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'INVALID_OPERATION_ID',
+                    message: 'Operation ID contains invalid characters. Allowed: alphanumeric, _, -, ., :, #'
+                });
+            }
+            normalizedOpId = trimmed;
+            // Scoped correlationId: deterministic prefix + target policy ID + normalized client operationId
+            correlationId = `canonical_sync:${policyDoc._id.toString()}:${normalizedOpId}`;
+        }
+
+        // Verify that the required unique partial index on { eventType, correlationId } exists
+        if (correlationId) {
+            try {
+                const indexes = await AuditLog.collection.indexes();
+                const existingUnique = indexes.find(idx =>
+                    idx.name === 'unique_audit_event_correlation' ||
+                    (idx.unique === true && idx.key && idx.key.eventType === 1 && idx.key.correlationId === 1)
+                );
+                if (existingUnique) {
+                    if (typeof AuditLog.verifyIdempotencyIndexSpec === 'function') {
+                        const specCheck = AuditLog.verifyIdempotencyIndexSpec(existingUnique);
+                        if (!specCheck.valid) {
+                            throw new Error(`AuditLog idempotency index invalid spec: ${specCheck.reason}`);
+                        }
+                    }
+                } else {
+                    if (typeof AuditLog.ensureIdempotencyIndex === 'function') {
+                        await AuditLog.ensureIdempotencyIndex();
+                    } else {
+                        throw new Error('AuditLog idempotency index is missing and ensureIdempotencyIndex is unavailable');
+                    }
+                }
+            } catch (idxErr) {
+                console.error('AuditLog idempotency index check failed:', idxErr);
+                return res.status(500).json({
+                    success: false,
+                    code: 'IDEMPOTENCY_INDEX_UNAVAILABLE',
+                    message: `Audit idempotency index verification failed: ${idxErr.message}`
+                });
+            }
+        }
+
+        // If an operation with the same correlationId has already completed successfully,
         // return the existing durable result without re-executing Redis sync or duplicate audit logs.
-        // Requests without operationId are treated as distinct, independently audited attempts.
-        const operationId = req.body?.operationId || req.headers?.['idempotency-key'] || null;
-        if (operationId) {
+        if (correlationId) {
             const existingCompletedAudit = await AuditLog.findOne({
                 eventType: 'canonical_policy_synced',
-                targetType: 'authority_canonical_policy',
-                targetId: policyDoc._id,
-                'metadata.operationId': String(operationId),
+                correlationId,
                 'metadata.syncPhase': 'COMPLETED',
                 status: 'success'
             });
@@ -1049,16 +1110,19 @@ export const syncCanonicalPolicy = async (req, res) => {
                     success: true,
                     data: policyDoc,
                     idempotent: true,
-                    operationId: String(operationId)
+                    operationId: normalizedOpId,
+                    status: 'COMPLETED'
                 });
             }
         }
 
-        // P2-D Step 1: Persist durable audit intent BEFORE initiating Redis sync
+        // Step 1: Persist durable audit intent BEFORE initiating Redis sync
+        // The unique partial index on { eventType, correlationId } arbitrates concurrent intent creation
         let auditIntent;
         try {
             auditIntent = await AuditLog.create({
                 eventType: 'canonical_policy_synced',
+                correlationId: correlationId || undefined,
                 targetType: 'authority_canonical_policy',
                 targetId: policyDoc._id,
                 userId: req.user?._id,
@@ -1071,13 +1135,48 @@ export const syncCanonicalPolicy = async (req, res) => {
                     contentHash: policyDoc.contentHash,
                     redisSyncStatus: 'PENDING',
                     syncPhase: 'INTENT',
-                    operationId: operationId ? String(operationId) : null
+                    operationId: normalizedOpId || null
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('user-agent'),
                 status: 'warning'
             });
         } catch (intentErr) {
+            // Duplicate key on { eventType, correlationId } caught by unique index
+            if (correlationId && (intentErr.code === 11000 || intentErr.code === 11001 || (intentErr.name === 'MongoServerError' && intentErr.code === 11000))) {
+                const existingAudit = await AuditLog.findOne({
+                    eventType: 'canonical_policy_synced',
+                    correlationId
+                });
+                if (existingAudit) {
+                    if (existingAudit.metadata?.syncPhase === 'COMPLETED' && existingAudit.status === 'success') {
+                        return res.status(200).json({
+                            success: true,
+                            data: policyDoc,
+                            idempotent: true,
+                            operationId: normalizedOpId,
+                            status: 'COMPLETED'
+                        });
+                    }
+                    if (existingAudit.metadata?.syncPhase === 'INTENT' || existingAudit.status === 'warning') {
+                        return res.status(202).json({
+                            success: true,
+                            code: 'OPERATION_IN_PROGRESS',
+                            message: 'Manual canonical policy sync is currently in progress for this operation ID',
+                            operationId: normalizedOpId,
+                            status: 'IN_PROGRESS'
+                        });
+                    }
+                    return res.status(500).json({
+                        success: false,
+                        code: 'OPERATION_PREVIOUSLY_FAILED',
+                        message: 'Manual canonical policy sync previously failed or requires reconciliation for this operation ID',
+                        operationId: normalizedOpId,
+                        status: 'FAILED'
+                    });
+                }
+            }
+
             console.error('Failed to persist audit intent before canonical policy sync:', intentErr);
             return res.status(500).json({
                 success: false,

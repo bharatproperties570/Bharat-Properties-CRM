@@ -33,7 +33,7 @@ import {
     syncCanonicalPolicy,
     setTestQuotaProvider
 } from '../controllers/authorityVerification.controller.js';
-import { checkApprovalRight } from '../middlewares/permission.middleware.js';
+import { checkApprovalRight, checkPermission } from '../middlewares/permission.middleware.js';
 import AuditLog from '../models/AuditLog.js';
 import { invalidateUserPermissionCache, cacheUserPermissions } from '../services/cache.service.js';
 import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
@@ -2463,6 +2463,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
     await t.test('32. Authenticated Canonical Policy Controller Maker-Checker & Audit (Remediation 3)', async () => {
         const authorityCode = 'HSVP';
+        await AuditLog.ensureIdempotencyIndex();
 
         // 32.1: Unauthorized request (missing req.user) is rejected with 401
         {
@@ -2755,6 +2756,116 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
             // Restore approver role
             await Role.updateOne({ _id: authorizedApproverRole._id }, { $set: { 'approvalRights.manageAuthoritySettings': true } });
+            await invalidateUserPermissionCache(approverUser._id);
+        }
+
+        // 32.4b4: Stale module-permission revocation immunity on rotate & sync routes (Objective 1)
+        {
+            // 1. Seed authorized role with authorityVerification.edit=true and manageAuthoritySettings=true
+            const testModuleAccess = {
+                authorityVerification: { view: true, create: true, edit: true, delete: false }
+            };
+            const testApprovalRights = {
+                manageAuthoritySettings: true,
+                approveAuthorityChanges: true
+            };
+            await Role.updateOne(
+                { _id: authorizedApproverRole._id },
+                { $set: { moduleAccess: testModuleAccess, approvalRights: testApprovalRights } }
+            );
+
+            // Populate the Redis permission cache with edit=true and manageAuthoritySettings=true
+            await cacheUserPermissions(approverUser._id.toString(), authorizedApproverRole._id.toString(), {
+                department: approverUser.department,
+                moduleAccess: testModuleAccess,
+                approvalRights: testApprovalRights
+            });
+
+            // 2. Revoke ONLY authorityVerification.edit in MongoDB (leaving manageAuthoritySettings=true)
+            // Deliberately simulate Redis invalidation failure / delay (leave stale cache entry in Redis)
+            await Role.updateOne(
+                { _id: authorizedApproverRole._id },
+                { $set: { 'moduleAccess.authorityVerification.edit': false } }
+            );
+
+            // Compose the middleware stack used by rotate & sync routes:
+            // checkPermission('authorityVerification', 'edit', { skipCache: true })
+            // checkApprovalRight('manageAuthoritySettings', { skipCache: true })
+            const permMiddleware = checkPermission('authorityVerification', 'edit', { skipCache: true });
+            const rightMiddleware = checkApprovalRight('manageAuthoritySettings', { skipCache: true });
+
+            let rotatePermPassed = false;
+            let rotateRightPassed = false;
+            let rotateStatus = null;
+            let rotateBody = null;
+
+            const reqRotate = {
+                user: approverUser,
+                ip: '127.0.0.1',
+                originalUrl: `/api/authority/canonical-policy/${authorityCode}/rotate`,
+                method: 'POST',
+                get: () => 'test-agent'
+            };
+            const resRotate = {
+                status(c) { rotateStatus = c; return this; },
+                json(b) { rotateBody = b; return this; }
+            };
+
+            await permMiddleware(reqRotate, resRotate, async () => {
+                rotatePermPassed = true;
+                await rightMiddleware(reqRotate, resRotate, async () => {
+                    rotateRightPassed = true;
+                });
+            });
+
+            assert.equal(rotatePermPassed, false, 'Rotate middleware stack must reject request when authorityVerification.edit is revoked in Mongo despite stale Redis cache');
+            assert.equal(rotateRightPassed, false, 'Controller/downstream must not be reached');
+            assert.equal(rotateStatus, 403, 'Must return HTTP 403 on revoked module permission');
+            assert.ok(rotateBody.message.includes('Insufficient permissions: Cannot edit authorityVerification'));
+
+            // Test on sync route as well
+            let syncPermPassed = false;
+            let syncStatus = null;
+            let syncBody = null;
+            const reqSync = {
+                user: approverUser,
+                ip: '127.0.0.1',
+                originalUrl: `/api/authority/canonical-policy/${authorityCode}/sync`,
+                method: 'POST',
+                get: () => 'test-agent'
+            };
+            const resSync = {
+                status(c) { syncStatus = c; return this; },
+                json(b) { syncBody = b; return this; }
+            };
+
+            await permMiddleware(reqSync, resSync, async () => {
+                syncPermPassed = true;
+            });
+
+            assert.equal(syncPermPassed, false, 'Sync middleware stack must reject request when authorityVerification.edit is revoked in Mongo');
+            assert.equal(syncStatus, 403);
+            assert.ok(syncBody.message.includes('Insufficient permissions: Cannot edit authorityVerification'));
+
+            // 3. Converse control: when current edit=true and current manageAuthoritySettings=true, both pass
+            await Role.updateOne(
+                { _id: authorizedApproverRole._id },
+                { $set: { 'moduleAccess.authorityVerification.edit': true } }
+            );
+
+            let controlPermPassed = false;
+            let controlRightPassed = false;
+            await permMiddleware(reqRotate, resRotate, async () => {
+                controlPermPassed = true;
+                await rightMiddleware(reqRotate, resRotate, async () => {
+                    controlRightPassed = true;
+                });
+            });
+
+            assert.equal(controlPermPassed, true, 'Control: checkPermission must pass when edit=true in Mongo');
+            assert.equal(controlRightPassed, true, 'Control: checkApprovalRight must pass when manageAuthoritySettings=true in Mongo');
+
+            // Cleanup cache
             await invalidateUserPermissionCache(approverUser._id);
         }
 
@@ -3367,6 +3478,203 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 'metadata.operationId': 'sync-contract-op-42'
             });
             assert.equal(auditEntries2.length, 1, 'Idempotent retry must not create duplicate audit record');
+
+            // P2-D Case 4: Atomic Concurrency under Promise.all (Objective 2)
+            await AuditLog.deleteMany({ eventType: 'canonical_policy_synced', 'metadata.authorityCode': authorityCode });
+            let redisCallCount = 0;
+            let releaseSyncGate = null;
+            const syncGate = new Promise((resolve) => {
+                releaseSyncGate = resolve;
+            });
+            let gateEngaged = false;
+
+            const concurrentQuotaProvider = {
+                async setCanonicalPolicy() {
+                    redisCallCount++;
+                    if (!gateEngaged) {
+                        gateEngaged = true;
+                        // Pause the first request at Redis provider so the second overlaps
+                        await syncGate;
+                    }
+                    return { success: true };
+                }
+            };
+            setTestQuotaProvider(concurrentQuotaProvider);
+
+            try {
+                const concurrentReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'atomic-concurrent-op-99' }
+                };
+                const concurrentReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'atomic-concurrent-op-99' }
+                };
+
+                let c1Code = null, c1Body = null;
+                const c1Res = {
+                    status(c) { c1Code = c; return this; },
+                    json(b) { c1Body = b; return this; }
+                };
+                let c2Code = null, c2Body = null;
+                const c2Res = {
+                    status(c) { c2Code = c; return this; },
+                    json(b) { c2Body = b; return this; }
+                };
+
+                // Launch request 1 which creates intent and pauses in setCanonicalPolicy
+                const p1 = syncCanonicalPolicy(concurrentReq1, c1Res);
+                // Allow request 1 to insert intent in MongoDB
+                await new Promise((r) => setTimeout(r, 60));
+
+                // Launch request 2 which attempts to insert same correlationId and catches duplicate key error
+                const p2 = syncCanonicalPolicy(concurrentReq2, c2Res);
+                // Wait for request 2 to hit duplicate key error and process response
+                await new Promise((r) => setTimeout(r, 60));
+
+                // Release request 1 to complete Redis sync
+                releaseSyncGate();
+                await Promise.all([p1, p2]);
+
+                // Assertions for atomic concurrency
+                assert.equal(redisCallCount, 1, 'Exactly one Redis setCanonicalPolicy invocation must occur');
+                assert.equal(c1Body.success, true, 'First request must succeed');
+                assert.equal(c2Code, 202, 'Second overlapping request must return HTTP 202');
+                assert.equal(c2Body.code, 'OPERATION_IN_PROGRESS', 'Second request must report OPERATION_IN_PROGRESS');
+                assert.equal(c2Body.status, 'IN_PROGRESS');
+
+                const currentPolicy = await getCanonicalPolicy(authorityCode);
+                const scopedCorrelationId = `canonical_sync:${currentPolicy._id.toString()}:atomic-concurrent-op-99`;
+                const auditRecords = await AuditLog.find({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: scopedCorrelationId
+                });
+                assert.equal(auditRecords.length, 1, 'Exactly one durable audit intent/completed record must exist');
+                assert.equal(auditRecords[0].metadata.syncPhase, 'COMPLETED');
+                assert.equal(auditRecords[0].status, 'success');
+
+                // Case 4b: Retry after completion must return HTTP 200 without second Redis sync
+                let c3Code = null, c3Body = null;
+                const c3Res = {
+                    status(c) { c3Code = c; return this; },
+                    json(b) { c3Body = b; return this; }
+                };
+                await syncCanonicalPolicy(concurrentReq1, c3Res);
+                assert.equal(c3Code, 200, 'Retry after completion must return HTTP 200');
+                assert.equal(c3Body.idempotent, true);
+                assert.equal(c3Body.status, 'COMPLETED');
+                assert.equal(redisCallCount, 1, 'Redis must not be called a second time on completed retry');
+
+                const auditRecordsAfter = await AuditLog.find({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: scopedCorrelationId
+                });
+                assert.equal(auditRecordsAfter.length, 1, 'Audit record count must strictly remain 1');
+
+                // Case 4c: Independent operation IDs and independent target policies remain isolated
+                const diffOpReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'distinct-op-101' }
+                };
+                let diffCode = null, diffBody = null;
+                const diffRes = {
+                    status(c) { diffCode = c; return this; },
+                    json(b) { diffBody = b; return this; }
+                };
+                await syncCanonicalPolicy(diffOpReq, diffRes);
+                assert.equal(diffBody.success, true);
+                assert.equal(redisCallCount, 2, 'Distinct operationId must independently invoke sync');
+
+                // Seed GMADA policy and test identical operationId across different authorities
+                const gmadaPolicy = await registerOrRotateCanonicalPolicy({
+                    authorityCode: 'GMADA',
+                    policy: {
+                        policyReference: 'GMADA/CANONICAL/01',
+                        minIntervalMs: 20000,
+                        maxRequestsPerMinute: 5,
+                        maxRequestsPerDay: 200,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    },
+                    reviewedBy: activeReviewer._id.toString(),
+                    approvedBy: approverUser._id.toString()
+                });
+                const gmadaAudit = await AuditLog.create({
+                    eventType: 'canonical_policy_rotated',
+                    targetType: 'authority_canonical_policy',
+                    targetId: gmadaPolicy._id,
+                    description: 'GMADA audit',
+                    status: 'success'
+                });
+                await markCanonicalPolicyAudited({ policyId: gmadaPolicy._id, auditLogId: gmadaAudit._id });
+
+                const gmadaReq = {
+                    params: { authorityCode: 'GMADA' },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'atomic-concurrent-op-99' }
+                };
+                let gmadaCode = null, gmadaBody = null;
+                const gmadaRes = {
+                    status(c) { gmadaCode = c; return this; },
+                    json(b) { gmadaBody = b; return this; }
+                };
+                await syncCanonicalPolicy(gmadaReq, gmadaRes);
+                assert.equal(gmadaBody.success, true);
+                assert.equal(redisCallCount, 3, 'Different target policy must not collide with same client operation ID');
+
+                // Case 4d: Operation ID format and bounds validation
+                const invalidOpReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'invalid<script>alert(1)</script>' }
+                };
+                let invCode = null, invBody = null;
+                const invRes = {
+                    status(c) { invCode = c; return this; },
+                    json(b) { invBody = b; return this; }
+                };
+                await syncCanonicalPolicy(invalidOpReq, invRes);
+                assert.equal(invCode, 400);
+                assert.equal(invBody.code, 'INVALID_OPERATION_ID');
+
+                // Case 4e: Requests without operationId are distinct and independent
+                const noOpReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: {}
+                };
+                let noOp1Code = null, noOp1Body = null;
+                const noOp1Res = {
+                    status(c) { noOp1Code = c; return this; },
+                    json(b) { noOp1Body = b; return this; }
+                };
+                let noOp2Code = null, noOp2Body = null;
+                const noOp2Res = {
+                    status(c) { noOp2Code = c; return this; },
+                    json(b) { noOp2Body = b; return this; }
+                };
+                await syncCanonicalPolicy(noOpReq, noOp1Res);
+                await syncCanonicalPolicy(noOpReq, noOp2Res);
+                assert.equal(noOp1Body.success, true);
+                assert.equal(noOp2Body.success, true);
+                assert.equal(redisCallCount, 5, 'Requests without operationId must each execute independently');
+            } finally {
+                setTestQuotaProvider(null);
+            }
         }
     });
 

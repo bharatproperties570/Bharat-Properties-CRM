@@ -156,6 +156,10 @@ const RoleSchema = new mongoose.Schema({
     },
 
     // ========== Permissions Versioning ==========
+    // permissionsVersion provides monotonic optimistic concurrency tracking and durable audit versioning
+    // for Role updates in MongoDB. Sensitive authority verification routes bypass permission caching entirely
+    // via skipCache: true with direct fresh reads from MongoDB to ensure immediate, fail-closed revocation
+    // enforcement regardless of Redis cache availability.
     permissionsVersion: {
         type: Number,
         default: 1
