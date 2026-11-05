@@ -199,6 +199,63 @@ export class RedisPortalQuotaProvider {
     }
 
     /**
+     * Inspects the current canonical policy in Redis or in-memory fallback.
+     * Used for safe recovery, drift verification, and policy introspection.
+     *
+     * @param {object} args
+     * @param {string} args.authorityCode
+     * @returns {Promise<object|null>}
+     */
+    async getCanonicalPolicy({ authorityCode } = {}) {
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!code) return null;
+
+        if (this.redisClient) {
+            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            if (isReady && typeof this.redisClient.hgetall === 'function') {
+                const canKey = `quota:canonical:${code}`;
+                try {
+                    const data = await this.redisClient.hgetall(canKey);
+                    if (data && Object.keys(data).length > 0 && data.version) {
+                        return {
+                            authorityCode: code,
+                            version: Number(data.version),
+                            contentHash: data.contentHash || null,
+                            policyReference: data.ref || null,
+                            minIntervalMs: Number(data.minIntervalMs || 0),
+                            maxRequestsPerMinute: Number(data.maxPerMin || 0),
+                            maxRequestsPerHour: Number(data.maxPerHour || 0),
+                            maxRequestsPerDay: Number(data.maxPerDay || 0),
+                            approvedBy: data.approvedBy || null,
+                            updatedAt: Number(data.updatedAt || 0)
+                        };
+                    }
+                } catch {
+                    // Fall back to memory map if Redis call fails
+                }
+            }
+        }
+
+        const mem = this._canonicalPolicies.get(code);
+        if (mem) {
+            return {
+                authorityCode: code,
+                version: Number(mem.version),
+                contentHash: mem.contentHash || null,
+                policyReference: mem.ref || null,
+                minIntervalMs: Number(mem.minIntervalMs || 0),
+                maxRequestsPerMinute: Number(mem.maxPerMin || 0),
+                maxRequestsPerHour: Number(mem.maxPerHour || 0),
+                maxRequestsPerDay: Number(mem.maxPerDay || 0),
+                approvedBy: mem.approvedBy || null,
+                updatedAt: Number(mem.updatedAt || 0)
+            };
+        }
+
+        return null;
+    }
+
+    /**
      * Reserves quota for a single physical request.
      * Enforces rate policy authority-wide across all tenants, with IST day/hour rollover
      * and canonical policy enforcement.

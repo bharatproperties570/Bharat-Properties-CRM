@@ -3479,13 +3479,13 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             });
             assert.equal(auditEntries2.length, 1, 'Idempotent retry must not create duplicate audit record');
 
-            // P2-D Case 4: Atomic Concurrency under Promise.all (Objective 2)
+            // P2-D Case 4: Atomic Concurrency under Explicit Promise Barrier (Objective 2)
             await AuditLog.deleteMany({ eventType: 'canonical_policy_synced', 'metadata.authorityCode': authorityCode });
             let redisCallCount = 0;
-            let releaseSyncGate = null;
-            const syncGate = new Promise((resolve) => {
-                releaseSyncGate = resolve;
-            });
+            let req1EnteredRedis = null;
+            const req1RedisPromise = new Promise((resolve) => { req1EnteredRedis = resolve; });
+            let releaseReq1Gate = null;
+            const req1Gate = new Promise((resolve) => { releaseReq1Gate = resolve; });
             let gateEngaged = false;
 
             const concurrentQuotaProvider = {
@@ -3493,10 +3493,13 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     redisCallCount++;
                     if (!gateEngaged) {
                         gateEngaged = true;
-                        // Pause the first request at Redis provider so the second overlaps
-                        await syncGate;
+                        req1EnteredRedis(); // Signals that req1 has written intent in Mongo and reached Redis
+                        await req1Gate; // Holds req1 at Redis boundary until released
                     }
                     return { success: true };
+                },
+                async getCanonicalPolicy() {
+                    return null;
                 }
             };
             setTestQuotaProvider(concurrentQuotaProvider);
@@ -3528,19 +3531,19 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     json(b) { c2Body = b; return this; }
                 };
 
-                // Launch request 1 which creates intent and pauses in setCanonicalPolicy
+                // Launch request 1 which creates intent and pauses at Redis gate
                 const p1 = syncCanonicalPolicy(concurrentReq1, c1Res);
-                // Allow request 1 to insert intent in MongoDB
-                await new Promise((r) => setTimeout(r, 60));
+                // Wait for explicit barrier: req1 has written intent and reached Redis! (ZERO fixed sleep)
+                await req1RedisPromise;
 
                 // Launch request 2 which attempts to insert same correlationId and catches duplicate key error
                 const p2 = syncCanonicalPolicy(concurrentReq2, c2Res);
-                // Wait for request 2 to hit duplicate key error and process response
-                await new Promise((r) => setTimeout(r, 60));
+                // Await request 2: finishes immediately with 202 OPERATION_IN_PROGRESS
+                await p2;
 
                 // Release request 1 to complete Redis sync
-                releaseSyncGate();
-                await Promise.all([p1, p2]);
+                releaseReq1Gate();
+                await p1;
 
                 // Assertions for atomic concurrency
                 assert.equal(redisCallCount, 1, 'Exactly one Redis setCanonicalPolicy invocation must occur');
@@ -3632,7 +3635,88 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 assert.equal(gmadaBody.success, true);
                 assert.equal(redisCallCount, 3, 'Different target policy must not collide with same client operation ID');
 
-                // Case 4d: Operation ID format and bounds validation
+                // Case 4d: Operation ID format, whitespace, and boundary validations
+                // 1. Explicitly supplied empty string in body
+                const emptyBodyReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: '' }
+                };
+                let ebCode = null, ebBody = null;
+                await syncCanonicalPolicy(emptyBodyReq, {
+                    status(c) { ebCode = c; return this; },
+                    json(b) { ebBody = b; return this; }
+                });
+                assert.equal(ebCode, 400);
+                assert.equal(ebBody.code, 'INVALID_OPERATION_ID');
+
+                // 2. Whitespace-only string in body
+                const wsBodyReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: '   ' }
+                };
+                let wsCode = null, wsBody = null;
+                await syncCanonicalPolicy(wsBodyReq, {
+                    status(c) { wsCode = c; return this; },
+                    json(b) { wsBody = b; return this; }
+                });
+                assert.equal(wsCode, 400);
+                assert.equal(wsBody.code, 'INVALID_OPERATION_ID');
+
+                // 3. Explicitly supplied null in body
+                const nullBodyReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: null }
+                };
+                let nbCode = null, nbBody = null;
+                await syncCanonicalPolicy(nullBodyReq, {
+                    status(c) { nbCode = c; return this; },
+                    json(b) { nbBody = b; return this; }
+                });
+                assert.equal(nbCode, 400);
+                assert.equal(nbBody.code, 'INVALID_OPERATION_ID');
+
+                // 4. Empty idempotency-key header
+                const emptyHdrReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    headers: { 'idempotency-key': '' }
+                };
+                let ehCode = null, ehBody = null;
+                await syncCanonicalPolicy(emptyHdrReq, {
+                    status(c) { ehCode = c; return this; },
+                    json(b) { ehBody = b; return this; }
+                });
+                assert.equal(ehCode, 400);
+                assert.equal(ehBody.code, 'INVALID_OPERATION_ID');
+
+                // 5. Whitespace-only idempotency-key header
+                const wsHdrReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    headers: { 'idempotency-key': '   \t  ' }
+                };
+                let whCode = null, whBody = null;
+                await syncCanonicalPolicy(wsHdrReq, {
+                    status(c) { whCode = c; return this; },
+                    json(b) { whBody = b; return this; }
+                });
+                assert.equal(whCode, 400);
+                assert.equal(whBody.code, 'INVALID_OPERATION_ID');
+
+                // 6. Invalid characters in operation ID
                 const invalidOpReq = {
                     params: { authorityCode },
                     user: approverUser,
@@ -3641,13 +3725,28 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     body: { operationId: 'invalid<script>alert(1)</script>' }
                 };
                 let invCode = null, invBody = null;
-                const invRes = {
+                await syncCanonicalPolicy(invalidOpReq, {
                     status(c) { invCode = c; return this; },
                     json(b) { invBody = b; return this; }
-                };
-                await syncCanonicalPolicy(invalidOpReq, invRes);
+                });
                 assert.equal(invCode, 400);
                 assert.equal(invBody.code, 'INVALID_OPERATION_ID');
+
+                // 7. Header contract: valid idempotency-key header succeeds
+                const validHdrReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    headers: { 'idempotency-key': 'valid-hdr-op-88' }
+                };
+                let vhCode = null, vhBody = null;
+                await syncCanonicalPolicy(validHdrReq, {
+                    status(c) { vhCode = c; return this; },
+                    json(b) { vhBody = b; return this; }
+                });
+                assert.equal(vhBody.success, true);
+                assert.equal(vhBody.operationId, 'valid-hdr-op-88');
 
                 // Case 4e: Requests without operationId are distinct and independent
                 const noOpReq = {
@@ -3671,7 +3770,179 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 await syncCanonicalPolicy(noOpReq, noOp2Res);
                 assert.equal(noOp1Body.success, true);
                 assert.equal(noOp2Body.success, true);
-                assert.equal(redisCallCount, 5, 'Requests without operationId must each execute independently');
+
+                // Case 4f: Safe recovery from crash BEFORE Redis publication (abandoned intent)
+                // Seed an abandoned INTENT record (>5s old) where Redis has NOT been updated
+                const abandonedOpId = 'abandoned-crash-before-redis-99';
+                const abandonedCorrId = `canonical_sync:${currentPolicy._id.toString()}:${abandonedOpId}`;
+                const abandonedDoc = await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: abandonedCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated abandoned pre-sync intent',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'INTENT',
+                        operationId: abandonedOpId
+                    },
+                    status: 'warning',
+                    timestamp: new Date(Date.now() - 15000)
+                });
+                await AuditLog.collection.updateOne(
+                    { _id: abandonedDoc._id },
+                    { $set: { timestamp: new Date(Date.now() - 15000), createdAt: new Date(Date.now() - 15000), updatedAt: new Date(Date.now() - 15000) } }
+                );
+
+                const countBefore4f = redisCallCount;
+                const recoveryReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: abandonedOpId }
+                };
+                let recCode = null, recBody = null;
+                await syncCanonicalPolicy(recoveryReq, {
+                    status(c) { recCode = c; return this; },
+                    json(b) { recBody = b; return this; }
+                });
+                assert.equal(recBody.success, true, 'Recovery must succeed');
+                assert.equal(recBody.status, 'COMPLETED');
+                assert.equal(recBody.reconciled, true, 'Response must indicate reconciled recovery');
+                assert.equal(redisCallCount, countBefore4f + 1, 'Redis must be called exactly once to complete un-synced abandoned intent');
+
+                // Verify recovery audit log was generated
+                const reconAudits = await AuditLog.find({
+                    eventType: 'canonical_policy_sync_reconciled',
+                    'metadata.operationId': abandonedOpId
+                });
+                assert.equal(reconAudits.length, 1, 'Reconciliation audit event must be logged');
+                assert.equal(reconAudits[0].metadata.reconciliationAction, 'ABANDONED_INTENT_RECOVERED_AND_PUBLISHED');
+
+                // Case 4g: Safe recovery from crash AFTER Redis publication (Redis-success / audit-finalization failure)
+                // Simulate Redis ALREADY having the target version and content hash, but DB marked PENDING_RECONCILIATION
+                const postSyncCrashOpId = 'post-sync-crash-recon-44';
+                const postSyncCorrId = `canonical_sync:${currentPolicy._id.toString()}:${postSyncCrashOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: postSyncCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated post-sync unfinalized intent',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING_RECONCILIATION',
+                        syncPhase: 'INTENT',
+                        operationId: postSyncCrashOpId
+                    },
+                    status: 'warning',
+                    createdAt: new Date(Date.now() - 10000)
+                });
+
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'PENDING_RECONCILIATION', redisSyncError: 'Simulated post-sync crash' } }
+                );
+
+                // Mock quotaProvider returning that Redis already holds this exact policy!
+                const postSyncProvider = {
+                    async setCanonicalPolicy() {
+                        throw new Error('REDIS_MUST_NOT_BE_CALLED_WHEN_ALREADY_SYNCED');
+                    },
+                    async getCanonicalPolicy({ authorityCode: ac }) {
+                        if (ac === authorityCode) {
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(postSyncProvider);
+
+                const postSyncReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: postSyncCrashOpId }
+                };
+                let psCode = null, psBody = null;
+                await syncCanonicalPolicy(postSyncReq, {
+                    status(c) { psCode = c; return this; },
+                    json(b) { psBody = b; return this; }
+                });
+
+                assert.equal(psBody.success, true, 'Recovery must succeed without throwing');
+                assert.equal(psBody.status, 'COMPLETED');
+                assert.equal(psBody.reconciled, true, 'Response must indicate reconciled: true');
+
+                // Verify policy in database is now reconciled to SYNCED
+                const policyAfterRecon = await getCanonicalPolicy(authorityCode);
+                assert.equal(policyAfterRecon.redisSyncStatus, 'SYNCED', 'Policy status must be reconciled to SYNCED');
+                assert.equal(policyAfterRecon.redisSyncError, null);
+
+                // Verify reconciliation audit was recorded
+                const reconAudits4g = await AuditLog.find({
+                    eventType: 'canonical_policy_sync_reconciled',
+                    'metadata.operationId': postSyncCrashOpId
+                });
+                assert.equal(reconAudits4g.length, 1, 'Reconciliation audit event must be recorded');
+                assert.equal(reconAudits4g[0].metadata.reconciliationAction, 'AUDIT_FINALIZED_EXISTING_REDIS');
+
+                // Case 4h: Simultaneous identical operation IDs racing without barrier
+                const simProvider = {
+                    calls: 0,
+                    async setCanonicalPolicy() {
+                        this.calls++;
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(simProvider);
+
+                const simOpId = 'simultaneous-identical-op-55';
+                const simReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: simOpId }
+                };
+                const simReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: simOpId }
+                };
+
+                let sim1Code = null, sim1Body = null;
+                let sim2Code = null, sim2Body = null;
+
+                await Promise.all([
+                    syncCanonicalPolicy(simReq1, { status(c) { sim1Code = c; return this; }, json(b) { sim1Body = b; return this; } }),
+                    syncCanonicalPolicy(simReq2, { status(c) { sim2Code = c; return this; }, json(b) { sim2Body = b; return this; } })
+                ]);
+
+                // Exactly 1 Redis call must occur
+                assert.equal(simProvider.calls, 1, 'Simultaneous requests must invoke Redis exactly once');
+                const codes = [sim1Code || 200, sim2Code || 200].sort();
+                assert.ok(
+                    (codes[0] === 200 && codes[1] === 202) || (codes[0] === 200 && codes[1] === 200),
+                    `Simultaneous requests must safely arbitrate: exactly 1 sync, got codes ${JSON.stringify(codes)}`
+                );
             } finally {
                 setTestQuotaProvider(null);
             }

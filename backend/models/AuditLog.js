@@ -185,7 +185,9 @@ const AuditLogSchema = new mongoose.Schema({
             'canonical_policy_rotated',
             'authority_canonical_policy_rotated',
             'canonical_policy_synced',
-            'authority_canonical_policy_synced'
+            'authority_canonical_policy_synced',
+            'canonical_policy_sync_reconciled',
+            'authority_canonical_policy_sync_reconciled'
         ],
         index: true
     },
