@@ -1620,102 +1620,73 @@ export const getBaileysGroups = async (req, res) => {
             return res.status(403).json({ success: false, error: 'Unauthorized to view WhatsApp groups for this account' });
         }
 
+        const { default: WhatsAppGroupRegistry } = await import('../models/WhatsAppGroupRegistry.js');
+        const { default: WhatsAppGroupRegistryService } = await import('../services/WhatsAppGroupRegistryService.js');
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
-        let sock = BaileysConnectionManager.getSocket(integrationId);
-        
-        if (!sock) {
-            sock = await BaileysConnectionManager.connect(integrationId).catch(() => null);
-        }
 
-        let formatted = [];
-        let fetchedFromSocket = false;
+        const existingCount = await WhatsAppGroupRegistry.countDocuments({ integrationId, status: { $ne: 'INACTIVE' } });
 
-        if (sock && sock.user && sock.user.id) {
-            try {
-                // 🚀 Enterprise Safeguard: 4.5s socket timeout prevents network freeze & Axios timeouts
-                const fetchPromise = sock.groupFetchAllParticipating();
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('WhatsApp socket query timed out')), 4500)
-                );
-                const groups = await Promise.race([fetchPromise, timeoutPromise]);
-
-                if (groups && typeof groups === 'object') {
-                    const myCleanId = sock.user?.id ? sock.user.id.split('@')[0].split(':')[0] : null;
-                    formatted = Object.values(groups).map(g => {
-                        if (g.id && g.subject) {
-                            BaileysConnectionManager.setGroupSubject(g.id, g.subject);
-                        }
-                        const isAnnounce = Boolean(g.announce || g.isCommunityAnnounce);
-                        const isAdmin = Array.isArray(g.participants) && g.participants.some(p => {
-                            const pId = p.id ? p.id.split('@')[0].split(':')[0] : '';
-                            return pId === myCleanId && (p.admin === 'admin' || p.admin === 'superadmin');
-                        });
-                        const canSend = !isAnnounce || isAdmin;
-
-                        return {
-                            id: g.id,
-                            subject: g.subject || 'WhatsApp Group',
-                            owner: g.owner || null,
-                            creation: g.creation || null,
-                            participantsCount: Array.isArray(g.participants) ? g.participants.length : 0,
-                            desc: g.desc?.toString() || '',
-                            announce: isAnnounce,
-                            canSend: canSend
-                        };
-                    });
-                    fetchedFromSocket = true;
+        // If force refresh requested or no groups cached yet in registry, trigger sync from socket
+        if (forceRefresh || existingCount === 0) {
+            let sock = BaileysConnectionManager.getSocket(integrationId);
+            if (!sock) {
+                sock = await BaileysConnectionManager.connect(integrationId).catch(() => null);
+            }
+            if (sock && sock.user && sock.user.id) {
+                try {
+                    const fetchPromise = WhatsAppGroupRegistryService.syncAllGroups(integrationId, sock);
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('WhatsApp socket query timed out')), 5000)
+                    );
+                    await Promise.race([fetchPromise, timeoutPromise]);
+                } catch (syncErr) {
+                    console.warn('[SocialController] Live group sync notice:', syncErr.message);
                 }
-            } catch (socketErr) {
-                console.warn('[SocialController] sock.groupFetchAllParticipating delayed or failed:', socketErr.message);
             }
         }
 
-        // If live socket timed out or is pairing, serve from in-memory cache & DB conversations
-        if (!fetchedFromSocket || formatted.length === 0) {
-            const cachedMap = BaileysConnectionManager.getAllGroupSubjects(integrationId);
-            const groupList = [];
-            const seenJids = new Set();
+        // Fast retrieval directly from WhatsAppGroupRegistry (<20ms)
+        const registryDocs = await WhatsAppGroupRegistry.find({
+            integrationId,
+            status: { $ne: 'INACTIVE' }
+        }).sort({ subject: 1 }).lean();
 
+        let formatted = [];
+        if (registryDocs && registryDocs.length > 0) {
+            formatted = registryDocs.map(g => ({
+                id: g.groupJid,
+                subject: g.subject || 'WhatsApp Group',
+                owner: null,
+                creation: null,
+                participantsCount: g.participantCount || 0,
+                desc: '',
+                announce: Boolean(g.announce),
+                restrict: Boolean(g.restrict),
+                canSend: g.permissionStatus === 'CAN_SEND',
+                permissionStatus: g.permissionStatus,
+                senderIsAdmin: Boolean(g.senderIsAdmin),
+                reason: g.lastError || (g.permissionStatus === 'ADMIN_ONLY_RESTRICTED' ? 'Announcement channel: Only group admins can post' : null)
+            }));
+        } else {
+            // Fallback to cached group subjects in BaileysConnectionManager
+            const cachedMap = BaileysConnectionManager.getAllGroupSubjects(integrationId);
             if (cachedMap && cachedMap.size > 0) {
                 for (const [jid, subject] of cachedMap.entries()) {
-                    if (jid.includes('@g.us') && !seenJids.has(jid)) {
-                        seenJids.add(jid);
-                        groupList.push({
+                    if (jid.includes('@g.us')) {
+                        formatted.push({
                             id: jid,
                             subject: subject,
                             owner: null,
                             creation: null,
                             participantsCount: 0,
-                            desc: ''
+                            desc: '',
+                            announce: false,
+                            canSend: true,
+                            permissionStatus: 'UNKNOWN',
+                            reason: null
                         });
                     }
                 }
-            }
-
-            // Also check existing group conversations from DB for comprehensive fallback
-            try {
-                const Conversation = (await import('../models/Conversation.js')).default;
-                const dbGroups = await Conversation.find({ channel: 'whatsapp', isGroup: true, whatsappIntegrationId: integration._id }).select('phoneNumber title groupName updatedAt').lean();
-                dbGroups.forEach(cg => {
-                    const jid = cg.phoneNumber || cg.metadata?.groupJid;
-                    if (jid && !seenJids.has(jid)) {
-                        seenJids.add(jid);
-                        groupList.push({
-                            id: jid,
-                            subject: cg.groupName || cg.title || 'WhatsApp Group',
-                            owner: null,
-                            creation: null,
-                            participantsCount: 0,
-                            desc: ''
-                        });
-                    }
-                });
-            } catch (dbErr) {
-                console.warn('[SocialController] DB group fallback lookup error:', dbErr.message);
-            }
-
-            if (groupList.length > 0) {
-                formatted = groupList;
             }
         }
 
@@ -1724,7 +1695,7 @@ export const getBaileysGroups = async (req, res) => {
             groupsMemoryCache.set(integrationId, { data: formatted, timestamp: Date.now() });
         }
 
-        res.json({ success: true, data: formatted });
+        res.json({ success: true, data: formatted, count: formatted.length });
     } catch (error) {
         console.error('[SocialController] getBaileysGroups error:', error.message);
         res.status(500).json({ success: false, error: error.message });

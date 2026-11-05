@@ -4,8 +4,7 @@ const BaileysAuthSchema = new mongoose.Schema(
     {
         sessionId: {
             type: String,
-            required: true,
-            index: true
+            required: true
         },
         fileId: {
             type: String,

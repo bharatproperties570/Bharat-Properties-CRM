@@ -216,7 +216,9 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
                     pipeline: [{
                         $project: {
                             builtUpArea: 1, builtupType: 1, ageOfConstruction: 1, constructionAge: 1, unitSpecification: 1,
-                            area: 1, size: 1, sizeUnit: 1, address: 1, sector: 1, block: 1, project: 1
+                            area: 1, size: 1, sizeUnit: 1, address: 1, sector: 1, block: 1, project: 1,
+                            intent: 1, rentPrice: 1, leasePrice: 1, sizeConfig: 1, sizeLabel: 1, length: 1, width: 1,
+                            roadWidth: 1, facing: 1, direction: 1, corner: 1, orientation: 1
                         }
                     }],
                     as: 'inventoryData'
@@ -225,6 +227,9 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
                 { $project: {
                     price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1, stage: 1, location: 1, propertyType: 1, category: 1, createdAt: 1, unitSpecification: 1, inventoryId: 1,
                     sector: 1, block: 1, project: 1, projectName: 1, projectId: 1,
+                    intent: 1, monthlyRent: 1, leaseTermMonths: 1,
+                    verificationStatus: 1, verification_status: 1, isVerified: 1,
+                    roadWidth: 1, facing: 1, direction: 1, corner: 1, orientation: 1,
                     inventory: {
                         builtUpArea: '$inventoryData.builtUpArea',
                         builtupType: '$inventoryData.builtupType',
@@ -237,7 +242,19 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
                         address: '$inventoryData.address',
                         sector: '$inventoryData.sector',
                         block: '$inventoryData.block',
-                        project: '$inventoryData.project'
+                        project: '$inventoryData.project',
+                        intent: '$inventoryData.intent',
+                        rentPrice: '$inventoryData.rentPrice',
+                        leasePrice: '$inventoryData.leasePrice',
+                        sizeConfig: '$inventoryData.sizeConfig',
+                        sizeLabel: '$inventoryData.sizeLabel',
+                        length: '$inventoryData.length',
+                        width: '$inventoryData.width',
+                        roadWidth: '$inventoryData.roadWidth',
+                        facing: '$inventoryData.facing',
+                        direction: '$inventoryData.direction',
+                        corner: '$inventoryData.corner',
+                        orientation: '$inventoryData.orientation'
                     }
                 }}
             ])
@@ -252,11 +269,25 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
         const priceTrendProjectIds = new Set();
 
         (priceTrendDeals || []).forEach(d => {
-            [d.location, d.category, d.propertyType, d.sector, d.inventory?.address?.location, d.inventory?.sector].forEach(id => {
+            [
+                d.location, d.category, d.propertyType, d.sector, d.intent,
+                d.inventory?.address?.location, d.inventory?.sector,
+                d.roadWidth, d.facing, d.direction, d.corner, d.orientation,
+                d.inventory?.roadWidth, d.inventory?.facing, d.inventory?.direction, d.inventory?.corner, d.inventory?.orientation
+            ].forEach(id => {
                 if (id && mongoose.Types.ObjectId.isValid(String(id))) {
                     priceTrendLookupIds.add(new mongoose.Types.ObjectId(String(id)));
                 }
             });
+            if (Array.isArray(d.inventory?.intent)) {
+                d.inventory.intent.forEach(id => {
+                    if (id && mongoose.Types.ObjectId.isValid(String(id))) {
+                        priceTrendLookupIds.add(new mongoose.Types.ObjectId(String(id)));
+                    }
+                });
+            } else if (d.inventory?.intent && mongoose.Types.ObjectId.isValid(String(d.inventory.intent))) {
+                priceTrendLookupIds.add(new mongoose.Types.ObjectId(String(d.inventory.intent)));
+            }
             [d.project, d.projectId, d.inventory?.project].forEach(id => {
                 if (id && mongoose.Types.ObjectId.isValid(String(id))) {
                     priceTrendProjectIds.add(new mongoose.Types.ObjectId(String(id)));
@@ -315,12 +346,53 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
             const catStr = rawCatId ? String(rawCatId) : '';
             let cat = trendLookupMap[catStr] || (typeof rawCatId === 'string' && !mongoose.Types.ObjectId.isValid(rawCatId) ? rawCatId : 'Residential');
 
+            // 3. Enterprise Intent Resolution (Canonical: 'Sell', 'Rent', 'Lease')
+            let resolvedIntent = 'Sell';
+            const rawIntent = d.intent || d.inventory?.intent;
+            let intentStr = '';
+            if (rawIntent) {
+                if (Array.isArray(rawIntent)) {
+                    intentStr = rawIntent.map(x => trendLookupMap[String(x)] || String(x)).join(' ');
+                } else {
+                    intentStr = trendLookupMap[String(rawIntent)] || String(rawIntent);
+                }
+            }
+            if (!intentStr && d.monthlyRent && d.monthlyRent > 0) {
+                intentStr = 'Rent';
+            }
+            const intentLower = intentStr.toLowerCase();
+            if (intentLower.includes('rent')) {
+                resolvedIntent = 'Rent';
+            } else if (intentLower.includes('lease')) {
+                resolvedIntent = 'Lease';
+            } else {
+                resolvedIntent = 'Sell';
+            }
+
+            // 4. Orientation resolution from inventory / deal
+            const rawRoad = d.inventory?.roadWidth || d.roadWidth;
+            const roadWidth = trendLookupMap[String(rawRoad)] || (typeof rawRoad === 'string' && !mongoose.Types.ObjectId.isValid(rawRoad) ? rawRoad : '');
+
+            const rawFacing = d.inventory?.facing || d.facing || d.inventory?.corner || d.corner;
+            const facing = trendLookupMap[String(rawFacing)] || (typeof rawFacing === 'string' && !mongoose.Types.ObjectId.isValid(rawFacing) ? rawFacing : '');
+
+            const rawDirection = d.inventory?.direction || d.direction;
+            const direction = trendLookupMap[String(rawDirection)] || (typeof rawDirection === 'string' && !mongoose.Types.ObjectId.isValid(rawDirection) ? rawDirection : '');
+
+            const verificationStatus = d.verificationStatus || d.verification_status || (d.isVerified ? 'verified' : 'not_set');
+
             return {
                 ...d,
                 location: loc,
                 locationName: loc,
                 category: cat,
-                categoryName: cat
+                categoryName: cat,
+                intent: resolvedIntent,
+                intentLabel: resolvedIntent,
+                roadWidth,
+                facing,
+                direction,
+                verificationStatus
             };
         });
 
