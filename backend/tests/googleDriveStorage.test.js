@@ -1631,15 +1631,26 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
         });
     });
 
+    let sharedMongod = null;
+    async function getOrStartMongo() {
+        if (!sharedMongod) {
+            sharedMongod = await MongoMemoryServer.create({
+                instance: { launchTimeout: 60000 }
+            });
+        }
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            await mongoose.connect(sharedMongod.getUri());
+        }
+        return sharedMongod;
+    }
+
     // =========================================================================
     // 20. Finding 3: Durable Direct-Upload Ownership (Server Restart & Multi-Instance)
     // =========================================================================
     await t.test('20. Durable Direct-Upload Ownership', async (sub) => {
         let mongod;
         try {
-            mongod = await MongoMemoryServer.create();
-            const uri = mongod.getUri();
-            await mongoose.connect(uri);
+            mongod = await getOrStartMongo();
         } catch (mErr) {
             assert.fail(`Fatal test failure: MongoMemoryServer could not be initialized: ${mErr.message}`);
         }
@@ -1907,12 +1918,8 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                 assert.strictEqual(authorized, true, 'Platform administrator with global dataScope without tenant lockdown must be authorized');
             });
         } finally {
-            if (mongod) {
-                try {
-                    await mongoose.disconnect();
-                    await mongod.stop();
-                } catch (cleanupErr) {}
-            }
+            await DirectUploadRecord.deleteMany({}).catch(() => {});
+            fileUploadOwnership.clear();
         }
     });
 
@@ -1922,9 +1929,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
     await t.test('21. Multiple Upload Partial-Failure Cleanup & Atomic Batch Rollback', async (sub) => {
         let mongod;
         try {
-            mongod = await MongoMemoryServer.create();
-            const uri = mongod.getUri();
-            await mongoose.connect(uri);
+            mongod = await getOrStartMongo();
         } catch (mErr) {
             assert.fail(`Fatal test failure: MongoMemoryServer could not be initialized for Suite 21: ${mErr.message}`);
         }
@@ -1985,7 +1990,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                 try {
                     // Fail bulkWrite ONLY when registering the second file
                     DirectUploadRecord.bulkWrite = async (ops) => {
-                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        const fileId = ops[0]?.insertOne?.document?.fileId || ops[0]?.updateOne?.filter?.fileId || '';
                         if (fileId.includes('batch-fail-file-2')) {
                             throw new Error('Simulated write failure on second file registration');
                         }
@@ -2062,7 +2067,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
 
                     // Fail bulkWrite ONLY when registering the local filename alias (second registration)
                     DirectUploadRecord.bulkWrite = async (ops) => {
-                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        const fileId = ops[0]?.insertOne?.document?.fileId || ops[0]?.updateOne?.filter?.fileId || '';
                         if (fileId !== mockDriveId) {
                             throw new Error('Simulated DB failure on second registration (local filename alias)');
                         }
@@ -2183,7 +2188,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                 try {
                     // Force batch upload to fail on write
                     DirectUploadRecord.bulkWrite = async (ops) => {
-                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        const fileId = ops[0]?.insertOne?.document?.fileId || ops[0]?.updateOne?.filter?.fileId || '';
                         if (fileId.includes('unrelated-batch-fail')) {
                             throw new Error('Simulated DB failure during new batch');
                         }
@@ -2239,7 +2244,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                 let testServer;
                 try {
                     DirectUploadRecord.bulkWrite = async (ops) => {
-                        const fileId = ops[0]?.updateOne?.filter?.fileId || '';
+                        const fileId = ops[0]?.insertOne?.document?.fileId || ops[0]?.updateOne?.filter?.fileId || '';
                         if (fileId.includes('stale-check-file-2')) {
                             throw new Error('Simulated write error on second item');
                         }
@@ -2289,10 +2294,470 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             });
         } finally {
             User.findById = originalFindById;
-            if (mongod) {
+            await DirectUploadRecord.deleteMany({}).catch(() => {});
+            fileUploadOwnership.clear();
+        }
+    });
+
+    // =========================================================================
+    // 22. Atomic Ownership Rollback Hardening & Collision Protection
+    // =========================================================================
+    await t.test('22. Atomic Ownership Rollback Hardening & Collision Protection', async (sub) => {
+        let mongod;
+        try {
+            mongod = await getOrStartMongo();
+        } catch (mErr) {
+            assert.fail(`Fatal test failure: MongoMemoryServer could not be initialized for Suite 22: ${mErr.message}`);
+        }
+
+        const userA = {
+            _id: new mongoose.Types.ObjectId('65d333333333333333333333'),
+            name: 'User A (Tenant 1)',
+            email: 'user-a-suite22@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const userB = {
+            _id: new mongoose.Types.ObjectId('65d444444444444444444444'),
+            name: 'User B (Tenant 1)',
+            email: 'user-b-suite22@tenant1.com',
+            tenantId: new mongoose.Types.ObjectId('65d999999999999999999999'),
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            isActive: true
+        };
+
+        const originalFindById = User.findById;
+        User.findById = (id) => ({
+            select: () => ({
+                lean: async () => {
+                    const idStr = String(id);
+                    if (idStr === String(userA._id)) return userA;
+                    if (idStr === String(userB._id)) return userB;
+                    return null;
+                }
+            })
+        });
+
+        try {
+            // -----------------------------------------------------------------
+            // 22a. Existing same-user fileId collision: preserve original record and ownership
+            // -----------------------------------------------------------------
+            await sub.test('22a. Existing same-user fileId collision: preserve original record and ownership', async () => {
+                const fileId = 'same-user-file-collision-101';
+                // Seed initial record
+                const originalDoc = await DirectUploadRecord.create({
+                    fileId,
+                    sanitizedFileId: fileId,
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    originalName: 'original_userA_file.pdf',
+                    storage: 'google_drive',
+                    batchToken: 'initial-batch-user-a'
+                });
+
+                fileUploadOwnership.set(fileId, {
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    storage: 'google_drive',
+                    originalName: 'original_userA_file.pdf',
+                    batchToken: 'initial-batch-user-a'
+                });
+
+                // Attempt to register same fileId for same user without allowOverwrite
+                let thrownError = null;
+                try {
+                    await registerUploadedFile(fileId, userA, {
+                        storage: 'google_drive',
+                        originalName: 'overwritten_file.pdf',
+                        batchToken: 'new-batch-attempt'
+                    });
+                } catch (err) {
+                    thrownError = err;
+                }
+
+                assert.ok(thrownError, 'Must throw error on collision');
+                assert.match(thrownError.message, /Upload collision.*already registered/);
+
+                // Verify original record in MongoDB has not been overwritten
+                const currentRecord = await DirectUploadRecord.findOne({ fileId }).lean();
+                assert.ok(currentRecord);
+                assert.strictEqual(String(currentRecord._id), String(originalDoc._id));
+                assert.strictEqual(currentRecord.originalName, 'original_userA_file.pdf');
+                assert.strictEqual(currentRecord.batchToken, 'initial-batch-user-a');
+
+                // Verify cache still holds original entry
+                const cached = fileUploadOwnership.get(fileId);
+                assert.strictEqual(cached.originalName, 'original_userA_file.pdf');
+                assert.strictEqual(cached.batchToken, 'initial-batch-user-a');
+            });
+
+            // -----------------------------------------------------------------
+            // 22b. Existing other-user fileId collision: preserve original record and ownership
+            // -----------------------------------------------------------------
+            await sub.test('22b. Existing other-user fileId collision: preserve original record and ownership', async () => {
+                const fileId = 'other-user-file-collision-202';
+                // Seed initial record owned by userB
+                const originalDoc = await DirectUploadRecord.create({
+                    fileId,
+                    sanitizedFileId: fileId,
+                    userId: String(userB._id),
+                    tenantId: String(userB.tenantId),
+                    originalName: 'confidential_userB.pdf',
+                    storage: 'google_drive',
+                    batchToken: 'batch-user-b'
+                });
+
+                fileUploadOwnership.set(fileId, {
+                    userId: String(userB._id),
+                    tenantId: String(userB.tenantId),
+                    storage: 'google_drive',
+                    originalName: 'confidential_userB.pdf',
+                    batchToken: 'batch-user-b'
+                });
+
+                // Attempt to register same fileId for userA
+                let thrownError = null;
+                try {
+                    await registerUploadedFile(fileId, userA, {
+                        storage: 'google_drive',
+                        originalName: 'hijacked_file.pdf',
+                        batchToken: 'hijack-batch-attempt'
+                    });
+                } catch (err) {
+                    thrownError = err;
+                }
+
+                assert.ok(thrownError, 'Must reject cross-user collision');
+                assert.match(thrownError.message, /Upload collision.*another user/);
+
+                // Verify userB's record in DB remains intact
+                const currentRecord = await DirectUploadRecord.findOne({ fileId }).lean();
+                assert.ok(currentRecord);
+                assert.strictEqual(String(currentRecord.userId), String(userB._id));
+                assert.strictEqual(currentRecord.originalName, 'confidential_userB.pdf');
+
+                // Verify cache still belongs to userB
+                const cached = fileUploadOwnership.get(fileId);
+                assert.strictEqual(String(cached.userId), String(userB._id));
+                assert.strictEqual(cached.originalName, 'confidential_userB.pdf');
+            });
+
+            // -----------------------------------------------------------------
+            // 22c. First bulkWrite operation succeeds and a later operation fails: cleans up partial records
+            // -----------------------------------------------------------------
+            await sub.test('22c. First bulkWrite operation succeeds and a later operation fails: cleans up partial records', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                const batchToken = `batch-22c-${Date.now()}`;
+                const fileIdWithSubpath = 'folder/nested/item-22c-test.txt';
+                const sanitized = 'item-22c-test.txt';
+
+                try {
+                    // Simulate partial bulkWrite success: op 0 is inserted, op 1 throws
+                    DirectUploadRecord.bulkWrite = async (ops, opts) => {
+                        if (ops.length > 1) {
+                            // Insert the first doc manually to simulate partial persistence before driver/connection error
+                            await DirectUploadRecord.collection.insertOne(ops[0].insertOne.document);
+                            throw new Error('Simulated partial bulkWrite failure on second operation');
+                        }
+                        return await originalBulkWrite.call(DirectUploadRecord, ops, opts);
+                    };
+
+                    let caught = null;
+                    try {
+                        await registerUploadedFile(fileIdWithSubpath, userA, {
+                            storage: 'google_drive',
+                            batchToken
+                        });
+                    } catch (e) {
+                        caught = e;
+                    }
+
+                    assert.ok(caught, 'Must throw on partial bulkWrite failure');
+                    assert.match(caught.message, /Failed to persist durable ownership record/);
+
+                    // Verify that the partially inserted first record was deleted by emergency cleanup
+                    const remainingDocs = await DirectUploadRecord.find({
+                        $or: [{ fileId: fileIdWithSubpath }, { fileId: sanitized }, { batchToken }]
+                    }).lean();
+                    assert.strictEqual(remainingDocs.length, 0, 'No partial records must remain after bulkWrite failure');
+
+                    // Verify cache is empty
+                    assert.strictEqual(fileUploadOwnership.has(fileIdWithSubpath), false);
+                    assert.strictEqual(fileUploadOwnership.has(sanitized), false);
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 22d. Registration throws before caller can add IDs to batchRegisteredIds: batchToken cleanup purges records
+            // -----------------------------------------------------------------
+            await sub.test('22d. Registration throws before caller can add IDs to batchRegisteredIds: batchToken cleanup purges records', async () => {
+                const batchToken = `batch-22d-${Date.now()}`;
+                const batchRegisteredFileIds = new Set();
+                const batchCreatedRecordIds = new Set();
+                const tracker = {
+                    batchToken,
+                    addFileId(id) { if (id) batchRegisteredFileIds.add(id); },
+                    addRecordId(id) { if (id) batchCreatedRecordIds.add(String(id)); }
+                };
+
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                try {
+                    // Let bulkWrite succeed, but simulate an error occurring immediately after write
+                    DirectUploadRecord.bulkWrite = async (ops, opts) => {
+                        await originalBulkWrite.call(DirectUploadRecord, ops, opts);
+                        throw new Error('Simulated crash right after bulkWrite before caller gets returned IDs');
+                    };
+
+                    let thrown = null;
+                    try {
+                        await registerUploadedFile('test-file-22d.txt', userA, {
+                            batchToken,
+                            tracker
+                        });
+                    } catch (e) {
+                        thrown = e;
+                    }
+
+                    assert.ok(thrown, 'Must throw error');
+
+                    // Now execute the batch-scoped rollback (simulating caller's catch block)
+                    const deleteConditions = [{ batchToken }];
+                    if (batchCreatedRecordIds.size > 0) {
+                        deleteConditions.push({ _id: { $in: Array.from(batchCreatedRecordIds) } });
+                    }
+                    await DirectUploadRecord.deleteMany({
+                        $or: deleteConditions,
+                        userId: String(userA._id)
+                    });
+
+                    // Verify 0 durable records remain in MongoDB for this batchToken or file
+                    const recordsInDb = await DirectUploadRecord.find({
+                        $or: [{ batchToken }, { fileId: 'test-file-22d.txt' }]
+                    }).lean();
+                    assert.strictEqual(recordsInDb.length, 0, 'Must clean up records even if caller threw before local push');
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                }
+            });
+
+            // -----------------------------------------------------------------
+            // 22e. Concurrent batches using overlapping identifiers: rollback of batch 2 does not delete batch 1
+            // -----------------------------------------------------------------
+            await sub.test('22e. Concurrent batches using overlapping identifiers: rollback of batch 2 does not delete batch 1', async () => {
+                const batchToken1 = `batch-alpha-${Date.now()}`;
+                const tracker1 = {
+                    batchToken: batchToken1,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+
+                // Batch 1 uploads file A successfully
+                const res1 = await registerUploadedFile('file-alpha-1.txt', userA, {
+                    batchToken: batchToken1,
+                    tracker: tracker1
+                });
+                assert.ok(res1);
+
+                // Batch 2 runs concurrently for userA with its own batchToken
+                const batchToken2 = `batch-beta-${Date.now()}`;
+                const tracker2 = {
+                    batchToken: batchToken2,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+
+                // Batch 2 inserts a file, then encounters a failure and triggers rollback
+                await registerUploadedFile('file-beta-1.txt', userA, {
+                    batchToken: batchToken2,
+                    tracker: tracker2
+                });
+
+                // Simulate Batch 2 failing and executing its scoped rollback:
+                for (const id of tracker2.registeredFileIds) {
+                    const mem = fileUploadOwnership.get(id);
+                    if (mem && mem.batchToken === batchToken2) {
+                        fileUploadOwnership.delete(id);
+                    }
+                }
+                await DirectUploadRecord.deleteMany({
+                    $or: [
+                        { batchToken: batchToken2 },
+                        { _id: { $in: Array.from(tracker2.createdRecordIds) } }
+                    ],
+                    userId: String(userA._id)
+                });
+
+                // VERIFY: Batch 2's records are deleted
+                const betaDocs = await DirectUploadRecord.find({ batchToken: batchToken2 }).lean();
+                assert.strictEqual(betaDocs.length, 0);
+                assert.strictEqual(fileUploadOwnership.has('file-beta-1.txt'), false);
+
+                // VERIFY: Batch 1's record is completely untouched and active!
+                const alphaDocs = await DirectUploadRecord.find({ batchToken: batchToken1 }).lean();
+                assert.strictEqual(alphaDocs.length, 1);
+                assert.strictEqual(alphaDocs[0].fileId, 'file-alpha-1.txt');
+                assert.strictEqual(fileUploadOwnership.has('file-alpha-1.txt'), true);
+                assert.strictEqual(fileUploadOwnership.get('file-alpha-1.txt').batchToken, batchToken1);
+            });
+
+            // -----------------------------------------------------------------
+            // 22f. Rollback deletes only records created by the failing batch: pre-existing records intact
+            // -----------------------------------------------------------------
+            await sub.test('22f. Rollback deletes only records created by the failing batch: pre-existing records intact', async () => {
+                // Seed pre-existing record from earlier upload session
+                const preExistingId = 'pre-existing-historical-doc-333';
+                await DirectUploadRecord.create({
+                    fileId: preExistingId,
+                    sanitizedFileId: preExistingId,
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    originalName: 'tax_return_2025.pdf',
+                    storage: 'google_drive',
+                    batchToken: 'historical-batch-token'
+                });
+                fileUploadOwnership.set(preExistingId, {
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    originalName: 'tax_return_2025.pdf',
+                    batchToken: 'historical-batch-token'
+                });
+
+                // Now execute a batch upload that creates 1 item and fails on item 2
+                const batchTokenFailing = `batch-failing-${Date.now()}`;
+                const failingTracker = {
+                    batchToken: batchTokenFailing,
+                    createdRecordIds: new Set(),
+                    registeredFileIds: new Set(),
+                    addFileId(id) { this.registeredFileIds.add(id); },
+                    addRecordId(id) { this.createdRecordIds.add(String(id)); }
+                };
+
+                await registerUploadedFile('batch-failing-doc-1.txt', userA, {
+                    batchToken: batchTokenFailing,
+                    tracker: failingTracker
+                });
+
+                // Simulate batch failure and execute batch rollback
+                for (const id of failingTracker.registeredFileIds) {
+                    const mem = fileUploadOwnership.get(id);
+                    if (mem && mem.batchToken === batchTokenFailing) {
+                        fileUploadOwnership.delete(id);
+                    }
+                }
+                await DirectUploadRecord.deleteMany({
+                    $or: [
+                        { batchToken: batchTokenFailing },
+                        { _id: { $in: Array.from(failingTracker.createdRecordIds) } }
+                    ],
+                    userId: String(userA._id)
+                });
+
+                // VERIFY: The newly created batch record is deleted
+                const failedDocInDb = await DirectUploadRecord.findOne({ fileId: 'batch-failing-doc-1.txt' }).lean();
+                assert.strictEqual(failedDocInDb, null);
+
+                // VERIFY: The pre-existing historical record is completely preserved!
+                const preExistingInDb = await DirectUploadRecord.findOne({ fileId: preExistingId }).lean();
+                assert.ok(preExistingInDb, 'Pre-existing record must remain in MongoDB');
+                assert.strictEqual(preExistingInDb.originalName, 'tax_return_2025.pdf');
+                assert.strictEqual(preExistingInDb.batchToken, 'historical-batch-token');
+
+                const preExistingInCache = fileUploadOwnership.get(preExistingId);
+                assert.ok(preExistingInCache, 'Pre-existing record must remain in cache');
+                assert.strictEqual(preExistingInCache.originalName, 'tax_return_2025.pdf');
+            });
+
+            // -----------------------------------------------------------------
+            // 22g. Existing memory-cache entries remain unchanged on collision attempt
+            // -----------------------------------------------------------------
+            await sub.test('22g. Existing memory-cache entries remain unchanged on collision attempt', async () => {
+                const targetId = 'mem-cache-protection-file-444';
+                const originalCachePayload = {
+                    userId: String(userB._id),
+                    tenantId: String(userB.tenantId),
+                    storage: 'google_drive',
+                    originalName: 'secret_spec.pdf',
+                    batchToken: 'mem-cache-original-token',
+                    timestamp: 9999999
+                };
+                fileUploadOwnership.set(targetId, { ...originalCachePayload });
+
+                // Attempt to register file with same targetId for userA
+                let thrown = null;
+                try {
+                    await registerUploadedFile(targetId, userA, {
+                        storage: 'google_drive',
+                        originalName: 'malicious_overwrite.pdf',
+                        batchToken: 'attacker-batch-token'
+                    });
+                } catch (e) {
+                    thrown = e;
+                }
+
+                assert.ok(thrown, 'Must throw collision error');
+                assert.match(thrown.message, /Upload collision/);
+
+                // Ensure memory cache was NOT modified or corrupted
+                const currentMem = fileUploadOwnership.get(targetId);
+                assert.deepStrictEqual(currentMem, originalCachePayload, 'Memory cache entry must remain strictly unchanged');
+            });
+
+            // -----------------------------------------------------------------
+            // 22h. No partial durable records remain after failed registration
+            // -----------------------------------------------------------------
+            await sub.test('22h. No partial durable records remain after failed registration', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                const batchToken = `batch-22h-${Date.now()}`;
+                const fileToTest = 'path/sub/file-22h-fail.png';
+                const sanitized = 'file-22h-fail.png';
+
+                try {
+                    DirectUploadRecord.bulkWrite = async () => {
+                        throw new Error('Database disk error during bulkWrite');
+                    };
+
+                    let thrown = null;
+                    try {
+                        await registerUploadedFile(fileToTest, userA, {
+                            batchToken
+                        });
+                    } catch (e) {
+                        thrown = e;
+                    }
+
+                    assert.ok(thrown, 'Must fail closed');
+
+                    // Check MongoDB: 0 records
+                    const recordsCount = await DirectUploadRecord.countDocuments({
+                        $or: [{ fileId: fileToTest }, { fileId: sanitized }, { batchToken }]
+                    });
+                    assert.strictEqual(recordsCount, 0, 'No partial durable records must exist in MongoDB');
+
+                    // Check cache: 0 entries
+                    assert.strictEqual(fileUploadOwnership.has(fileToTest), false);
+                    assert.strictEqual(fileUploadOwnership.has(sanitized), false);
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                }
+            });
+        } finally {
+            User.findById = originalFindById;
+            await DirectUploadRecord.deleteMany({}).catch(() => {});
+            fileUploadOwnership.clear();
+            if (sharedMongod) {
                 try {
                     await mongoose.disconnect();
-                    await mongod.stop();
+                    await sharedMongod.stop();
                 } catch (cleanupErr) {}
             }
         }

@@ -82,14 +82,17 @@ export function isAuthorizedForRecord(record, user, userId, userTenantId) {
 /**
  * Register file upload ownership for IDOR protection.
  * Updates the in-memory cache and persists a durable record in MongoDB.
+ * Enforces collision detection and insert-only semantics: never overwrites existing records without explicit verified ownership policy.
  * Fails closed if durable persistence cannot be completed when MongoDB is expected to be available.
  */
 export async function registerUploadedFile(fileId, user, options = {}) {
-    if (!fileId || !user) return;
+    if (!fileId || !user) return null;
     const sanitized = path.basename(fileId);
     const userId = user._id || user.id;
     const rawTenantId = user.tenantId || user.tenant;
     const tenantId = rawTenantId ? String(rawTenantId) : null;
+    const batchToken = options.batchToken || options.tracker?.batchToken || crypto.randomUUID();
+
     const record = {
         userId: userId ? String(userId) : null,
         tenantId,
@@ -97,72 +100,141 @@ export async function registerUploadedFile(fileId, user, options = {}) {
         originalName: options.originalName || null,
         mimeType: options.mimeType || null,
         sizeBytes: options.sizeBytes || null,
+        batchToken,
         timestamp: Date.now()
     };
-    fileUploadOwnership.set(sanitized, record);
-    fileUploadOwnership.set(fileId, record);
+
+    // 1. In-memory collision detection
+    const existingMem = fileUploadOwnership.get(fileId) || fileUploadOwnership.get(sanitized);
+    if (existingMem) {
+        if (existingMem.userId && String(existingMem.userId) !== String(userId)) {
+            throw new Error(`Upload collision: file ID ${fileId} already exists in ownership registry for another user`);
+        }
+        const isSameBatch = existingMem.batchToken && existingMem.batchToken === batchToken;
+        if (!options.allowOverwrite && !isSameBatch) {
+            throw new Error(`Upload collision: file ID ${fileId} is already registered in ownership registry`);
+        }
+    }
 
     // Persist to durable CRM record in MongoDB if connected
     const isMongoConnected = mongoose.connection && mongoose.connection.readyState === 1;
     const isMongoExpected = Boolean(process.env.MONGODB_URI || process.env.NODE_ENV === 'production' || isMongoConnected);
 
+    let createdRecordIds = [];
     if (isMongoConnected) {
+        let docsToInsert = [];
         try {
-            const bulkOps = [
-                {
-                    updateOne: {
-                        filter: { fileId },
-                        update: {
-                            $set: {
-                                fileId,
-                                sanitizedFileId: sanitized,
-                                userId: record.userId,
-                                tenantId: record.tenantId,
-                                storage: record.storage,
-                                originalName: record.originalName,
-                                mimeType: record.mimeType,
-                                sizeBytes: record.sizeBytes
-                            }
-                        },
-                        upsert: true
-                    }
+            // Collision detection query in MongoDB
+            const existingRecords = await DirectUploadRecord.find({
+                fileId: { $in: [fileId, sanitized] }
+            }).lean();
+
+            for (const existing of existingRecords) {
+                if (existing.userId && String(existing.userId) !== String(userId)) {
+                    throw new Error(`Upload collision: file ID ${existing.fileId} already exists and belongs to another user`);
                 }
+                const isSameBatch = existing.batchToken && existing.batchToken === batchToken;
+                if (!options.allowOverwrite && !isSameBatch) {
+                    throw new Error(`Upload collision: file ID ${existing.fileId} is already registered for this user`);
+                }
+            }
+
+            // Insert-only semantics with unique IDs and batch-scoped ownership token
+            docsToInsert = [
+                new DirectUploadRecord({
+                    fileId,
+                    sanitizedFileId: sanitized,
+                    userId: record.userId,
+                    tenantId: record.tenantId,
+                    batchToken,
+                    storage: record.storage,
+                    originalName: record.originalName,
+                    mimeType: record.mimeType,
+                    sizeBytes: record.sizeBytes
+                })
             ];
 
             if (sanitized !== fileId) {
-                bulkOps.push({
-                    updateOne: {
-                        filter: { fileId: sanitized },
-                        update: {
-                            $set: {
-                                fileId: sanitized,
-                                sanitizedFileId: sanitized,
-                                userId: record.userId,
-                                tenantId: record.tenantId,
-                                storage: record.storage,
-                                originalName: record.originalName,
-                                mimeType: record.mimeType,
-                                sizeBytes: record.sizeBytes
-                            }
-                        },
-                        upsert: true
-                    }
+                docsToInsert.push(new DirectUploadRecord({
+                    fileId: sanitized,
+                    sanitizedFileId: sanitized,
+                    userId: record.userId,
+                    tenantId: record.tenantId,
+                    batchToken,
+                    storage: record.storage,
+                    originalName: record.originalName,
+                    mimeType: record.mimeType,
+                    sizeBytes: record.sizeBytes
+                }));
+            }
+
+            // Pre-notify tracker of the exact _ids and fileIds BEFORE executing bulkWrite
+            if (options.tracker) {
+                docsToInsert.forEach(d => {
+                    options.tracker.addRecordId?.(String(d._id));
+                    options.tracker.addFileId?.(d.fileId);
                 });
             }
 
-            await DirectUploadRecord.bulkWrite(bulkOps);
+            const bulkOps = docsToInsert.map(doc => ({
+                insertOne: { document: doc.toObject() }
+            }));
+
+            await DirectUploadRecord.bulkWrite(bulkOps, { ordered: true });
+
+            createdRecordIds = docsToInsert.map(d => String(d._id));
+
+            // Set memory cache only AFTER successful durable persistence
+            fileUploadOwnership.set(sanitized, record);
+            fileUploadOwnership.set(fileId, record);
         } catch (dbErr) {
-            // Roll back in-memory registrations immediately on DB failure
-            fileUploadOwnership.delete(sanitized);
-            fileUploadOwnership.delete(fileId);
+            if (dbErr.message && dbErr.message.includes('Upload collision:')) {
+                throw dbErr;
+            }
+
+            // Roll back in-memory registrations for this specific attempt ONLY if set by this batchToken
+            const mem1 = fileUploadOwnership.get(sanitized);
+            if (mem1 && mem1.batchToken === batchToken) fileUploadOwnership.delete(sanitized);
+            const mem2 = fileUploadOwnership.get(fileId);
+            if (mem2 && mem2.batchToken === batchToken) fileUploadOwnership.delete(fileId);
+
+            // Clean up any partially inserted records in MongoDB for this specific batchToken
+            try {
+                const cleanupConditions = [{ batchToken }];
+                if (docsToInsert.length > 0) {
+                    cleanupConditions.push({ _id: { $in: docsToInsert.map(d => d._id) } });
+                }
+                const cleanupQuery = { $or: cleanupConditions };
+                if (record.userId) {
+                    cleanupQuery.userId = record.userId;
+                }
+                await DirectUploadRecord.deleteMany(cleanupQuery);
+            } catch (cleanupErr) {
+                console.error('[UploadAuth] Emergency cleanup failed:', cleanupErr.message);
+            }
+
             console.error('[UploadAuth] Failed to persist durable DirectUploadRecord:', dbErr.message);
             throw new Error(`Failed to persist durable ownership record for file ${sanitized}: ${dbErr.message}`);
         }
     } else if (isMongoExpected) {
-        fileUploadOwnership.delete(sanitized);
-        fileUploadOwnership.delete(fileId);
         throw new Error(`MongoDB connection is not ready for durable upload registration of ${sanitized}`);
+    } else {
+        // Disconnected unit tests without MongoDB
+        fileUploadOwnership.set(sanitized, record);
+        fileUploadOwnership.set(fileId, record);
     }
+
+    if (options.tracker) {
+        options.tracker.addFileId?.(fileId);
+        options.tracker.addFileId?.(sanitized);
+    }
+
+    return {
+        fileId,
+        sanitized,
+        batchToken,
+        recordIds: createdRecordIds
+    };
 }
 
 /**
@@ -326,6 +398,22 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
 
         const { entityType, entityName, folderId, docCategory, docType } = req.body;
         
+        const batchToken = `single-${Date.now()}-${crypto.randomUUID()}`;
+        const singleRegisteredFileIds = new Set();
+        const singleCreatedRecordIds = new Set();
+        const tracker = {
+            batchToken,
+            addFileId(id) {
+                if (id) {
+                    singleRegisteredFileIds.add(id);
+                    singleRegisteredFileIds.add(path.basename(id));
+                }
+            },
+            addRecordId(id) {
+                if (id) singleCreatedRecordIds.add(String(id));
+            }
+        };
+
         try {
             const driveService = req.app?.get?.('driveService') || undefined;
             // Attempt Google Drive Upload
@@ -344,31 +432,43 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                     storage: 'google_drive',
                     originalName: req.file.originalname,
                     mimeType: req.file.mimetype,
-                    sizeBytes: req.file.size
+                    sizeBytes: req.file.size,
+                    batchToken,
+                    tracker
                 });
                 if (req.file.filename && req.file.filename !== result.id) {
                     await registerUploadedFile(req.file.filename, req.user, {
                         storage: 'google_drive',
                         originalName: req.file.originalname,
                         mimeType: req.file.mimetype,
-                        sizeBytes: req.file.size
+                        sizeBytes: req.file.size,
+                        batchToken,
+                        tracker
                     });
                 }
             } catch (regError) {
                 // If durable ownership could not be persisted, fail closed!
-                fileUploadOwnership.delete(result.id);
-                fileUploadOwnership.delete(path.basename(result.id));
-                fileUploadOwnership.delete(req.file.filename);
-                fileUploadOwnership.delete(path.basename(req.file.filename));
+                for (const id of singleRegisteredFileIds) {
+                    const mem = fileUploadOwnership.get(id);
+                    if (mem && mem.batchToken === batchToken) {
+                        fileUploadOwnership.delete(id);
+                    }
+                }
                 if (mongoose.connection && mongoose.connection.readyState === 1) {
-                    await DirectUploadRecord.deleteMany({
-                        fileId: { $in: [result.id, path.basename(result.id), req.file.filename, path.basename(req.file.filename)] }
-                    }).catch(() => {});
+                    const userId = req.user?._id || req.user?.id;
+                    const deleteConditions = [{ batchToken }];
+                    if (singleCreatedRecordIds.size > 0) {
+                        deleteConditions.push({ _id: { $in: Array.from(singleCreatedRecordIds) } });
+                    }
+                    const deleteQuery = { $or: deleteConditions };
+                    if (userId) deleteQuery.userId = String(userId);
+                    await DirectUploadRecord.deleteMany(deleteQuery).catch(() => {});
                 }
                 console.error('[UploadRoute] Durable ownership registration failed:', regError.message);
                 return res.status(500).json({
                     success: false,
-                    error: 'Upload failed: could not establish durable file ownership record.'
+                    error: 'Upload failed: could not establish durable file ownership record.',
+                    details: regError.message
                 });
             }
 
@@ -379,7 +479,8 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                 downloadUrl: result.downloadUrl,
                 fileName: req.file.originalname,
                 mimeType: req.file.mimetype,
-                storage: 'google_drive'
+                storage: 'google_drive',
+                batchToken
             });
         } catch (driveError) {
             console.warn('[UploadRoute] Google Drive upload failed, falling back to LOCAL storage:', driveError.message);
@@ -391,18 +492,35 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                     storage: 'local',
                     originalName: req.file.originalname,
                     mimeType: req.file.mimetype,
-                    sizeBytes: req.file.size
+                    sizeBytes: req.file.size,
+                    batchToken,
+                    tracker
                 });
             } catch (regError) {
-                fileUploadOwnership.delete(req.file.filename);
-                fileUploadOwnership.delete(path.basename(req.file.filename));
+                for (const id of singleRegisteredFileIds) {
+                    const mem = fileUploadOwnership.get(id);
+                    if (mem && mem.batchToken === batchToken) {
+                        fileUploadOwnership.delete(id);
+                    }
+                }
+                if (mongoose.connection && mongoose.connection.readyState === 1) {
+                    const userId = req.user?._id || req.user?.id;
+                    const deleteConditions = [{ batchToken }];
+                    if (singleCreatedRecordIds.size > 0) {
+                        deleteConditions.push({ _id: { $in: Array.from(singleCreatedRecordIds) } });
+                    }
+                    const deleteQuery = { $or: deleteConditions };
+                    if (userId) deleteQuery.userId = String(userId);
+                    await DirectUploadRecord.deleteMany(deleteQuery).catch(() => {});
+                }
                 if (req.file && req.file.path && fs.existsSync(req.file.path)) {
                     try { fs.unlinkSync(req.file.path); } catch (e) {}
                 }
                 console.error('[UploadRoute] Durable ownership registration failed for local file:', regError.message);
                 return res.status(500).json({
                     success: false,
-                    error: 'Upload failed: could not establish durable file ownership record.'
+                    error: 'Upload failed: could not establish durable file ownership record.',
+                    details: regError.message
                 });
             }
             
@@ -413,7 +531,8 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                 downloadUrl: localUrl,
                 fileName: req.file.originalname,
                 mimeType: req.file.mimetype,
-                storage: 'local'
+                storage: 'local',
+                batchToken
             });
         }
     } catch (error) {
@@ -437,8 +556,25 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
  * @access  Private
  */
 router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
-    // Track all file IDs and aliases registered during THIS batch invocation
-    const batchRegisteredIds = new Set();
+    // Generate a unique batch-scoped ownership token and exact record ID tracker
+    const batchToken = `batch-${Date.now()}-${crypto.randomUUID()}`;
+    const batchRegisteredFileIds = new Set();
+    const batchCreatedRecordIds = new Set();
+
+    const tracker = {
+        batchToken,
+        addFileId(id) {
+            if (id) {
+                batchRegisteredFileIds.add(id);
+                batchRegisteredFileIds.add(path.basename(id));
+            }
+        },
+        addRecordId(id) {
+            if (id) {
+                batchCreatedRecordIds.add(String(id));
+            }
+        }
+    };
 
     try {
         if (!req.files || req.files.length === 0) {
@@ -451,8 +587,6 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
 
         // Process all files in the batch concurrently
         const uploadPromises = req.files.map(async (file, index) => {
-            const fileRegisteredIds = [];
-
             try {
                 // 1. Attempt Google Drive Upload
                 const driveRes = await uploadFileToDrive(file, {
@@ -470,15 +604,10 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                     storage: 'google_drive',
                     originalName: file.originalname,
                     mimeType: file.mimetype,
-                    sizeBytes: file.size
+                    sizeBytes: file.size,
+                    batchToken,
+                    tracker
                 });
-                fileRegisteredIds.push(driveRes.id);
-                batchRegisteredIds.add(driveRes.id);
-                const sanitizedDriveId = path.basename(driveRes.id);
-                if (sanitizedDriveId !== driveRes.id) {
-                    fileRegisteredIds.push(sanitizedDriveId);
-                    batchRegisteredIds.add(sanitizedDriveId);
-                }
 
                 // Step 1b: Register local filename alias if distinct
                 if (file.filename && file.filename !== driveRes.id) {
@@ -487,20 +616,20 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                             storage: 'google_drive',
                             originalName: file.originalname,
                             mimeType: file.mimetype,
-                            sizeBytes: file.size
+                            sizeBytes: file.size,
+                            batchToken,
+                            tracker
                         });
-                        fileRegisteredIds.push(file.filename);
-                        batchRegisteredIds.add(file.filename);
-                        const sanitizedFilename = path.basename(file.filename);
-                        if (sanitizedFilename !== file.filename) {
-                            fileRegisteredIds.push(sanitizedFilename);
-                            batchRegisteredIds.add(sanitizedFilename);
-                        }
                     } catch (aliasErr) {
                         // Failure during second registration for this file!
-                        // Remove its first registration immediately from cache
-                        fileUploadOwnership.delete(driveRes.id);
-                        if (sanitizedDriveId !== driveRes.id) {
+                        // Remove its first registration from cache ONLY if matching batchToken
+                        const memDrive = fileUploadOwnership.get(driveRes.id);
+                        if (memDrive && memDrive.batchToken === batchToken) {
+                            fileUploadOwnership.delete(driveRes.id);
+                        }
+                        const sanitizedDriveId = path.basename(driveRes.id);
+                        const memSan = fileUploadOwnership.get(sanitizedDriveId);
+                        if (memSan && memSan.batchToken === batchToken) {
                             fileUploadOwnership.delete(sanitizedDriveId);
                         }
                         console.error(`[UploadRoute] Alias registration failed for ${file.originalname}:`, aliasErr.message);
@@ -519,7 +648,11 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                 };
             } catch (driveErr) {
                 // If error was an explicit ownership registration failure, fail closed immediately!
-                if (driveErr.message && (driveErr.message.includes('durable ownership record') || driveErr.message.includes('Failed to persist durable ownership record'))) {
+                if (driveErr.message && (
+                    driveErr.message.includes('durable ownership record') ||
+                    driveErr.message.includes('Failed to persist durable ownership record') ||
+                    driveErr.message.includes('Upload collision:')
+                )) {
                     throw driveErr;
                 }
 
@@ -531,15 +664,10 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                     storage: 'local',
                     originalName: file.originalname,
                     mimeType: file.mimetype,
-                    sizeBytes: file.size
+                    sizeBytes: file.size,
+                    batchToken,
+                    tracker
                 });
-                fileRegisteredIds.push(file.filename);
-                batchRegisteredIds.add(file.filename);
-                const sanitizedFilename = path.basename(file.filename);
-                if (sanitizedFilename !== file.filename) {
-                    fileRegisteredIds.push(sanitizedFilename);
-                    batchRegisteredIds.add(sanitizedFilename);
-                }
 
                 return {
                     success: true,
@@ -563,18 +691,23 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
             console.error(`[UploadRoute] Batch upload encountered ${rejected.length} failure(s). Executing batch rollback:`, firstReason);
 
             // 1. Clean up in-memory cache for all registrations created by THIS batch
-            for (const id of batchRegisteredIds) {
-                fileUploadOwnership.delete(id);
-                fileUploadOwnership.delete(path.basename(id));
+            for (const id of batchRegisteredFileIds) {
+                const mem = fileUploadOwnership.get(id);
+                if (mem && mem.batchToken === batchToken) {
+                    fileUploadOwnership.delete(id);
+                }
             }
 
             // 2. Clean up durable MongoDB records created by THIS batch
-            // Strictly scoped to batchRegisteredIds and the requesting user so unrelated/earlier records are untouched!
-            if (batchRegisteredIds.size > 0 && mongoose.connection && mongoose.connection.readyState === 1) {
-                const idsToDelete = Array.from(batchRegisteredIds);
-                const deleteQuery = { fileId: { $in: idsToDelete } };
+            // Strictly scoped to batchToken and exact created record _ids so unrelated/earlier records are untouched!
+            if (mongoose.connection && mongoose.connection.readyState === 1) {
+                const deleteConditions = [{ batchToken }];
+                if (batchCreatedRecordIds.size > 0) {
+                    deleteConditions.push({ _id: { $in: Array.from(batchCreatedRecordIds) } });
+                }
+                const deleteQuery = { $or: deleteConditions };
                 if (userId) {
-                    deleteQuery.userId = userId;
+                    deleteQuery.userId = String(userId);
                 }
                 await DirectUploadRecord.deleteMany(deleteQuery).catch(delErr => {
                     console.error('[UploadRoute] Batch cleanup failed to delete durable records:', delErr.message);
@@ -598,7 +731,8 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                 error: 'Batch upload failed: could not establish durable file ownership records for all files in batch.',
                 details: firstReason,
                 failedCount: rejected.length,
-                totalCount: req.files.length
+                totalCount: req.files.length,
+                batchToken
             });
         }
 
@@ -606,23 +740,29 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
         const results = settledResults.map(r => r.value);
         return res.status(200).json({
             success: true,
-            data: results
+            data: results,
+            batchToken
         });
     } catch (error) {
         console.error('Multiple Upload Route Fatal Error:', error.message);
 
         // Emergency rollback if error occurred outside settled promise handling
-        for (const id of batchRegisteredIds) {
-            fileUploadOwnership.delete(id);
-            fileUploadOwnership.delete(path.basename(id));
+        for (const id of batchRegisteredFileIds) {
+            const mem = fileUploadOwnership.get(id);
+            if (mem && mem.batchToken === batchToken) {
+                fileUploadOwnership.delete(id);
+            }
         }
 
-        if (batchRegisteredIds.size > 0 && mongoose.connection && mongoose.connection.readyState === 1) {
-            const idsToDelete = Array.from(batchRegisteredIds);
+        if (mongoose.connection && mongoose.connection.readyState === 1) {
             const userId = req.user?._id || req.user?.id;
-            const deleteQuery = { fileId: { $in: idsToDelete } };
+            const deleteConditions = [{ batchToken }];
+            if (batchCreatedRecordIds.size > 0) {
+                deleteConditions.push({ _id: { $in: Array.from(batchCreatedRecordIds) } });
+            }
+            const deleteQuery = { $or: deleteConditions };
             if (userId) {
-                deleteQuery.userId = userId;
+                deleteQuery.userId = String(userId);
             }
             await DirectUploadRecord.deleteMany(deleteQuery).catch(() => {});
         }
@@ -641,7 +781,8 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
         return res.status(500).json({
             success: false,
             error: 'Batch upload failed: could not establish durable file ownership records for all files in batch.',
-            details: error.message
+            details: error.message,
+            batchToken
         });
     }
 });
