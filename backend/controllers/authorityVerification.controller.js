@@ -1168,6 +1168,11 @@ export const syncCanonicalPolicy = async (req, res) => {
                         }
                     } catch (hbErr) {
                         console.error('Worker lease heartbeat renewal error:', hbErr);
+                        leaseLostDuringHeartbeat = true;
+                        if (heartbeatInterval) {
+                            clearInterval(heartbeatInterval);
+                            heartbeatInterval = null;
+                        }
                     }
                 }, HEARTBEAT_INTERVAL_MS);
                 if (heartbeatInterval && typeof heartbeatInterval.unref === 'function') {
@@ -1228,11 +1233,13 @@ export const syncCanonicalPolicy = async (req, res) => {
                         const mockRes = await AuditLog.findByIdAndUpdate(auditRecord._id, {});
                         if (!mockRes) throw new Error('AuditLog.findByIdAndUpdate returned null or threw');
                     }
+                    const now = new Date();
                     finalizedAudit = await AuditLog.findOneAndUpdate(
                         {
                             _id: auditRecord._id,
                             'metadata.leaseOwner': workerLeaseToken,
-                            'metadata.syncPhase': 'PUBLISHING'
+                            'metadata.syncPhase': 'PUBLISHING',
+                            'metadata.leaseExpiresAt': { $gt: now }
                         },
                         {
                             $set: {
@@ -1241,7 +1248,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                                 'metadata.redisSyncStatus': 'SYNCED',
                                 'metadata.syncPhase': 'COMPLETED',
                                 'metadata.reconciled': isRecovery,
-                                'metadata.syncedAt': new Date()
+                                'metadata.syncedAt': now
                             }
                         },
                         { new: true }
@@ -1253,8 +1260,13 @@ export const syncCanonicalPolicy = async (req, res) => {
 
                 if (!finalizedAudit) {
                     const currentAuditState = await AuditLog.findById(auditRecord._id);
-                    if (currentAuditState && currentAuditState.metadata?.leaseOwner !== workerLeaseToken) {
-                        console.error('Worker lease lost before finalization: preempted by another worker');
+                    const isOwnerMismatch = currentAuditState && currentAuditState.metadata?.leaseOwner !== workerLeaseToken;
+                    const isLeaseExpired = currentAuditState && (
+                        !currentAuditState.metadata?.leaseExpiresAt ||
+                        new Date(currentAuditState.metadata.leaseExpiresAt) <= new Date()
+                    );
+                    if (isOwnerMismatch || isLeaseExpired) {
+                        console.error('Worker lease expired or preempted before finalization boundary');
                         return res.status(409).json({
                             success: false,
                             code: 'STALE_WORKER_LEASE_LOST',

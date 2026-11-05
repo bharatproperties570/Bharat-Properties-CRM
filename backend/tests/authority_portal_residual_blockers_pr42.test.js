@@ -4348,6 +4348,100 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 assert.equal(sfBody.code, 'STALE_WORKER_LEASE_LOST');
                 assert.equal(staleWorkerPublishes, 1, 'Redis was called before finalization check');
 
+                // Case 4o: Heartbeat renewal database failure marks lease as lost and stops renewals
+                const origFindOneAndUpdate = AuditLog.findOneAndUpdate;
+                let heartbeatErrorThrown = false;
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        heartbeatErrorThrown = true;
+                        throw new Error('Simulated MongoDB connection lost during heartbeat renewal');
+                    }
+                    return origFindOneAndUpdate.call(this, filter, update, options);
+                };
+
+                let hbFailPublishes = 0;
+                const hbFailProvider = {
+                    async setCanonicalPolicy() {
+                        hbFailPublishes++;
+                        // Wait long enough for heartbeat interval (1500ms) to fire and throw
+                        await new Promise(r => setTimeout(r, 1600));
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(hbFailProvider);
+
+                try {
+                    const hbFailOpId = 'hb-fail-op-55';
+                    const hbFailReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: hbFailOpId }
+                    };
+                    let hbfCode = null, hbfBody = null;
+                    await syncCanonicalPolicy(hbFailReq, {
+                        status(c) { hbfCode = c; return this; },
+                        json(b) { hbfBody = b; return this; }
+                    });
+                    assert.equal(heartbeatErrorThrown, true, 'Heartbeat renewal must have attempted update and thrown');
+                    assert.equal(hbfCode, 409, 'Heartbeat database failure must mark lease as lost and fail closed with HTTP 409');
+                    assert.equal(hbfBody.code, 'STALE_WORKER_LEASE_LOST');
+                    assert.equal(hbFailPublishes, 1, 'Exactly one Redis publication attempted before lease loss');
+
+                    // Verify policy in DB was NOT marked SYNCED
+                    const polDoc = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.notEqual(polDoc.redisSyncStatus, 'SYNCED', 'Policy must not be marked SYNCED after heartbeat failure');
+                } finally {
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate;
+                }
+
+                // Case 4p: Expired lease with unchanged owner must NEVER finalize
+                let expOwnerPublishes = 0;
+                const expOwnerProvider = {
+                    async setCanonicalPolicy() {
+                        expOwnerPublishes++;
+                        // Set leaseExpiresAt into the past WITHOUT changing leaseOwner
+                        await AuditLog.updateOne(
+                            { correlationId: `canonical_sync:${currentPolicy._id.toString()}:expired-unchanged-owner-op-66` },
+                            {
+                                $set: {
+                                    'metadata.leaseExpiresAt': new Date(Date.now() - 5000)
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(expOwnerProvider);
+
+                const expOwnerOpId = 'expired-unchanged-owner-op-66';
+                const expOwnerReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: expOwnerOpId }
+                };
+                let eoCode = null, eoBody = null;
+                await syncCanonicalPolicy(expOwnerReq, {
+                    status(c) { eoCode = c; return this; },
+                    json(b) { eoBody = b; return this; }
+                });
+                assert.equal(eoCode, 409, 'Expired lease with unchanged owner must fail closed with HTTP 409');
+                assert.equal(eoBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(expOwnerPublishes, 1, 'Exactly one Redis publication occurred');
+
+                // Verify policy in DB was NOT marked SYNCED
+                const polDocExp = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.notEqual(polDocExp.redisSyncStatus, 'SYNCED', 'Policy must never be finalized by expired lease worker');
+
                 // Case 4n: Durability - Policy update failure after Redis sync fails closed
                 const normalMockProvider = {
                     async setCanonicalPolicy() { return { success: true }; },
