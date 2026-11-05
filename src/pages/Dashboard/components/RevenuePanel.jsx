@@ -8,7 +8,7 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
     const { fmtCr } = formatters;
 
     return (
-        <div className="dashboard-panel-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '24px', marginBottom: '32px' }}>
+        <div className="dashboard-panel-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '14px', marginBottom: '12px' }}>
             {/* Revenue & Cashflow */}
             <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>

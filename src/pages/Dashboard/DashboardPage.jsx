@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState, useEffect } from 'react';
 import logo from '../../assets/logo.png';
 
 // Modular Components
@@ -30,6 +30,13 @@ const DashboardPage = ({ onNavigate }) => {
         formatters
     } = useDashboardData();
 
+    // Live Clock & Date
+    const [currentDateTime, setCurrentDateTime] = useState(new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentDateTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
     if (loading && !metrics.leads.length) {
         return (
             <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#020617', color: '#fff' }}>
@@ -42,7 +49,7 @@ const DashboardPage = ({ onNavigate }) => {
     }
 
     return (
-        <section className="dashboard-container" style={{ flex: 1, height: '100vh', overflowY: 'auto', background: 'var(--bg-dark)', color: 'var(--text-main)', padding: '0 2rem 2rem 2rem' }}>
+        <section className="dashboard-container" style={{ flex: 1, height: '100vh', overflowY: 'auto', background: 'var(--bg-dark)', color: 'var(--text-main)', padding: '0 1.25rem 1.25rem 1.25rem' }}>
             <style>{`
                 :root {
                     --bg-dark: ${isDark ? '#020617' : '#f1f5f9'};
@@ -144,40 +151,55 @@ const DashboardPage = ({ onNavigate }) => {
                 }
             `}</style>
 
-            {/* Futuristic Header */}
-            <div className="neural-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: isDark ? 'rgba(2, 6, 23, 0.8)' : 'rgba(241, 245, 249, 0.8)', backdropFilter: 'blur(12px)', padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '24px' }}>
+            {/* Dashboard Header */}
+            <div className="neural-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: isDark ? 'rgba(2, 6, 23, 0.85)' : 'rgba(241, 245, 249, 0.85)', backdropFilter: 'blur(12px)', padding: '8px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '12px' }}>
                 <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <img 
                             src={logo} 
                             alt="Bharat Properties Logo" 
                             style={{ 
-                                width: '42px', 
-                                height: '42px', 
+                                width: '32px', 
+                                height: '32px', 
                                 objectFit: 'contain',
-                                filter: 'drop-shadow(0 0 8px rgba(99, 102, 241, 0.4))'
+                                filter: 'drop-shadow(0 0 6px rgba(99, 102, 241, 0.35))'
                             }} 
                         />
                         <div>
-                            <h1 style={{ fontSize: '1.8rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, background: isDark ? 'linear-gradient(to right, #fff, #94a3b8)' : 'linear-gradient(to right, #0f172a, #475569)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                                Neural Command Dashboard
+                            <h1 style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.02em', margin: 0, background: isDark ? 'linear-gradient(to right, #fff, #94a3b8)' : 'linear-gradient(to right, #0f172a, #475569)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1.2 }}>
+                                Dashboard
                             </h1>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></div>
-                                <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>SYSTEMS ONLINE</span>
-                                <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>LAST SYNC: {lastRefresh ? lastRefresh.toLocaleTimeString() : '--:--'}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
+                                <span style={{ fontSize: '0.70rem', color: '#10b981', fontWeight: 700, letterSpacing: '0.04em' }}>SYSTEMS ONLINE</span>
+                                <span style={{ color: 'var(--border-color, rgba(255,255,255,0.15))' }}>|</span>
+                                <span style={{ fontSize: '0.70rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                    <i className="far fa-calendar-alt" style={{ opacity: 0.8 }}></i>
+                                    {currentDateTime.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                                    <span style={{ margin: '0 3px', opacity: 0.4 }}>•</span>
+                                    <i className="far fa-clock" style={{ opacity: 0.8 }}></i>
+                                    {currentDateTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                </span>
+                                {lastRefresh && (
+                                    <>
+                                        <span style={{ color: 'var(--border-color, rgba(255,255,255,0.15))' }}>|</span>
+                                        <span style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                                            SYNC: {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <div style={{ position: 'relative' }}>
                         <select
                             value={selectedFilter}
                             onChange={(e) => setSelectedFilter(e.target.value)}
                             className="control-select"
+                            style={{ padding: '6px 28px 6px 12px', fontSize: '0.8rem', height: '34px' }}
                         >
                             <option value="all">Enterprise Analytics</option>
                             <optgroup label="Teams">
@@ -187,21 +209,23 @@ const DashboardPage = ({ onNavigate }) => {
                                 {users.map(u => <option key={u._id} value={u._id}>{u.fullName}</option>)}
                             </optgroup>
                         </select>
-                        <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
+                        <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
                     </div>
-                    <button onClick={fetchData} style={{ width: '40px', height: '40px', borderRadius: '12px', border: '1px solid var(--border-color)', background: isDark ? 'rgba(99, 102, 241, 0.1)' : '#fff', color: isDark ? '#fff' : '#6366f1', cursor: 'pointer', boxShadow: isDark ? 'none' : '0 2px 10px rgba(0,0,0,0.05)' }}>
-                        <i className={`fas fa-sync-alt ${loading ? 'fa-spin' : ''}`}></i>
+                    <button onClick={fetchData} style={{ width: '34px', height: '34px', borderRadius: '10px', border: '1px solid var(--border-color)', background: isDark ? 'rgba(99, 102, 241, 0.1)' : '#fff', color: isDark ? '#fff' : '#6366f1', cursor: 'pointer', boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Refresh Dashboard">
+                        <i className={`fas fa-sync-alt ${loading ? 'fa-spin' : ''}`} style={{ fontSize: '0.75rem' }}></i>
                     </button>
                 </div>
             </div>
 
-            {/* Dashboard KPIs (Full Width Row) */}
-            <DashboardKPIs metrics={metrics} formatters={formatters} />
-
-            <div className="dashboard-grid-root" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '32px' }}>
+            <div className="dashboard-grid-root" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '14px' }}>
                 <div style={{ minWidth: 0 }}>
-                    {/* Market Price Trend Chart at the top of left column */}
-                    <div style={{ marginBottom: '32px' }}>
+                    {/* Compact KPI Tiles (aligned at top with Mission Agenda) */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <DashboardKPIs metrics={metrics} formatters={formatters} />
+                    </div>
+
+                    {/* Market Price Trend Chart below KPIs */}
+                    <div style={{ marginBottom: '12px' }}>
                         <MarketPriceTrendChart 
                             deals={metrics.priceTrendDeals} 
                             sizes={sizes} 
@@ -216,10 +240,10 @@ const DashboardPage = ({ onNavigate }) => {
                     <RevenuePanel charts={charts} metrics={metrics} formatters={formatters} />
                     
                     {/* Intelligence & Pulse */}
-                    <div style={{ marginTop: '32px' }}>
+                    <div style={{ marginTop: '12px' }}>
                         <AIIntelligenceWidget />
                     </div>
-                    <div style={{ marginTop: '32px' }}>
+                    <div style={{ marginTop: '12px' }}>
                         <MarketPulseWidget />
                     </div>
                 </div>

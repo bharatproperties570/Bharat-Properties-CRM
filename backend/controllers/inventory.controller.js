@@ -199,11 +199,11 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        // [ENTERPRISE FILTERING] Support for Block/Phase multi-select or partial matching
+        // [ENTERPRISE FILTERING] Support for Block/Phase multi-select or partial matching (Case-Insensitive)
         if (block) {
             let blockVals = Array.isArray(block) ? block : String(block).split(',').map(s => s.trim()).filter(Boolean);
             if (blockVals.length > 0) {
-                query.block = { $in: blockVals };
+                query.block = { $in: blockVals.map(b => new RegExp(`^${escapeRegExp(b)}$`, 'i')) };
             }
         } else if (location) {
             // Fallback for location-based searching in block field if block not explicitly provided
@@ -1355,6 +1355,14 @@ export const addInventory = async (req, res) => {
                 if (!data.department && projectDoc.department) {
                     data.department = projectDoc.department;
                 }
+
+                // 🛡️ Enterprise Canonical Block Alignment: Prevent casing drift against Project blocks
+                if (data.block && projectDoc.blocks && Array.isArray(projectDoc.blocks)) {
+                    const canonicalBlock = projectDoc.blocks.find(b => b && b.name && b.name.trim().toLowerCase() === String(data.block).trim().toLowerCase());
+                    if (canonicalBlock) {
+                        data.block = canonicalBlock.name;
+                    }
+                }
             }
         }
 
@@ -1559,6 +1567,25 @@ export const updateInventory = async (req, res) => {
         // Strip ownerHistory and ownerSources from direct $set — backend is sole authority via $push above
         delete data.ownerHistory;
         delete data.ownerSources;
+
+        // 🛡️ Enterprise Canonical Block Alignment: Prevent casing drift against Project blocks
+        if (data.block !== undefined && data.block !== null) {
+            const targetProjId = data.projectId || currentInv.projectId;
+            const targetProjName = data.projectName || currentInv.projectName;
+            const ProjectModel = mongoose.models.Project || mongoose.model("Project");
+            let projectDoc = null;
+            if (targetProjId && mongoose.Types.ObjectId.isValid(targetProjId.toString())) {
+                projectDoc = await ProjectModel.findById(targetProjId).select('blocks').lean();
+            } else if (targetProjName) {
+                projectDoc = await ProjectModel.findOne({ name: { $regex: new RegExp("^" + escapeRegExp(targetProjName) + "$", "i") } }).select('blocks').lean();
+            }
+            if (projectDoc && Array.isArray(projectDoc.blocks) && projectDoc.blocks.length > 0) {
+                const canonicalBlock = projectDoc.blocks.find(b => b && b.name && b.name.trim().toLowerCase() === String(data.block).trim().toLowerCase());
+                if (canonicalBlock) {
+                    data.block = canonicalBlock.name;
+                }
+            }
+        }
 
         // 🌟 SENIOR HARDENING: Resolve categorical fields BEFORE update to prevent populate-stage CastErrors
         const categoricalFields = [
@@ -1847,6 +1874,27 @@ export const bulkUpdateInventory = async (req, res) => {
         }
         if (sanitizedUpdates.team) {
             sanitizedUpdates.team = await resolveTeam(sanitizedUpdates.team);
+        }
+
+        // 🛡️ Enterprise Canonical Block Alignment: Prevent casing drift against Project blocks
+        if (sanitizedUpdates.block) {
+            const targetProjId = sanitizedUpdates.projectId;
+            const targetProjName = sanitizedUpdates.projectName;
+            if (targetProjId || targetProjName) {
+                const ProjectModel = mongoose.models.Project || mongoose.model("Project");
+                let projectDoc = null;
+                if (targetProjId && mongoose.Types.ObjectId.isValid(targetProjId.toString())) {
+                    projectDoc = await ProjectModel.findById(targetProjId).select('blocks').lean();
+                } else if (targetProjName) {
+                    projectDoc = await ProjectModel.findOne({ name: { $regex: new RegExp("^" + escapeRegExp(targetProjName) + "$", "i") } }).select('blocks').lean();
+                }
+                if (projectDoc && Array.isArray(projectDoc.blocks) && projectDoc.blocks.length > 0) {
+                    const canonicalBlock = projectDoc.blocks.find(b => b && b.name && b.name.trim().toLowerCase() === String(sanitizedUpdates.block).trim().toLowerCase());
+                    if (canonicalBlock) {
+                        sanitizedUpdates.block = canonicalBlock.name;
+                    }
+                }
+            }
         }
 
         // Handle price numeric mapping
@@ -3417,7 +3465,38 @@ export const getUniqueBlocks = async (req, res) => {
 
         const blocks = await Inventory.distinct("block", query);
 
-        const sortedBlocks = blocks.filter(b => b && b.trim() !== "").sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        // Fetch canonical blocks from Project definition if project is specified
+        let projectBlocks = [];
+        if (project) {
+            const ProjectModel = mongoose.models.Project || mongoose.model("Project");
+            const projectDoc = await ProjectModel.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(project)}$`, 'i') } }).select('blocks.name').lean();
+            if (projectDoc && Array.isArray(projectDoc.blocks)) {
+                projectBlocks = projectDoc.blocks.map(b => b && b.name).filter(Boolean);
+            }
+        }
+
+        // Case-insensitive deduplication, preferring canonical Project block name casing
+        const canonicalMap = new Map();
+        for (const pb of projectBlocks) {
+            const lower = pb.trim().toLowerCase();
+            if (lower && !canonicalMap.has(lower)) {
+                canonicalMap.set(lower, pb.trim());
+            }
+        }
+
+        const uniqueBlockSet = new Map();
+        for (const rawBlock of blocks) {
+            if (!rawBlock || typeof rawBlock !== 'string') continue;
+            const trimmed = rawBlock.trim();
+            if (!trimmed) continue;
+            const lower = trimmed.toLowerCase();
+            if (!uniqueBlockSet.has(lower)) {
+                const resolvedName = canonicalMap.has(lower) ? canonicalMap.get(lower) : trimmed;
+                uniqueBlockSet.set(lower, resolvedName);
+            }
+        }
+
+        const sortedBlocks = Array.from(uniqueBlockSet.values()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         res.status(200).json({ success: true, blocks: sortedBlocks });
     } catch (error) {
         console.error("[GET_BLOCKS_ERROR]", error);

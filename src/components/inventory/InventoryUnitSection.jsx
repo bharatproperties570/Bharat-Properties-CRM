@@ -151,27 +151,37 @@ const InventoryUnitSection = ({
                     </div>
                     <div>
                         <label style={labelStyle}>Block</label>
-                        <select
-                            style={!formData.projectName ? customSelectStyleDisabled : customSelectStyle}
-                            value={formData.block}
-                            disabled={!formData.projectName}
-                            onChange={e => setFormData(prev => ({ ...prev, block: e.target.value }))}
-                        >
-                            <option value="">{formData.projectName ? "Select Block" : "Select Project First"}</option>
-                            {(() => {
-                                const selectedProj = allProjects.find(p => p.name === formData.projectName || p._id === formData.projectId || p.id === formData.projectId);
-                                if (!selectedProj) return null;
-                                const blocks = selectedProj.blocks || [];
-                                return blocks.length > 0 ? (
-                                    blocks.map((b, idx) => {
-                                        const blockName = typeof b === 'object' ? b.name : b;
-                                        return <option key={blockName || idx} value={blockName}>{blockName}</option>;
-                                    })
-                                ) : (
-                                    <option value="Open">Open Campus</option>
-                                );
-                            })()}
-                        </select>
+                        {(() => {
+                            const selectedProj = allProjects.find(p => p.name === formData.projectName || p._id === formData.projectId || p.id === formData.projectId);
+                            const blocks = selectedProj?.blocks || [];
+                            const canonicalMatch = blocks.find(b => {
+                                const bName = typeof b === 'object' ? b.name : b;
+                                return bName && formData.block && bName.trim().toLowerCase() === String(formData.block).trim().toLowerCase();
+                            });
+                            const selectValue = canonicalMatch ? (typeof canonicalMatch === 'object' ? canonicalMatch.name : canonicalMatch) : (formData.block || '');
+
+                            return (
+                                <select
+                                    style={!formData.projectName ? customSelectStyleDisabled : customSelectStyle}
+                                    value={selectValue}
+                                    disabled={!formData.projectName}
+                                    onChange={e => setFormData(prev => ({ ...prev, block: e.target.value }))}
+                                >
+                                    <option value="">{formData.projectName ? "Select Block" : "Select Project First"}</option>
+                                    {blocks.length > 0 ? (
+                                        blocks.map((b, idx) => {
+                                            const blockName = typeof b === 'object' ? b.name : b;
+                                            return <option key={blockName || idx} value={blockName}>{blockName}</option>;
+                                        })
+                                    ) : (
+                                        <option value="Open">Open Campus</option>
+                                    )}
+                                    {selectValue && !blocks.some(b => (typeof b === 'object' ? b.name : b) === selectValue) && selectValue !== 'Open' && (
+                                        <option value={selectValue}>{selectValue}</option>
+                                    )}
+                                </select>
+                            );
+                        })()}
                     </div>
                     <div>
                         <label style={labelStyle}>Size</label>
