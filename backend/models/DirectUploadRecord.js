@@ -12,7 +12,9 @@ const DirectUploadRecordSchema = new mongoose.Schema({
     sizeBytes: { type: Number },
     createdAt: { type: Date, default: Date.now, index: true }
 }, {
-    timestamps: true
+    timestamps: true,
+    autoIndex: false,
+    autoCreate: false
 });
 
 // Database-enforced unique ownership constraint on fileId (P1)

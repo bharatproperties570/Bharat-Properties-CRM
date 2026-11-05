@@ -3149,6 +3149,135 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                 const verified = updatedIndexes.find(i => i.key && Object.keys(i.key).length === 1 && i.key.fileId === 1 && i.unique);
                 assert.ok(verified, 'Unique index on fileId must exist after migration');
             });
+
+            // -----------------------------------------------------------------
+            // 23h. Production configuration: DirectUploadRecordSchema has autoIndex: false and autoCreate: false
+            // -----------------------------------------------------------------
+            await sub.test('23h. Production configuration: DirectUploadRecordSchema has autoIndex: false and autoCreate: false', () => {
+                assert.strictEqual(
+                    DirectUploadRecord.schema.options.autoIndex,
+                    false,
+                    'DirectUploadRecord must specify autoIndex: false to prevent background index builds from bypassing migration preflight'
+                );
+                assert.strictEqual(
+                    DirectUploadRecord.schema.options.autoCreate,
+                    false,
+                    'DirectUploadRecord must specify autoCreate: false to prevent automatic collection creation on startup'
+                );
+            });
+
+            // -----------------------------------------------------------------
+            // 23i. Legacy index drop failure is surfaced clearly without being silently swallowed
+            // -----------------------------------------------------------------
+            await sub.test('23i. Legacy index drop failure is surfaced clearly without being silently swallowed', async () => {
+                // Ensure target index is removed and create legacy fileId_1 index
+                const indexes = await DirectUploadRecord.collection.indexes();
+                const targetIdx = indexes.find(i => i.name === TARGET_INDEX_NAME);
+                if (targetIdx) {
+                    await DirectUploadRecord.collection.dropIndex(TARGET_INDEX_NAME);
+                }
+                const legacyIdx = indexes.find(i => i.name === 'fileId_1');
+                if (!legacyIdx) {
+                    await DirectUploadRecord.collection.createIndex({ fileId: 1 }, { name: 'fileId_1', unique: false });
+                }
+
+                const originalDropIndex = DirectUploadRecord.collection.dropIndex;
+                DirectUploadRecord.collection.dropIndex = async (name) => {
+                    throw new Error(`Simulated lock or permission error dropping legacy index ${name}`);
+                };
+
+                let dropError = null;
+                try {
+                    await runMigration(DirectUploadRecord);
+                } catch (err) {
+                    dropError = err;
+                } finally {
+                    DirectUploadRecord.collection.dropIndex = originalDropIndex;
+                }
+
+                assert.ok(dropError, 'Migration must throw when legacy index cannot be dropped');
+                assert.match(
+                    dropError.message,
+                    /failed to drop conflicting legacy index.*Simulated lock or permission error/,
+                    'Error message must clearly identify the legacy index drop failure'
+                );
+
+                // Cleanup legacy index and re-create target index
+                await DirectUploadRecord.collection.dropIndex('fileId_1').catch(() => {});
+                await DirectUploadRecord.collection.createIndex({ fileId: 1 }, { unique: true, name: TARGET_INDEX_NAME, background: false });
+            });
+
+            // -----------------------------------------------------------------
+            // 23j. Migration idempotency: re-running an already successful migration is safe
+            // -----------------------------------------------------------------
+            await sub.test('23j. Migration idempotency: re-running an already successful migration is safe', async () => {
+                // First run ensures index exists
+                const firstRun = await runMigration(DirectUploadRecord);
+                assert.strictEqual(firstRun.success, true);
+
+                // Second run should report alreadyApplied: true without error or modifying indexes
+                const secondRun = await runMigration(DirectUploadRecord);
+                assert.strictEqual(secondRun.success, true);
+                assert.strictEqual(secondRun.alreadyApplied, true);
+                assert.strictEqual(secondRun.indexName, TARGET_INDEX_NAME);
+
+                // Verify unique index remains fully intact
+                const indexes = await DirectUploadRecord.collection.indexes();
+                const target = indexes.find(i => i.name === TARGET_INDEX_NAME && i.unique === true);
+                assert.ok(target, 'Target unique index must remain present after idempotent re-run');
+            });
+
+            // -----------------------------------------------------------------
+            // 23k. Concurrent write collision during index creation aborts cleanly and preserves records
+            // -----------------------------------------------------------------
+            await sub.test('23k. Concurrent write collision during index creation aborts cleanly and preserves records', async () => {
+                // Drop target index temporarily
+                const indexes = await DirectUploadRecord.collection.indexes();
+                const target = indexes.find(i => i.name === TARGET_INDEX_NAME);
+                if (target) {
+                    await DirectUploadRecord.collection.dropIndex(TARGET_INDEX_NAME);
+                }
+
+                const testDocId = 'concurrent-test-doc-during-index-create.txt';
+                await DirectUploadRecord.create({
+                    fileId: testDocId,
+                    sanitizedFileId: testDocId,
+                    userId: String(userA._id),
+                    tenantId: String(userA.tenantId),
+                    batchToken: 'token-pre-create'
+                });
+
+                const originalCreateIndex = DirectUploadRecord.collection.createIndex;
+                DirectUploadRecord.collection.createIndex = async function(spec, opts) {
+                    const err = new Error('E11000 duplicate key error collection: test.directuploadrecords index: direct_upload_records_fileid_unique dup key: { fileId: "concurrent-dup.txt" }');
+                    err.code = 11000;
+                    err.codeName = 'DuplicateKey';
+                    throw err;
+                };
+
+                let concurrentErr = null;
+                try {
+                    await runMigration(DirectUploadRecord);
+                } catch (err) {
+                    concurrentErr = err;
+                } finally {
+                    DirectUploadRecord.collection.createIndex = originalCreateIndex;
+                }
+
+                assert.ok(concurrentErr, 'Must throw error when concurrent write collides during createIndex');
+                assert.strictEqual(concurrentErr.code, 11000);
+                assert.strictEqual(concurrentErr.isConcurrentCollision, true);
+                assert.match(concurrentErr.message, /Concurrent write introduced duplicate fileId/);
+
+                // Verify pre-existing records remain untouched
+                const docInDb = await DirectUploadRecord.findOne({ fileId: testDocId }).lean();
+                assert.ok(docInDb, 'Pre-existing document must not be corrupted or deleted');
+                assert.strictEqual(docInDb.batchToken, 'token-pre-create');
+
+                // Cleanup and re-create unique index
+                await DirectUploadRecord.collection.deleteMany({ fileId: testDocId });
+                await DirectUploadRecord.collection.createIndex({ fileId: 1 }, { unique: true, name: TARGET_INDEX_NAME, background: false });
+            });
         } finally {
             User.findById = originalFindById;
             await DirectUploadRecord.deleteMany({}).catch(() => {});
