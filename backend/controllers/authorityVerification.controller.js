@@ -1113,14 +1113,79 @@ export const syncCanonicalPolicy = async (req, res) => {
         }
 
         const LEASE_DURATION_MS = 5000;
+        const HEARTBEAT_INTERVAL_MS = 1500;
         const initialWorkerLease = crypto.randomUUID();
         const initialLeaseExpiresAt = new Date(Date.now() + LEASE_DURATION_MS);
 
         // Helper: execute Redis publication and finalize durable audit and policy records
         // Atomic worker lease: only the lease owner can finalize. Stale workers fail closed.
         const executeRedisSyncAndFinalize = async (auditRecord, workerLeaseToken, isRecovery = false) => {
+            // 1. Fencing check at publication boundary: verify worker lease is active and owned
+            const fenceCheck = await AuditLog.findOne({
+                _id: auditRecord._id,
+                'metadata.leaseOwner': workerLeaseToken,
+                'metadata.syncPhase': 'PUBLISHING',
+                'metadata.leaseExpiresAt': { $gt: new Date() }
+            });
+            if (!fenceCheck) {
+                console.error('Worker lease expired or preempted before publication boundary');
+                return res.status(409).json({
+                    success: false,
+                    code: 'STALE_WORKER_LEASE_LOST',
+                    message: 'Worker lease expired or was preempted before publication boundary',
+                    operationId: normalizedOpId,
+                    status: 'FAILED'
+                });
+            }
+
+            // 2. Atomic renewable worker lease: periodic heartbeat while Redis operation is in flight
+            let heartbeatInterval = null;
+            let leaseLostDuringHeartbeat = false;
+
+            const startHeartbeat = () => {
+                heartbeatInterval = setInterval(async () => {
+                    try {
+                        const renewal = await AuditLog.findOneAndUpdate(
+                            {
+                                _id: auditRecord._id,
+                                'metadata.leaseOwner': workerLeaseToken,
+                                'metadata.syncPhase': 'PUBLISHING'
+                            },
+                            {
+                                $set: {
+                                    'metadata.leaseExpiresAt': new Date(Date.now() + LEASE_DURATION_MS),
+                                    'metadata.lastHeartbeatAt': new Date()
+                                }
+                            },
+                            { new: true }
+                        );
+                        if (!renewal) {
+                            leaseLostDuringHeartbeat = true;
+                            if (heartbeatInterval) {
+                                clearInterval(heartbeatInterval);
+                                heartbeatInterval = null;
+                            }
+                        }
+                    } catch (hbErr) {
+                        console.error('Worker lease heartbeat renewal error:', hbErr);
+                    }
+                }, HEARTBEAT_INTERVAL_MS);
+                if (heartbeatInterval && typeof heartbeatInterval.unref === 'function') {
+                    heartbeatInterval.unref();
+                }
+            };
+
+            const stopHeartbeat = () => {
+                if (heartbeatInterval) {
+                    clearInterval(heartbeatInterval);
+                    heartbeatInterval = null;
+                }
+            };
+
             let syncSuccess = false;
             let syncError = null;
+
+            startHeartbeat();
             try {
                 await quotaProvider.setCanonicalPolicy({
                     authorityCode: code,
@@ -1139,6 +1204,20 @@ export const syncCanonicalPolicy = async (req, res) => {
             } catch (err) {
                 syncSuccess = false;
                 syncError = err;
+            } finally {
+                stopHeartbeat();
+            }
+
+            // 3. Fencing check at finalization boundary: if lease was lost during publication, fail closed
+            if (leaseLostDuringHeartbeat) {
+                console.error('Worker lease lost during publication: preempted by another worker');
+                return res.status(409).json({
+                    success: false,
+                    code: 'STALE_WORKER_LEASE_LOST',
+                    message: 'Worker lease expired or was reassigned to another worker before finalization; durable state not updated by stale worker',
+                    operationId: normalizedOpId,
+                    status: 'FAILED'
+                });
             }
 
             if (syncSuccess) {

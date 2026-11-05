@@ -3944,7 +3944,84 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     `Simultaneous requests must safely arbitrate: exactly 1 sync, got codes ${JSON.stringify(codes)}`
                 );
 
-                // Case 4i: Redis operation running beyond 5 seconds (Worker 1 succeeded in Redis after 5s)
+                // Case 4i: Genuine long-running concurrency test (Worker 1 holds Redis operation beyond 5 seconds)
+                // Worker 1 holds Redis operation for 5500ms (> 5000ms initial lease duration).
+                // Periodic atomic heartbeat extends leaseExpiresAt in MongoDB.
+                // Worker 2 attempts the same operation at 5100ms (> 5000ms).
+                // Worker 2 receives HTTP 202 OPERATION_IN_PROGRESS without republishing.
+                // Worker 1 completes successfully with HTTP 200.
+                // Assert exactly one Redis publication occurred.
+                const genuineLongOpId = 'genuine-long-op-beyond-5s';
+                let genuinePublishCount = 0;
+                let worker1Started = false;
+
+                const genuineLongProvider = {
+                    async setCanonicalPolicy() {
+                        genuinePublishCount++;
+                        worker1Started = true;
+                        // Genuine delay exceeding 5 seconds (5500ms)
+                        await new Promise(r => setTimeout(r, 5500));
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(genuineLongProvider);
+
+                const genuineReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: genuineLongOpId }
+                };
+                let g1Code = null, g1Body = null;
+                const g1Promise = syncCanonicalPolicy(genuineReq1, {
+                    status(c) { g1Code = c; return this; },
+                    json(b) { g1Body = b; return this; }
+                });
+
+                // Wait until Worker 1 enters setCanonicalPolicy
+                while (!worker1Started) {
+                    await new Promise(r => setTimeout(r, 50));
+                }
+
+                // Wait until 5100ms has elapsed (> 5s initial lease window!)
+                await new Promise(r => setTimeout(r, 5100));
+
+                // Worker 2 attempts the exact same operation while Worker 1 is still inside setCanonicalPolicy
+                const genuineReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: genuineLongOpId }
+                };
+                let g2Code = null, g2Body = null;
+                await syncCanonicalPolicy(genuineReq2, {
+                    status(c) { g2Code = c; return this; },
+                    json(b) { g2Body = b; return this; }
+                });
+                assert.equal(g2Code, 202, 'Worker 2 must receive HTTP 202 while Worker 1 heartbeat renews lease beyond 5s');
+                assert.equal(g2Body.code, 'OPERATION_IN_PROGRESS');
+
+                // Await Worker 1 completion
+                await g1Promise;
+                assert.equal(g1Code, 200, 'Worker 1 must complete successfully after long Redis operation');
+                assert.equal(g1Body.status, 'COMPLETED');
+                assert.equal(genuinePublishCount, 1, 'Exactly one Redis publication must occur');
+
+                // Subsequent request after completion returns 200 idempotent without republishing
+                let g3Code = null, g3Body = null;
+                await syncCanonicalPolicy(genuineReq2, {
+                    status(c) { g3Code = c; return this; },
+                    json(b) { g3Body = b; return this; }
+                });
+                assert.equal(g3Code, 200, 'Subsequent request must return 200 idempotent');
+                assert.equal(genuinePublishCount, 1, 'Subsequent request must not publish to Redis again');
+
+                // Case 4i.2: Redis-side idempotency and recovery after worker crash (Redis already synced)
                 const longRedisOpId = 'long-redis-op-99';
                 const longRedisCorrId = `canonical_sync:${currentPolicy._id.toString()}:${longRedisOpId}`;
                 await AuditLog.create({
