@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import ReconciliationGroup from '../models/ReconciliationGroup.js';
 import ReconciliationAudit from '../models/ReconciliationAudit.js';
 import Contact from '../models/Contact.js';
@@ -43,25 +44,78 @@ const sanitizeGroup = (g) => {
 };
 
 /**
- * Determine if caller has authorized global visibility.
+ * Authoritatively resolve user from the database.
+ * Strictly fails closed:
+ * - Missing or invalid user ID -> returns null
+ * - Inactive user -> returns null
+ * - Missing user record -> returns null
+ * - Missing or invalid role -> returns null
+ * - Database query error -> throws error (caller must fail closed)
  */
-const isCallerGlobalAdmin = (user) => {
-    if (!user) return false;
-    const userEmail = (user.email || '').toLowerCase().trim();
-    const roleName = (user.role?.name || user.role || '').toLowerCase().trim();
-    const isSystemOwner = userEmail === 'bharatproperties570@gmail.com' || userEmail === 'shreykeshwar@gmail.com';
-    const isSuperAdmin = roleName === 'super admin';
-    const hasAllScope = user.dataScope === 'all';
-    const hasTenant = Boolean(user.tenantId || user.tenant);
+export const resolveAuthoritativeUser = async (user) => {
+    if (!user) return null;
+    const userId = user._id || user.id;
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId.toString())) {
+        return null;
+    }
 
-    return (isSystemOwner || isSuperAdmin || hasAllScope) && !hasTenant;
+    const UserModel = mongoose.models.User || mongoose.model('User');
+    const freshUser = await UserModel.findById(userId).populate('role').lean();
+    if (!freshUser || freshUser.isActive === false) {
+        return null;
+    }
+
+    if (!freshUser.role) {
+        return null;
+    }
+
+    return freshUser;
 };
+
+/**
+ * Determine if caller has authorized global platform administrative authority.
+ * Strictly adheres to canonical CRM RBAC:
+ * 1. Resolved authoritative DB user identity from MongoDB.
+ * 2. Active status (isActive: true).
+ * 3. Authoritative role name is 'super admin'.
+ * 4. Non-tenant-scoped (!tenantId && !tenant).
+ * 5. dataScope must be 'all'.
+ * 
+ * Strictly FAILS CLOSED on any resolution or DB error.
+ * NEVER trusts client-supplied emails, role objects, or dataScopes.
+ * NEVER grants global admin solely because dataScope === 'all'.
+ */
+export const isAuthoritativeGlobalAdmin = async (user) => {
+    if (!user) return false;
+    let dbUser;
+    try {
+        dbUser = await resolveAuthoritativeUser(user);
+    } catch (err) {
+        console.error('[AUTH_GUARD] Failed to resolve authoritative user:', err);
+        return false;
+    }
+
+    if (!dbUser || !dbUser.role) return false;
+
+    // Multi-tenant guard: Tenant-scoped users can never be platform global admins
+    if (dbUser.tenantId || dbUser.tenant) return false;
+
+    const roleName = String(dbUser.role?.name || '').toLowerCase().trim();
+    const isSuperAdmin = roleName === 'super admin';
+    const hasAllScope = String(dbUser.dataScope || '').toLowerCase().trim() === 'all';
+
+    return isSuperAdmin && hasAllScope;
+};
+
+// Backward-compatible alias
+export const isCallerGlobalAdmin = isAuthoritativeGlobalAdmin;
 
 /**
  * Verify whether caller has visibility to ALL contacts in a group.
  * Strictly fails closed:
  * - Every contact ID in group must be distinctly matched by user's visibility filter.
  * - Missing, deleted, or hidden contacts reject the entire operation.
+ * - Inactive or unresolvable users reject the entire operation.
  * - Never silently treats a query error as global access.
  */
 export const verifyGroupVisibility = async (user, contactIds) => {
@@ -71,48 +125,71 @@ export const verifyGroupVisibility = async (user, contactIds) => {
     }
 
     const uniqueIds = [...new Set(contactIds.map(id => (id?._id || id).toString()))];
-
-    let resolvedUser = user;
-    if (user && user._id && (!user.role || typeof user.role !== 'object' || !user.role.name)) {
-        try {
-            const UserModel = mongoose.models.User || mongoose.model('User');
-            const foundUser = await UserModel.findById(user._id).populate('role').lean();
-            if (foundUser) resolvedUser = foundUser;
-        } catch (_) {}
+    if (uniqueIds.some(id => !mongoose.Types.ObjectId.isValid(id))) {
+        return false;
     }
 
+    // 1. Resolve authoritative DB identity — NO SILENT CATCH!
+    let dbUser;
+    try {
+        dbUser = await resolveAuthoritativeUser(user);
+    } catch (err) {
+        console.error('[RECON_VISIBILITY] Authoritative user resolution failed, failing closed:', err);
+        return false;
+    }
+
+    // 2. A failed user lookup, missing user, or inactive account must return false
+    if (!dbUser) {
+        console.warn('[RECON_VISIBILITY] User lookup returned null or inactive, failing closed');
+        return false;
+    }
+
+    // 3. A missing role must return false (never becomes global access)
+    if (!dbUser.role) {
+        console.warn('[RECON_VISIBILITY] User has no assigned role, failing closed');
+        return false;
+    }
+
+    // 4. Verify authoritative global admin authority
+    const isGlobal = await isAuthoritativeGlobalAdmin(dbUser);
+
+    // 5. Evaluate visibility filter using the RESOLVED DATABASE USER
     let visibilityFilter;
     try {
-        visibilityFilter = await getVisibilityFilter(resolvedUser);
+        visibilityFilter = await getVisibilityFilter(dbUser);
     } catch (err) {
         console.error('[RECON_VISIBILITY] getVisibilityFilter threw error, failing closed:', err);
         return false;
     }
 
-    // Global access check: only authorized platform global admin
+    // 6. Global access check: only authorized platform global admin
     if (!visibilityFilter || Object.keys(visibilityFilter).length === 0) {
-        if (isCallerGlobalAdmin(resolvedUser)) {
-            // Verify that all contacts actually exist in the database
+        if (isGlobal) {
+            // Verify that all contacts actually exist, are accessible, and NOT deleted
             try {
-                const existingCount = await Contact.countDocuments({ _id: { $in: uniqueIds } });
+                const existingCount = await Contact.countDocuments({
+                    _id: { $in: uniqueIds },
+                    isDeleted: false
+                });
                 return existingCount === uniqueIds.length;
             } catch (err) {
                 console.error('[RECON_VISIBILITY] DB existence query failed, failing closed:', err);
                 return false;
             }
         }
-        // If not an authorized global admin, empty filter is NOT permitted
+        // If not an authorized global admin, empty filter is NOT permitted -> deny
         return false;
     }
 
+    // 7. Restricted user: every contact ID in group must be accessible and active
     try {
         const visibleContacts = await Contact.find({
             _id: { $in: uniqueIds },
+            isDeleted: false,
             ...visibilityFilter
         }).select('_id').lean();
 
         const visibleIdSet = new Set(visibleContacts.map(c => c._id.toString()));
-        // EVERY contact ID must be accessible
         const allVisible = uniqueIds.every(id => visibleIdSet.has(id));
         return allVisible && uniqueIds.length === visibleContacts.length;
     } catch (err) {
@@ -123,13 +200,22 @@ export const verifyGroupVisibility = async (user, contactIds) => {
 
 export const getSummary = async (req, res, next) => {
     try {
-        const isGlobal = isCallerGlobalAdmin(req.user);
+        const isGlobal = await isAuthoritativeGlobalAdmin(req.user);
         let groupFilter = {};
 
         if (!isGlobal) {
+            const dbUser = await resolveAuthoritativeUser(req.user);
+            if (!dbUser) {
+                return res.status(401).json({
+                    success: false,
+                    code: 'UNAUTHORIZED',
+                    message: 'User identity could not be verified'
+                });
+            }
+
             let visibilityFilter;
             try {
-                visibilityFilter = await getVisibilityFilter(req.user);
+                visibilityFilter = await getVisibilityFilter(dbUser);
             } catch (err) {
                 return res.status(500).json({
                     success: false,
@@ -138,7 +224,15 @@ export const getSummary = async (req, res, next) => {
                 });
             }
 
-            const visibleContactIds = await Contact.find(visibilityFilter).distinct('_id');
+            if (!visibilityFilter || Object.keys(visibilityFilter).length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'ACCESS_DENIED',
+                    message: 'Unrestricted visibility filter is not permitted for non-global administrative callers'
+                });
+            }
+
+            const visibleContactIds = await Contact.find({ ...visibilityFilter, isDeleted: false }).distinct('_id');
             // Strict visibility: only groups where ALL contactIds belong to visibleContactIds
             groupFilter = {
                 contactIds: {
@@ -214,14 +308,23 @@ export const getGroups = async (req, res, next) => {
         const { classification, status, page = 1, limit = 20, search } = req.query;
         const query = {};
 
-        const isGlobal = isCallerGlobalAdmin(req.user);
+        const isGlobal = await isAuthoritativeGlobalAdmin(req.user);
         let visibleContactIds = null;
         let visibleIdSet = null;
 
         if (!isGlobal) {
+            const dbUser = await resolveAuthoritativeUser(req.user);
+            if (!dbUser) {
+                return res.status(401).json({
+                    success: false,
+                    code: 'UNAUTHORIZED',
+                    message: 'User identity could not be verified'
+                });
+            }
+
             let visibilityFilter;
             try {
-                visibilityFilter = await getVisibilityFilter(req.user);
+                visibilityFilter = await getVisibilityFilter(dbUser);
             } catch (err) {
                 return res.status(500).json({
                     success: false,
@@ -230,7 +333,15 @@ export const getGroups = async (req, res, next) => {
                 });
             }
 
-            visibleContactIds = await Contact.find(visibilityFilter).distinct('_id');
+            if (!visibilityFilter || Object.keys(visibilityFilter).length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'ACCESS_DENIED',
+                    message: 'Unrestricted visibility filter is not permitted for non-global administrative callers'
+                });
+            }
+
+            visibleContactIds = await Contact.find({ ...visibilityFilter, isDeleted: false }).distinct('_id');
             visibleIdSet = new Set(visibleContactIds.map(id => id.toString()));
 
             // Only return groups where EVERY contact is visible (no partially visible groups)
@@ -571,7 +682,7 @@ export const rollbackGroup = async (req, res, next) => {
 
 export const getMigrationReadiness = async (req, res, next) => {
     try {
-        const isGlobal = isCallerGlobalAdmin(req.user);
+        const isGlobal = await isAuthoritativeGlobalAdmin(req.user);
         if (!isGlobal) {
             return res.status(403).json({
                 success: false,
@@ -593,6 +704,15 @@ export const getMigrationReadiness = async (req, res, next) => {
 
 export const syncGroups = async (req, res, next) => {
     try {
+        const isGlobal = await isAuthoritativeGlobalAdmin(req.user);
+        if (!isGlobal) {
+            return res.status(403).json({
+                success: false,
+                code: 'GLOBAL_ADMIN_REQUIRED',
+                message: 'Forbidden: Global administrator privileges required to scan and sync reconciliation groups'
+            });
+        }
+
         const stats = await ContactReconciliationService.scanAndSyncGroups();
         res.status(200).json({ success: true, message: 'Groups scanned and synced successfully', data: stats });
     } catch (error) {

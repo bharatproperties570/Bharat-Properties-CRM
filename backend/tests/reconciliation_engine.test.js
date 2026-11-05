@@ -36,10 +36,21 @@ import { previewMerge, executeMerge, rollbackMerge } from '../services/contactMe
 import { ContactLockService } from '../services/contactLock.service.js';
 import { ContactReconciliationService } from '../services/contactReconciliation.service.js';
 import { MigrationReadinessService, MIGRATION_CHECK_CODES } from '../services/migrationReadiness.service.js';
-import { verifyGroupVisibility, getSummary, getGroups, getGroupById } from '../controllers/reconciliation.controller.js';
+import {
+    verifyGroupVisibility,
+    getSummary,
+    getGroups,
+    getGroupById,
+    isAuthoritativeGlobalAdmin,
+    resolveAuthoritativeUser,
+    getMigrationReadiness,
+    syncGroups
+} from '../controllers/reconciliation.controller.js';
 
 describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', () => {
     let replset;
+    let adminRole;
+    let agentRole;
     let testAdminUser;
     let testAgentUser;
     let testAgentUser2;
@@ -72,12 +83,12 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
         await ReconciliationAudit.createCollection();
         await Team.createCollection();
 
-        const adminRole = await Role.create({
+        adminRole = await Role.create({
             name: 'super admin',
             department: 'sales',
             permissions: [{ module: 'contacts', actions: ['read', 'create', 'edit', 'delete'] }]
         });
-        const agentRole = await Role.create({
+        agentRole = await Role.create({
             name: 'agent',
             department: 'sales',
             permissions: [{ module: 'contacts', actions: ['read'] }]
@@ -970,6 +981,144 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
                 return true;
             }
         );
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 20. P1 SECURITY: AUTHORITATIVE RBAC GLOBAL-ADMIN RESOLUTION
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('20. P1 Security: Authoritative RBAC global-admin resolution — strictly denies email spoofing, client claims, and dataScope-only bypass', async () => {
+        // Case A: Missing or null input -> false
+        assert.equal(await isAuthoritativeGlobalAdmin(null), false);
+        assert.equal(await isAuthoritativeGlobalAdmin({}), false);
+
+        // Case B: Client-supplied manipulated claims (agent claiming super admin role & spoofed email)
+        const spoofedClaimsUser = {
+            _id: testAgentUser._id,
+            email: 'shreykeshwar@gmail.com',
+            role: { name: 'super admin' },
+            dataScope: 'all'
+        };
+        const resSpoofed = await isAuthoritativeGlobalAdmin(spoofedClaimsUser);
+        assert.equal(resSpoofed, false, 'Manipulated client claims and spoofed email must be rejected by authoritative DB lookup');
+
+        // Case C: Agent with dataScope: 'all' in database -> MUST NOT be granted global admin
+        const agentAllScope = await User.create({
+            fullName: 'Agent All Scope',
+            email: 'agent_all@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: agentRole._id,
+            dataScope: 'all',
+            isActive: true
+        });
+        const resAgentAll = await isAuthoritativeGlobalAdmin(agentAllScope);
+        assert.equal(resAgentAll, false, 'dataScope: all alone MUST NOT grant global admin privileges to an agent');
+
+        // Case D: Manager with dataScope: 'all' in database -> MUST NOT be granted global admin
+        const managerRole = await Role.create({ name: 'manager', department: 'sales' });
+        const managerUser = await User.create({
+            fullName: 'Manager User',
+            email: 'manager@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: managerRole._id,
+            dataScope: 'all',
+            isActive: true
+        });
+        const resManager = await isAuthoritativeGlobalAdmin(managerUser);
+        assert.equal(resManager, false, 'Manager with dataScope: all MUST NOT be granted global administrative authority');
+
+        // Case E: Tenant-scoped super admin -> MUST NOT be granted platform global admin
+        const tenantAdmin = await User.create({
+            fullName: 'Tenant Admin',
+            email: 'tenant_admin@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: adminRole._id,
+            dataScope: 'all',
+            tenantId: new mongoose.Types.ObjectId(),
+            isActive: true
+        });
+        const resTenantAdmin = await isAuthoritativeGlobalAdmin(tenantAdmin);
+        assert.equal(resTenantAdmin, false, 'Tenant-scoped admin must NOT have global platform administrative authority');
+
+        // Case F: Genuine platform Super Admin -> GRANTED
+        const resRealAdmin = await isAuthoritativeGlobalAdmin(testAdminUser);
+        assert.equal(resRealAdmin, true, 'Genuine database-verified Super Admin without tenant must have global authority');
+
+        // Case G: Endpoint protection: getMigrationReadiness returns 403 for non-global admin
+        let readinessStatus = null;
+        const mockReqReadiness = { user: testAgentUser };
+        const mockResReadiness = {
+            status: (code) => { readinessStatus = code; return mockResReadiness; },
+            json: () => mockResReadiness
+        };
+        await getMigrationReadiness(mockReqReadiness, mockResReadiness);
+        assert.equal(readinessStatus, 403, 'Non-global admin must receive HTTP 403 on getMigrationReadiness');
+
+        // Case H: Endpoint protection: syncGroups returns 403 for non-global admin
+        let syncStatus = null;
+        const mockReqSync = { user: testAgentUser };
+        const mockResSync = {
+            status: (code) => { syncStatus = code; return mockResSync; },
+            json: () => mockResSync
+        };
+        await syncGroups(mockReqSync, mockResSync);
+        assert.equal(syncStatus, 403, 'Non-global admin must receive HTTP 403 on syncGroups');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 21. P1 SECURITY: HARDENED USER RESOLUTION & FAIL-CLOSED VISIBILITY
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('21. P1 Security: User resolution and contact status fail-closed hardening (deleted, missing, inactive, role-less)', async () => {
+        const contactA = await Contact.create({ name: 'Active Alpha', phones: [{ number: '9800112233' }], isDeleted: false, isMerged: false });
+        const contactB = await Contact.create({ name: 'Active Beta', phones: [{ number: '9800112233' }], isDeleted: false, isMerged: false });
+
+        // Case A: Inactive user account -> resolveAuthoritativeUser returns null, visibility returns false
+        const inactiveUser = await User.create({
+            fullName: 'Inactive Super Admin',
+            email: 'inactive_admin@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: adminRole._id,
+            dataScope: 'all',
+            isActive: false
+        });
+        const resInactive = await resolveAuthoritativeUser(inactiveUser);
+        assert.equal(resInactive, null, 'Inactive user lookup must return null');
+        const visInactive = await verifyGroupVisibility(inactiveUser, [contactA._id, contactB._id]);
+        assert.equal(visInactive, false, 'Inactive user must fail closed in verifyGroupVisibility');
+
+        // Case B: User record without assigned role -> resolveAuthoritativeUser returns null, visibility returns false
+        const rolelessUser = await User.create({
+            fullName: 'Roleless User',
+            email: 'norole_user@bharatproperties.co',
+            password: 'Password123!',
+            department: 'sales',
+            role: new mongoose.Types.ObjectId(), // Non-existent role ID in DB
+            dataScope: 'assigned',
+            isActive: true
+        });
+        const resRoleless = await resolveAuthoritativeUser(rolelessUser);
+        assert.equal(resRoleless, null, 'User with unresolvable role must return null');
+        const visRoleless = await verifyGroupVisibility(rolelessUser, [contactA._id, contactB._id]);
+        assert.equal(visRoleless, false, 'User without valid role must fail closed in verifyGroupVisibility');
+
+        // Case C: Non-existent user ID -> resolveAuthoritativeUser returns null, visibility returns false
+        const nonExistentUser = { _id: new mongoose.Types.ObjectId() };
+        const resNonExistent = await resolveAuthoritativeUser(nonExistentUser);
+        assert.equal(resNonExistent, null, 'Non-existent user must return null');
+        const visNonExistent = await verifyGroupVisibility(nonExistentUser, [contactA._id, contactB._id]);
+        assert.equal(visNonExistent, false, 'Non-existent user must fail closed in verifyGroupVisibility');
+
+        // Case D: Soft-deleted contact in group -> must fail closed
+        const deletedContact = await Contact.create({ name: 'Deleted Gamma', phones: [{ number: '9800112233' }], isDeleted: true, isMerged: false });
+        const visDeleted = await verifyGroupVisibility(testAdminUser, [contactA._id, deletedContact._id]);
+        assert.equal(visDeleted, false, 'Group containing a soft-deleted contact must fail closed');
+
+        // Case E: Invalid ObjectId in contactIds array -> must fail closed
+        const visInvalidId = await verifyGroupVisibility(testAdminUser, [contactA._id, 'not-a-valid-object-id']);
+        assert.equal(visInvalidId, false, 'Invalid ObjectId in contactIds array must fail closed');
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
