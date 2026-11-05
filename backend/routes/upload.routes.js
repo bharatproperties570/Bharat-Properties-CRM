@@ -23,8 +23,66 @@ router.use(authenticate);
 export const fileUploadOwnership = new Map();
 
 /**
+ * Evaluates whether a requesting user is authorized to access an ownership record
+ * under strict multi-tenant isolation rules.
+ */
+export function isAuthorizedForRecord(record, user, userId, userTenantId) {
+    if (!record || !user) return false;
+
+    const roleName = user.role?.name?.toLowerCase() || (typeof user.role === 'string' ? user.role.toLowerCase() : '');
+    const dataScope = user.dataScope?.toLowerCase() || '';
+    const isPlatformAdmin = (roleName === 'admin' || roleName === 'super admin') && dataScope === 'all';
+
+    // Platform administrator override under documented policy:
+    // A platform administrator with global dataScope ('all') and without tenant lockdown can administer files across tenants
+    if (isPlatformAdmin && !userTenantId) {
+        return true;
+    }
+
+    // Strict tenant identity enforcement:
+    // If the record has a tenantId, the requesting user MUST have a matching tenant identity
+    if (record.tenantId) {
+        // Missing tenant identity must NOT bypass tenant isolation
+        if (!userTenantId) {
+            return false;
+        }
+
+        // Different tenant is strictly rejected
+        if (record.tenantId !== userTenantId) {
+            return false;
+        }
+
+        // Within the matching tenant:
+        // 1. Same owner + same tenant -> ALLOWED
+        if (record.userId && userId && String(record.userId) === String(userId)) {
+            return true;
+        }
+
+        // 2. Tenant administrator / manager within matching tenant -> ALLOWED
+        if (roleName === 'admin' || roleName === 'super admin' || roleName === 'manager') {
+            return true;
+        }
+
+        // 3. Different user in same tenant without elevated permissions -> DENIED
+        return false;
+    }
+
+    // Unscoped record (no tenantId on record):
+    if (record.userId && userId && String(record.userId) === String(userId)) {
+        return true;
+    }
+
+    if (isPlatformAdmin) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Register file upload ownership for IDOR protection.
  * Updates the in-memory cache and persists a durable record in MongoDB.
+ * Fails closed if durable persistence cannot be completed when MongoDB is expected to be available.
  */
 export async function registerUploadedFile(fileId, user, options = {}) {
     if (!fileId || !user) return;
@@ -45,41 +103,65 @@ export async function registerUploadedFile(fileId, user, options = {}) {
     fileUploadOwnership.set(fileId, record);
 
     // Persist to durable CRM record in MongoDB if connected
-    if (mongoose.connection && mongoose.connection.readyState === 1) {
+    const isMongoConnected = mongoose.connection && mongoose.connection.readyState === 1;
+    const isMongoExpected = Boolean(process.env.MONGODB_URI || process.env.NODE_ENV === 'production' || isMongoConnected);
+
+    if (isMongoConnected) {
         try {
-            await DirectUploadRecord.findOneAndUpdate(
-                { fileId },
+            const bulkOps = [
                 {
-                    fileId,
-                    sanitizedFileId: sanitized,
-                    userId: record.userId,
-                    tenantId: record.tenantId,
-                    storage: record.storage,
-                    originalName: record.originalName,
-                    mimeType: record.mimeType,
-                    sizeBytes: record.sizeBytes
-                },
-                { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
+                    updateOne: {
+                        filter: { fileId },
+                        update: {
+                            $set: {
+                                fileId,
+                                sanitizedFileId: sanitized,
+                                userId: record.userId,
+                                tenantId: record.tenantId,
+                                storage: record.storage,
+                                originalName: record.originalName,
+                                mimeType: record.mimeType,
+                                sizeBytes: record.sizeBytes
+                            }
+                        },
+                        upsert: true
+                    }
+                }
+            ];
+
             if (sanitized !== fileId) {
-                await DirectUploadRecord.findOneAndUpdate(
-                    { fileId: sanitized },
-                    {
-                        fileId: sanitized,
-                        sanitizedFileId: sanitized,
-                        userId: record.userId,
-                        tenantId: record.tenantId,
-                        storage: record.storage,
-                        originalName: record.originalName,
-                        mimeType: record.mimeType,
-                        sizeBytes: record.sizeBytes
-                    },
-                    { upsert: true, new: true, setDefaultsOnInsert: true }
-                );
+                bulkOps.push({
+                    updateOne: {
+                        filter: { fileId: sanitized },
+                        update: {
+                            $set: {
+                                fileId: sanitized,
+                                sanitizedFileId: sanitized,
+                                userId: record.userId,
+                                tenantId: record.tenantId,
+                                storage: record.storage,
+                                originalName: record.originalName,
+                                mimeType: record.mimeType,
+                                sizeBytes: record.sizeBytes
+                            }
+                        },
+                        upsert: true
+                    }
+                });
             }
+
+            await DirectUploadRecord.bulkWrite(bulkOps);
         } catch (dbErr) {
+            // Roll back in-memory registrations immediately on DB failure
+            fileUploadOwnership.delete(sanitized);
+            fileUploadOwnership.delete(fileId);
             console.error('[UploadAuth] Failed to persist durable DirectUploadRecord:', dbErr.message);
+            throw new Error(`Failed to persist durable ownership record for file ${sanitized}: ${dbErr.message}`);
         }
+    } else if (isMongoExpected) {
+        fileUploadOwnership.delete(sanitized);
+        fileUploadOwnership.delete(fileId);
+        throw new Error(`MongoDB connection is not ready for durable upload registration of ${sanitized}`);
     }
 }
 
@@ -88,7 +170,7 @@ export async function registerUploadedFile(fileId, user, options = {}) {
  * Prevents Insecure Direct Object References (IDOR) across users and tenants.
  *
  * Rules:
- * 1. Checks memory ownership table for fast direct upload lookup.
+ * 1. Checks memory ownership table for fast direct upload lookup using strict tenant policy.
  * 2. Queries durable DirectUploadRecord in MongoDB (handles server restarts and multi-instance deployments).
  * 3. Checks canonical DocumentVersion & Document models using DocumentAccessService.
  *    - Respects entity visibility, lifecycle rules, legal hold, and RBAC permissions.
@@ -109,14 +191,7 @@ export async function authorizeFileAccess(user, fileId, operation = 'READ') {
     // 1. Check in-memory upload registry for direct uploads
     if (fileUploadOwnership.has(sanitized) || fileUploadOwnership.has(fileId)) {
         const record = fileUploadOwnership.get(sanitized) || fileUploadOwnership.get(fileId);
-        // Cross-tenant check: if file belongs to a tenant and current user is in another tenant -> DENIED
-        if (record.tenantId && userTenantId && record.tenantId !== userTenantId) {
-            return false;
-        }
-        // If file was uploaded by this exact user within same tenant -> ALLOWED
-        if (record.userId && userId && String(record.userId) === String(userId)) {
-            return true;
-        }
+        return isAuthorizedForRecord(record, user, userId, userTenantId);
     }
 
     // 2. If MongoDB is connected, query durable CRM records
@@ -136,24 +211,7 @@ export async function authorizeFileAccess(user, fileId, operation = 'READ') {
                 fileUploadOwnership.set(fileId, durableRecord);
                 fileUploadOwnership.set(sanitized, durableRecord);
 
-                // Enforce tenant isolation: cross-tenant access is strictly denied
-                if (durableRecord.tenantId && userTenantId && durableRecord.tenantId !== userTenantId) {
-                    return false;
-                }
-
-                // If uploaded by this user -> ALLOWED
-                if (durableRecord.userId && userId && String(durableRecord.userId) === String(userId)) {
-                    return true;
-                }
-
-                // If in same tenant and user has tenant administrative privileges
-                const roleName = user.role?.name?.toLowerCase() || (typeof user.role === 'string' ? user.role.toLowerCase() : '');
-                if (durableRecord.tenantId === userTenantId && (roleName === 'admin' || roleName === 'super admin' || roleName === 'manager')) {
-                    return true;
-                }
-
-                // Different user in same tenant without elevated permission cannot delete/access private upload
-                return false;
+                return isAuthorizedForRecord(durableRecord, user, userId, userTenantId);
             }
         } catch (dbErr) {
             console.error('[UploadAuth] DirectUploadRecord check failed:', dbErr.message);
@@ -279,18 +337,38 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
                 userId: req.user?._id || req.user?.id
             });
 
-            await registerUploadedFile(result.id, req.user, {
-                storage: 'google_drive',
-                originalName: req.file.originalname,
-                mimeType: req.file.mimetype,
-                sizeBytes: req.file.size
-            });
-            await registerUploadedFile(req.file.filename, req.user, {
-                storage: 'google_drive',
-                originalName: req.file.originalname,
-                mimeType: req.file.mimetype,
-                sizeBytes: req.file.size
-            });
+            try {
+                await registerUploadedFile(result.id, req.user, {
+                    storage: 'google_drive',
+                    originalName: req.file.originalname,
+                    mimeType: req.file.mimetype,
+                    sizeBytes: req.file.size
+                });
+                if (req.file.filename && req.file.filename !== result.id) {
+                    await registerUploadedFile(req.file.filename, req.user, {
+                        storage: 'google_drive',
+                        originalName: req.file.originalname,
+                        mimeType: req.file.mimetype,
+                        sizeBytes: req.file.size
+                    });
+                }
+            } catch (regError) {
+                // If durable ownership could not be persisted, fail closed!
+                fileUploadOwnership.delete(result.id);
+                fileUploadOwnership.delete(path.basename(result.id));
+                fileUploadOwnership.delete(req.file.filename);
+                fileUploadOwnership.delete(path.basename(req.file.filename));
+                if (mongoose.connection && mongoose.connection.readyState === 1) {
+                    await DirectUploadRecord.deleteMany({
+                        fileId: { $in: [result.id, path.basename(result.id), req.file.filename, path.basename(req.file.filename)] }
+                    }).catch(() => {});
+                }
+                console.error('[UploadRoute] Durable ownership registration failed:', regError.message);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Upload failed: could not establish durable file ownership record.'
+                });
+            }
 
             return res.status(200).json({
                 success: true,
@@ -306,12 +384,25 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
             
             // Fallback: Return local URL (the file is already saved in uploads/ by multer)
             const localUrl = `/uploads/${req.file.filename}`;
-            await registerUploadedFile(req.file.filename, req.user, {
-                storage: 'local',
-                originalName: req.file.originalname,
-                mimeType: req.file.mimetype,
-                sizeBytes: req.file.size
-            });
+            try {
+                await registerUploadedFile(req.file.filename, req.user, {
+                    storage: 'local',
+                    originalName: req.file.originalname,
+                    mimeType: req.file.mimetype,
+                    sizeBytes: req.file.size
+                });
+            } catch (regError) {
+                fileUploadOwnership.delete(req.file.filename);
+                fileUploadOwnership.delete(path.basename(req.file.filename));
+                if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+                    try { fs.unlinkSync(req.file.path); } catch (e) {}
+                }
+                console.error('[UploadRoute] Durable ownership registration failed for local file:', regError.message);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Upload failed: could not establish durable file ownership record.'
+                });
+            }
             
             return res.status(200).json({
                 success: true,
@@ -366,12 +457,14 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                     mimeType: file.mimetype,
                     sizeBytes: file.size
                 });
-                await registerUploadedFile(file.filename, req.user, {
-                    storage: 'google_drive',
-                    originalName: file.originalname,
-                    mimeType: file.mimetype,
-                    sizeBytes: file.size
-                });
+                if (file.filename && file.filename !== driveRes.id) {
+                    await registerUploadedFile(file.filename, req.user, {
+                        storage: 'google_drive',
+                        originalName: file.originalname,
+                        mimeType: file.mimetype,
+                        sizeBytes: file.size
+                    });
+                }
                 return {
                     success: true,
                     url: driveRes.url,
@@ -382,6 +475,10 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
                     storage: 'google_drive'
                 };
             } catch (driveErr) {
+                // If the error was from durable ownership registration failure, fail closed
+                if (driveErr.message && driveErr.message.includes('durable ownership record')) {
+                    throw driveErr;
+                }
                 console.warn(`[UploadRoute] Multiple upload: Drive failed for ${file.originalname}, falling back to LOCAL:`, driveErr.message);
                 const localUrl = `/uploads/${file.filename}`;
                 await registerUploadedFile(file.filename, req.user, {

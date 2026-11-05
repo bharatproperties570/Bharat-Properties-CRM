@@ -268,106 +268,66 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
 
     /**
      * Normalizes payload into a deterministic streamFactory and payload identity.
+     * 
+     * Policy on caller-supplied checksums:
+     * - Caller-supplied checksums (options.checksum / options.contentHash) are NOT blindly trusted for mutex identity.
+     * - The payload content is ALWAYS buffered into immutable bytes, and a canonical SHA-256 hash
+     *   is independently computed (canonicalHash).
+     * - If caller supplies options.checksum or options.contentHash, it is incorporated alongside canonicalHash.
+     *   Two distinct payloads can NEVER share a mutex under any circumstance.
+     * - The streamFactory returns a fresh, unread Readable stream from the buffered bytes on every invocation,
+     *   ensuring deterministic, reusable stream creation for retry safety.
      */
     async _normalizePayload(data, options = {}) {
-        if (options.checksum) {
-            const payloadIdentity = `chk:${options.checksum}`;
-            let streamFactory;
-            if (typeof data === 'function') {
-                streamFactory = data;
-            } else if (Buffer.isBuffer(data)) {
-                const copy = Buffer.from(data);
-                streamFactory = () => Readable.from(Buffer.from(copy));
-            } else if (typeof data === 'string') {
-                const buf = Buffer.from(data);
-                streamFactory = () => Readable.from(Buffer.from(buf));
-            } else if (data && typeof data.pipe === 'function') {
-                const chunks = [];
-                for await (const chunk of data) {
-                    chunks.push(chunk);
-                }
-                const buf = Buffer.concat(chunks);
-                streamFactory = () => Readable.from(Buffer.from(buf));
-            } else {
-                throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
-            }
-            return { streamFactory, payloadIdentity };
-        }
-
-        if (options.contentHash) {
-            const payloadIdentity = `hash:${options.contentHash}`;
-            let streamFactory;
-            if (typeof data === 'function') {
-                streamFactory = data;
-            } else if (Buffer.isBuffer(data)) {
-                const copy = Buffer.from(data);
-                streamFactory = () => Readable.from(Buffer.from(copy));
-            } else if (typeof data === 'string') {
-                const buf = Buffer.from(data);
-                streamFactory = () => Readable.from(Buffer.from(buf));
-            } else if (data && typeof data.pipe === 'function') {
-                const chunks = [];
-                for await (const chunk of data) {
-                    chunks.push(chunk);
-                }
-                const buf = Buffer.concat(chunks);
-                streamFactory = () => Readable.from(Buffer.from(buf));
-            } else {
-                throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
-            }
-            return { streamFactory, payloadIdentity };
-        }
-
+        let buf;
         if (Buffer.isBuffer(data)) {
-            const hash = crypto.createHash('sha256').update(data).digest('hex');
-            const copy = Buffer.from(data);
-            return {
-                streamFactory: () => Readable.from(Buffer.from(copy)),
-                payloadIdentity: `sha256:${hash}`
-            };
-        }
-
-        if (typeof data === 'string') {
-            const buf = Buffer.from(data);
-            const hash = crypto.createHash('sha256').update(buf).digest('hex');
-            return {
-                streamFactory: () => Readable.from(Buffer.from(buf)),
-                payloadIdentity: `sha256:${hash}`
-            };
-        }
-
-        if (data && typeof data.pipe === 'function') {
+            buf = Buffer.from(data);
+        } else if (typeof data === 'string') {
+            buf = Buffer.from(data);
+        } else if (data && typeof data.pipe === 'function') {
             const chunks = [];
             for await (const chunk of data) {
                 chunks.push(chunk);
             }
-            const buf = Buffer.concat(chunks);
-            const hash = crypto.createHash('sha256').update(buf).digest('hex');
-            return {
-                streamFactory: () => Readable.from(Buffer.from(buf)),
-                payloadIdentity: `sha256:${hash}`
-            };
-        }
-
-        if (typeof data === 'function') {
+            buf = Buffer.concat(chunks);
+        } else if (typeof data === 'function') {
+            // Stream factory: consume one instance deterministically to buffer bytes
             const testStream = data();
             const chunks = [];
             for await (const chunk of testStream) {
                 chunks.push(chunk);
             }
-            const buf = Buffer.concat(chunks);
-            const hash = crypto.createHash('sha256').update(buf).digest('hex');
-            return {
-                streamFactory: () => Readable.from(Buffer.from(buf)),
-                payloadIdentity: `sha256:${hash}`
-            };
+            buf = Buffer.concat(chunks);
+        } else {
+            throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
         }
 
-        throw new StorageError('Invalid data payload for PUT. Expected Buffer, Stream, or Stream Factory.');
+        // Independently compute canonical SHA-256 hash from verified bytes
+        const canonicalHash = crypto.createHash('sha256').update(buf).digest('hex');
+
+        // Build composite payload identity: canonical verified hash is always mandatory
+        let payloadIdentity = `sha256:${canonicalHash}`;
+        if (options.checksum) {
+            payloadIdentity += `::chk:${options.checksum}`;
+        } else if (options.contentHash) {
+            payloadIdentity += `::hash:${options.contentHash}`;
+        }
+
+        // Fresh-stream factory: creates an unread Readable stream from byte 0 for every invocation
+        const streamFactory = () => Readable.from(Buffer.from(buf));
+
+        return { streamFactory, payloadIdentity, canonicalHash };
     }
 
     /**
      * Resolves Google Drive fileId from objectKey, options, or metadata.
+     * 
+     * Search failure handling policy:
+     * - Never swallows provider search errors.
+     * - Never returns raw logical objectKey as if it were a valid Drive file ID after search failure.
+     * - Direct Drive ID and explicit fileId resolution paths are preserved without invoking search.
+     * - If search fails, normalized provider/search errors are propagated immediately.
+     * - If search confirms zero results (no-match), throws ObjectNotFoundError.
      */
     async _resolveFileId(objectKey, options = {}) {
         if (options && options.fileId) return options.fileId;
@@ -378,23 +338,21 @@ export default class GoogleDriveStorageAdapter extends StorageAdapter {
             return objectKey.substring(7);
         }
 
-        // If objectKey contains no slashes and is an alphanumeric Drive file ID (20+ chars)
+        // Direct Drive file ID: alphanumeric Drive file ID (20+ chars without slashes)
         if (!objectKey.includes('/') && /^[a-zA-Z0-9_-]{20,}$/.test(objectKey)) {
             return objectKey;
         }
 
-        // Search Drive files by appProperties
-        try {
-            const existing = await this._findExistingFileByObjectKey(objectKey, options.folderId);
-            if (existing) {
-                this._fileIdMap.set(objectKey, existing.id);
-                return existing.id;
-            }
-        } catch (err) {
-            // In resolution fallback for non-PUT operations, if search fails, continue to raw objectKey
+        // For logical object keys, search Drive files by appProperties
+        // Errors from _findExistingFileByObjectKey (e.g. ProviderUnavailableError) are propagated directly!
+        const existing = await this._findExistingFileByObjectKey(objectKey, options.folderId);
+        if (existing && existing.id) {
+            this._fileIdMap.set(objectKey, existing.id);
+            return existing.id;
         }
 
-        return objectKey;
+        // Confirmed zero results: file does not exist in Google Drive
+        throw new ObjectNotFoundError(this.providerInstanceId, objectKey);
     }
 
     // ==========================================

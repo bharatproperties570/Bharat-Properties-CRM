@@ -31,7 +31,7 @@ import User from '../models/User.js';
 import Document from '../models/Document.js';
 import DocumentVersion from '../models/DocumentVersion.js';
 import DirectUploadRecord from '../models/DirectUploadRecord.js';
-import uploadRoutes, { authorizeFileAccess, registerUploadedFile, fileUploadOwnership } from '../routes/upload.routes.js';
+import uploadRoutes, { authorizeFileAccess, registerUploadedFile, fileUploadOwnership, isAuthorizedForRecord } from '../routes/upload.routes.js';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => {
@@ -1283,6 +1283,131 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             assert.strictEqual(listCalls, 1, 'files.list must have been called on retry');
             assert.strictEqual(result.fileId, 'pre-existing-remote-file-id');
         });
+
+        await sub.test('18i. READ on logical objectKey propagates ProviderUnavailableError on search failure', async () => {
+            const objectKey = 'doc-search-failure-read/sample.pdf';
+            const fakeDriveClient = {
+                files: {
+                    list: async () => {
+                        const err = new Error('Service Unavailable');
+                        err.status = 503;
+                        err.code = 503;
+                        throw err;
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+            await assert.rejects(
+                async () => adapter.read(objectKey),
+                ProviderUnavailableError
+            );
+        });
+
+        await sub.test('18j. DELETE on logical objectKey propagates ProviderUnavailableError on search failure', async () => {
+            const objectKey = 'doc-search-failure-delete/sample.pdf';
+            const fakeDriveClient = {
+                files: {
+                    list: async () => {
+                        const err = new Error('Internal Server Error');
+                        err.status = 500;
+                        err.code = 500;
+                        throw err;
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+            await assert.rejects(
+                async () => adapter.delete(objectKey),
+                ProviderUnavailableError
+            );
+        });
+
+        await sub.test('18k. HEAD on logical objectKey propagates ProviderUnavailableError on search failure', async () => {
+            const objectKey = 'doc-search-failure-head/sample.pdf';
+            const fakeDriveClient = {
+                files: {
+                    list: async () => {
+                        const err = new Error('Too Many Requests');
+                        err.status = 429;
+                        err.code = 429;
+                        throw err;
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+            await assert.rejects(
+                async () => adapter.head(objectKey),
+                ProviderUnavailableError
+            );
+        });
+
+        await sub.test('18l. Confirmed no-match on logical objectKey throws ObjectNotFoundError for READ/DELETE/HEAD', async () => {
+            const objectKey = 'doc-confirmed-no-match/non-existent.pdf';
+            const fakeDriveClient = {
+                files: {
+                    list: async () => ({ data: { files: [] } })
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+            await assert.rejects(
+                async () => adapter.read(objectKey),
+                ObjectNotFoundError
+            );
+            await assert.rejects(
+                async () => adapter.delete(objectKey),
+                ObjectNotFoundError
+            );
+            await assert.rejects(
+                async () => adapter.head(objectKey),
+                ObjectNotFoundError
+            );
+        });
+
+        await sub.test('18m. Direct Drive ID and explicit fileId resolve without invoking search', async () => {
+            let listCalls = 0;
+            const directDriveId = '1abcdefghijklmnopqrstuvwxyz23456'; // 31 chars alphanumeric, no slashes
+            const explicitFileId = 'explicit-custom-file-id';
+
+            const fakeDriveClient = {
+                files: {
+                    get: async ({ fileId, alt }) => {
+                        return {
+                            data: alt === 'media' ? Readable.from(Buffer.from('streamed content')) : {
+                                id: fileId,
+                                name: 'direct.pdf',
+                                mimeType: 'application/pdf',
+                                size: '16'
+                            }
+                        };
+                    },
+                    list: async () => {
+                        listCalls++;
+                        return { data: { files: [] } };
+                    }
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            // 1. Direct Drive ID without gdrive: prefix
+            const metaDirect = await adapter.head(directDriveId);
+            assert.strictEqual(metaDirect.fileId, directDriveId);
+            assert.strictEqual(listCalls, 0, 'files.list must not be called for direct alphanumeric Drive file ID');
+
+            // 2. Direct Drive ID with gdrive: prefix
+            const metaGdrive = await adapter.head(`gdrive:${directDriveId}`);
+            assert.strictEqual(metaGdrive.fileId, directDriveId);
+            assert.strictEqual(listCalls, 0, 'files.list must not be called for gdrive: prefix');
+
+            // 3. Explicit fileId in options
+            const metaExplicit = await adapter.head('arbitrary/logical/path/file.pdf', { fileId: explicitFileId });
+            assert.strictEqual(metaExplicit.fileId, explicitFileId);
+            assert.strictEqual(listCalls, 0, 'files.list must not be called when options.fileId is explicitly provided');
+        });
     });
 
     // =========================================================================
@@ -1434,6 +1559,76 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             assert.strictEqual(res2.fileId, 'recovered-successful-file-id');
             assert.strictEqual(createCalls, 2);
         });
+
+        await sub.test('19e. Mutex isolation: identical caller-supplied checksums with different payload content do NOT share mutex', async () => {
+            let createCalls = 0;
+            const objectKey = 'doc-spoofed-checksum-mutex/v1';
+            const payloadAlpha = Buffer.from('Alpha unique payload bytes');
+            const payloadBeta = Buffer.from('Beta different payload bytes');
+            const sharedCallerChecksum = 'sha256:same-caller-supplied-checksum-for-both';
+
+            const fakeDriveClient = {
+                files: {
+                    create: async (params) => {
+                        createCalls++;
+                        await new Promise(res => setTimeout(res, 40));
+                        const isAlpha = params.requestBody.name.includes('alpha');
+                        return {
+                            data: {
+                                id: isAlpha ? 'file-alpha-id' : 'file-beta-id',
+                                size: '26'
+                            }
+                        };
+                    },
+                    list: async () => ({ data: { files: [] } })
+                }
+            };
+
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {}, undefined, { driveClient: fakeDriveClient });
+
+            // Both callers supply the exact same checksum option, but payload bytes differ
+            const [resAlpha, resBeta] = await Promise.all([
+                adapter.put(objectKey, payloadAlpha, { filename: 'alpha.pdf', checksum: sharedCallerChecksum }),
+                adapter.put(objectKey, payloadBeta, { filename: 'beta.pdf', checksum: sharedCallerChecksum })
+            ]);
+
+            assert.strictEqual(createCalls, 2, 'Independent canonical hash prevents distinct payloads from colliding on caller checksum');
+            assert.strictEqual(resAlpha.fileId, 'file-alpha-id');
+            assert.strictEqual(resBeta.fileId, 'file-beta-id');
+        });
+
+        await sub.test('19f. Stream factory determinism: streamFactory can be invoked multiple times across retries yielding identical bytes', async () => {
+            const rawBuffer = Buffer.from('Immutable source data for retry validation');
+            const adapter = new GoogleDriveStorageAdapter('google-drive-primary', {});
+
+            // 1. Normalize Buffer
+            const normBuf = await adapter._normalizePayload(rawBuffer);
+            assert.ok(normBuf.canonicalHash, 'canonicalHash must be computed');
+            const stream1 = normBuf.streamFactory();
+            const stream2 = normBuf.streamFactory();
+
+            const chunks1 = [];
+            for await (const c of stream1) chunks1.push(c);
+            const chunks2 = [];
+            for await (const c of stream2) chunks2.push(c);
+
+            assert.deepStrictEqual(Buffer.concat(chunks1), rawBuffer);
+            assert.deepStrictEqual(Buffer.concat(chunks2), rawBuffer);
+
+            // 2. Normalize Stream Factory
+            const factoryPayload = () => Readable.from(Buffer.from('Factory data for retry'));
+            const normFactory = await adapter._normalizePayload(factoryPayload);
+            const sA = normFactory.streamFactory();
+            const sB = normFactory.streamFactory();
+
+            const chA = [];
+            for await (const c of sA) chA.push(c);
+            const chB = [];
+            for await (const c of sB) chB.push(c);
+
+            assert.deepStrictEqual(Buffer.concat(chA), Buffer.from('Factory data for retry'));
+            assert.deepStrictEqual(Buffer.concat(chB), Buffer.from('Factory data for retry'));
+        });
     });
 
     // =========================================================================
@@ -1446,7 +1641,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             const uri = mongod.getUri();
             await mongoose.connect(uri);
         } catch (mErr) {
-            console.warn('[Test20] MongoMemoryServer setup note:', mErr.message);
+            assert.fail(`Fatal test failure: MongoMemoryServer could not be initialized: ${mErr.message}`);
         }
 
         const userA = {
@@ -1549,6 +1744,167 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
 
                 const auth = await authorizeFileAccess(userA, unverifiedFileId, 'READ');
                 assert.strictEqual(auth, false, 'Unverified file ID must fail closed with false (404)');
+            });
+
+            await sub.test('20f. Durable ownership fail-closed: registerUploadedFile throws and cleans up cache on DB error', async () => {
+                const fileId = 'durable-fail-closed-test-file-999';
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                try {
+                    // Force MongoDB bulkWrite to fail
+                    DirectUploadRecord.bulkWrite = async () => {
+                        throw new Error('Simulated MongoDB Write Failure (disk full / network timeout)');
+                    };
+
+                    await assert.rejects(
+                        async () => registerUploadedFile(fileId, userA, { storage: 'google_drive' }),
+                        /Failed to persist durable ownership record/
+                    );
+
+                    // Verify cache was wiped clean on failure
+                    assert.strictEqual(fileUploadOwnership.has(fileId), false, 'Cache must not hold record if DB persistence failed');
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                }
+            });
+
+            await sub.test('20g. POST /api/upload surfaces HTTP 500 error on durable persistence failure and never returns 200', async () => {
+                const originalBulkWrite = DirectUploadRecord.bulkWrite;
+                const originalFindById = User.findById;
+                let testServer;
+                try {
+                    User.findById = (id) => ({
+                        populate: () => ({
+                            lean: async () => userA
+                        })
+                    });
+                    const tokenA = jwt.sign({ id: userA._id }, config.jwtSecret, { expiresIn: '1h' });
+
+                    // Force DirectUploadRecord.bulkWrite to fail
+                    DirectUploadRecord.bulkWrite = async () => {
+                        throw new Error('Simulated DB persistence failure on disk write');
+                    };
+
+                    const testApp = express();
+                    testApp.use(express.json());
+                    testApp.use('/api/upload', uploadRoutes);
+
+                    testServer = http.createServer(testApp);
+                    await new Promise(resolve => testServer.listen(0, '127.0.0.1', resolve));
+                    const port = testServer.address().port;
+
+                    const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';
+                    const payload = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="fail-test.txt"\r\nContent-Type: text/plain\r\n\r\nTest content for durable fail closed\r\n--${boundary}--\r\n`;
+
+                    const response = await fetch(`http://127.0.0.1:${port}/api/upload`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                            'Authorization': `Bearer ${tokenA}`
+                        },
+                        body: payload
+                    });
+
+                    const json = await response.json();
+                    assert.strictEqual(response.status, 500, 'Must return HTTP 500 on durable persistence failure');
+                    assert.strictEqual(json.success, false);
+                    assert.ok(json.error.includes('could not establish durable file ownership record'), 'Error message must reflect controlled failure');
+                } finally {
+                    DirectUploadRecord.bulkWrite = originalBulkWrite;
+                    User.findById = originalFindById;
+                    if (testServer) {
+                        await new Promise(resolve => testServer.close(resolve));
+                    }
+                }
+            });
+
+            // =================================================================
+            // Strict Tenant Identity Enforcement Matrix (isAuthorizedForRecord)
+            // =================================================================
+            await sub.test('20h. Strict tenant identity: same owner + same tenant is authorized', () => {
+                const record = {
+                    fileId: 'tenant-test-file-1',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                const authorized = isAuthorizedForRecord(record, userA, userA._id, userA.tenantId);
+                assert.strictEqual(authorized, true, 'Same owner with matching tenant identity must be authorized');
+            });
+
+            await sub.test('20i. Strict tenant identity: same owner + missing user tenant identity is strictly denied', () => {
+                const record = {
+                    fileId: 'tenant-test-file-2',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                // User has same _id, but no tenantId (e.g. tenantless token or stripped context)
+                const authorized = isAuthorizedForRecord(record, userA, userA._id, null);
+                assert.strictEqual(authorized, false, 'Missing user tenant identity must NOT bypass tenant isolation');
+            });
+
+            await sub.test('20j. Strict tenant identity: same owner + different tenant is strictly denied', () => {
+                const differentTenantId = new mongoose.Types.ObjectId('65d777777777777777777777');
+                const record = {
+                    fileId: 'tenant-test-file-3',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                // User has same _id, but claims a different tenant
+                const authorized = isAuthorizedForRecord(record, userA, userA._id, differentTenantId);
+                assert.strictEqual(authorized, false, 'Same owner with mismatched tenant identity must be strictly denied');
+            });
+
+            await sub.test('20k. Strict tenant identity: different user in same tenant (non-admin) is denied', () => {
+                const record = {
+                    fileId: 'tenant-test-file-4',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                // User B is an agent in same tenant, but not the owner
+                const authorized = isAuthorizedForRecord(record, userB, userB._id, userB.tenantId);
+                assert.strictEqual(authorized, false, 'Non-admin agent in same tenant cannot access another user file');
+            });
+
+            await sub.test('20l. Strict tenant identity: tenant admin in same tenant is authorized', () => {
+                const tenantAdmin = {
+                    _id: new mongoose.Types.ObjectId('65d444444444444444444444'),
+                    tenantId: userA.tenantId,
+                    role: { name: 'admin' },
+                    dataScope: 'tenant'
+                };
+                const record = {
+                    fileId: 'tenant-test-file-5',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                const authorized = isAuthorizedForRecord(record, tenantAdmin, tenantAdmin._id, tenantAdmin.tenantId);
+                assert.strictEqual(authorized, true, 'Tenant admin within the same tenant must be authorized');
+            });
+
+            await sub.test('20m. Strict tenant identity: cross-tenant access is strictly denied', () => {
+                const record = {
+                    fileId: 'tenant-test-file-6',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                // User C is in tenant 2
+                const authorized = isAuthorizedForRecord(record, userC_crossTenant, userC_crossTenant._id, userC_crossTenant.tenantId);
+                assert.strictEqual(authorized, false, 'Cross-tenant user must be strictly denied');
+            });
+
+            await sub.test('20n. Strict tenant identity: platform administrator policy grants access when unconstrained by tenant', () => {
+                const platformAdmin = {
+                    _id: new mongoose.Types.ObjectId('65d555555555555555555555'),
+                    tenantId: null,
+                    role: { name: 'super admin' },
+                    dataScope: 'all'
+                };
+                const record = {
+                    fileId: 'tenant-test-file-7',
+                    userId: userA._id,
+                    tenantId: userA.tenantId
+                };
+                const authorized = isAuthorizedForRecord(record, platformAdmin, platformAdmin._id, null);
+                assert.strictEqual(authorized, true, 'Platform administrator with global dataScope without tenant lockdown must be authorized');
             });
         } finally {
             if (mongod) {
