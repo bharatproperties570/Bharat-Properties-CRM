@@ -12,6 +12,7 @@ import mongoose from "mongoose";
 import redisProxy from "./src/config/redis.js";
 import { AppError } from "./src/middlewares/error.middleware.js";
 import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
+import { previewWriteGuard } from "./middleware/previewGuard.middleware.js";
 
 // Route Imports
 import authRoutes from "./routes/auth.routes.js";
@@ -244,6 +245,9 @@ app.use("/api/roles",    cacheMiddleware(5 * 60 * 1000));   // 5 min
 app.use("/api/lookups",  invalidateCache);
 app.use("/api/users",    invalidateCache);
 app.use("/api/teams",    invalidateCache);
+
+// Preview-to-Production Write Protection Guard (P4-DEF-02)
+app.use("/api", previewWriteGuard);
 
 // Route Definitions
 app.use("/api/auth", authRoutes);

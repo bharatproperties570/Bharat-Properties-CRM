@@ -1211,8 +1211,43 @@ export const BaileysConnectionManager = {
         sock.ev.on('messages.update', updateHandler);
         sock.ev.on('message-receipt.update', receiptHandler);
         return { updateHandler, receiptHandler };
+    },
+
+    async gracefulShutdown() {
+        console.log(`[BaileysConnectionManager] Initiating graceful shutdown for instance ${instanceId}...`);
+        for (const [integrationId, hb] of activeHeartbeats.entries()) {
+            clearInterval(hb);
+        }
+        activeHeartbeats.clear();
+
+        try {
+            const { default: redisProxy } = await import('../../src/config/redis.js');
+            if (redisProxy && !redisProxy.isMock) {
+                for (const integrationId of connections.keys()) {
+                    const lockKey = `lock:baileys_socket:${integrationId}`;
+                    await redisProxy.eval(LUA_RELEASE_LOCK, 1, lockKey, instanceId).catch(() => {});
+                }
+            }
+        } catch (e) {}
+
+        for (const [integrationId, sock] of connections.entries()) {
+            try {
+                if (sock.ws) sock.ws.close();
+                sock.ev?.removeAllListeners();
+            } catch (e) {}
+        }
+        connections.clear();
+        console.log(`[BaileysConnectionManager] Cleaned up all sockets and released locks for ${instanceId}.`);
     }
 };
+
+if (typeof process !== 'undefined') {
+    const handleExit = () => {
+        BaileysConnectionManager.gracefulShutdown().catch(() => {});
+    };
+    process.once('SIGINT', handleExit);
+    process.once('SIGTERM', handleExit);
+}
 
 /**
  * Explicit Delivery State Transition Matrix (P0-B)
