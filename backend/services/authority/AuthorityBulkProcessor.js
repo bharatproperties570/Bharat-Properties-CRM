@@ -1338,6 +1338,10 @@ export class AuthorityBulkProcessor {
             observedAt: new Date(),
             isSynthetic: Boolean(isFixtureMode),
             provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+            requiresHumanReview: true,
+            isApplied: false,
+            isProvisional: Boolean(candidate.normalizedRecord?.isProvisional),
+            disclaimer: candidate.normalizedRecord?.disclaimer || null,
             identityEvidence: {
                 compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
                 sectorNumber: link.sectorNumber || null,
@@ -3070,6 +3074,8 @@ export class AuthorityBulkProcessor {
             const approval = {
                 authorityCode: item.authorityCode,
                 status: setting.permissionStatus,
+                evidenceBasis: setting.evidenceBasis,
+                ownerAttestation: setting.ownerAttestation,
                 accessMethod: setting.approvedAccessMethod,
                 writtenPermissionReference: setting.approvalReference || setting.permissionArtifactUri || setting.secureEvidenceId,
                 commercialUseAuthorized: setting.commercialUseAuthorized,

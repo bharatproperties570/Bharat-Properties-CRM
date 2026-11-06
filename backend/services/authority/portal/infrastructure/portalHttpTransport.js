@@ -189,7 +189,9 @@ export const portalHttpTransport = Object.freeze({
                 const lowerHtml = initialHtml.toLowerCase();
 
                 // Classify bootstrap HTML for blockers before any POST
-                if (lowerHtml.includes('g-recaptcha') || lowerHtml.includes('cf-turnstile') || lowerHtml.includes('hcaptcha') || lowerHtml.includes('captcha') || lowerHtml.includes('enter the characters')) {
+                // Strip harmless empty hidden input hfCaptcha before evaluating captcha challenges
+                const sanitizedHtml = lowerHtml.replace(/<input[^>]+(?:name|id)=["'][^"']*hfcaptcha[^"']*["'][^>]*>/gi, '');
+                if (sanitizedHtml.includes('g-recaptcha') || sanitizedHtml.includes('cf-turnstile') || sanitizedHtml.includes('hcaptcha') || sanitizedHtml.includes('captcha') || sanitizedHtml.includes('enter the characters')) {
                     const err = new Error('PORTAL_CAPTCHA_REQUIRED: CAPTCHA challenge observed on bootstrap form.');
                     err.code = 'PORTAL_CAPTCHA_REQUIRED';
                     err.details = { pauseSource: true };

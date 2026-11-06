@@ -67,8 +67,15 @@ export function evaluateAuthorityPortalApproval({
         if (approval.accessMethod !== REQUIRED_APPROVED_ACCESS_METHOD) {
             blockers.push(makeBlocker('ACCESS_METHOD_NOT_APPROVED', 'Approval must explicitly cover automated public-portal access.'));
         }
-        if (gate?.requireWrittenPermission && !String(approval.writtenPermissionReference || '').trim()) {
+        const isOwnerAttested = approval.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION';
+        if (gate?.requireWrittenPermission && !isOwnerAttested && !String(approval.writtenPermissionReference || '').trim()) {
             blockers.push(makeBlocker('WRITTEN_PERMISSION_REFERENCE_MISSING', 'Written approval reference is missing.'));
+        }
+        if (isOwnerAttested) {
+            const attestation = approval.ownerAttestation || {};
+            if (!String(attestation.attestingParty || '').trim() || !attestation.attestedAt || !String(attestation.scope || '').trim()) {
+                blockers.push(makeBlocker('OWNER_ATTESTATION_INCOMPLETE', 'Owner attestation requires attestingParty, attestedAt, and scope.'));
+            }
         }
         if (gate?.requireCommercialUsePermission && approval.commercialUseAuthorized !== true) {
             blockers.push(makeBlocker('COMMERCIAL_USE_NOT_AUTHORIZED', 'Internal commercial CRM use must be explicitly authorized.'));
