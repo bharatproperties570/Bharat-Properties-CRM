@@ -1122,11 +1122,21 @@ export const syncCanonicalPolicy = async (req, res) => {
 
         const supportsMongoTransactions = () => {
             try {
+                if (process.env.TEST_FORCE_MONGO_TRANSACTIONS === 'true') return true;
+                if (process.env.TEST_FORCE_MONGO_TRANSACTIONS === 'false') return false;
                 const topologyType = mongoose.connection?.client?.topology?.description?.type;
                 return topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
             } catch {
                 return false;
             }
+        };
+
+        const isWriteConflict = (err) => {
+            if (!err) return false;
+            if (err.code === 112 || err.codeName === 'WriteConflict') return true;
+            if (typeof err.hasErrorLabel === 'function' && err.hasErrorLabel('TransientTransactionError')) return true;
+            if (typeof err.message === 'string' && /writeconflict/i.test(err.message)) return true;
+            return false;
         };
 
         // Helper: execute Redis publication and finalize durable audit and policy records
@@ -1153,9 +1163,15 @@ export const syncCanonicalPolicy = async (req, res) => {
             // 2. Atomic renewable worker lease: periodic heartbeat while Redis operation is in flight and during finalization
             let heartbeatInterval = null;
             let leaseLostDuringHeartbeat = false;
+            let isTransactionActive = false;
 
             const startHeartbeat = () => {
                 heartbeatInterval = setInterval(async () => {
+                    // Do not race with an active transaction updating the same AuditLog
+                    if (isTransactionActive) {
+                        return;
+                    }
+
                     try {
                         const renewal = await AuditLog.findOneAndUpdate(
                             {
@@ -1172,19 +1188,28 @@ export const syncCanonicalPolicy = async (req, res) => {
                             { new: true }
                         );
                         if (!renewal) {
-                            leaseLostDuringHeartbeat = true;
-                            if (heartbeatInterval) {
-                                clearInterval(heartbeatInterval);
-                                heartbeatInterval = null;
+                            const currentAudit = await AuditLog.findById(auditRecord._id).select('metadata status').lean().catch(() => null);
+                            if (currentAudit?.metadata?.syncPhase === 'COMPLETED' && currentAudit?.metadata?.leaseOwner === workerLeaseToken) {
+                                stopHeartbeat();
+                                return;
                             }
+                            if (currentAudit && currentAudit.metadata?.leaseOwner && currentAudit.metadata.leaseOwner !== workerLeaseToken) {
+                                leaseLostDuringHeartbeat = true;
+                                stopHeartbeat();
+                                return;
+                            }
+                            leaseLostDuringHeartbeat = true;
+                            stopHeartbeat();
                         }
                     } catch (hbErr) {
+                        // Do not interpret transaction write conflict as proof that another worker owns the lease
+                        if (isWriteConflict(hbErr)) {
+                            console.warn('Worker lease heartbeat encountered transient write conflict; skipping tick without losing lease:', hbErr.message);
+                            return;
+                        }
                         console.error('Worker lease heartbeat renewal error:', hbErr);
                         leaseLostDuringHeartbeat = true;
-                        if (heartbeatInterval) {
-                            clearInterval(heartbeatInterval);
-                            heartbeatInterval = null;
-                        }
+                        stopHeartbeat();
                     }
                 }, HEARTBEAT_INTERVAL_MS);
                 if (heartbeatInterval && typeof heartbeatInterval.unref === 'function') {
@@ -1241,6 +1266,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                         let session = null;
                         try {
                             session = await mongoose.startSession();
+                            isTransactionActive = true;
                             await session.withTransaction(async () => {
                                 const finalNow = new Date();
                                 const finalizingLease = await AuditLog.findOneAndUpdate(
@@ -1375,6 +1401,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                             }
                             throw txErr;
                         } finally {
+                            isTransactionActive = false;
                             if (session) await session.endSession().catch(() => {});
                         }
                     } else {
@@ -1683,6 +1710,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                         let session = null;
                         try {
                             session = await mongoose.startSession();
+                            isTransactionActive = true;
                             await session.withTransaction(async () => {
                                 const now = new Date();
                                 const fencedFailureAudit = await AuditLog.findOneAndUpdate(
@@ -1744,6 +1772,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                             }
                             console.error('Transactional failure recording threw:', txErr);
                         } finally {
+                            isTransactionActive = false;
                             if (session) await session.endSession().catch(() => {});
                         }
 
@@ -1934,7 +1963,74 @@ export const syncCanonicalPolicy = async (req, res) => {
                 console.error('Failed to update lastSyncWorkerLease during recovery claim:', claimErr);
             }
 
-            // 4. AUTHORITATIVE Redis read: strictly inspect Redis without in-memory fallback.
+            // Active reconciliation heartbeat: periodic renewal while Redis inspection and Case A finalization run
+            let reconHeartbeatInterval = null;
+            let reconLeaseLostDuringHeartbeat = false;
+            let isReconTransactionActive = false;
+
+            const startReconHeartbeat = () => {
+                reconHeartbeatInterval = setInterval(async () => {
+                    // Do not race with an active transaction updating the same AuditLog
+                    if (isReconTransactionActive) {
+                        return;
+                    }
+
+                    try {
+                        const renewal = await AuditLog.findOneAndUpdate(
+                            {
+                                _id: recoveryClaim._id,
+                                'metadata.leaseOwner': reconWorkerLease,
+                                'metadata.syncPhase': { $in: ['PUBLISHING', 'FINALIZING'] }
+                            },
+                            {
+                                $set: {
+                                    'metadata.leaseExpiresAt': new Date(Date.now() + LEASE_DURATION_MS),
+                                    'metadata.lastHeartbeatAt': new Date()
+                                }
+                            },
+                            { new: true }
+                        );
+                        if (!renewal) {
+                            const currentAudit = await AuditLog.findById(recoveryClaim._id).select('metadata status').lean().catch(() => null);
+                            if (currentAudit?.metadata?.syncPhase === 'COMPLETED' && currentAudit?.metadata?.leaseOwner === reconWorkerLease) {
+                                stopReconHeartbeat();
+                                return;
+                            }
+                            if (currentAudit && currentAudit.metadata?.leaseOwner && currentAudit.metadata.leaseOwner !== reconWorkerLease) {
+                                reconLeaseLostDuringHeartbeat = true;
+                                stopReconHeartbeat();
+                                return;
+                            }
+                            reconLeaseLostDuringHeartbeat = true;
+                            stopReconHeartbeat();
+                        }
+                    } catch (hbErr) {
+                        // Do not interpret transaction write conflict as proof that another worker owns the lease
+                        if (isWriteConflict(hbErr)) {
+                            console.warn('Reconciliation lease heartbeat encountered transient write conflict; skipping tick without losing lease:', hbErr.message);
+                            return;
+                        }
+                        console.error('Reconciliation lease heartbeat renewal error:', hbErr);
+                        reconLeaseLostDuringHeartbeat = true;
+                        stopReconHeartbeat();
+                    }
+                }, HEARTBEAT_INTERVAL_MS);
+                if (reconHeartbeatInterval && typeof reconHeartbeatInterval.unref === 'function') {
+                    reconHeartbeatInterval.unref();
+                }
+            };
+
+            const stopReconHeartbeat = () => {
+                if (reconHeartbeatInterval) {
+                    clearInterval(reconHeartbeatInterval);
+                    reconHeartbeatInterval = null;
+                }
+            };
+
+            startReconHeartbeat();
+
+            try {
+                // 4. AUTHORITATIVE Redis read: strictly inspect Redis without in-memory fallback.
             let currentRedisPolicy = null;
             try {
                 if (typeof quotaProvider.getCanonicalPolicy !== 'function') {
@@ -1981,6 +2077,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                     }
                 ).catch(() => {});
 
+                stopReconHeartbeat();
                 return res.status(503).json({
                     success: false,
                     code: readErr.code === 'REDIS_READ_TIMEOUT' ? 'REDIS_READ_TIMEOUT' : 'REDIS_UNAVAILABLE',
@@ -2034,6 +2131,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                         }
                     ).catch(() => {});
 
+                    stopReconHeartbeat();
                     return res.status(502).json({
                         success: false,
                         code: 'MALFORMED_REDIS_POLICY',
@@ -2053,11 +2151,24 @@ export const syncCanonicalPolicy = async (req, res) => {
                 Number(currentRedisPolicy.version) === targetVersion &&
                 String(currentRedisPolicy.contentHash || '') === targetHash
             ) {
+                if (reconLeaseLostDuringHeartbeat) {
+                    console.error('Reconciliation lease lost during heartbeat renewal; preempted by another worker');
+                    stopReconHeartbeat();
+                    return res.status(409).json({
+                        success: false,
+                        code: 'STALE_WORKER_LEASE_LOST',
+                        message: 'Reconciliation lease expired or was preempted before finalization boundary',
+                        operationId: normalizedOpId,
+                        status: 'FAILED'
+                    });
+                }
+
                 const isTxSupported = supportsMongoTransactions();
                 if (isTxSupported) {
                     let session = null;
                     try {
                         session = await mongoose.startSession();
+                        isReconTransactionActive = true;
                         await session.withTransaction(async () => {
                             const reconFinalNow = new Date();
                             const finalizingAudit = await AuditLog.findOneAndUpdate(
@@ -2077,7 +2188,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                                 { session, new: true }
                             );
 
-                            if (!finalizingAudit) {
+                            if (!finalizingAudit || reconLeaseLostDuringHeartbeat) {
                                 const err = new Error('Reconciliation lease expired or was preempted before finalization boundary');
                                 err.code = 'STALE_WORKER_LEASE_LOST';
                                 throw err;
@@ -2158,6 +2269,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                         }
                         throw txErr;
                     } finally {
+                        isReconTransactionActive = false;
                         if (session) await session.endSession().catch(() => {});
                     }
                 } else {
@@ -2180,7 +2292,8 @@ export const syncCanonicalPolicy = async (req, res) => {
                         { new: true }
                     );
 
-                    if (!finalizingAudit) {
+                    if (!finalizingAudit || reconLeaseLostDuringHeartbeat) {
+                        stopReconHeartbeat();
                         return res.status(409).json({
                             success: false,
                             code: 'STALE_WORKER_LEASE_LOST',
@@ -2298,7 +2411,8 @@ export const syncCanonicalPolicy = async (req, res) => {
                         { new: true }
                     );
 
-                    if (!finalizedAudit) {
+                    if (!finalizedAudit || reconLeaseLostDuringHeartbeat) {
+                        stopReconHeartbeat();
                         return res.status(409).json({
                             success: false,
                             code: 'STALE_WORKER_LEASE_LOST',
@@ -2343,6 +2457,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                     }
                 }
 
+                stopReconHeartbeat();
                 policyDoc.redisSyncStatus = 'SYNCED';
                 policyDoc.redisSyncError = null;
                 policyDoc.lastSyncedAt = new Date();
@@ -2359,6 +2474,7 @@ export const syncCanonicalPolicy = async (req, res) => {
 
             // Case B: Redis is already at a HIGHER version than target policy
             if (currentRedisPolicy && Number(currentRedisPolicy.version) > targetVersion) {
+                stopReconHeartbeat();
                 await AuditLog.findOneAndUpdate(
                     {
                         _id: recoveryClaim._id,
@@ -2389,6 +2505,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                 Number(currentRedisPolicy.version) === targetVersion &&
                 String(currentRedisPolicy.contentHash || '') !== targetHash
             ) {
+                stopReconHeartbeat();
                 await AuditLog.findOneAndUpdate(
                     {
                         _id: recoveryClaim._id,
@@ -2415,9 +2532,13 @@ export const syncCanonicalPolicy = async (req, res) => {
             }
 
             // Case D: Redis has NOT been updated to target version yet (!currentRedisPolicy || currentRedisPolicy.version < targetVersion).
-            // Perform safe publication to Redis as the authoritative lease owner
-            return executeRedisSyncAndFinalize(recoveryClaim, reconWorkerLease, true);
-        };
+            // Stop reconciliation heartbeat before delegating to executeRedisSyncAndFinalize (which runs its own heartbeat)
+            stopReconHeartbeat();
+            return await executeRedisSyncAndFinalize(recoveryClaim, reconWorkerLease, true);
+        } finally {
+            stopReconHeartbeat();
+        }
+    };
 
         // If an operation with the same correlationId already exists, evaluate reconciliation or idempotent result
         if (correlationId) {

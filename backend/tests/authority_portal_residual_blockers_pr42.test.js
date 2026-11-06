@@ -5280,6 +5280,327 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 } finally {
                     AuthorityCanonicalPolicy.updateOne = origUpdate4z3;
                 }
+
+                // Case 4z4: Force transaction to remain active for longer than 1.5s (heartbeat does not create false STALE_WORKER_LEASE_LOST)
+                const race4z4OpId = 'race-4z4-transaction-longer-than-heartbeat';
+                const race4z4CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z4OpId}`;
+
+                const origStartSession4z4 = mongoose.startSession;
+                process.env.TEST_FORCE_MONGO_TRANSACTIONS = 'true';
+
+                let heartbeatFiredDuringTx = false;
+                const origFindOneAndUpdate4z4 = AuditLog.findOneAndUpdate;
+
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        heartbeatFiredDuringTx = true;
+                    }
+                    return origFindOneAndUpdate4z4.apply(this, arguments);
+                };
+
+                mongoose.startSession = async function () {
+                    const realSession = await origStartSession4z4.call(mongoose);
+                    realSession.withTransaction = async function (fn) {
+                        // Delay transaction for 1650ms (exceeding HEARTBEAT_INTERVAL_MS = 1500ms)
+                        await new Promise(r => setTimeout(r, 1650));
+                        return fn();
+                    };
+                    return realSession;
+                };
+
+                try {
+                    const race4z4Provider = {
+                        async setCanonicalPolicy() { return { success: true }; },
+                        async getCanonicalPolicy() { return null; }
+                    };
+                    setTestQuotaProvider(race4z4Provider);
+
+                    const race4z4Req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z4OpId }
+                    };
+                    let r4z4Code = null, r4z4Body = null;
+                    await syncCanonicalPolicy(race4z4Req, {
+                        status(c) { r4z4Code = c; return this; },
+                        json(b) { r4z4Body = b; return this; }
+                    });
+
+                    assert.equal(r4z4Code, 200, 'Transaction taking >1.5s must succeed with HTTP 200 without false STALE_WORKER_LEASE_LOST');
+                    assert.equal(r4z4Body.status, 'COMPLETED');
+
+                    const polFinal4 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal4.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal4 = await AuditLog.findOne({ correlationId: race4z4CorrId });
+                    assert.equal(auditFinal4.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal4.status, 'success');
+                } finally {
+                    delete process.env.TEST_FORCE_MONGO_TRANSACTIONS;
+                    mongoose.startSession = origStartSession4z4;
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate4z4;
+                }
+
+                // Case 4z5: WriteConflict (code 112) during heartbeat does NOT cause false STALE_WORKER_LEASE_LOST
+                const race4z5OpId = 'race-4z5-heartbeat-write-conflict';
+                const race4z5CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z5OpId}`;
+
+                let hbWriteConflictThrown = false;
+                const origFindOneAndUpdate4z5 = AuditLog.findOneAndUpdate;
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        hbWriteConflictThrown = true;
+                        const err = new Error('WriteConflict error: parallel transaction in progress');
+                        err.code = 112;
+                        err.codeName = 'WriteConflict';
+                        throw err;
+                    }
+                    return origFindOneAndUpdate4z5.apply(this, arguments);
+                };
+
+                try {
+                    const race4z5Provider = {
+                        async setCanonicalPolicy() {
+                            // Delay in publication so heartbeat interval triggers and throws WriteConflict (112)
+                            await new Promise(r => setTimeout(r, 1600));
+                            return { success: true };
+                        },
+                        async getCanonicalPolicy() { return null; }
+                    };
+                    setTestQuotaProvider(race4z5Provider);
+
+                    const race4z5Req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z5OpId }
+                    };
+                    let r4z5Code = null, r4z5Body = null;
+                    await syncCanonicalPolicy(race4z5Req, {
+                        status(c) { r4z5Code = c; return this; },
+                        json(b) { r4z5Body = b; return this; }
+                    });
+
+                    assert.equal(hbWriteConflictThrown, true, 'Heartbeat renewal must have triggered and thrown WriteConflict');
+                    assert.equal(r4z5Code, 200, 'WriteConflict in heartbeat must NOT cause false STALE_WORKER_LEASE_LOST; worker must complete with 200');
+                    assert.equal(r4z5Body.status, 'COMPLETED');
+
+                    const polFinal5 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal5.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal5 = await AuditLog.findOne({ correlationId: race4z5CorrId });
+                    assert.equal(auditFinal5.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal5.status, 'success');
+                } finally {
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate4z5;
+                }
+
+                // Case 4z6: Case A recovery with slow MongoDB writes (lease renewal maintains validity)
+                const race4z6OpId = 'race-4z6-case-a-slow-write-recovery';
+                const race4z6CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z6OpId}`;
+
+                // Create initial audit in failed/abandoned state
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: race4z6CorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    userName: 'Admin',
+                    description: 'Abandoned sync intent',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'FAILED',
+                        syncPhase: 'FAILED',
+                        leaseOwner: 'prior-worker-token',
+                        leaseExpiresAt: new Date(Date.now() - 5000),
+                        operationId: race4z6OpId
+                    },
+                    status: 'failure'
+                });
+
+                // Redis already holds current policy (Case A)
+                const race4z6Provider = {
+                    async setCanonicalPolicy() {
+                        throw new Error('Should not publish to Redis in Case A');
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        assert.equal(authoritative, true);
+                        return {
+                            authorityCode,
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            policyReference: currentPolicy.policyReference
+                        };
+                    }
+                };
+                setTestQuotaProvider(race4z6Provider);
+
+                let reconHeartbeatFired = false;
+                const origFindOneAndUpdate4z6 = AuditLog.findOneAndUpdate;
+                const origUpdateOne4z6 = AuthorityCanonicalPolicy.updateOne;
+
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        reconHeartbeatFired = true;
+                    }
+                    return origFindOneAndUpdate4z6.apply(this, arguments);
+                };
+
+                // Slow down policy update during Case A reconciliation by 1600ms (> 1500ms heartbeat interval)
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        await new Promise(r => setTimeout(r, 1600));
+                    }
+                    return origUpdateOne4z6.apply(this, arguments);
+                };
+
+                try {
+                    const race4z6Req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z6OpId }
+                    };
+                    let r4z6Code = null, r4z6Body = null;
+                    await syncCanonicalPolicy(race4z6Req, {
+                        status(c) { r4z6Code = c; return this; },
+                        json(b) { r4z6Body = b; return this; }
+                    });
+
+                    assert.equal(r4z6Code, 200, 'Case A recovery with slow MongoDB write must succeed with HTTP 200');
+                    assert.equal(r4z6Body.status, 'COMPLETED');
+                    assert.equal(r4z6Body.reconciled, true);
+                    assert.equal(reconHeartbeatFired, true, 'Reconciliation heartbeat must have fired during slow write to renew lease');
+
+                    const polFinal6 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal6.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal6 = await AuditLog.findOne({ correlationId: race4z6CorrId });
+                    assert.equal(auditFinal6.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal6.status, 'success');
+                } finally {
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate4z6;
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4z6;
+                }
+
+                // Case 4z7: Stale recovery worker cannot overwrite another worker's policy or audit state
+                const race4z7OpId = 'race-4z7-stale-worker-cannot-overwrite';
+                const race4z7CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z7OpId}`;
+
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: race4z7CorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    userName: 'Admin',
+                    description: 'Initial intent for preemption test',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'FAILED',
+                        syncPhase: 'FAILED',
+                        leaseOwner: 'stale-worker-init',
+                        leaseExpiresAt: new Date(Date.now() - 5000),
+                        operationId: race4z7OpId
+                    },
+                    status: 'failure'
+                });
+
+                const race4z7Provider = {
+                    async setCanonicalPolicy() { return { success: true }; },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return {
+                            authorityCode,
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            policyReference: currentPolicy.policyReference
+                        };
+                    }
+                };
+                setTestQuotaProvider(race4z7Provider);
+
+                let worker1InReconFinalize = false;
+                let worker2FinishedRecon = false;
+                const origUpdateOne4z7 = AuthorityCanonicalPolicy.updateOne;
+
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (!worker1InReconFinalize && update?.$set?.redisSyncStatus === 'SYNCED') {
+                        worker1InReconFinalize = true;
+                        while (!worker2FinishedRecon) {
+                            await new Promise(r => setTimeout(r, 20));
+                        }
+                    }
+                    return origUpdateOne4z7.apply(this, arguments);
+                };
+
+                try {
+                    // Worker 1 begins Case A reconciliation
+                    const race4z7Req1 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z7OpId }
+                    };
+                    let r4z7Code1 = null, r4z7Body1 = null;
+                    const worker1Promise = syncCanonicalPolicy(race4z7Req1, {
+                        status(c) { r4z7Code1 = c; return this; },
+                        json(b) { r4z7Body1 = b; return this; }
+                    });
+
+                    while (!worker1InReconFinalize) {
+                        await new Promise(r => setTimeout(r, 20));
+                    }
+
+                    // Preempt Worker 1: expire lease and simulate Worker 2 taking over
+                    const worker2Token = 'worker-2-preempting-token-4z7';
+                    await AuditLog.updateOne(
+                        { correlationId: race4z7CorrId },
+                        {
+                            $set: {
+                                'metadata.leaseOwner': worker2Token,
+                                'metadata.syncPhase': 'COMPLETED',
+                                'metadata.redisSyncStatus': 'SYNCED',
+                                status: 'success'
+                            }
+                        }
+                    );
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: currentPolicy._id },
+                        {
+                            $set: {
+                                lastSyncWorkerLease: worker2Token,
+                                redisSyncStatus: 'SYNCED'
+                            }
+                        }
+                    );
+
+                    // Unblock Worker 1
+                    worker2FinishedRecon = true;
+                    await worker1Promise;
+
+                    // Worker 1 must fail closed with 409 STALE_WORKER_LEASE_LOST
+                    assert.equal(r4z7Code1, 409, 'Delayed Worker 1 must fail with 409 STALE_WORKER_LEASE_LOST');
+                    assert.equal(r4z7Body1.code, 'STALE_WORKER_LEASE_LOST');
+
+                    // Prove Worker 1 did not overwrite Worker 2's lease or policy state
+                    const finalPol7 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(finalPol7.lastSyncWorkerLease, worker2Token, 'Policy lease must remain owned by Worker 2');
+
+                    const finalAudit7 = await AuditLog.findOne({ correlationId: race4z7CorrId });
+                    assert.equal(finalAudit7.metadata?.leaseOwner, worker2Token, 'Audit lease must remain owned by Worker 2');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4z7;
+                }
             } finally {
                 setTestQuotaProvider(null);
             }
