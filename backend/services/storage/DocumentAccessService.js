@@ -74,6 +74,7 @@ export default class DocumentAccessService {
             const action = operation === 'WRITE' ? 'edit' : 'delete';
             const hasModulePerm = await this.hasPermission(user, moduleName, action);
             if (!hasModulePerm) {
+                await this._recordAccessDenied(user, documentId, operation, `Module permission ${moduleName}:${action} denied`);
                 throw new AccessDeniedError(`Operation ${operation} denied on module ${moduleName}`);
             }
         }
@@ -184,6 +185,30 @@ export default class DocumentAccessService {
             if (document.retentionUntil && new Date(document.retentionUntil) > new Date()) {
                 throw new AccessDeniedError("Cannot logical-delete document within retention period.");
             }
+        }
+    }
+
+    async _recordAccessDenied(user, documentId, operation, reason) {
+        try {
+            const AuditLog = (await import('../../models/AuditLog.js')).default;
+            if (AuditLog && typeof AuditLog.create === 'function') {
+                await AuditLog.create([{
+                    eventType: 'access_denied',
+                    userId: user?._id || user?.id,
+                    userName: user?.name || user?.userName,
+                    userEmail: user?.email,
+                    actorId: user?._id || user?.id,
+                    actorName: user?.name,
+                    actorEmail: user?.email,
+                    targetType: 'other',
+                    description: `Access denied for operation ${operation} on document ${documentId}: ${reason}`,
+                    metadata: { documentId, operation, reason },
+                    status: 'failure',
+                    timestamp: new Date()
+                }]);
+            }
+        } catch (e) {
+            // Safe fail-open for audit recording
         }
     }
 }

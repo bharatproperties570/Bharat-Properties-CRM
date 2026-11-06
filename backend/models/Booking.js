@@ -34,6 +34,17 @@ const BookingSchema = new mongoose.Schema({
     property: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
     lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
     dealId: { type: mongoose.Schema.Types.ObjectId, ref: 'Deal' },
+    siteVisitId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', index: true },
+    marketingAttribution: {
+        source: { type: String },
+        medium: { type: String },
+        campaign: { type: String },
+        content: { type: String },
+        term: { type: String },
+        landingPage: { type: String },
+        referrer: { type: String },
+        capturedAt: { type: Date }
+    },
     bookingDate: { type: Date },
     applicationNo: { type: String },
 

@@ -78,6 +78,18 @@ const DealSchema = new mongoose.Schema({
 
     dealId: String, // SELL-345-2026
     inventoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
+    siteVisitId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', index: true },
+    visitedUnit: { type: String },
+    marketingAttribution: {
+        source: { type: String },
+        medium: { type: String },
+        campaign: { type: String },
+        content: { type: String },
+        term: { type: String },
+        landingPage: { type: String },
+        referrer: { type: String },
+        capturedAt: { type: Date }
+    },
     stage: {
         type: String,
         enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'], // Kept old ones for backward compatibility

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 export const ProviderInstanceStatus = ['ACTIVE', 'DISABLED', 'DECOMMISSIONED'];
-export const ProviderTypes = ['S3_COMPATIBLE', 'GOOGLE_DRIVE_LEGACY', 'LOCAL', 'OTHER'];
+export const ProviderTypes = ['GOOGLE_DRIVE', 'S3_COMPATIBLE', 'GOOGLE_DRIVE_LEGACY', 'LOCAL', 'OTHER'];
 
 const ProviderInstanceSchema = new mongoose.Schema({
     providerInstanceId: { type: String, required: true, unique: true, index: true },

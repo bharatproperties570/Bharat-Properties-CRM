@@ -46,6 +46,49 @@ export default class DocumentService {
         document.state = newState;
     }
 
+    async getDefaultProviderInstanceId() {
+        try {
+            const ProviderInstance = (await import('../../models/ProviderInstance.js')).default;
+            const activeDrive = await ProviderInstance.findOne({
+                providerType: 'GOOGLE_DRIVE',
+                status: 'ACTIVE'
+            }).lean();
+            if (activeDrive) return activeDrive.providerInstanceId;
+        } catch (err) {
+            // Fallback to canonical ID
+        }
+        return 'google-drive-primary';
+    }
+
+    async _recordAudit(eventType, user, details = {}) {
+        try {
+            const AuditLog = (await import('../../models/AuditLog.js')).default;
+            if (AuditLog && typeof AuditLog.create === 'function') {
+                await AuditLog.create([{
+                    eventType,
+                    userId: user?._id || user?.id,
+                    userName: user?.name || user?.userName,
+                    userEmail: user?.email,
+                    actorId: user?._id || user?.id,
+                    actorName: user?.name,
+                    actorEmail: user?.email,
+                    targetType: 'other',
+                    description: details.description || `Document event: ${eventType}`,
+                    metadata: {
+                        documentId: details.documentId,
+                        versionId: details.versionId,
+                        providerInstanceId: details.providerInstanceId,
+                        ...details.metadata
+                    },
+                    status: details.status || 'success',
+                    timestamp: new Date()
+                }]);
+            }
+        } catch (e) {
+            // Fail open for audit recording
+        }
+    }
+
     /**
      * 1. Create Document (and initial version metadata)
      */
@@ -54,6 +97,8 @@ export default class DocumentService {
         
         // Authorize creation on parent entity
         await this.accessService.authorizeEntityTarget(user, entityType, entityId, 'WRITE');
+
+        const targetProviderInstanceId = providerInstanceId || await this.getDefaultProviderInstanceId();
 
         const documentId = `doc-${crypto.randomBytes(8).toString('hex')}`;
         const versionId = `ver-${crypto.randomBytes(8).toString('hex')}`;
@@ -72,7 +117,7 @@ export default class DocumentService {
             versionId,
             documentId,
             versionNumber: 1,
-            providerInstanceId,
+            providerInstanceId: targetProviderInstanceId,
             objectKey: logicalKey || `${documentId}/v1`,
             createdBy: user._id
         });
@@ -104,13 +149,14 @@ export default class DocumentService {
             
             const latestVersion = await DocumentVersion.findOne({ documentId }, null, { sort: { versionNumber: -1 } }).session(session);
             const nextVersionNumber = latestVersion ? latestVersion.versionNumber + 1 : 1;
+            const targetProviderInstanceId = providerInstanceId || (latestVersion ? latestVersion.providerInstanceId : await this.getDefaultProviderInstanceId());
 
             const versionId = `ver-${crypto.randomBytes(8).toString('hex')}`;
             const version = new DocumentVersion({
                 versionId,
                 documentId,
                 versionNumber: nextVersionNumber,
-                providerInstanceId,
+                providerInstanceId: targetProviderInstanceId,
                 objectKey: logicalKey || `${documentId}/v${nextVersionNumber}`,
                 createdBy: user._id
             });
@@ -198,6 +244,13 @@ export default class DocumentService {
                 throw queueErr;
             }
             
+            await this._recordAudit('lead_updated', user, {
+                documentId: document.documentId,
+                versionId: version.versionId,
+                providerInstanceId: version.providerInstanceId,
+                description: `Document uploaded: ${document.documentId} v${version.versionNumber}`
+            });
+
             return { document: this._toDocumentDTO(document), version: this._toVersionDTO(version) };
 
         } catch (err) {
@@ -207,7 +260,7 @@ export default class DocumentService {
                 versionId,
                 providerInstanceId: version ? version.providerInstanceId : null,
                 objectKey: version ? version.objectKey : null,
-                phase: 'S3_PUT_OR_PERSISTENCE'
+                phase: 'STORAGE_PUT_OR_PERSISTENCE'
             };
             throw err;
         }
@@ -242,7 +295,18 @@ export default class DocumentService {
         // 5. URL Generation
         const url = await adapter.getPresignedReadUrl(version.objectKey, expiresInSeconds, {
             mimeType: version.mimeType,
-            originalFilename: version.originalFilename
+            originalFilename: version.originalFilename,
+            fileId: version.providerVersionId,
+            providerVersionId: version.providerVersionId,
+            documentId,
+            versionId: version.versionId
+        });
+
+        await this._recordAudit('data_transferred', user, {
+            documentId,
+            versionId: version.versionId,
+            providerInstanceId: version.providerInstanceId,
+            description: `Generated download URL for document ${documentId}`
         });
 
         return {
@@ -262,7 +326,17 @@ export default class DocumentService {
         const version = await DocumentVersion.findOne({ versionId: grant.versionId, documentId });
         const adapter = await this.registry.resolve(version.providerInstanceId);
 
-        const result = await adapter.read(version.objectKey);
+        const result = await adapter.read(version.objectKey, {
+            fileId: version.providerVersionId,
+            providerVersionId: version.providerVersionId
+        });
+
+        await this._recordAudit('data_transferred', user, {
+            documentId,
+            versionId: version.versionId,
+            providerInstanceId: version.providerInstanceId,
+            description: `Stream read document ${documentId}`
+        });
         
         return {
             stream: result.stream,
@@ -290,6 +364,11 @@ export default class DocumentService {
         } else {
             await document.save();
         }
+
+        await this._recordAudit('lead_deleted', user, {
+            documentId,
+            description: `Deleted document ${documentId}`
+        });
         
         return this._toDocumentDTO(document);
     }

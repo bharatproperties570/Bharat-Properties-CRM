@@ -1,7 +1,9 @@
 import DocumentService from '../services/storage/DocumentService.js';
+import GoogleDriveStorageAdapter from '../services/storage/adapters/GoogleDriveStorageAdapter.js';
 import { StorageError, ObjectNotFoundError, ObjectConflictError, ProviderUnavailableError, CapabilityNotSupportedError } from '../services/storage/StorageErrors.js';
 import { AccessDeniedError, LifecycleRestrictionError } from '../services/storage/DocumentAccessService.js';
 import mongoose from 'mongoose';
+import path from 'path';
 
 // Map domain errors to HTTP responses
 const handleDomainError = (res, error) => {
@@ -152,6 +154,62 @@ export const listDocuments = async (req, res) => {
         }
         const result = await getService().listDocuments(req.user, entityType, entityId);
         return res.status(200).json({ success: true, data: result });
+    } catch (err) {
+        return handleDomainError(res, err);
+    }
+};
+
+/**
+ * Public/Token-authenticated route to stream document using a cryptographically signed token.
+ * Validates expiration, provider binding, object key binding, and secret signature with constant-time equality.
+ */
+export const downloadSignedContent = async (req, res) => {
+    try {
+        const objectKey = req.params.objectKey || req.params[0];
+        const token = req.query.token;
+
+        if (!token) {
+            return res.status(401).json({ success: false, error: 'Signed URL token is required.' });
+        }
+        if (!objectKey) {
+            return res.status(400).json({ success: false, error: 'Object key is required.' });
+        }
+
+        const verification = GoogleDriveStorageAdapter.verifySignedToken(token, null, { objectKey });
+        if (!verification.valid) {
+            return res.status(403).json({
+                success: false,
+                error: `Signed URL access denied: ${verification.reason}`
+            });
+        }
+
+        const service = getService();
+        const adapter = await service.registry.resolve(verification.payload?.provider || 'google-drive-primary');
+        const readResult = await adapter.read(objectKey);
+
+        res.setHeader('Content-Type', readResult.mimeType || 'application/octet-stream');
+        if (readResult.sizeBytes) {
+            res.setHeader('Content-Length', readResult.sizeBytes);
+        }
+        const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+        res.setHeader('Content-Disposition', `${disposition}; filename="${readResult.originalFilename || path.basename(objectKey)}"`);
+
+        readResult.stream.on('error', (streamErr) => {
+            console.error('[DocumentAPI] Signed stream error:', streamErr);
+            if (!res.headersSent) {
+                res.status(500).end();
+            } else {
+                res.end();
+            }
+        });
+
+        req.on('aborted', () => {
+            if (readResult.stream && typeof readResult.stream.destroy === 'function') {
+                readResult.stream.destroy();
+            }
+        });
+
+        readResult.stream.pipe(res);
     } catch (err) {
         return handleDomainError(res, err);
     }

@@ -34,7 +34,23 @@ export default class ProviderRegistry {
         }
 
         // Fetch instance config from DB
-        const instanceDoc = await ProviderInstance.findOne({ providerInstanceId }).lean();
+        let instanceDoc = await ProviderInstance.findOne({ providerInstanceId }).lean();
+        
+        // Canonical default fallback for Google Drive primary provider if not yet persisted in DB
+        if (!instanceDoc && (providerInstanceId === 'google-drive-primary' || providerInstanceId === 'google-drive-default')) {
+            instanceDoc = {
+                providerInstanceId,
+                providerType: 'GOOGLE_DRIVE',
+                displayName: 'Google Drive Primary Storage',
+                status: 'ACTIVE',
+                capabilities: ['PUT', 'READ', 'DELETE', 'HEAD', 'COPY', 'ENUMERATE', 'PRESIGNED_READ'],
+                configurationReference: {
+                    parentFolderId: process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || null
+                },
+                credentialReference: 'google-auth-canonical'
+            };
+        }
+
         if (!instanceDoc) {
             throw new ProviderUnavailableError(providerInstanceId, 'Instance configuration not found in registry');
         }
@@ -52,7 +68,7 @@ export default class ProviderRegistry {
         }
 
         // Resolve credentials via external SecretStore using the abstract reference
-        const secrets = await this.secretStore.resolveSecret(instanceDoc.credentialReference);
+        const secrets = this.secretStore ? await this.secretStore.resolveSecret(instanceDoc.credentialReference) : null;
 
         // Instantiate concrete adapter
         const adapter = await factoryFn(instanceDoc, secrets);

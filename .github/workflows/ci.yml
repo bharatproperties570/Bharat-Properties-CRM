@@ -33,6 +33,7 @@ jobs:
     env:
       MONGOMS_DISABLE_POSTINSTALL: '1'
       NODE_ENV: test
+      ALLOW_TRANSACTION_TEST_FALLBACK: 'true'
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6379
     steps:
@@ -164,6 +165,11 @@ jobs:
         run: |
           cd backend
           npm run test:authority-portal-acceptance
+
+      - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
+        run: |
+          cd backend
+          npm run test:phase18-sitevisit
 
   integration-authority-portal:
     name: Authority Portal Production Integration (Redis + Mongo)

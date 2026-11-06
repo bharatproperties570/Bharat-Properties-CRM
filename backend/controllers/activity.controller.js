@@ -272,6 +272,7 @@ const AT_RISK_THRESHOLD = 3;
  */
 const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
     try {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) return;
         const outcomeNorm = (resolvedOutcome || '').toLowerCase().trim();
         const isNegative = NEGATIVE_OUTCOMES.has(outcomeNorm) ||
             [...NEGATIVE_OUTCOMES].some(n => outcomeNorm.includes(n));
@@ -337,11 +338,42 @@ const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
     }
 };
 
-export const autoTriggerStageChange = async (activity, userId = null) => {
+export const autoTriggerStageChange = async (activityInput, userOrContext = null, options = {}) => {
     try {
-        if (activity.entityType?.toLowerCase() !== 'lead') return;
-        if (activity.status?.toLowerCase() !== 'completed') return;
-        if (!activity.entityId) return;
+        let activity = activityInput;
+        if (!activity) return null;
+        if (typeof activity === 'string' || activity instanceof mongoose.Types.ObjectId) {
+            activity = await Activity.findById(activity);
+        } else if (activity._id && !activity.type) {
+            activity = await Activity.findById(activity._id);
+        }
+        if (!activity) return null;
+
+        if (activity.entityType?.toLowerCase() !== 'lead') return null;
+        if (activity.status?.toLowerCase() !== 'completed') return null;
+        if (!activity.entityId) return null;
+
+        // Resolve authenticated user context vs safe system context
+        let userId = null;
+        let authUser = null;
+
+        if (userOrContext) {
+            if (typeof userOrContext === 'string' || userOrContext instanceof mongoose.Types.ObjectId) {
+                userId = String(userOrContext);
+            } else if (typeof userOrContext === 'object') {
+                authUser = userOrContext;
+                userId = authUser._id || authUser.id || null;
+                if (userId) userId = String(userId);
+            }
+        }
+
+        if (!authUser && options?.user) {
+            authUser = options.user;
+            if (!userId) userId = String(authUser._id || authUser.id || '');
+        } else if (!authUser && options?.req?.user) {
+            authUser = options.req.user;
+            if (!userId) userId = String(authUser._id || authUser.id || '');
+        }
 
         const leadId = activity.entityId;
         const actType = activity.type;
@@ -373,38 +405,61 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
             actType,
             resolvedOutcome,
             reason,
-            {}, // stageFormData already synced in previous steps if any
+            options?.stageFormData || {}, // stageFormData already synced in previous steps if any
             {
                 activityId: activity._id,
-                triggeredByUser: userId,
+                triggeredByUser: userId || null,
                 purpose,
                 status: activity.status,
-                visitedProperties: activity.details?.visitedProperties || []
+                visitedProperties: activity.details?.visitedProperties || [],
+                session: options?.session
             }
         );
 
         // 2. Recalculate Lead Score (unified scoring engine)
-        const { AuthorityProofIssuer } = await import('../utils/ServerAuthorityProof.js');
-        const systemContract = AuthorityProofIssuer.issueSystemContract('activity_completion');
-        await LeadScoringService.computeAndSave(
-            leadId,
-            { triggeredBy: 'activity_completion', triggeredByUserId: userId },
-            { user: req.user, systemAuthorityContract: systemContract }
-        );
+        // Never fabricate user identity or permissions; provide safe system contract for automation
+        try {
+            const { AuthorityProofIssuer } = await import('../utils/ServerAuthorityProof.js');
+            const systemContract = AuthorityProofIssuer.issueSystemContract('activity_completion');
+            const authContext = {
+                systemAuthorityContract: systemContract
+            };
+            if (authUser) {
+                authContext.user = authUser;
+            } else if (userId) {
+                authContext.user = { _id: userId };
+            }
+
+            await LeadScoringService.computeAndSave(
+                leadId,
+                { triggeredBy: 'activity_completion', triggeredByUserId: userId || null },
+                authContext,
+                { session: options?.session }
+            );
+        } catch (scoringErr) {
+            console.error('[ActivityController] Lead scoring recalculation failed in autoTriggerStageChange:', scoringErr.message);
+            if (transition && typeof transition === 'object') {
+                transition.scoringError = scoringErr.message;
+            }
+        }
 
         // 🚀 OMNICHANNEL AUTOMATION TRIGGER
         // Trigger professional workflow (WhatsApp/SMS/Email) based on the specific outcome
         if (resolvedOutcome) {
-            const NurtureBot = (await import("../services/NurtureBot.js")).default;
-            const lead = await Lead.findById(leadId).lean();
-            if (lead) {
-                // Determine triggerId from outcome (e.g., 'Interested', 'Visit Scheduled')
-                // The Automation Engine rules are mapped to these outcome names
-                await NurtureBot.executeAutomation(resolvedOutcome, lead);
+            try {
+                const NurtureBot = (await import("../services/NurtureBot.js")).default;
+                const lead = await Lead.findById(leadId).lean();
+                if (lead) {
+                    // Determine triggerId from outcome (e.g., 'Interested', 'Visit Scheduled')
+                    // The Automation Engine rules are mapped to these outcome names
+                    await NurtureBot.executeAutomation(resolvedOutcome, lead);
+                }
+            } catch (autoErr) {
+                console.error('[ActivityController] Omnichannel automation trigger failed:', autoErr.message);
             }
         }
 
-        if (transition.stageChanged) {
+        if (transition?.stageChanged) {
             console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
         }
 

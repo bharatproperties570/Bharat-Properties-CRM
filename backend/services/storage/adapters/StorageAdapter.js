@@ -32,19 +32,19 @@ export default class StorageAdapter {
         return this._put(objectKey, data, options);
     }
 
-    async read(objectKey) {
+    async read(objectKey, options = {}) {
         this.requireCapability(Capabilities.READ);
-        return this._read(objectKey);
+        return this._read(objectKey, options);
     }
 
-    async delete(objectKey) {
+    async delete(objectKey, options = {}) {
         this.requireCapability(Capabilities.DELETE);
-        return this._delete(objectKey);
+        return this._delete(objectKey, options);
     }
 
-    async head(objectKey) {
+    async head(objectKey, options = {}) {
         this.requireCapability(Capabilities.HEAD);
-        return this._head(objectKey);
+        return this._head(objectKey, options);
     }
 
     async enumerateObjects(paginationToken = null, limit = 1000) {
@@ -52,14 +52,14 @@ export default class StorageAdapter {
         return this._enumerateObjects(paginationToken, limit);
     }
 
-    async copy(sourceKey, destKey) {
+    async copy(sourceKey, destKey, options = {}) {
         this.requireCapability(Capabilities.COPY);
-        return this._copy(sourceKey, destKey);
+        return this._copy(sourceKey, destKey, options);
     }
 
-    async getPresignedReadUrl(objectKey, expiresInSeconds = 300) {
+    async getPresignedReadUrl(objectKey, expiresInSeconds = 300, options = {}) {
         this.requireCapability(Capabilities.PRESIGNED_READ);
-        return this._getPresignedReadUrl(objectKey, expiresInSeconds);
+        return this._getPresignedReadUrl(objectKey, expiresInSeconds, options);
     }
 
     async getPresignedWriteUrl(objectKey, expiresInSeconds = 300, options = {}) {

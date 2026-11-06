@@ -1,4 +1,5 @@
 import IntegrationGuard from "../src/utils/IntegrationGuard.js";
+import crypto from "crypto";
 
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import { resolveMessageTemplate, interpolateTemplateText } from '../utils/templateResolver.js';
@@ -638,24 +639,43 @@ export const verifyWebhook = async (req, res) => {
         const token     = hub.verify_token || req.query['hub.verify_token'];
         const challenge = hub.challenge  || req.query['hub.challenge'];
 
-        const fs = await import('fs');
-        fs.appendFileSync('webhook_verify.log', `[${new Date().toISOString()}] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"\n`);
-
-        console.log(`[Webhook] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"`);
+        console.log(`[Webhook] Verification handshake received | mode="${mode}"`);
 
         if (mode === 'subscribe') {
-            // Senior Professional: Always fetch current valid tokens from DB
-            const config = await SystemSetting.findOne({ key: 'social_graph_config' }).lean();
-            const waConfig = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+            let config = null;
+            let waConfig = null;
+            try {
+                if (mongoose.connection && mongoose.connection.readyState === 1) {
+                    config = await SystemSetting.findOne({ key: 'social_graph_config' }).lean();
+                    waConfig = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+                }
+            } catch (dbErr) {
+                console.warn('[Webhook] DB read failed for settings:', dbErr.message);
+            }
             
             const ACCEPTED = [
                 config?.value?.verifyToken,
                 waConfig?.value?.verifyToken,
-                'bharat-properties-webhook-2026', // Fallback for initial setup
                 process.env.FB_WEBHOOK_VERIFY_TOKEN,
             ].filter(Boolean);
 
-            if (ACCEPTED.includes(token)) {
+            if (ACCEPTED.length === 0) {
+                console.error('[Webhook] ❌ Verification failed: No webhook verify tokens configured in environment or settings.');
+                return res.status(500).send('Webhook verification unconfigured');
+            }
+
+            const isMatch = token && ACCEPTED.some(expected => {
+                if (typeof token !== 'string' || typeof expected !== 'string') return false;
+                try {
+                    const bufA = Buffer.from(token);
+                    const bufB = Buffer.from(expected);
+                    return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+                } catch (_) {
+                    return false;
+                }
+            });
+
+            if (isMatch) {
                 console.log(`[Webhook] ✅ Successfully verified token. Handshake complete.`);
                 res.setHeader('Content-Type', 'text/plain');
                 return res.status(200).send(challenge);
@@ -682,6 +702,29 @@ export const receiveWebhook = async (req, res) => {
         if (req.body?.object === 'whatsapp_business_account') {
             const { whatsAppLiveBotWebhook } = await import('./webhook.controller.js');
             return whatsAppLiveBotWebhook(req, res);
+        }
+
+        // Mandatory HMAC signature check if FB_APP_SECRET is configured
+        const appSecret = process.env.FB_APP_SECRET;
+        if (appSecret) {
+            const signatureHeader = req.headers['x-hub-signature-256'];
+            if (!signatureHeader) {
+                console.warn('[SocialController] Webhook signature missing while FB_APP_SECRET is configured');
+                return res.status(401).json({ success: false, error: 'Signature missing' });
+            }
+            try {
+                const rawBody = req.rawBody || JSON.stringify(req.body);
+                const expectedSig = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+                const sigBuf = Buffer.from(signatureHeader);
+                const expBuf = Buffer.from(expectedSig);
+                if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+                    console.warn('[SocialController] Webhook signature verification failed');
+                    return res.status(401).json({ success: false, error: 'Invalid signature' });
+                }
+            } catch (sigErr) {
+                console.error('[SocialController] Error verifying webhook signature:', sigErr.message);
+                return res.status(401).json({ success: false, error: 'Signature verification error' });
+            }
         }
 
         // Respond immediately with 200 to acknowledge receipt (required by Meta)

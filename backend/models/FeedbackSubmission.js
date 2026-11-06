@@ -26,4 +26,7 @@ FeedbackSubmissionSchema.index(
     }
 );
 
+// Query optimization indexes (support multi-property itineraries under one activity):
+FeedbackSubmissionSchema.index({ activity: 1, inventory: 1 });
+
 export default mongoose.model("FeedbackSubmission", FeedbackSubmissionSchema);

@@ -103,7 +103,11 @@ export const handleWhatsAppReply = async (req, res) => {
  * Webhook Verification (for initial Meta App setup)
  */
 export const verifyWebhook = (req, res) => {
-    const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'bharat_crm_token';
+    const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+    if (!VERIFY_TOKEN) {
+        console.error('[WhatsApp Webhook] Error: WHATSAPP_VERIFY_TOKEN is not configured in environment.');
+        return res.status(500).send('Webhook verify token unconfigured');
+    }
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];

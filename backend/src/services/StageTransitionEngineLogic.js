@@ -333,10 +333,17 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         visitedProperties = []
     } = options;
 
-    const lead = await Lead.findById(leadId)
-        .populate('stage', 'lookup_value')
-        .populate('status', 'lookup_value')
-        .lean();
+    let leadQuery = Lead.findById(leadId);
+    if (leadQuery && typeof leadQuery.populate === 'function') {
+        leadQuery = leadQuery.populate('stage', 'lookup_value').populate('status', 'lookup_value');
+    }
+    if (options.session && leadQuery && typeof leadQuery.session === 'function') {
+        leadQuery = leadQuery.session(options.session);
+    }
+    if (leadQuery && typeof leadQuery.lean === 'function') {
+        leadQuery = leadQuery.lean();
+    }
+    const lead = await leadQuery;
     if (!lead) throw new Error(`StageTransitionEngine: Lead ${leadId} not found`);
 
     let prevStageName = lead.stage?.lookup_value || '';
@@ -363,7 +370,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // 🛡️ TERMINAL STAGE LOCKING & CONTROLLED REVIVAL
     const TERMINAL_STAGES = ['closed', 'lost', 'unqualified', 'won', 'booked', 'dormant'];
-    const ACTIVE_PIPELINE_STAGES = ['incoming', 'prospect', 'working', 'opportunity', 'negotiation'];
+    const ACTIVE_PIPELINE_STAGES = ['incoming', 'new', 'prospect', 'working', 'site visit scheduled', 'opportunity', 'negotiation'];
 
     const prevStageLower = prevStageName.toLowerCase();
     const currentStatusLower = currentStatusName.toLowerCase();
@@ -391,7 +398,8 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // 🚀 [FEATURE] Stage Regression Guard (Forward-only enforcement)
     const STAGE_ORDER = {
-        'incoming': 0, 'prospect': 1, 'working': 2,
+        'incoming': 0, 'new': 0, 'prospect': 1, 'working': 2,
+        'site visit scheduled': 2,
         'opportunity': 3, 'negotiation': 4, 'booked': 5, 'closed': 6
     };
 
@@ -426,19 +434,30 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // Resolve the new stage lookup ObjectId
     let newStageId = null;
-    const stageLookup = await Lookup.findOne({
+    const stageLookupQuery = Lookup.findOne({
         lookup_type: { $regex: /^stage$/i },
         lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStageName)}$`, 'i') }
     });
-    if (stageLookup) newStageId = stageLookup._id;
+    if (options.session) stageLookupQuery.session(options.session);
+    const stageLookup = await stageLookupQuery.lean();
+    if (stageLookup) {
+        newStageId = stageLookup._id;
+    } else {
+        try {
+            const LookupService = (await import('../../../services/LookupService.js')).default;
+            newStageId = await LookupService.resolve('Stage', targetStageName, { session: options.session }).catch(() => null);
+        } catch (_) {}
+    }
     
     // Resolve the new status lookup ObjectId if applicable
     let newStatusId = null;
     if (targetStatusName) {
-        const statusLookup = await Lookup.findOne({
+        const statusLookupQuery = Lookup.findOne({
             lookup_type: { $regex: /^status$/i },
             lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStatusName)}$`, 'i') }
         });
+        if (options.session) statusLookupQuery.session(options.session);
+        const statusLookup = await statusLookupQuery.lean();
         if (statusLookup) newStatusId = statusLookup._id;
     }
 

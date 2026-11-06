@@ -30,6 +30,7 @@ import {
     getBNAAnalytics,
     getVariableRegistry,
     generateMatchLink,
+    createCampaignTrackedLink,
     getLiveBroadcastState,
     getLiveBroadcasts,
     pauseBroadcastCampaign,
@@ -101,6 +102,7 @@ router.post('/broadcast/:campaignId/cancel', cancelBroadcastCampaign);
 router.post('/broadcast/:campaignId/retry-failed', retryFailedBroadcastRecipients);
 
 router.post('/generate-match-link', generateMatchLink);
+router.post('/tracked-link', createCampaignTrackedLink);
 
 router.get('/whatsapp/variable-registry', getVariableRegistry);
 router.post('/import-audience', upload.single('file'), importAudience);
