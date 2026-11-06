@@ -31,9 +31,9 @@ export const calculateUserPermissions = async (user, { skipCache = false, bypass
         throw new Error(`Invalid department: ${user.department}`);
     }
 
-    // Populate role if it's just an ID
+    // Populate role if it's just an ID or fresh evaluation is requested
     let role = user.role;
-    if (typeof role === 'string' || role._id || (role && !role.moduleAccess)) {
+    if (shouldSkip || typeof role === 'string' || role._id || (role && !role.moduleAccess)) {
         const Role = (await import('../models/Role.js')).default;
         role = await Role.findById(user.role._id || user.role);
     }
@@ -137,9 +137,9 @@ const mergeFinancialPermissions = (deptPerms, rolePerms, userPerms) => {
 /**
  * Check if user has permission for a specific module and action
  */
-export const hasPermission = async (user, module, action) => {
+export const hasPermission = async (user, module, action, { skipCache = false, bypassCache = false } = {}) => {
     try {
-        const permissions = await calculateUserPermissions(user);
+        const permissions = await calculateUserPermissions(user, { skipCache: skipCache || bypassCache });
 
         if (!permissions.moduleAccess[module]) {
             return false;

@@ -74,11 +74,14 @@ fi
 # 6. Restart Services (If using PM2)
 if command -v pm2 &> /dev/null
 then
-    echo -e "${GREEN}♻️  Restarting CRM Services via PM2...${NC}"
-    if [ -f "backend/ecosystem.config.cjs" ]; then
+    echo -e "${GREEN}♻️  Reloading CRM Services via PM2 (zero-downtime graceful reload)...${NC}"
+    if pm2 describe bharat-crm-backend &>/dev/null; then
+        pm2 reload bharat-crm-backend || pm2 restart bharat-crm-backend
+    elif [ -f "backend/ecosystem.config.cjs" ]; then
         pm2 start backend/ecosystem.config.cjs --update-env
+    else
+        pm2 restart all
     fi
-    pm2 restart all
 else
     echo -e "${RED}⚠️  PM2 not found. Please restart your node services manually.${NC}"
 fi

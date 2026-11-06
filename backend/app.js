@@ -12,6 +12,7 @@ import mongoose from "mongoose";
 import redisProxy from "./src/config/redis.js";
 import { AppError } from "./src/middlewares/error.middleware.js";
 import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
+import { previewWriteGuard } from "./middleware/previewGuard.middleware.js";
 
 // Route Imports
 import authRoutes from "./routes/auth.routes.js";
@@ -76,6 +77,7 @@ import adminQueueRoutes from "./src/routes/admin.queue.routes.js";
 import jarvisRoutes from "./routes/jarvis.routes.js";
 import outboxRoutes from "./routes/outbox.routes.js";
 import authorityVerificationRoutes from "./routes/authorityVerification.routes.js";
+import reconciliationRoutes from "./routes/reconciliation.routes.js";
 
 const app = express();
 
@@ -245,6 +247,9 @@ app.use("/api/lookups",  invalidateCache);
 app.use("/api/users",    invalidateCache);
 app.use("/api/teams",    invalidateCache);
 
+// Preview-to-Production Write Protection Guard (P4-DEF-02)
+app.use("/api", previewWriteGuard);
+
 // Route Definitions
 app.use("/api/auth", authRoutes);
 app.use("/api/marketing", marketingRoutes);
@@ -311,6 +316,7 @@ app.use("/api/admin/queues", adminQueueRoutes);
 app.use("/api/outbox", outboxRoutes);
 app.use("/api/jarvis", jarvisRoutes);
 app.use("/api/authority", authorityVerificationRoutes);
+app.use("/api/reconciliation", reconciliationRoutes);
 import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/uploads", express.static(os.tmpdir()));

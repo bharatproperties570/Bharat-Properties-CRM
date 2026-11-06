@@ -9,6 +9,8 @@ import Inventory from '../models/Inventory.js';
 import Conversation from '../models/Conversation.js';
 import Company from '../models/Company.js';
 import Activity from '../models/Activity.js';
+import Document from '../models/Document.js';
+import CallIntelligence from '../models/CallIntelligence.js';
 import MergeAudit from '../models/MergeAudit.js';
 import OutboxEvent from '../models/OutboxEvent.js';
 
@@ -170,6 +172,18 @@ export const previewMerge = async (canonical, duplicate) => {
     const comps = await Company.find({ employees: dupId }).lean();
     for (const c of comps) {
         appendRewire('Company', c._id, 'employees', dupId, masId);
+    }
+
+    // Documents (Phase 4.7 Reference Extension: entityType === 'Contact')
+    const docs = await Document.find({ entityType: 'Contact', entityId: dupId }).lean();
+    for (const doc of docs) {
+        appendRewire('Document', doc._id, 'entityId', dupId, masId);
+    }
+
+    // CallIntelligence (Phase 4.7 Reference Extension: linkedContactId)
+    const callIntels = await CallIntelligence.find({ linkedContactId: dupId }).lean();
+    for (const ci of callIntels) {
+        appendRewire('CallIntelligence', ci._id, 'linkedContactId', dupId, masId);
     }
 
     if (Object.keys(consolidatedFields.$set).length === 0) delete consolidatedFields.$set;

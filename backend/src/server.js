@@ -60,6 +60,11 @@ async function startServer() {
             const msg = `🚀 CRM Backend running on port ${config.port} (Env: ${config.nodeEnv})`;
             console.log(msg);
             logStartup(msg);
+
+            // Signal PM2 that HTTP listener is ready to serve requests (zero-downtime reload)
+            if (typeof process.send === 'function') {
+                process.send('ready');
+            }
             
             // Initialize WhatsApp Connections (Production or explicit local flag only)
             const isProd = config.nodeEnv === 'production' || process.env.NODE_ENV === 'production';
@@ -174,6 +179,12 @@ async function startServer() {
             try {
                 const { stopAuthorityScheduler } = await import("../services/authority/AuthorityRefreshScheduler.js");
                 if (stopAuthorityScheduler) stopAuthorityScheduler();
+            } catch (e) {}
+
+            // Gracefully close Baileys WhatsApp sockets and release distributed locks
+            try {
+                const { BaileysConnectionManager } = await import("../services/baileysQueue/BaileysConnectionManager.js");
+                await BaileysConnectionManager.gracefulShutdown();
             } catch (e) {}
 
             // 2. Setup hard timeout for drain

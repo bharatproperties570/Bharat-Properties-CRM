@@ -8,13 +8,14 @@ import { hasPermission, hasFinancialPermission, hasApprovalRight } from '../serv
 
 /**
  * Middleware to check if user has permission for a module and action
- * Usage: checkPermission('leads', 'create')
+ * Usage: checkPermission('leads', 'create', { skipCache: true })
+ * Supports options: { skipCache: boolean }
  */
-export const checkPermission = (module, action) => {
+export const checkPermission = (module, action, options = {}) => {
     return async (req, res, next) => {
         try {
             // Get user from request (assumes auth middleware has set req.user)
-            const user = req.user;
+            let user = req.user;
 
             if (!user) {
                 return res.status(401).json({
@@ -23,8 +24,22 @@ export const checkPermission = (module, action) => {
                 });
             }
 
-            // Check permission
-            const allowed = await hasPermission(user, module, action);
+            // Fresh evaluation bypasses Redis cache and reloads fresh user & role from MongoDB
+            const shouldSkipCache = Boolean(options.skipCache);
+            if (shouldSkipCache) {
+                const User = (await import('../models/User.js')).default;
+                const freshUser = await User.findById(user._id).populate('role');
+                if (!freshUser || freshUser.isActive === false) {
+                    return res.status(401).json({
+                        success: false,
+                        message: 'User account is inactive or not found'
+                    });
+                }
+                user = freshUser;
+            }
+
+            // Check permission with cache skip option
+            const allowed = await hasPermission(user, module, action, { skipCache: shouldSkipCache });
 
             if (!allowed) {
                 // Log unauthorized access attempt
@@ -53,8 +68,13 @@ export const checkPermission = (module, action) => {
                 });
             }
 
+            // If we reloaded freshUser, update req.user for downstream middleware/controllers
+            if (shouldSkipCache) {
+                req.user = user;
+            }
+
             // Permission granted, proceed
-            next();
+            await next();
         } catch (error) {
             console.error('Permission check error:', error);
             return res.status(500).json({
@@ -109,7 +129,7 @@ export const checkFinancialPermission = (permission) => {
                 });
             }
 
-            next();
+            await next();
         } catch (error) {
             console.error('Financial permission check error:', error);
             return res.status(500).json({
@@ -182,7 +202,7 @@ export const checkApprovalRight = (approvalType, options = {}) => {
                 });
             }
 
-            next();
+            await next();
         } catch (error) {
             console.error('Approval right check error:', error);
             return res.status(500).json({
@@ -236,7 +256,7 @@ export const checkDepartment = (...allowedDepartments) => {
                 });
             }
 
-            next();
+            await next();
         } catch (error) {
             console.error('Department check error:', error);
             return res.status(500).json({

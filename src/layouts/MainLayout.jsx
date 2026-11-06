@@ -18,7 +18,7 @@ const AddOfferModal = lazy(() => import('../components/AddOfferModal'));
 const ClosingFormModal = lazy(() => import('../components/ClosingFormModal'));
 const AddBookingModal = lazy(() => import('../components/AddBookingModal'));
 import { REQUIRED_FORM_TYPES } from '../utils/FormTriggerService';
-import { leadsAPI, dealsAPI } from '../utils/api';
+import { leadsAPI, dealsAPI, isVercelPreview } from '../utils/api';
 const JarvisWidget = lazy(() => import('../components/jarvis/JarvisWidget'));
 
 const MainLayout = ({ children, currentView, onNavigate }) => {
@@ -240,6 +240,12 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
             <Sidebar currentView={currentView} onNavigate={onNavigate} />
 
             <main className="main-area">
+                {isVercelPreview && (
+                    <div style={{ background: '#fffbeb', borderBottom: '1px solid #fef3c7', padding: '6px 16px', fontSize: '12px', color: '#92400e', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 1000 }}>
+                        <span><strong>⚠️ Preview Mode:</strong> Connected to live production backend (api.bharatproperties.co). Write operations are disabled on the server.</span>
+                        <span style={{ fontSize: '11px', background: '#fef3c7', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>READ-ONLY</span>
+                    </div>
+                )}
                 <Header
                     onNavigate={onNavigate}
                     onAddContact={() => {

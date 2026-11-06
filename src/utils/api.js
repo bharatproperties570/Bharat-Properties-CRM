@@ -82,6 +82,10 @@ const FINAL_VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '
 // Detect if running on production host
 let hostProdOverride = false;
 let isLocalhost = false;
+export const isVercelPreview = typeof window !== 'undefined' &&
+  Boolean(window.location?.hostname?.endsWith('vercel.app')) &&
+  !window.location.hostname.includes('bharatproperties.co');
+
 if (typeof window !== 'undefined' && window.location && window.location.hostname) {
   const hostname = window.location.hostname;
   hostProdOverride = hostname.includes('bharatproperties.co') || hostname.includes('vercel.app');
@@ -234,6 +238,9 @@ api.interceptors.request.use(
     const token = getAuthToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    if (isVercelPreview) {
+      config.headers['X-Client-Environment'] = 'preview';
     }
     // Also normalize the URL here for safety if called directly
     if (config.url && config.url.startsWith('/')) {
