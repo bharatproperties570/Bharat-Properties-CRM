@@ -19,6 +19,43 @@ import { previewMerge, executeMerge, rollbackMerge, verifyMergeRollbackAuthoriza
 import { ContactLockService } from './contactLock.service.js';
 import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 
+const sanitizeFieldChanges = (changes) => {
+    if (!changes || !Array.isArray(changes)) return [];
+    return changes.map(change => {
+        if (change.field === 'phones') {
+            return {
+                field: 'phones',
+                oldValue: (change.oldValue || []).map(p => ({ number: maskPhoneNumber(p.number), type: p.type })),
+                newValue: (change.newValue || []).map(p => ({ number: maskPhoneNumber(p.number), type: p.type }))
+            };
+        }
+        if (change.field === 'emails') {
+            const maskEmail = (addr) => {
+                if (!addr || typeof addr !== 'string') return null;
+                const parts = addr.split('@');
+                if (parts.length !== 2) return '***';
+                const name = parts[0];
+                const domain = parts[1];
+                const visible = name.slice(0, 2);
+                return `${visible}***@${domain}`;
+            };
+            return {
+                field: 'emails',
+                oldValue: (change.oldValue || []).map(e => ({ address: maskEmail(e.address), type: e.type })),
+                newValue: (change.newValue || []).map(e => ({ address: maskEmail(e.address), type: e.type }))
+            };
+        }
+        if (change.field === 'personalAddress') {
+            return {
+                field: 'personalAddress',
+                oldValue: change.oldValue ? { city: change.oldValue.city, state: change.oldValue.state } : null,
+                newValue: change.newValue ? { city: change.newValue.city, state: change.newValue.state } : null
+            };
+        }
+        return change;
+    });
+};
+
 export class ContactReconciliationService {
     /**
      * Fetch cross-collection reference counts for an array of contact ObjectIds.
@@ -310,7 +347,7 @@ export class ContactReconciliationService {
                 }, {})
             });
             if (preview.fieldChanges?.length > 0) {
-                dryRun.plannedFieldConsolidations.push(...preview.fieldChanges);
+                dryRun.plannedFieldConsolidations.push(...sanitizeFieldChanges(preview.fieldChanges));
             }
         }
 

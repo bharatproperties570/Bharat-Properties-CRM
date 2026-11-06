@@ -1250,7 +1250,8 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
         });
         const duplicate = await Contact.create({
             name: 'Original Client',
-            phones: [{ number: '9866112233', type: 'Personal' }],
+            phones: [{ number: '9866112233', type: 'Personal' }, { number: '9877001122', type: 'Alternate' }],
+            emails: [{ address: 'test.dup@domain.com', type: 'Personal' }],
             isDeleted: false,
             isMerged: false
         });
@@ -1272,9 +1273,16 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
             status: 'PENDING_REVIEW'
         });
 
-        // 1. Dry run plan is strictly read-only and succeeds
+        // 1. Dry run plan is strictly read-only, succeeds, and masks all PII in field consolidations
         const plan = await ContactReconciliationService.generateDryRunPlan(group._id);
         assert.ok(plan.plannedRewires.length > 0, 'Dry-run plan calculates potential rewires without modifying DB');
+        assert.ok(plan.plannedFieldConsolidations.length > 0, 'Planned field consolidations captured');
+        
+        // PII Masking invariant: raw phone and raw email must NEVER appear unmasked in plan
+        const planJson = JSON.stringify(plan);
+        assert.ok(!planJson.includes('9877001122'), 'Raw alternate phone must be masked in dry-run plan');
+        assert.ok(!planJson.includes('test.dup@domain.com'), 'Raw email must be masked in dry-run plan');
+        assert.ok(planJson.includes('te***@domain.com'), 'Email must be masked with standard prefix format');
 
         // 2. Service execution MUST throw CONTACT_MUTATION_PROHIBITED
         await assert.rejects(

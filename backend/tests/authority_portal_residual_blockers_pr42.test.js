@@ -3959,8 +3959,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     async setCanonicalPolicy() {
                         genuinePublishCount++;
                         worker1Started = true;
-                        // Genuine delay exceeding 5 seconds (5500ms)
-                        await new Promise(r => setTimeout(r, 5500));
+                        // Genuine delay exceeding 5 seconds (7500ms) to ensure lease renewal is active
+                        await new Promise(r => setTimeout(r, 7500));
                         return { success: true };
                     },
                     async getCanonicalPolicy({ authoritative } = {}) {
