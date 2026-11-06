@@ -97,6 +97,8 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
 
     const [sending, setSending] = useState(false);
     const [skipRecentDuplicates, setSkipRecentDuplicates] = useState(true);
+    const [isScheduled, setIsScheduled] = useState(false);
+    const [scheduledTime, setScheduledTime] = useState('');
 
     // 1. WhatsApp Templates State
     const [templates, setTemplates] = useState([]);
@@ -966,6 +968,17 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             return;
         }
 
+        if (isScheduled) {
+            if (!scheduledTime) {
+                toast.error("Please select a scheduled date and time for the broadcast");
+                return;
+            }
+            if (new Date(scheduledTime).getTime() <= Date.now()) {
+                toast.error("Scheduled broadcast time must be in the future");
+                return;
+            }
+        }
+
         setSending(true);
         try {
             const payload = {
@@ -979,6 +992,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 whatsappGroupJids: selectedWaGroups,
                 integrationId: selectedAccountId || undefined,
                 channels: selectedChannels,
+                scheduledTime: isScheduled ? new Date(scheduledTime).toISOString() : undefined,
                 templateId: channels.whatsapp
                     ? (isBaileys
                         ? (selectedWebTemplate?.name || selectedWebTemplate?.id || undefined)
@@ -1018,7 +1032,11 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             const res = await api.post('/marketing/broadcast/bna', payload);
 
             if (res.data?.success) {
-                toast.success(`🚀 Broadcast queued for dispatch to ${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients! Track real-time delivery on the live board.`);
+                if (res.data.scheduled) {
+                    toast.success(`📅 Broadcast scheduled for ${new Date(res.data.scheduledTime || scheduledTime).toLocaleString()} (${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients)!`);
+                } else {
+                    toast.success(`🚀 Broadcast queued for dispatch to ${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients! Track real-time delivery on the live board.`);
+                }
                 if (onSuccess) onSuccess(res.data.campaignId);
                 onClose();
             } else {
@@ -2700,8 +2718,53 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                 style={{ accentColor: '#4f46e5', cursor: 'pointer' }}
                             />
                             <i className="fas fa-filter"></i>
-                            <span>{skipRecentDuplicates ? 'Anti-Duplicate: 4h Protection Active' : 'Force All (Duplicates Allowed)'}</span>
+                            <span>{skipRecentDuplicates ? 'Anti-Duplicate: 4h Active' : 'Force Duplicates'}</span>
                         </label>
+
+                        {/* Enterprise Broadcast Scheduling Control */}
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <label style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                padding: '3px 10px',
+                                borderRadius: '8px',
+                                background: isScheduled ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : (isDark ? 'rgba(255, 255, 255, 0.04)' : '#f1f5f9'),
+                                color: isScheduled ? '#2563eb' : (isDark ? '#94a3b8' : '#64748b'),
+                                border: isScheduled ? '1px solid #3b82f6' : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'),
+                                fontSize: '0.74rem',
+                                fontWeight: 800,
+                                userSelect: 'none'
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    checked={isScheduled}
+                                    onChange={(e) => setIsScheduled(e.target.checked)}
+                                    style={{ accentColor: '#2563eb', cursor: 'pointer' }}
+                                />
+                                <i className="fas fa-clock"></i>
+                                <span>Schedule</span>
+                            </label>
+
+                            {isScheduled && (
+                                <input
+                                    type="datetime-local"
+                                    value={scheduledTime}
+                                    onChange={(e) => setScheduledTime(e.target.value)}
+                                    style={{
+                                        padding: '3px 8px',
+                                        borderRadius: '6px',
+                                        border: isDark ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid #93c5fd',
+                                        background: isDark ? '#1e293b' : '#ffffff',
+                                        color: isDark ? '#f8fafc' : '#0f172a',
+                                        fontSize: '0.74rem',
+                                        fontWeight: 700,
+                                        outline: 'none'
+                                    }}
+                                />
+                            )}
+                        </div>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -2739,12 +2802,12 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                             {sending ? (
                                 <>
                                     <i className="fas fa-spinner fa-spin"></i>
-                                    <span>Dispatching Broadcast...</span>
+                                    <span>{isScheduled ? 'Scheduling Broadcast...' : 'Dispatching Broadcast...'}</span>
                                 </>
                             ) : (
                                 <>
-                                    <i className="fas fa-paper-plane"></i>
-                                    <span>Launch Broadcast ({audienceStats.totalAudienceReach} Audience)</span>
+                                    <i className={isScheduled ? "fas fa-calendar-check" : "fas fa-paper-plane"}></i>
+                                    <span>{isScheduled ? 'Schedule Broadcast' : 'Launch Broadcast'} ({audienceStats.totalAudienceReach} Audience)</span>
                                 </>
                             )}
                         </button>

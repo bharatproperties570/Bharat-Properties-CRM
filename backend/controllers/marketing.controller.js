@@ -911,7 +911,8 @@ export const broadcastToBrokerGroup = async (req, res) => {
             dealId, dealIds, projectId, entityType = 'deal', groupIds, contactGroupIds, leadIds, whatsappGroupJids, 
             integrationId, channels = ['whatsapp'], templateId, language, templateText, 
             isBaileys, smsTemplate, rcsTemplate, emailTemplate,
-            forceBroadcast = false, deduplicationWindowHours = 4 
+            forceBroadcast = false, deduplicationWindowHours = 4,
+            scheduledTime
         } = req.body;
         console.log(`[BNA] Dispatching to audience: Project=${projectId || 'NONE'} Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'}, Force: ${Boolean(forceBroadcast)})`);
         
@@ -1178,11 +1179,46 @@ export const broadcastToBrokerGroup = async (req, res) => {
                 channels,
                 isBaileys: Boolean(isBaileys),
                 provider: isBaileys ? 'BAILEYS' : 'META',
+                status: scheduledTime ? 'SCHEDULED' : 'RUNNING',
                 campaignParams: jobData,
                 performedBy: jobData.performedBy
             });
         } catch (trackerInitErr) {
             console.error('[broadcastToBrokerGroup] BroadcastLiveTracker init warning:', trackerInitErr.message);
+        }
+
+        // ─── ENTERPRISE BROADCAST SCHEDULING ──────────────────────────────────
+        if (scheduledTime) {
+            const scheduledDate = new Date(scheduledTime);
+            const delay = scheduledDate.getTime() - Date.now();
+            if (delay > 0) {
+                jobData.scheduledTime = scheduledDate.toISOString();
+                if (queue && isRedisOnline) {
+                    const job = await queue.add('bna-broadcast', jobData, { delay, removeOnComplete: true });
+                    return res.json({ 
+                        success: true, 
+                        scheduled: true,
+                        scheduledTime: scheduledDate.toISOString(),
+                        message: `Broadcast scheduled for ${recipients.length} recipients on ${scheduledDate.toLocaleString()}.`,
+                        campaignId,
+                        jobId: job.id,
+                        dispatchCount: recipients.length
+                    });
+                } else {
+                    console.warn(`[BNA_BROADCAST] Scheduled direct fallback queued for ${scheduledDate.toISOString()} (${Math.round(delay/1000)}s)`);
+                    setTimeout(() => {
+                        _dispatchBNADirectly(jobData).catch(err => console.error('[BNA_BROADCAST_SCHEDULED_DIRECT_ERROR]', err));
+                    }, delay);
+                    return res.json({ 
+                        success: true, 
+                        scheduled: true,
+                        scheduledTime: scheduledDate.toISOString(),
+                        message: `Broadcast scheduled for ${recipients.length} recipients on ${scheduledDate.toLocaleString()} (Direct Mode).`,
+                        campaignId,
+                        dispatchCount: recipients.length
+                    });
+                }
+            }
         }
 
         if (queue && isRedisOnline) {

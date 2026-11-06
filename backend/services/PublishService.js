@@ -76,6 +76,16 @@ class PublishService {
                 .catch(err => results.failed.push({ platform: 'Google Business', error: err.message })));
         }
 
+        // --- YouTube ---
+        if (platforms.youtube) {
+            const videoAsset = processedData.videoUrl || processedData.videos?.[0]?.url || processedData.mediaUrl || processedData.images?.[0]?.url;
+            const videoTitle = (processedData.name || processedData.title || 'Premier Property Showcase').slice(0, 70);
+            const videoDesc = `${postText}\n\nOfficial Catalog: https://www.bharatproperties.co/${itemType}/${data.websiteMetadata?.slug || data._id}`;
+            tasks.push(youtubeService.uploadVideo(videoTitle, videoDesc, videoAsset)
+                .then(() => results.success.push('YouTube'))
+                .catch(err => results.failed.push({ platform: 'YouTube', error: err.message })));
+        }
+
         // --- Real Estate Portals & Syndication (Enterprise B2B Engine) ---
         // Filter out social keys to get only portal requests
         const portalKeys = [
@@ -155,7 +165,7 @@ class PublishService {
             ? (data.priceRange || 'Price on Request')
             : `Value: ₹${data.price.toLocaleString('en-IN')}`;
         const location = data.address?.location || data.locationSearch || data.location || '';
-        const link = `https://bharatproperties.in/${type}/${data._id}`;
+        const link = `https://www.bharatproperties.co/${type}/${data._id}`;
 
         return `🏠 ${title}\n📍 ${location}\n💰 ${price}\n\nCheck out this exclusive ${type} on Bharat Properties!\n\n${link}\n#RealEstate #BharatProperties #${type.toUpperCase()}`;
     }

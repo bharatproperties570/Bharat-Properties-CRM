@@ -347,6 +347,33 @@ const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNav
                                 {project.isPublished ? 'Live on Website' : 'Publish to Website'}
                             </button>
 
+                            {/* Direct External Link to www.bharatproperties.co when Published */}
+                            {project.isPublished && (
+                                <a
+                                    href={`https://www.bharatproperties.co/project/${project.websiteMetadata?.slug || project._id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7',
+                                        color: '#15803d',
+                                        padding: '3px 10px',
+                                        borderRadius: '16px',
+                                        fontSize: '0.68rem',
+                                        fontWeight: 800,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        textDecoration: 'none',
+                                        border: '1px solid #10b98144',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                    title="Open live project on www.bharatproperties.co"
+                                >
+                                    <span>View on Website</span>
+                                    <i className="fas fa-external-link-alt" style={{ fontSize: '0.65rem' }}></i>
+                                </a>
+                            )}
+
                             {project.reraNumber && (
                                 <span style={{
                                     backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', color: isDark ? '#60a5fa' : '#1e40af',
@@ -723,62 +750,6 @@ const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNav
                         </div>
                     </div>
 
-                    {/* 📌 PERMANENT MODULE DIRECTORY & HEADING BAR (Guarantees other module names never hide) */}
-                    {workspaceMode === 'tab' && (
-                        <div style={{
-                            background: 'var(--bg-card)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '10px',
-                            padding: '8px 12px',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            flexWrap: 'wrap',
-                            gap: '6px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ 
-                                    width: '26px', height: '26px', borderRadius: '6px', 
-                                    background: `${activeTabInfo.color}15`, color: activeTabInfo.color,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' 
-                                }}>
-                                    <i className={activeTabInfo.icon}></i>
-                                </div>
-                                <span style={{ fontSize: '0.88rem', fontWeight: 900, color: 'var(--text-main)' }}>
-                                    {activeTabInfo.title}
-                                </span>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700, marginRight: '4px' }}>Other Modules:</span>
-                                {modulesList.filter(m => m.id !== activeTab).map(mod => (
-                                    <button
-                                        key={mod.id}
-                                        onClick={() => handleTabSelect(mod.id)}
-                                        style={{
-                                            background: 'var(--bg-gray)',
-                                            color: 'var(--text-muted)',
-                                            border: '1px solid var(--border-color)',
-                                            padding: '2px 7px',
-                                            borderRadius: '5px',
-                                            fontSize: '0.65rem',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '4px'
-                                        }}
-                                        className="hover:opacity-80"
-                                    >
-                                        <i className={mod.icon} style={{ fontSize: '0.6rem', color: mod.color }}></i>
-                                        {mod.shortLabel}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
                     {/* ── WORKSPACE CONTENT ── */}
                     {workspaceMode === 'tab' ? (
                         /* FOCUSED TAB VIEW */
@@ -990,17 +961,215 @@ const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNav
                         </div>
                     </div>
 
-                    {/* 2. Milestone Timeline Card */}
+                    {/* 2. Enterprise Functional Milestone Timeline Card */}
                     <div style={cardStyle}>
-                        <div style={sectionHeaderStyle}>
+                        <div style={{ ...sectionHeaderStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <h3 style={sectionTitleStyle}><i className="fas fa-timeline text-blue-500"></i> Milestone Timeline</h3>
+                            <span style={{
+                                fontSize: '0.66rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff',
+                                color: '#2563eb',
+                                border: '1px solid #3b82f633',
+                                textTransform: 'uppercase'
+                            }}>
+                                {getLookupValue('ProjectStatus', project.status) || project.status || 'Active'}
+                            </span>
                         </div>
-                        <div style={{ padding: '10px 12px' }}>
-                            <div style={{ position: 'relative', paddingLeft: '18px', borderLeft: '2px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <TimelinePoint label="Project Launched" date={project.launchDate} active />
-                                <TimelinePoint label="Expected Completion" date={project.expectedCompletionDate} />
-                                <TimelinePoint label="Possession Handover" date={project.possessionDate} />
-                            </div>
+                        <div style={{ padding: '12px 14px' }}>
+                            {/* Dynamic Timeline Progression Engine */}
+                            {(() => {
+                                const now = new Date();
+                                const launch = project.launchDate ? new Date(project.launchDate) : null;
+                                const completion = project.expectedCompletionDate ? new Date(project.expectedCompletionDate) : null;
+                                const possession = project.possessionDate ? new Date(project.possessionDate) : null;
+
+                                const statusStr = String(getLookupValue('ProjectStatus', project.status) || project.status || '').toLowerCase();
+                                const isReadyOrDelivered = statusStr.includes('ready') || statusStr.includes('delivered') || statusStr.includes('completed');
+
+                                let progressPercent = 0;
+                                if (isReadyOrDelivered) {
+                                    progressPercent = 100;
+                                } else if (launch && completion && completion.getTime() > launch.getTime()) {
+                                    const total = completion.getTime() - launch.getTime();
+                                    const current = now.getTime() - launch.getTime();
+                                    progressPercent = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+                                } else if (launch && now >= launch) {
+                                    progressPercent = 40;
+                                }
+
+                                const isLaunchDone = Boolean(launch && now >= launch) || isReadyOrDelivered;
+                                const isCompletionDone = Boolean(completion && now >= completion) || isReadyOrDelivered;
+                                const isPossessionDone = Boolean(possession && now >= possession) || statusStr.includes('delivered');
+
+                                const formatDateStr = (d) => {
+                                    if (!d || isNaN(d.getTime())) return 'Date Not Set';
+                                    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                                };
+
+                                const getDiffLabel = (targetDate, isPast) => {
+                                    if (!targetDate || isNaN(targetDate.getTime())) return '';
+                                    const diffDays = Math.round(Math.abs(targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                                    if (diffDays === 0) return 'Today';
+                                    if (diffDays < 30) return `${diffDays} days ${isPast ? 'ago' : 'left'}`;
+                                    const diffMonths = Math.round(diffDays / 30);
+                                    return `${diffMonths} mo ${isPast ? 'ago' : 'remaining'}`;
+                                };
+
+                                return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {/* Progress Bar & Stage Indicator */}
+                                        <div style={{
+                                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                            padding: '8px 10px',
+                                            borderRadius: '8px',
+                                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.06)' : '#e2e8f0'}`
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)' }}>
+                                                    SCHEDULE COMPLETION
+                                                </span>
+                                                <span style={{ fontSize: '0.72rem', fontWeight: 900, color: progressPercent === 100 ? '#10b981' : '#2563eb' }}>
+                                                    {progressPercent}%
+                                                </span>
+                                            </div>
+                                            <div style={{
+                                                width: '100%',
+                                                height: '6px',
+                                                borderRadius: '3px',
+                                                background: isDark ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0',
+                                                overflow: 'hidden'
+                                            }}>
+                                                <div style={{
+                                                    width: `${progressPercent}%`,
+                                                    height: '100%',
+                                                    borderRadius: '3px',
+                                                    background: progressPercent === 100
+                                                        ? 'linear-gradient(90deg, #10b981, #059669)'
+                                                        : 'linear-gradient(90deg, #3b82f6, #6366f1)',
+                                                    transition: 'width 0.5s ease'
+                                                }} />
+                                            </div>
+                                        </div>
+
+                                        {/* Timeline Points */}
+                                        <div style={{
+                                            position: 'relative',
+                                            paddingLeft: '20px',
+                                            borderLeft: `2px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0'}`,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '12px'
+                                        }}>
+                                            {/* 1. Launch Date */}
+                                            <div style={{ position: 'relative' }}>
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    left: '-26px',
+                                                    top: '2px',
+                                                    width: '12px',
+                                                    height: '12px',
+                                                    borderRadius: '50%',
+                                                    background: isLaunchDone ? '#10b981' : (isDark ? '#1e293b' : '#ffffff'),
+                                                    border: `2px solid ${isLaunchDone ? '#10b981' : '#94a3b8'}`,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    boxShadow: isLaunchDone ? '0 0 6px rgba(16, 185, 129, 0.4)' : 'none'
+                                                }}>
+                                                    {isLaunchDone && <i className="fas fa-check" style={{ fontSize: '0.45rem', color: '#ffffff' }}></i>}
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                                    <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                                        Project Launch
+                                                    </span>
+                                                    <span style={{
+                                                        fontSize: '0.62rem',
+                                                        fontWeight: 700,
+                                                        color: isLaunchDone ? '#10b981' : 'var(--text-muted)'
+                                                    }}>
+                                                        {isLaunchDone ? (launch && now >= launch ? getDiffLabel(launch, true) : 'Active') : 'Upcoming'}
+                                                    </span>
+                                                </div>
+                                                <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', display: 'block' }}>
+                                                    {formatDateStr(launch)}
+                                                </span>
+                                            </div>
+
+                                            {/* 2. Expected Completion */}
+                                            <div style={{ position: 'relative' }}>
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    left: '-26px',
+                                                    top: '2px',
+                                                    width: '12px',
+                                                    height: '12px',
+                                                    borderRadius: '50%',
+                                                    background: isCompletionDone ? '#10b981' : (isLaunchDone ? '#3b82f6' : (isDark ? '#1e293b' : '#ffffff')),
+                                                    border: `2px solid ${isCompletionDone ? '#10b981' : (isLaunchDone ? '#3b82f6' : '#94a3b8')}`,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    boxShadow: !isCompletionDone && isLaunchDone ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none'
+                                                }}>
+                                                    {isCompletionDone && <i className="fas fa-check" style={{ fontSize: '0.45rem', color: '#ffffff' }}></i>}
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                                    <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                                        Expected Completion
+                                                    </span>
+                                                    <span style={{
+                                                        fontSize: '0.62rem',
+                                                        fontWeight: 700,
+                                                        color: isCompletionDone ? '#10b981' : '#3b82f6'
+                                                    }}>
+                                                        {isCompletionDone ? 'Completed' : (completion ? getDiffLabel(completion, false) : 'In Progress')}
+                                                    </span>
+                                                </div>
+                                                <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', display: 'block' }}>
+                                                    {formatDateStr(completion)}
+                                                </span>
+                                            </div>
+
+                                            {/* 3. Possession Handover */}
+                                            <div style={{ position: 'relative' }}>
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    left: '-26px',
+                                                    top: '2px',
+                                                    width: '12px',
+                                                    height: '12px',
+                                                    borderRadius: '50%',
+                                                    background: isPossessionDone ? '#10b981' : (isDark ? '#1e293b' : '#ffffff'),
+                                                    border: `2px solid ${isPossessionDone ? '#10b981' : '#94a3b8'}`,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}>
+                                                    {isPossessionDone && <i className="fas fa-check" style={{ fontSize: '0.45rem', color: '#ffffff' }}></i>}
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                                    <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                                        Possession Handover
+                                                    </span>
+                                                    <span style={{
+                                                        fontSize: '0.62rem',
+                                                        fontWeight: 700,
+                                                        color: isPossessionDone ? '#10b981' : '#8b5cf6'
+                                                    }}>
+                                                        {isPossessionDone ? 'Handed Over' : (possession ? getDiffLabel(possession, false) : 'Target')}
+                                                    </span>
+                                                </div>
+                                                <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', display: 'block' }}>
+                                                    {formatDateStr(possession)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     </div>
 

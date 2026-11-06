@@ -76,7 +76,7 @@ class GoogleBusinessService {
                 summary: text,
                 callToAction: {
                     actionType: 'LEARN_MORE',
-                    url: process.env.FRONTEND_URL || 'https://bharatproperties.in'
+                    url: process.env.FRONTEND_URL || 'https://www.bharatproperties.co'
                 }
             };
 

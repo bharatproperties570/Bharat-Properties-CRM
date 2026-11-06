@@ -8,7 +8,7 @@ import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { numberToIndianWords } from '../utils/numberToWords';
-import { api, systemSettingsAPI } from '../utils/api';
+import { api, systemSettingsAPI, marketingAPI, socialAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 import whatsappService from '../services/whatsappService';
 import { findMatchedSize, resolveUnitDimensionsAndSize, extractAreaFromLabel, formatDimension, getMetricAbbreviation } from '../utils/sizeDimensionUtils';
@@ -42,6 +42,19 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     const [isLoadingUnits, setIsLoadingUnits] = useState(false);
     const [availableOwners, setAvailableOwners] = useState([]);
     const [availableAssociates, setAvailableAssociates] = useState([]);
+    const [brokerGroups, setBrokerGroups] = useState([]);
+    const [contactGroups, setContactGroups] = useState([]);
+
+    useEffect(() => {
+        if (isOpen) {
+            api.get('/company-groups', { _silentError: true })
+                .then(res => setBrokerGroups(res.data?.data || []))
+                .catch(() => setBrokerGroups([]));
+            api.get('/contact-groups', { _silentError: true })
+                .then(res => setContactGroups(res.data?.data || []))
+                .catch(() => setContactGroups([]));
+        }
+    }, [isOpen]);
 
     const [formData, setFormData] = useState({
         projectName: '',
@@ -113,6 +126,48 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             whatsapp: false,
             linkedin: false,
             x: false
+        },
+
+        // Auto-Promote Studio Configuration (Social & Portals)
+        autoPromote: {
+            enabled: false,
+            social: {
+                facebook: false,
+                instagram: false,
+                linkedin: false,
+                twitter: false,
+                youtube: false,
+                google_business: false
+            },
+            portals: {
+                '99acres': true,
+                'magicbricks': true,
+                'housing': true,
+                'commonfloor': false,
+                'makaan': false,
+                'olx': false,
+                'quikr': false,
+                'proptiger': false,
+                'sulekha': false,
+                'propertyguide': false,
+                'squareyards': false
+            },
+            privacy: {
+                hideUnitNo: true,
+                hideLocation: false,
+                priceOnRequest: false
+            }
+        },
+
+        // Auto-Broadcast Engine Configuration (Broker Network & WhatsApp)
+        autoBroadcast: {
+            enabled: false,
+            groupIds: [],
+            contactGroupIds: [],
+            channels: { whatsapp: true, sms: false, rcs: false, email: false },
+            isScheduled: false,
+            scheduledTime: '',
+            skipRecentDuplicates: true
         },
 
         // Website Integration Settings
@@ -1292,6 +1347,73 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 }
                 if (formData.associatedContact.phone) {
                     evaluateAndEnroll({ ...formData.associatedContact, mobile: formData.associatedContact.phone }, 'contacts');
+                }
+            }
+
+            // 🚀 Enterprise Auto-Promote Dispatch
+            if (formData.autoPromote?.enabled && savedData?._id) {
+                try {
+                    const activePortals = Object.entries(formData.autoPromote.portals || {})
+                        .filter(([_, v]) => v)
+                        .map(([k]) => k);
+                    
+                    const activeSocial = Object.entries(formData.autoPromote.social || {})
+                        .filter(([_, v]) => v)
+                        .map(([k]) => k);
+
+                    if (activePortals.length > 0 || activeSocial.length > 0) {
+                        const platformsObj = {};
+                        activePortals.forEach(p => platformsObj[p] = true);
+                        activeSocial.forEach(s => platformsObj[s] = true);
+
+                        marketingAPI.broadcastToHub({
+                            id: savedData._id,
+                            type: 'deal',
+                            platforms: platformsObj,
+                            privacy: formData.autoPromote.privacy
+                        }).then(hubRes => {
+                            if (hubRes?.success) {
+                                toast.success(`🚀 Auto-Promote Studio: syndicated listing across ${activePortals.length} portals & ${activeSocial.length} social channels!`);
+                            }
+                        }).catch(e => console.warn('[AddDealModal] Auto-promote hub warning:', e));
+                    }
+                } catch (promoteErr) {
+                    console.warn('[AddDealModal] Auto-promote dispatch warning:', promoteErr);
+                }
+            }
+
+            // 🚀 Enterprise Auto-Broadcast Dispatch
+            if (formData.autoBroadcast?.enabled && savedData?._id) {
+                try {
+                    const { groupIds = [], contactGroupIds = [], channels = {}, isScheduled, scheduledTime, skipRecentDuplicates } = formData.autoBroadcast;
+                    const selectedChannels = Object.entries(channels).filter(([_, v]) => v).map(([k]) => k);
+
+                    if ((groupIds.length > 0 || contactGroupIds.length > 0) && selectedChannels.length > 0) {
+                        const broadcastPayload = {
+                            dealId: savedData._id,
+                            dealIds: [savedData._id],
+                            entityType: 'deal',
+                            groupIds,
+                            contactGroupIds,
+                            channels: selectedChannels,
+                            scheduledTime: isScheduled && scheduledTime ? new Date(scheduledTime).toISOString() : undefined,
+                            forceBroadcast: !skipRecentDuplicates,
+                            deduplicationWindowHours: 4
+                        };
+                        api.post('/marketing/broadcast/bna', broadcastPayload)
+                            .then(bRes => {
+                                if (bRes.data?.success) {
+                                    if (bRes.data.scheduled) {
+                                        toast.success(`📅 Auto-Broadcast scheduled for ${new Date(bRes.data.scheduledTime || scheduledTime).toLocaleString()}!`);
+                                    } else {
+                                        toast.success(`🚀 Auto-Broadcast dispatched to ${bRes.data.dispatchCount || 'broker & contact'} audience!`);
+                                    }
+                                }
+                            })
+                            .catch(e => console.warn('[AddDealModal] Auto-broadcast dispatch warning:', e));
+                    }
+                } catch (bcastErr) {
+                    console.warn('[AddDealModal] Auto-broadcast dispatch warning:', bcastErr);
                 }
             }
 
@@ -2868,131 +2990,503 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
         </div>
     );
 
-    // Sub-renderer: Omnichannel Marketing Section
-    const renderMarketingSection = () => (
-        <div style={ent.card}>
-            <div style={ent.sectionHeader('#f59e0b')}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={ent.iconBadge('#f59e0b')}>
-                        <i className="fas fa-rocket"></i>
-                    </div>
-                    <div>
-                        <h4 style={ent.sectionTitle}>Omnichannel Marketing Command Center</h4>
-                        <p style={ent.sectionSubtitle}>Auto-syndicate listing across web portals, social feeds, and AI copywriter</p>
-                    </div>
-                </div>
-            </div>
+    // Sub-renderer: Comprehensive Enterprise Marketing OS Section (Promote Studio & Broadcast Engine)
+    const renderMarketingSection = () => {
+        const portalList = [
+            { id: '99acres', name: '99acres.com', color: '#005CA8' },
+            { id: 'magicbricks', name: 'MagicBricks', color: '#D8232A' },
+            { id: 'housing', name: 'Housing.com', color: '#00B1A7' },
+            { id: 'commonfloor', name: 'CommonFloor', color: '#0072BC' },
+            { id: 'makaan', name: 'Makaan', color: '#F37023' },
+            { id: 'olx', name: 'OLX India', color: '#002F34' },
+            { id: 'quikr', name: 'Quikr Homes', color: '#0084FF' },
+            { id: 'proptiger', name: 'PropTiger', color: '#F85A40' },
+            { id: 'sulekha', name: 'Sulekha Properties', color: '#E41B23' },
+            { id: 'propertyguide', name: 'PropertyGuide', color: '#1B5E20' },
+            { id: 'squareyards', name: 'SquareYards', color: '#6A1B9A' }
+        ];
 
-            <label style={ent.label}>Syndicate & Publish On</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '10px', marginBottom: '18px' }}>
-                {[
-                    { id: 'website', icon: 'fas fa-globe', label: 'Website', color: '#2563eb' },
-                    { id: 'facebook', icon: 'fab fa-facebook', label: 'Facebook', color: '#1877f2' },
-                    { id: 'instagram', icon: 'fab fa-instagram', label: 'Instagram', color: '#e4405f' },
-                    { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
-                    { id: 'linkedin', icon: 'fab fa-linkedin', label: 'LinkedIn', color: '#0077b5' },
-                    { id: 'x', icon: 'fab fa-twitter', label: 'X', color: '#0f172a' }
-                ].map(platform => {
-                    const active = formData.publishOn[platform.id];
-                    return (
+        const socialList = [
+            { id: 'facebook', name: 'Facebook', icon: 'fab fa-facebook', color: '#1877f2' },
+            { id: 'instagram', name: 'Instagram', icon: 'fab fa-instagram', color: '#e4405f' },
+            { id: 'linkedin', name: 'LinkedIn', icon: 'fab fa-linkedin', color: '#0077b5' },
+            { id: 'twitter', name: 'Twitter / X', icon: 'fab fa-x-twitter', color: '#0f172a' },
+            { id: 'youtube', name: 'YouTube', icon: 'fab fa-youtube', color: '#ff0000' },
+            { id: 'google_business', name: 'Google Business', icon: 'fab fa-google', color: '#4285f4' }
+        ];
+
+        const autoPromote = formData.autoPromote || {};
+        const autoBroadcast = formData.autoBroadcast || {};
+
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                {/* ── CARD 1: AUTO-PROMOTE STUDIO (Social Media & 11 Property Portals) ── */}
+                <div style={{
+                    ...ent.card,
+                    border: autoPromote.enabled ? '1.5px solid #6366f1' : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'),
+                    boxShadow: autoPromote.enabled ? '0 4px 20px rgba(99, 102, 241, 0.12)' : 'none',
+                    transition: 'all 0.2s ease'
+                }}>
+                    <div style={ent.sectionHeader('#6366f1')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={ent.iconBadge('#6366f1')}>
+                                <i className="fas fa-bullhorn"></i>
+                            </div>
+                            <div>
+                                <h4 style={ent.sectionTitle}>Auto-Promote Studio (Social & 11 Portals)</h4>
+                                <p style={ent.sectionSubtitle}>Simultaneously syndicate this deal across social networks and top Indian property portals with Anti-Poaching Guard</p>
+                            </div>
+                        </div>
+
+                        {/* Master Enable Toggle */}
+                        <label style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            background: autoPromote.enabled ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'),
+                            color: autoPromote.enabled ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            userSelect: 'none',
+                            transition: 'all 0.2s'
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(autoPromote.enabled)}
+                                onChange={(e) => handleNestedInputChange('autoPromote', 'enabled', e.target.checked)}
+                                style={{ accentColor: '#4f46e5', cursor: 'pointer' }}
+                            />
+                            <span>{autoPromote.enabled ? 'Promote Studio Active' : 'Enable Auto-Promote'}</span>
+                        </label>
+                    </div>
+
+                    {autoPromote.enabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
+                            {/* Section 1A: Target Social Platforms */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <label style={{ ...ent.label, margin: 0 }}>Social Media Channels</label>
+                                    <span style={{ fontSize: '0.68rem', color: '#6366f1', fontWeight: 700 }}>
+                                        {Object.values(autoPromote.social || {}).filter(Boolean).length} Selected
+                                    </span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
+                                    {socialList.map(s => {
+                                        const active = autoPromote.social?.[s.id];
+                                        return (
+                                            <button
+                                                key={s.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    const next = { ...(autoPromote.social || {}), [s.id]: !active };
+                                                    handleNestedInputChange('autoPromote', 'social', next);
+                                                }}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                                                    padding: '9px 8px', borderRadius: '10px',
+                                                    border: `1.5px solid ${active ? s.color : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                                    background: active ? (isDark ? `${s.color}25` : `${s.color}15`) : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                                                    color: active ? (isDark ? '#ffffff' : s.color) : (isDark ? '#94a3b8' : '#64748b'),
+                                                    fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer'
+                                                }}
+                                            >
+                                                <i className={s.icon} style={{ color: active ? s.color : 'inherit', fontSize: '13px' }}></i>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Section 1B: 11 Real Estate Portals */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <label style={{ ...ent.label, margin: 0 }}>11 Indian Real Estate Portals</label>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const allTrue = {};
+                                                portalList.forEach(p => allTrue[p.id] = true);
+                                                handleNestedInputChange('autoPromote', 'portals', allTrue);
+                                            }}
+                                            style={{
+                                                background: 'transparent', border: 'none', color: '#2563eb',
+                                                fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer'
+                                            }}
+                                        >
+                                            Select All 11
+                                        </button>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>•</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const allFalse = {};
+                                                portalList.forEach(p => allFalse[p.id] = false);
+                                                handleNestedInputChange('autoPromote', 'portals', allFalse);
+                                            }}
+                                            style={{
+                                                background: 'transparent', border: 'none', color: isDark ? '#94a3b8' : '#64748b',
+                                                fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer'
+                                            }}
+                                        >
+                                            Clear All
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                                    {portalList.map(p => {
+                                        const active = autoPromote.portals?.[p.id];
+                                        return (
+                                            <div
+                                                key={p.id}
+                                                onClick={() => {
+                                                    const next = { ...(autoPromote.portals || {}), [p.id]: !active };
+                                                    handleNestedInputChange('autoPromote', 'portals', next);
+                                                }}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                    padding: '8px 10px', borderRadius: '8px',
+                                                    border: `1.5px solid ${active ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.06)' : '#e2e8f0')}`,
+                                                    background: active ? (isDark ? 'rgba(79, 70, 229, 0.15)' : '#eef2ff') : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                                                    cursor: 'pointer', userSelect: 'none'
+                                                }}
+                                            >
+                                                <span style={{ fontSize: '0.76rem', fontWeight: 700, color: active ? (isDark ? '#f8fafc' : '#4f46e5') : (isDark ? '#94a3b8' : '#64748b') }}>
+                                                    {p.name}
+                                                </span>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(active)}
+                                                    readOnly
+                                                    style={{ accentColor: '#4f46e5', cursor: 'pointer' }}
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Section 1C: Anti-Poaching Privacy Guard */}
+                            <div style={{
+                                background: isDark ? 'rgba(79, 70, 229, 0.08)' : 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)',
+                                border: isDark ? '1px solid rgba(99, 102, 241, 0.25)' : '1px solid #c7d2fe',
+                                borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-shield-alt text-indigo-500" style={{ fontSize: '15px' }}></i>
+                                        <div>
+                                            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                                Anti-Poaching Privacy Guard
+                                            </span>
+                                            <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                Protects broker commission by masking direct unit details and location on public feeds
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: '0.62rem', fontWeight: 800, background: '#10b981', color: '#fff', padding: '2px 8px', borderRadius: '10px' }}>
+                                        SHIELD ACTIVE
+                                    </span>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                    {/* Toggle 1: Mask Unit # */}
+                                    <div
+                                        onClick={() => {
+                                            const prev = autoPromote.privacy || {};
+                                            handleNestedInputChange('autoPromote', 'privacy', { ...prev, hideUnitNo: !prev.hideUnitNo });
+                                        }}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '8px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${autoPromote.privacy?.hideUnitNo ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Mask Unit #</span>
+                                            <input type="checkbox" checked={Boolean(autoPromote.privacy?.hideUnitNo)} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {autoPromote.privacy?.hideUnitNo ? 'Shows [CONFIDENTIAL]' : 'Shows Exact Unit'}
+                                        </span>
+                                    </div>
+
+                                    {/* Toggle 2: Hide Exact Pin */}
+                                    <div
+                                        onClick={() => {
+                                            const prev = autoPromote.privacy || {};
+                                            handleNestedInputChange('autoPromote', 'privacy', { ...prev, hideLocation: !prev.hideLocation });
+                                        }}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '8px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${autoPromote.privacy?.hideLocation ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Hide Exact Pin</span>
+                                            <input type="checkbox" checked={Boolean(autoPromote.privacy?.hideLocation)} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {autoPromote.privacy?.hideLocation ? 'Shows Sector/City' : 'Shows Street Address'}
+                                        </span>
+                                    </div>
+
+                                    {/* Toggle 3: Price on Request */}
+                                    <div
+                                        onClick={() => {
+                                            const prev = autoPromote.privacy || {};
+                                            handleNestedInputChange('autoPromote', 'privacy', { ...prev, priceOnRequest: !prev.priceOnRequest });
+                                        }}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '8px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${autoPromote.privacy?.priceOnRequest ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Price on Request</span>
+                                            <input type="checkbox" checked={Boolean(autoPromote.privacy?.priceOnRequest)} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {autoPromote.privacy?.priceOnRequest ? 'Conceals Numeric Price' : 'Displays Listed Price'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* ── CARD 2: AUTO-BROADCAST ENGINE (Broker Network & WhatsApp) ── */}
+                <div style={{
+                    ...ent.card,
+                    border: autoBroadcast.enabled ? '1.5px solid #059669' : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'),
+                    boxShadow: autoBroadcast.enabled ? '0 4px 20px rgba(5, 150, 105, 0.12)' : 'none',
+                    transition: 'all 0.2s ease'
+                }}>
+                    <div style={ent.sectionHeader('#059669')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={ent.iconBadge('#059669')}>
+                                <i className="fab fa-whatsapp"></i>
+                            </div>
+                            <div>
+                                <h4 style={ent.sectionTitle}>Auto-Broadcast Engine (Broker Network & WhatsApp)</h4>
+                                <p style={ent.sectionSubtitle}>Broadcast this deal immediately or on schedule to verified broker groups and contact circles upon saving</p>
+                            </div>
+                        </div>
+
+                        {/* Master Enable Toggle */}
+                        <label style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            background: autoBroadcast.enabled ? '#059669' : (isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'),
+                            color: autoBroadcast.enabled ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            userSelect: 'none',
+                            transition: 'all 0.2s'
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(autoBroadcast.enabled)}
+                                onChange={(e) => handleNestedInputChange('autoBroadcast', 'enabled', e.target.checked)}
+                                style={{ accentColor: '#059669', cursor: 'pointer' }}
+                            />
+                            <span>{autoBroadcast.enabled ? 'Broadcast Active' : 'Enable Auto-Broadcast'}</span>
+                        </label>
+                    </div>
+
+                    {autoBroadcast.enabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
+                            {/* Section 2A: Target Broker Groups */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <label style={{ ...ent.label, margin: 0 }}>Target Broker Groups</label>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const allIds = brokerGroups.map(g => g._id || g.id).filter(Boolean);
+                                                handleNestedInputChange('autoBroadcast', 'groupIds', allIds);
+                                            }}
+                                            style={{ background: 'transparent', border: 'none', color: '#059669', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer' }}
+                                        >
+                                            Select All ({brokerGroups.length})
+                                        </button>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>•</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleNestedInputChange('autoBroadcast', 'groupIds', [])}
+                                            style={{ background: 'transparent', border: 'none', color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                                {brokerGroups.length > 0 ? (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                        {brokerGroups.map(bg => {
+                                            const bgId = bg._id || bg.id;
+                                            const isSelected = (autoBroadcast.groupIds || []).includes(bgId);
+                                            return (
+                                                <button
+                                                    key={bgId}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const current = autoBroadcast.groupIds || [];
+                                                        const next = isSelected ? current.filter(id => id !== bgId) : [...current, bgId];
+                                                        handleNestedInputChange('autoBroadcast', 'groupIds', next);
+                                                    }}
+                                                    style={{
+                                                        padding: '6px 12px', borderRadius: '8px',
+                                                        border: `1.5px solid ${isSelected ? '#059669' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                                        background: isSelected ? (isDark ? 'rgba(5, 150, 105, 0.2)' : '#ecfdf5') : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                                                        color: isSelected ? (isDark ? '#34d399' : '#059669') : (isDark ? '#94a3b8' : '#64748b'),
+                                                        fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                                                        display: 'inline-flex', alignItems: 'center', gap: '6px'
+                                                    }}
+                                                >
+                                                    <i className={`fas ${isSelected ? 'fa-check-circle' : 'fa-users'}`}></i>
+                                                    <span>{bg.name || bg.title}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                        No broker groups created yet. Broadcast will reach all registered channel partners.
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Section 2B: Channels & Delivery Medium */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                <div>
+                                    <label style={ent.label}>Delivery Channels</label>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        {[
+                                            { id: 'whatsapp', label: 'WhatsApp', icon: 'fab fa-whatsapp', color: '#25d366' },
+                                            { id: 'sms', label: 'SMS (DLT)', icon: 'fas fa-comment-dots', color: '#3b82f6' },
+                                            { id: 'rcs', label: 'RCS Card', icon: 'fas fa-id-card', color: '#8b5cf6' },
+                                            { id: 'email', label: 'Email', icon: 'fas fa-envelope', color: '#ea4335' }
+                                        ].map(ch => {
+                                            const active = autoBroadcast.channels?.[ch.id];
+                                            return (
+                                                <button
+                                                    key={ch.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const next = { ...(autoBroadcast.channels || {}), [ch.id]: !active };
+                                                        handleNestedInputChange('autoBroadcast', 'channels', next);
+                                                    }}
+                                                    style={{
+                                                        flex: 1, padding: '8px 6px', borderRadius: '8px',
+                                                        border: `1.5px solid ${active ? ch.color : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                                        background: active ? (isDark ? `${ch.color}25` : `${ch.color}15`) : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                                                        color: active ? (isDark ? '#ffffff' : ch.color) : (isDark ? '#94a3b8' : '#64748b'),
+                                                        fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px'
+                                                    }}
+                                                >
+                                                    <i className={ch.icon}></i>
+                                                    <span>{ch.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Section 2C: Broadcast Scheduling & Anti-Duplicate */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <label style={ent.label}>Schedule & Duplication Controls</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <label style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                                            fontSize: '0.74rem', fontWeight: 700, color: isDark ? '#cbd5e1' : '#334155'
+                                        }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(autoBroadcast.isScheduled)}
+                                                onChange={(e) => handleNestedInputChange('autoBroadcast', 'isScheduled', e.target.checked)}
+                                                style={{ accentColor: '#059669', cursor: 'pointer' }}
+                                            />
+                                            <span>Schedule for Later</span>
+                                        </label>
+
+                                        {autoBroadcast.isScheduled && (
+                                            <input
+                                                type="datetime-local"
+                                                value={autoBroadcast.scheduledTime || ''}
+                                                onChange={(e) => handleNestedInputChange('autoBroadcast', 'scheduledTime', e.target.value)}
+                                                style={{
+                                                    padding: '4px 8px', borderRadius: '6px',
+                                                    border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #cbd5e1',
+                                                    background: isDark ? '#1e293b' : '#ffffff',
+                                                    color: isDark ? '#f8fafc' : '#0f172a',
+                                                    fontSize: '0.74rem', fontWeight: 600, outline: 'none'
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* ── CARD 3: AI-ASSISTED LISTING DESCRIPTION & PUBLIC COPYWRITER ── */}
+                <div style={ent.card}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <div>
+                            <h4 style={ent.sectionTitle}><i className="fas fa-globe text-blue-500" style={{ marginRight: '6px' }}></i> Public Website & Social Listing Narrative</h4>
+                            <p style={ent.sectionSubtitle}>High-converting marketing copy generated from unit dimensions, price and location</p>
+                        </div>
                         <button
-                            key={platform.id}
                             type="button"
-                            onClick={() => handleNestedInputChange('publishOn', platform.id, !active)}
+                            onClick={handleGenerateAiDescription}
+                            disabled={isGeneratingAi}
                             style={{
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 8px',
-                                borderRadius: '10px',
-                                border: `1.5px solid ${active ? platform.color : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
-                                background: active ? (isDark ? `${platform.color}25` : `${platform.color}12`) : (isDark ? 'rgba(255,255,255,0.03)' : '#ffffff'),
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 14px', borderRadius: '8px',
+                                border: '1px solid #c7d2fe',
+                                background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
+                                color: '#4f46e5', fontSize: '0.76rem', fontWeight: 800,
                                 cursor: 'pointer', transition: 'all 0.15s ease',
-                                color: active ? (isDark ? '#ffffff' : platform.color) : (isDark ? '#94a3b8' : '#64748b'),
-                                fontSize: '0.8rem', fontWeight: 700
+                                opacity: isGeneratingAi ? 0.7 : 1
                             }}
                         >
-                            <i className={platform.icon} style={{ color: active ? platform.color : 'inherit' }}></i>
-                            <span>{platform.label}</span>
+                            <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
+                            <span>{isGeneratingAi ? "Drafting Listing..." : "Generate with AI"}</span>
                         </button>
-                    );
-                })}
-            </div>
-
-            {/* Website Privacy Settings */}
-            {formData.publishOn.website && (
-                <div style={{
-                    marginBottom: '18px', padding: '14px 16px', borderRadius: '12px',
-                    background: isDark ? 'rgba(37,99,235,0.08)' : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                    border: isDark ? '1px solid rgba(37,99,235,0.2)' : '1px solid #e2e8f0'
-                }}>
-                    <h5 style={{ margin: '0 0 10px 0', fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#93c5fd' : '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Public Website Privacy Controls
-                    </h5>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
-                            <input
-                                type="checkbox"
-                                checked={formData.websiteMetadata?.shareUnitNumber !== false}
-                                onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareUnitNumber', e.target.checked)}
-                                style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
-                            />
-                            <span>Display Exact Unit Number on Website</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
-                            <input
-                                type="checkbox"
-                                checked={formData.websiteMetadata?.shareLocation !== false}
-                                onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareLocation', e.target.checked)}
-                                style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
-                            />
-                            <span>Display Interactive Map Location on Website</span>
-                        </label>
                     </div>
-                </div>
-            )}
-
-            {/* AI-Assisted Website Listing Description */}
-            <div style={{
-                borderRadius: '12px', padding: '16px',
-                background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
-                border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #cbd5e1',
-                position: 'relative'
-            }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <label style={{ ...ent.label, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <i className="fas fa-globe text-blue-500"></i> Public Website Listing Description
-                    </label>
-                    <button
-                        type="button"
-                        onClick={handleGenerateAiDescription}
-                        disabled={isGeneratingAi}
+                    <textarea
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            padding: '6px 12px', borderRadius: '8px',
-                            border: '1px solid #c7d2fe',
-                            background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
-                            color: '#4f46e5', fontSize: '0.74rem', fontWeight: 800,
-                            cursor: 'pointer', transition: 'all 0.15s ease',
-                            opacity: isGeneratingAi ? 0.7 : 1
+                            ...ent.input,
+                            minHeight: '110px',
+                            resize: 'vertical',
+                            lineHeight: '1.5',
+                            height: 'auto'
                         }}
-                    >
-                        <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
-                        <span>{isGeneratingAi ? "Drafting Listing..." : "Generate with AI"}</span>
-                    </button>
+                        value={formData.description}
+                        onChange={e => handleInputChange('description', e.target.value)}
+                        placeholder="Draft an engaging, high-converting property overview for the public website and social channels. (Tip: Click 'Generate with AI' to draft automatically!)"
+                    />
                 </div>
-                <textarea
-                    style={{
-                        ...ent.input,
-                        minHeight: '120px',
-                        resize: 'vertical',
-                        lineHeight: '1.5',
-                        height: 'auto'
-                    }}
-                    value={formData.description}
-                    onChange={e => handleInputChange('description', e.target.value)}
-                    placeholder="Draft an engaging, high-converting property overview for the public website. (Tip: Click 'Generate with AI' to generate automatically using selected unit attributes!)"
-                />
             </div>
-        </div>
-    );
+        );
+    };
 
     // Sub-renderer: System Assignment & Notes Section
     const renderAssignmentSection = () => (
@@ -3258,12 +3752,12 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         <>
                             {renderCommercialsSection()}
                             {renderTermsSection()}
+                            {renderAssignmentSection()}
                         </>
                     )}
                     {currentTab === 'marketing' && (
                         <>
                             {renderMarketingSection()}
-                            {renderAssignmentSection()}
                         </>
                     )}
                     {currentTab === 'all' && (
@@ -3271,8 +3765,8 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             {renderPropertySection()}
                             {renderCommercialsSection()}
                             {renderTermsSection()}
-                            {renderMarketingSection()}
                             {renderAssignmentSection()}
+                            {renderMarketingSection()}
                         </div>
                     )}
                 </div>

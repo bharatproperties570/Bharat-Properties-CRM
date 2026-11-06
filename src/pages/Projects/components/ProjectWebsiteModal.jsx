@@ -33,7 +33,7 @@ const ProjectWebsiteModal = ({ isOpen, onClose, project, onUpdateSuccess }) => {
     if (!isOpen || !project) return null;
 
     const isPublished = Boolean(project.isPublished);
-    const publicUrl = `https://bharatproperties.com/projects/${slug}`;
+    const publicUrl = `https://www.bharatproperties.co/project/${slug || project._id}`;
 
     const handleCopyUrl = async () => {
         try {
@@ -42,6 +42,10 @@ const ProjectWebsiteModal = ({ isOpen, onClose, project, onUpdateSuccess }) => {
         } catch {
             toast.error('Could not copy URL to clipboard');
         }
+    };
+
+    const handleOpenLiveWebsite = () => {
+        window.open(publicUrl, '_blank', 'noopener,noreferrer');
     };
 
     const handlePublish = async () => {
@@ -297,7 +301,7 @@ const ProjectWebsiteModal = ({ isOpen, onClose, project, onUpdateSuccess }) => {
                                 borderRight: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0'}`,
                                 userSelect: 'none'
                             }}>
-                                /projects/
+                                https://www.bharatproperties.co/project/
                             </span>
                             <input
                                 type="text"
@@ -331,13 +335,40 @@ const ProjectWebsiteModal = ({ isOpen, onClose, project, onUpdateSuccess }) => {
                                 <i className="fas fa-copy"></i>
                             </button>
                         </div>
-                        <p style={{
-                            fontSize: '0.72rem',
-                            color: isDark ? '#64748b' : '#94a3b8',
-                            margin: '4px 0 0 2px'
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginTop: '6px'
                         }}>
-                            Full URL: <code style={{ color: '#3b82f6' }}>{publicUrl}</code>
-                        </p>
+                            <p style={{
+                                fontSize: '0.72rem',
+                                color: isDark ? '#64748b' : '#94a3b8',
+                                margin: 0
+                            }}>
+                                Full URL: <code style={{ color: '#2563eb', fontWeight: 700 }}>{publicUrl}</code>
+                            </p>
+                            {isPublished && (
+                                <button
+                                    type="button"
+                                    onClick={handleOpenLiveWebsite}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#10b981',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}
+                                >
+                                    <span>Test Live Link</span>
+                                    <i className="fas fa-external-link-alt" style={{ fontSize: '0.65rem' }}></i>
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* Danger Zone: Unpublish Option (if already published) */}
@@ -448,6 +479,29 @@ const ProjectWebsiteModal = ({ isOpen, onClose, project, onUpdateSuccess }) => {
                     >
                         Close
                     </button>
+
+                    {isPublished && (
+                        <button
+                            type="button"
+                            onClick={handleOpenLiveWebsite}
+                            style={{
+                                padding: '9px 16px',
+                                borderRadius: '10px',
+                                fontSize: '0.82rem',
+                                fontWeight: 800,
+                                border: '1px solid #10b981',
+                                background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+                                color: '#10b981',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            <i className="fas fa-external-link-alt"></i>
+                            <span>View Live on Website</span>
+                        </button>
+                    )}
 
                     {!isPublished ? (
                         <button

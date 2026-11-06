@@ -215,7 +215,12 @@ const SocialPostModal = ({
         format: format,
         entityId: propertyId,
         entityType: entityType,
-        scheduledTime: isScheduled ? scheduledTime : null
+        scheduledTime: isScheduled ? scheduledTime : null,
+        privacy: {
+          hideUnitNo: privacy.hideUnitNo,
+          hideLocation: privacy.hideLocation,
+          priceOnRequest: privacy.priceOnRequest
+        }
       });
 
       if (res?.success) {
@@ -331,6 +336,31 @@ const SocialPostModal = ({
       return 'Price on Request';
     }
     return initialData?.price || 'Price on Request';
+  };
+
+  const handlePrivacyToggle = (key) => {
+    setPrivacy(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      const title = next.hideUnitNo 
+        ? (initialData?.name || initialData?.title || initialData?.unitNo || 'Exclusive Property').replace(/#?\d+[A-Za-z]*/g, '[CONFIDENTIAL]').trim() || 'Exclusive Property [CONFIDENTIAL]'
+        : (initialData?.name || initialData?.title || initialData?.unitNo || 'Exclusive Property');
+      
+      const rawLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
+        ? String(initialData.location).trim()
+        : (initialData?.locationSearch && !/^[0-9a-fA-F]{24}$/.test(String(initialData.locationSearch).trim()))
+          ? String(initialData.locationSearch).trim()
+          : 'Kurukshetra, Haryana';
+      
+      const cleanLoc = next.hideLocation
+        ? (rawLoc.split(',').length > 1 ? rawLoc.split(',').slice(-2).join(',').trim() : rawLoc)
+        : rawLoc;
+      
+      const price = next.priceOnRequest ? 'Price on Request' : (initialData?.price || 'Price on Request');
+      const pUpper = platform.toUpperCase();
+      const updatedDraft = `✨ ${title}\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\n${initialData?.description || 'Explore this premier property with Bharat Properties. Verified title and prime connectivity. Schedule a private site visit today!'}\n\n#BharatProperties #RealEstate #${pUpper} #Investment`;
+      setContent(updatedDraft);
+      return next;
+    });
   };
 
   const PORTALS_LIST = [
@@ -859,6 +889,99 @@ const SocialPostModal = ({
                                 </div>
                             </div>
 
+                            {/* Anti-Poaching Privacy Guard Matrix for Social Media Studio */}
+                            <div style={{
+                                background: isDark ? 'rgba(79, 70, 229, 0.08)' : 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)',
+                                border: isDark ? '1px solid rgba(99, 102, 241, 0.25)' : '1px solid #c7d2fe',
+                                borderRadius: '14px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{
+                                            width: '26px', height: '26px', borderRadius: '8px', 
+                                            background: '#4f46e5', color: '#fff',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                        }}>
+                                            <i className="fas fa-shield-alt" style={{ fontSize: '12px' }}></i>
+                                        </div>
+                                        <div>
+                                            <h4 style={{ margin: 0, fontSize: '0.84rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                                Social Anti-Poaching Privacy Guard
+                                            </h4>
+                                            <span style={{ fontSize: '0.64rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                Conceals exact unit, address and price on social feeds to safeguard your brokerage
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span style={{ 
+                                        fontSize: '0.62rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px',
+                                        background: '#10b981', color: '#ffffff', letterSpacing: '0.04em'
+                                    }}>
+                                        SHIELD ACTIVE
+                                    </span>
+                                </div>
+
+                                {/* 3 Toggles Matrix */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                    {/* Toggle 1: Mask Unit No */}
+                                    <div 
+                                        onClick={() => handlePrivacyToggle('hideUnitNo')}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '10px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${privacy.hideUnitNo ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: '3px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Mask Unit #</span>
+                                            <input type="checkbox" checked={privacy.hideUnitNo} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {privacy.hideUnitNo ? 'Shows [CONFIDENTIAL]' : 'Shows Exact Unit #'}
+                                        </span>
+                                    </div>
+
+                                    {/* Toggle 2: Hide Exact Pin */}
+                                    <div 
+                                        onClick={() => handlePrivacyToggle('hideLocation')}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '10px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${privacy.hideLocation ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: '3px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Hide Exact Pin</span>
+                                            <input type="checkbox" checked={privacy.hideLocation} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {privacy.hideLocation ? 'Shows Sector/City' : 'Shows Exact Address'}
+                                        </span>
+                                    </div>
+
+                                    {/* Toggle 3: Price on Request */}
+                                    <div 
+                                        onClick={() => handlePrivacyToggle('priceOnRequest')}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '10px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${privacy.priceOnRequest ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: '3px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Price on Request</span>
+                                            <input type="checkbox" checked={privacy.priceOnRequest} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {privacy.priceOnRequest ? 'Conceals Numeric Price' : 'Displays Listed Price'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Narrative Composition & AI Copywriter */}
                             <div style={{
                                 background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
@@ -1085,7 +1208,7 @@ const SocialPostModal = ({
                                     
                                     {/* Toggle 1: Mask Unit No */}
                                     <div 
-                                        onClick={() => setPrivacy(p => ({ ...p, hideUnitNo: !p.hideUnitNo }))}
+                                        onClick={() => handlePrivacyToggle('hideUnitNo')}
                                         style={{
                                             padding: '8px 10px', borderRadius: '10px',
                                             background: isDark ? '#1e293b' : '#ffffff',
@@ -1104,7 +1227,7 @@ const SocialPostModal = ({
 
                                     {/* Toggle 2: Hide Exact Pin */}
                                     <div 
-                                        onClick={() => setPrivacy(p => ({ ...p, hideLocation: !p.hideLocation }))}
+                                        onClick={() => handlePrivacyToggle('hideLocation')}
                                         style={{
                                             padding: '8px 10px', borderRadius: '10px',
                                             background: isDark ? '#1e293b' : '#ffffff',
@@ -1123,7 +1246,7 @@ const SocialPostModal = ({
 
                                     {/* Toggle 3: Price on Request */}
                                     <div 
-                                        onClick={() => setPrivacy(p => ({ ...p, priceOnRequest: !p.priceOnRequest }))}
+                                        onClick={() => handlePrivacyToggle('priceOnRequest')}
                                         style={{
                                             padding: '8px 10px', borderRadius: '10px',
                                             background: isDark ? '#1e293b' : '#ffffff',
@@ -1469,6 +1592,25 @@ const SocialPostModal = ({
                                             <div style={{ fontSize: '0.74rem', color: isDark ? '#f8fafc' : '#0f172a', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
                                                 <strong style={{ marginRight: '4px' }}>bharat_properties</strong>
                                                 {content || 'Establishing narrative structure...'}
+                                            </div>
+
+                                            {/* Masking Status Badges in Social Feed Post Preview */}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+                                                {privacy.hideUnitNo && (
+                                                    <span style={{ fontSize: '0.58rem', background: isDark ? 'rgba(59,130,246,0.2)' : '#eff6ff', color: '#2563eb', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                                        🔒 Unit Masked
+                                                    </span>
+                                                )}
+                                                {privacy.hideLocation && (
+                                                    <span style={{ fontSize: '0.58rem', background: isDark ? 'rgba(16,185,129,0.2)' : '#f0fdf4', color: '#10b981', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                                        📍 Micro-Market
+                                                    </span>
+                                                )}
+                                                {privacy.priceOnRequest && (
+                                                    <span style={{ fontSize: '0.58rem', background: isDark ? 'rgba(124,58,237,0.2)' : '#faf5ff', color: '#7c3aed', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                                        💰 Price on Request
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
