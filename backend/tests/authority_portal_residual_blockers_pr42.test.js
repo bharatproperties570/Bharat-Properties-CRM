@@ -6363,4 +6363,643 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(committedWm.lastCommittedFenceToken, 15);
         }
     });
+
+    await t.test('36. Request-Time MongoDB DDL Removal & Idempotency Index Verification (Finding 1)', async (t36) => {
+        const authorityCode = 'HSVP';
+        const approverRole = await Role.create({
+            name: `Approver Role DDL Test ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: { manageAuthoritySettings: true },
+            moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+        });
+        const approverUser = await User.create({
+            fullName: 'DDL Safety Tester',
+            email: `ddl-safety-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: approverRole._id,
+            department: 'inventory',
+            isActive: true
+        });
+
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        const auditLogDoc = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            userId: approverUser._id,
+            userName: 'Safety Admin',
+            description: 'Initial Canonical Policy Rotation',
+            status: 'success'
+        });
+
+        const policyDoc = await AuthorityCanonicalPolicy.create({
+            authorityCode,
+            policyReference: 'HSVP/RATE/01',
+            version: 1,
+            contentHash: 'hash-v1-initial',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            redisSyncStatus: 'PENDING_RECONCILIATION',
+            effectiveFrom: new Date(Date.now() - 3600000),
+            expiresAt: new Date(Date.now() + 86400000),
+            reviewedBy: new mongoose.Types.ObjectId(),
+            approvedBy: approverUser._id,
+            isActive: true,
+            isAudited: true,
+            auditStatus: 'AUDITED',
+            auditLogId: auditLogDoc._id
+        });
+        await AuditLog.updateOne({ _id: auditLogDoc._id }, { $set: { targetId: policyDoc._id } });
+
+        await t36.test('36.1: syncCanonicalPolicy fails closed with 500 IDEMPOTENCY_INDEX_UNAVAILABLE if unique index is missing, and never executes DDL', async () => {
+            let ensureCalled = 0;
+            let createIndexCalled = 0;
+            let createCollectionCalled = 0;
+
+            const origEnsure = AuditLog.ensureIdempotencyIndex;
+            const origIndexes = AuditLog.collection.indexes;
+            const origCreateIndex = AuditLog.collection.createIndex;
+            const origCreateCollection = mongoose.connection.db ? mongoose.connection.db.createCollection : null;
+
+            AuditLog.ensureIdempotencyIndex = async () => { ensureCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            AuditLog.collection.createIndex = async () => { createIndexCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            if (mongoose.connection.db) {
+                mongoose.connection.db.createCollection = async () => { createCollectionCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            }
+
+            // Return indexes without unique_audit_event_correlation
+            AuditLog.collection.indexes = async () => [
+                { v: 2, key: { _id: 1 }, name: '_id_' },
+                { v: 2, key: { correlationId: 1 }, name: 'correlationId_1' }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `ddl-missing-idx-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 500, 'Must return HTTP 500 when unique idempotency index is missing');
+                assert.equal(responseBody.code, 'IDEMPOTENCY_INDEX_UNAVAILABLE', 'Code must be IDEMPOTENCY_INDEX_UNAVAILABLE');
+                assert.equal(ensureCalled, 0, 'ensureIdempotencyIndex must NEVER be called from HTTP request path');
+                assert.equal(createIndexCalled, 0, 'createIndex must NEVER be called from HTTP request path');
+                assert.equal(createCollectionCalled, 0, 'createCollection must NEVER be called from HTTP request path');
+            } finally {
+                AuditLog.ensureIdempotencyIndex = origEnsure;
+                AuditLog.collection.indexes = origIndexes;
+                AuditLog.collection.createIndex = origCreateIndex;
+                if (mongoose.connection.db && origCreateCollection) {
+                    mongoose.connection.db.createCollection = origCreateCollection;
+                }
+            }
+        });
+
+        await t36.test('36.2: syncCanonicalPolicy fails closed with 500 IDEMPOTENCY_INDEX_UNAVAILABLE if index spec is invalid', async () => {
+            let ensureCalled = 0;
+            let createIndexCalled = 0;
+
+            const origEnsure = AuditLog.ensureIdempotencyIndex;
+            const origIndexes = AuditLog.collection.indexes;
+            const origCreateIndex = AuditLog.collection.createIndex;
+
+            AuditLog.ensureIdempotencyIndex = async () => { ensureCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            AuditLog.collection.createIndex = async () => { createIndexCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+
+            // Index exists by name, but unique is false
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: false
+                }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `ddl-invalid-spec-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 500, 'Must return HTTP 500 when index spec is invalid');
+                assert.equal(responseBody.code, 'IDEMPOTENCY_INDEX_UNAVAILABLE');
+                assert.match(responseBody.message, /specification invalid/i);
+                assert.equal(ensureCalled, 0, 'ensureIdempotencyIndex must NEVER be called on invalid spec');
+                assert.equal(createIndexCalled, 0, 'createIndex must NEVER be called on invalid spec');
+            } finally {
+                AuditLog.ensureIdempotencyIndex = origEnsure;
+                AuditLog.collection.indexes = origIndexes;
+                AuditLog.collection.createIndex = origCreateIndex;
+            }
+        });
+
+        await t36.test('36.3: Valid index passes verification and executes sync without running any DDL', async () => {
+            let ensureCalled = 0;
+            let createIndexCalled = 0;
+
+            const origEnsure = AuditLog.ensureIdempotencyIndex;
+            const origIndexes = AuditLog.collection.indexes;
+            const origCreateIndex = AuditLog.collection.createIndex;
+
+            AuditLog.ensureIdempotencyIndex = async () => { ensureCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            AuditLog.collection.createIndex = async () => { createIndexCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+
+            // Return fully valid index specification
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } }
+                }
+            ];
+
+            const mockQuota = {
+                async setCanonicalPolicy() { return { success: true }; },
+                async getCanonicalPolicy({ authoritative } = {}) {
+                    return {
+                        authorityCode,
+                        version: policyDoc.version,
+                        contentHash: policyDoc.contentHash
+                    };
+                }
+            };
+            setTestQuotaProvider(mockQuota);
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `valid-index-test-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 200, 'Must succeed with HTTP 200 when index is valid');
+                assert.equal(ensureCalled, 0, 'ensureIdempotencyIndex must NEVER be called');
+                assert.equal(createIndexCalled, 0, 'createIndex must NEVER be called');
+            } finally {
+                setTestQuotaProvider(null);
+                AuditLog.ensureIdempotencyIndex = origEnsure;
+                AuditLog.collection.indexes = origIndexes;
+                AuditLog.collection.createIndex = origCreateIndex;
+            }
+        });
+
+        await t36.test('36.4: Zero alteration or deletion of existing audit records during preflight and execution', async () => {
+            const existingAudit = await AuditLog.create({
+                eventType: 'canonical_policy_synced',
+                correlationId: `existing-preserve-${Date.now()}`,
+                targetType: 'authority_canonical_policy',
+                targetId: policyDoc._id,
+                userId: approverUser._id,
+                userName: 'Safety Admin',
+                description: 'Pre-existing audit record',
+                metadata: { authorityCode, testKey: 'originalValue' },
+                status: 'success'
+            });
+
+            const mockQuota = {
+                async setCanonicalPolicy() { return { success: true }; },
+                async getCanonicalPolicy({ authoritative } = {}) {
+                    return {
+                        authorityCode,
+                        version: policyDoc.version,
+                        contentHash: policyDoc.contentHash
+                    };
+                }
+            };
+            setTestQuotaProvider(mockQuota);
+
+            const origIndexes = AuditLog.collection.indexes;
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } }
+                }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `preserve-test-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+                assert.equal(statusCode, 200);
+
+                const fetched = await AuditLog.findById(existingAudit._id);
+                assert.ok(fetched, 'Existing audit record must still exist');
+                assert.equal(fetched.metadata?.testKey, 'originalValue', 'Existing audit metadata must not be altered');
+                assert.equal(fetched.status, 'success');
+            } finally {
+                setTestQuotaProvider(null);
+                AuditLog.collection.indexes = origIndexes;
+            }
+        });
+    });
+
+    await t.test('37. Strict Malformed Redis Policy Handling & Readiness Integration (Finding 2 & 3)', async (t37) => {
+        const authorityCode = 'HSVP';
+
+        // 37.1: Redis key absent (null returned by HGETALL) returns null in getCanonicalPolicy({ authoritative: true })
+        await t37.test('37.1: Redis key absent returns null in authoritative getCanonicalPolicy', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return null; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            const policy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            assert.equal(policy, null, 'Authoritative read of absent key must return null');
+        });
+
+        // 37.2: Empty hash ({} returned by HGETALL) returns null in getCanonicalPolicy({ authoritative: true })
+        await t37.test('37.2: Empty hash returns null in authoritative getCanonicalPolicy', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return {}; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            const policy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            assert.equal(policy, null, 'Authoritative read of empty hash must return null');
+        });
+
+        // 37.3: Non-empty hash missing version throws MALFORMED_REDIS_POLICY
+        await t37.test('37.3: Non-empty hash missing version throws MALFORMED_REDIS_POLICY', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return { contentHash: 'abc12345', ref: 'HSVP/RATE/01' }; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => {
+                    assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                    assert.match(err.message, /missing or invalid version/i);
+                    return true;
+                }
+            );
+        });
+
+        // 37.4: Non-empty hash with empty string version throws MALFORMED_REDIS_POLICY
+        await t37.test('37.4: Non-empty hash with empty string version throws MALFORMED_REDIS_POLICY', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return { version: '', contentHash: 'abc12345' }; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => {
+                    assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                    assert.match(err.message, /missing or invalid version/i);
+                    return true;
+                }
+            );
+        });
+
+        // 37.5: Non-empty hash with invalid version throws MALFORMED_REDIS_POLICY
+        await t37.test('37.5: Non-empty hash with invalid version (non-numeric, <= 0, float) throws MALFORMED_REDIS_POLICY', async () => {
+            const invalidVersions = ['not-a-number', '-2', '0', '1.5', 'true'];
+            for (const invVer of invalidVersions) {
+                const mockClient = {
+                    status: 'ready',
+                    async ping() { return 'PONG'; },
+                    async hgetall(key) { return { version: invVer, contentHash: 'abc12345' }; }
+                };
+                const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+                await assert.rejects(
+                    async () => {
+                        await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                    },
+                    (err) => {
+                        assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                        return true;
+                    },
+                    `Version '${invVer}' must throw MALFORMED_REDIS_POLICY`
+                );
+            }
+        });
+
+        // 37.6: Non-empty hash missing contentHash throws MALFORMED_REDIS_POLICY
+        await t37.test('37.6: Non-empty hash missing contentHash throws MALFORMED_REDIS_POLICY', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return { version: '1' }; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => {
+                    assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                    assert.match(err.message, /missing or invalid.*contentHash/i);
+                    return true;
+                }
+            );
+        });
+
+        // 37.7: Non-empty hash with whitespace or empty contentHash throws MALFORMED_REDIS_POLICY
+        await t37.test('37.7: Non-empty hash with empty string or whitespace contentHash throws MALFORMED_REDIS_POLICY', async () => {
+            const invalidHashes = ['', '   ', '\t\n'];
+            for (const invHash of invalidHashes) {
+                const mockClient = {
+                    status: 'ready',
+                    async ping() { return 'PONG'; },
+                    async hgetall(key) { return { version: '1', contentHash: invHash }; }
+                };
+                const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+                await assert.rejects(
+                    async () => {
+                        await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                    },
+                    (err) => {
+                        assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                        return true;
+                    },
+                    `contentHash '${invHash}' must throw MALFORMED_REDIS_POLICY`
+                );
+            }
+        });
+
+        // 37.8: Valid canonical policy parses correctly
+        await t37.test('37.8: Valid canonical policy returns parsed typed object', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) {
+                    return {
+                        version: '3',
+                        contentHash: 'valid-hash-67890',
+                        ref: 'HSVP/RATE/01',
+                        minIntervalMs: '12000',
+                        maxPerMin: '8',
+                        maxPerHour: '80',
+                        maxPerDay: '800',
+                        approvedBy: '507f1f77bcf86cd799439011',
+                        updatedAt: '1700000000'
+                    };
+                }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            const policy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            assert.ok(policy, 'Must return parsed policy');
+            assert.equal(policy.authorityCode, authorityCode);
+            assert.equal(policy.version, 3);
+            assert.equal(policy.contentHash, 'valid-hash-67890');
+            assert.equal(policy.policyReference, 'HSVP/RATE/01');
+            assert.equal(policy.minIntervalMs, 12000);
+            assert.equal(policy.maxRequestsPerMinute, 8);
+            assert.equal(policy.maxRequestsPerHour, 80);
+            assert.equal(policy.maxRequestsPerDay, 800);
+            assert.equal(policy.approvedBy, '507f1f77bcf86cd799439011');
+            assert.equal(policy.updatedAt, 1700000000);
+        });
+
+        // 37.9: Redis disconnected causes isRedisReady to return false and fails closed
+        await t37.test('37.9: Redis disconnected causes isRedisReady to return false and fails closed without in-memory fallback', async () => {
+            const disconnectedClient = {
+                status: 'close',
+                isReady: false,
+                isOpen: false,
+                async ping() { throw new Error('Connection is closed'); }
+            };
+            const provider = new RedisPortalQuotaProvider(disconnectedClient, { allowInMemoryFallback: false, testMode: false });
+            const isReady = await provider.isRedisReady(100);
+            assert.equal(isReady, false, 'isRedisReady must return false for closed connection');
+
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => err.code === 'REDIS_UNAVAILABLE'
+            );
+
+            await assert.rejects(
+                async () => {
+                    await provider.setCanonicalPolicy({
+                        authorityCode,
+                        policy: {
+                            policyReference: 'HSVP/RATE/01',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerHour: 100,
+                            maxRequestsPerDay: 500
+                        }
+                    });
+                },
+                (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
+            );
+        });
+
+        // 37.10: Redis connecting / reconnecting causes isRedisReady to return false
+        await t37.test('37.10: Redis connecting/reconnecting causes isRedisReady to return false and fails closed', async () => {
+            const connectingClient = {
+                status: 'connecting',
+                isReady: false,
+                isOpen: true,
+                async ping() {
+                    await new Promise(r => setTimeout(r, 500));
+                    return 'PONG';
+                }
+            };
+            const provider = new RedisPortalQuotaProvider(connectingClient, { allowInMemoryFallback: false, testMode: false });
+            const isReady = await provider.isRedisReady(100);
+            assert.equal(isReady, false, 'isRedisReady must return false when status is connecting');
+
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true, readTimeoutMs: 100 });
+                },
+                (err) => err.code === 'REDIS_UNAVAILABLE'
+            );
+        });
+
+        // 37.11: Controller syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy
+        await t37.test('37.11: syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy', async () => {
+            const approverRole = await Role.create({
+                name: `Approver Role Malformed Redis Test ${Date.now()}`,
+                department: 'inventory',
+                approvalRights: { manageAuthoritySettings: true },
+                moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+            });
+            const approverUser = await User.create({
+                fullName: 'Malformed Redis Tester',
+                email: `malformed-tester-${Date.now()}@test.internal`,
+                password: 'hashed-password-123',
+                role: approverRole._id,
+                department: 'inventory',
+                isActive: true
+            });
+
+            await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+            const polAuditDoc = await AuditLog.create({
+                eventType: 'canonical_policy_rotated',
+                targetType: 'authority_canonical_policy',
+                userId: approverUser._id,
+                userName: 'Admin',
+                description: 'Initial V2 Rotation',
+                status: 'success'
+            });
+
+            const polDoc = await AuthorityCanonicalPolicy.create({
+                authorityCode,
+                policyReference: 'HSVP/RATE/01',
+                version: 2,
+                contentHash: 'hash-v2-expected',
+                minIntervalMs: 15000,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerHour: 100,
+                maxRequestsPerDay: 500,
+                redisSyncStatus: 'PENDING_RECONCILIATION',
+                effectiveFrom: new Date(Date.now() - 3600000),
+                expiresAt: new Date(Date.now() + 86400000),
+                reviewedBy: new mongoose.Types.ObjectId(),
+                approvedBy: approverUser._id,
+                isActive: true,
+                isAudited: true,
+                auditStatus: 'AUDITED',
+                auditLogId: polAuditDoc._id
+            });
+            await AuditLog.updateOne({ _id: polAuditDoc._id }, { $set: { targetId: polDoc._id } });
+
+            const opId = `malformed-hash-race-${Date.now()}`;
+            const corrId = `canonical_sync:${polDoc._id.toString()}:${opId}`;
+
+            await AuditLog.create({
+                eventType: 'canonical_policy_synced',
+                correlationId: corrId,
+                targetType: 'authority_canonical_policy',
+                targetId: polDoc._id,
+                userId: approverUser._id,
+                userName: 'Admin',
+                description: 'Prior publishing state',
+                metadata: {
+                    authorityCode,
+                    version: polDoc.version,
+                    contentHash: polDoc.contentHash,
+                    redisSyncStatus: 'FAILED',
+                    syncPhase: 'PUBLISHING',
+                    leaseOwner: 'worker-stale-malformed',
+                    leaseExpiresAt: new Date(Date.now() - 5000),
+                    operationId: opId
+                },
+                status: 'failure'
+            });
+
+            let setCanonicalPolicyCalled = 0;
+            const malformedProvider = {
+                async setCanonicalPolicy() {
+                    setCanonicalPolicyCalled++;
+                    return { success: true };
+                },
+                async getCanonicalPolicy({ authoritative } = {}) {
+                    const err = new Error('MALFORMED_REDIS_POLICY: Authoritative Redis record is malformed: missing or invalid version');
+                    err.code = 'MALFORMED_REDIS_POLICY';
+                    throw err;
+                }
+            };
+            setTestQuotaProvider(malformedProvider);
+
+            const origIndexes = AuditLog.collection.indexes;
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } }
+                }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: opId }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 502, 'Must return HTTP 502 when Redis hash is malformed');
+                assert.equal(responseBody.code, 'MALFORMED_REDIS_POLICY');
+                assert.equal(responseBody.status, 'PENDING_RECONCILIATION');
+                assert.equal(setCanonicalPolicyCalled, 0, 'setCanonicalPolicy must NEVER be invoked after malformed Redis record detected');
+
+                const updatedPol = await AuthorityCanonicalPolicy.findById(polDoc._id);
+                assert.equal(updatedPol.redisSyncStatus, 'PENDING_RECONCILIATION');
+                assert.match(updatedPol.redisSyncError, /malformed/i);
+
+                const updatedAudit = await AuditLog.findOne({ correlationId: corrId });
+                assert.equal(updatedAudit.status, 'failed');
+                assert.equal(updatedAudit.metadata?.syncPhase, 'PENDING_RECONCILIATION');
+                assert.equal(updatedAudit.metadata?.redisSyncStatus, 'MALFORMED_REDIS_POLICY');
+            } finally {
+                setTestQuotaProvider(null);
+                AuditLog.collection.indexes = origIndexes;
+            }
+        });
+    });
 });

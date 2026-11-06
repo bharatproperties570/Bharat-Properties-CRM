@@ -61,7 +61,7 @@ export function getQuotaProvider(req = null) {
     try {
         const redisClient = getApplicationRedisClient();
         if (redisClient) {
-            return new RedisPortalQuotaProvider(redisClient);
+            return new RedisPortalQuotaProvider(redisClient, { allowInMemoryFallback: false, testMode: false });
         }
     } catch {}
     return null;
@@ -1081,6 +1081,8 @@ export const syncCanonicalPolicy = async (req, res) => {
         }
 
         // Verify that the required unique partial index on { eventType, correlationId } exists
+        // CRITICAL: API request path MUST NEVER invoke createCollection(), createIndex(), or ensureIdempotencyIndex().
+        // If missing, unverified, or invalid specification, fail closed immediately with IDEMPOTENCY_INDEX_UNAVAILABLE.
         if (correlationId) {
             try {
                 const indexes = await AuditLog.collection.indexes();
@@ -1088,18 +1090,21 @@ export const syncCanonicalPolicy = async (req, res) => {
                     idx.name === 'unique_audit_event_correlation' ||
                     (idx.unique === true && idx.key && idx.key.eventType === 1 && idx.key.correlationId === 1)
                 );
-                if (existingUnique) {
-                    if (typeof AuditLog.verifyIdempotencyIndexSpec === 'function') {
-                        const specCheck = AuditLog.verifyIdempotencyIndexSpec(existingUnique);
-                        if (!specCheck.valid) {
-                            throw new Error(`AuditLog idempotency index invalid spec: ${specCheck.reason}`);
-                        }
-                    }
-                } else {
-                    if (typeof AuditLog.ensureIdempotencyIndex === 'function') {
-                        await AuditLog.ensureIdempotencyIndex();
-                    } else {
-                        throw new Error('AuditLog idempotency index is missing and ensureIdempotencyIndex is unavailable');
+                if (!existingUnique) {
+                    return res.status(500).json({
+                        success: false,
+                        code: 'IDEMPOTENCY_INDEX_UNAVAILABLE',
+                        message: 'Required unique idempotency index on AuditLog is not present'
+                    });
+                }
+                if (typeof AuditLog.verifyIdempotencyIndexSpec === 'function') {
+                    const specCheck = AuditLog.verifyIdempotencyIndexSpec(existingUnique);
+                    if (!specCheck.valid) {
+                        return res.status(500).json({
+                            success: false,
+                            code: 'IDEMPOTENCY_INDEX_UNAVAILABLE',
+                            message: `Audit idempotency index specification invalid: ${specCheck.reason}`
+                        });
                     }
                 }
             } catch (idxErr) {
@@ -2044,6 +2049,48 @@ export const syncCanonicalPolicy = async (req, res) => {
                 });
             } catch (readErr) {
                 console.error('Authoritative Redis inspection failed during reconciliation:', readErr);
+                if (readErr.code === 'MALFORMED_REDIS_POLICY') {
+                    await AuditLog.findOneAndUpdate(
+                        {
+                            _id: recoveryClaim._id,
+                            'metadata.leaseOwner': reconWorkerLease,
+                            'metadata.syncPhase': 'PUBLISHING'
+                        },
+                        {
+                            $set: {
+                                status: 'failed',
+                                'metadata.syncPhase': 'PENDING_RECONCILIATION',
+                                'metadata.redisSyncStatus': 'MALFORMED_REDIS_POLICY',
+                                'metadata.errorMessage': `Authoritative Redis record is malformed: ${readErr.message}`
+                            }
+                        }
+                    ).catch(() => {});
+
+                    await AuthorityCanonicalPolicy.updateOne(
+                        {
+                            _id: policyDoc._id,
+                            version: expectedVersion,
+                            contentHash: expectedContentHash,
+                            lastSyncWorkerLease: reconWorkerLease
+                        },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: `Authoritative Redis record is malformed: ${readErr.message}`
+                            }
+                        }
+                    ).catch(() => {});
+
+                    stopReconHeartbeat();
+                    return res.status(502).json({
+                        success: false,
+                        code: 'MALFORMED_REDIS_POLICY',
+                        message: 'Authoritative policy record in Redis is malformed or missing valid version/contentHash; fail closed without re-publishing',
+                        operationId: normalizedOpId,
+                        status: 'PENDING_RECONCILIATION'
+                    });
+                }
+
                 // FAIL CLOSED: Preserve pending state, NEVER republish an ambiguous operation!
                 // Strictly fenced by recoveryClaim._id and reconWorkerLease
                 await AuditLog.findOneAndUpdate(

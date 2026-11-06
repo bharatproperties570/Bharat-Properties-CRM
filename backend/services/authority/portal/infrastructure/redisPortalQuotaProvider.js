@@ -25,6 +25,49 @@ export class RedisPortalQuotaProvider {
     }
 
     /**
+     * Verifies actual Redis readiness with a bounded operation (PING).
+     * Replaces ineffective ping-method existence check.
+     * Rejects disconnected, connecting, reconnecting, closing, or timed-out Redis clients.
+     *
+     * @param {number} [timeoutMs=1000]
+     * @returns {Promise<boolean>}
+     */
+    async isRedisReady(timeoutMs = 1000) {
+        if (!this.redisClient) return false;
+
+        // Check ioredis status
+        if (typeof this.redisClient.status === 'string' && this.redisClient.status !== 'ready') {
+            return false;
+        }
+
+        // Check node-redis isReady / isOpen
+        if (typeof this.redisClient.isReady === 'boolean' && !this.redisClient.isReady) {
+            return false;
+        }
+        if (typeof this.redisClient.isOpen === 'boolean' && !this.redisClient.isOpen) {
+            return false;
+        }
+
+        if (typeof this.redisClient.ping !== 'function') {
+            return false;
+        }
+
+        let timer = null;
+        try {
+            const pingPromise = this.redisClient.ping();
+            const timeoutPromise = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('REDIS_PING_TIMEOUT')), timeoutMs);
+            });
+            const res = await Promise.race([pingPromise, timeoutPromise]);
+            return res === 'PONG' || res === true || typeof res === 'string';
+        } catch {
+            return false;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    /**
      * Explicitly set or rotate the authority-global canonical rate policy.
      * This is the trusted anchor independently reviewed/approved by admin.
      * Stored in Redis hash without TTL, and in memory.
@@ -89,7 +132,7 @@ export class RedisPortalQuotaProvider {
         };
 
         if (this.redisClient) {
-            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            const isReady = await this.isRedisReady(1000);
             if (isReady) {
                 const canKey = `quota:canonical:${code}`;
 
@@ -191,7 +234,16 @@ export class RedisPortalQuotaProvider {
                         await this.redisClient.persist(canKey);
                     }
                 }
+            } else if (!this.allowInMemoryFallback) {
+                const statusStr = this.redisClient.status || (this.redisClient.isReady ? 'ready' : 'disconnected');
+                const err = new Error(`PORTAL_QUOTA_REDIS_UNAVAILABLE: Redis is not connected for canonical policy update (status: ${statusStr}).`);
+                err.code = 'PORTAL_QUOTA_REDIS_UNAVAILABLE';
+                throw err;
             }
+        } else if (!this.allowInMemoryFallback) {
+            const err = new Error('PORTAL_QUOTA_REDIS_UNAVAILABLE: No Redis client configured and in-memory fallback is disabled.');
+            err.code = 'PORTAL_QUOTA_REDIS_UNAVAILABLE';
+            throw err;
         }
 
         this._canonicalPolicies.set(code, canonicalRecord);
@@ -221,9 +273,10 @@ export class RedisPortalQuotaProvider {
                 throw err;
             }
 
-            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            const isReady = await this.isRedisReady(Math.min(1000, readTimeoutMs));
             if (!isReady) {
-                const err = new Error(`Redis client is not ready (status: ${this.redisClient.status || 'unknown'})`);
+                const statusStr = this.redisClient.status || (this.redisClient.isReady ? 'ready' : 'disconnected');
+                const err = new Error(`Redis client is not ready (status: ${statusStr})`);
                 err.code = 'REDIS_UNAVAILABLE';
                 throw err;
             }
@@ -247,21 +300,47 @@ export class RedisPortalQuotaProvider {
                 });
 
                 const data = await Promise.race([fetchPromise, timeoutPromise]);
-                if (data && Object.keys(data).length > 0 && data.version) {
-                    return {
-                        authorityCode: code,
-                        version: Number(data.version),
-                        contentHash: data.contentHash || null,
-                        policyReference: data.ref || null,
-                        minIntervalMs: Number(data.minIntervalMs || 0),
-                        maxRequestsPerMinute: Number(data.maxPerMin || 0),
-                        maxRequestsPerHour: Number(data.maxPerHour || 0),
-                        maxRequestsPerDay: Number(data.maxPerDay || 0),
-                        approvedBy: data.approvedBy || null,
-                        updatedAt: Number(data.updatedAt || 0)
-                    };
+
+                // Requirement 1 & 2: Genuinely absent key or empty hash may return null
+                if (data === null || data === undefined) {
+                    return null;
                 }
-                return null;
+                if (typeof data !== 'object' || Array.isArray(data)) {
+                    const err = new Error(`MALFORMED_REDIS_POLICY: Authoritative Redis record is not a valid hash object for authority ${code}`);
+                    err.code = 'MALFORMED_REDIS_POLICY';
+                    throw err;
+                }
+                const keys = Object.keys(data);
+                if (keys.length === 0) {
+                    return null;
+                }
+
+                // Requirement 3 & 4: Non-empty hash missing version or contentHash must fail with MALFORMED_REDIS_POLICY
+                const rawVersion = data.version;
+                const rawHash = data.contentHash;
+                const parsedVersion = Number(rawVersion);
+                const isVersionValid = rawVersion !== undefined && rawVersion !== null && rawVersion !== '' && typeof rawVersion !== 'boolean' && !Number.isNaN(parsedVersion) && Number.isInteger(parsedVersion) && parsedVersion > 0;
+                const isHashValid = typeof rawHash === 'string' && rawHash.trim().length > 0;
+
+                if (!isVersionValid || !isHashValid) {
+                    const err = new Error(`MALFORMED_REDIS_POLICY: Authoritative Redis record is malformed for authority ${code}: missing or invalid version (${rawVersion}) or contentHash (${rawHash})`);
+                    err.code = 'MALFORMED_REDIS_POLICY';
+                    err.data = data;
+                    throw err;
+                }
+
+                return {
+                    authorityCode: code,
+                    version: parsedVersion,
+                    contentHash: rawHash.trim(),
+                    policyReference: data.ref || null,
+                    minIntervalMs: Number(data.minIntervalMs || 0),
+                    maxRequestsPerMinute: Number(data.maxPerMin || 0),
+                    maxRequestsPerHour: Number(data.maxPerHour || 0),
+                    maxRequestsPerDay: Number(data.maxPerDay || 0),
+                    approvedBy: data.approvedBy || null,
+                    updatedAt: Number(data.updatedAt || 0)
+                };
             } finally {
                 if (timer) clearTimeout(timer);
             }
@@ -269,24 +348,31 @@ export class RedisPortalQuotaProvider {
 
         // Non-authoritative mode (e.g. telemetry / introspection):
         if (this.redisClient) {
-            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            const isReady = await this.isRedisReady(1000);
             if (isReady && typeof this.redisClient.hgetall === 'function') {
                 const canKey = `quota:canonical:${code}`;
                 try {
                     const data = await this.redisClient.hgetall(canKey);
-                    if (data && Object.keys(data).length > 0 && data.version) {
-                        return {
-                            authorityCode: code,
-                            version: Number(data.version),
-                            contentHash: data.contentHash || null,
-                            policyReference: data.ref || null,
-                            minIntervalMs: Number(data.minIntervalMs || 0),
-                            maxRequestsPerMinute: Number(data.maxPerMin || 0),
-                            maxRequestsPerHour: Number(data.maxPerHour || 0),
-                            maxRequestsPerDay: Number(data.maxPerDay || 0),
-                            approvedBy: data.approvedBy || null,
-                            updatedAt: Number(data.updatedAt || 0)
-                        };
+                    if (data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length > 0) {
+                        const rawVersion = data.version;
+                        const rawHash = data.contentHash;
+                        const parsedVersion = Number(rawVersion);
+                        const isVersionValid = rawVersion !== undefined && rawVersion !== null && rawVersion !== '' && typeof rawVersion !== 'boolean' && !Number.isNaN(parsedVersion) && Number.isInteger(parsedVersion) && parsedVersion > 0;
+                        const isHashValid = typeof rawHash === 'string' && rawHash.trim().length > 0;
+                        if (isVersionValid && isHashValid) {
+                            return {
+                                authorityCode: code,
+                                version: parsedVersion,
+                                contentHash: rawHash.trim(),
+                                policyReference: data.ref || null,
+                                minIntervalMs: Number(data.minIntervalMs || 0),
+                                maxRequestsPerMinute: Number(data.maxPerMin || 0),
+                                maxRequestsPerHour: Number(data.maxPerHour || 0),
+                                maxRequestsPerDay: Number(data.maxPerDay || 0),
+                                approvedBy: data.approvedBy || null,
+                                updatedAt: Number(data.updatedAt || 0)
+                            };
+                        }
                     }
                 } catch {
                     // Fall back to memory map if Redis call fails
@@ -361,7 +447,7 @@ export class RedisPortalQuotaProvider {
 
         // Production path: Redis atomic reservation with Lua script
         if (this.redisClient) {
-            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            const isReady = await this.isRedisReady(1000);
             if (isReady && typeof this.redisClient.eval === 'function') {
                 try {
                     const lastKey = `quota:last:${scopeKey}`;
