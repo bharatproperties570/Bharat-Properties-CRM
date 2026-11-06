@@ -901,7 +901,7 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
         };
         const check1 = await verifyEffectExecutionStableKeyIndex(badFilterModel1);
         assert.strictEqual(check1.valid, false);
-        assert.match(check1.reason, /must restrict stableKey to string type/);
+        assert.match(check1.reason, /contains invalid or extra operators/);
 
         // Test with $type: int instead of string
         const badFilterModel2 = {
@@ -918,6 +918,67 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
         const check2 = await verifyEffectExecutionStableKeyIndex(badFilterModel2);
         assert.strictEqual(check2.valid, false);
         assert.match(check2.reason, /must restrict stableKey to string type/);
+    });
+
+    it('18.6. Extra fields in partialFilterExpression are rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const extraFieldsModel = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: true,
+                        partialFilterExpression: {
+                            stableKey: { $type: 'string' },
+                            tenantId: { $exists: true }
+                        }
+                    }
+                ]
+            }
+        };
+        const check = await verifyEffectExecutionStableKeyIndex(extraFieldsModel);
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /contains invalid or extra fields/);
+    });
+
+    it('18.7. Extra operators in partialFilterExpression.stableKey are rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const extraOpsModel = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: true,
+                        partialFilterExpression: {
+                            stableKey: { $type: 'string', $exists: true }
+                        }
+                    }
+                ]
+            }
+        };
+        const check = await verifyEffectExecutionStableKeyIndex(extraOpsModel);
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /contains invalid or extra operators/);
+    });
+
+    it('18.8. Malformed non-object partialFilterExpression.stableKey is rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const malformedModel = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: true,
+                        partialFilterExpression: {
+                            stableKey: 'string'
+                        }
+                    }
+                ]
+            }
+        };
+        const check = await verifyEffectExecutionStableKeyIndex(malformedModel);
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /has malformed partialFilterExpression/);
     });
 
     // ─────────────────────────────────────────────────────────────
@@ -1416,5 +1477,183 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
 
         const finalLog = await AutomationLog.findOne({ idempotencyKey });
         assert.strictEqual(finalLog.status, 'success');
+    });
+
+    it('25. JIT update returning missing matchedCount rejects with JIT_UPDATE_FAILED and prevents action execution', async () => {
+        const idempotencyKey = `idemp-jit-miss-mc-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+        const gen0EventId = `evt-jit-gen0-${uuidv4()}`;
+        const gen1EventId = `evt-jit-gen1-${uuidv4()}`;
+
+        await OutboxEvent.create({
+            eventId: gen0EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        const legacyDoc = await EffectExecution.create({
+            eventId: gen0EventId,
+            effectKey,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        // Mock updateOne to return object without matchedCount (missing matchedCount)
+        const origUpdateOne = EffectExecution.updateOne;
+        EffectExecution.updateOne = async function (filter, update, options) {
+            if (filter._id?.toString() === legacyDoc._id.toString() && update.$set?.stableKey) {
+                return { acknowledged: true }; // missing matchedCount!
+            }
+            return origUpdateOne.call(this, filter, update, options);
+        };
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-miss-mc',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-miss-mc',
+                recoveryGeneration: 1
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        try {
+            await assert.rejects(async () => {
+                await processDomainEventJob({
+                    data: {
+                        eventId: gen1EventId,
+                        eventType: 'TimeTriggerExecutionRequested',
+                        aggregateType: 'Lead',
+                        aggregateId: testLead._id,
+                        payload: {
+                            triggerId: testTrigger._id,
+                            entityType: 'leads',
+                            automationLogIdempotencyKey: idempotencyKey,
+                            claimToken: 'claim-miss-mc',
+                            recoveryGeneration: 1
+                        }
+                    }
+                });
+            }, /JIT_UPDATE_FAILED.*missing valid matchedCount/);
+
+            assert.strictEqual(executedCount, 0, 'WorkflowEngine.executeAction must NOT be called on missing matchedCount');
+        } finally {
+            EffectExecution.updateOne = origUpdateOne;
+        }
+    });
+
+    it('26. JIT update returning unexpected matchedCount (> 1) rejects with JIT_UPDATE_FAILED and prevents action execution', async () => {
+        const idempotencyKey = `idemp-jit-unexp-mc-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+        const gen0EventId = `evt-jit-gen0-${uuidv4()}`;
+        const gen1EventId = `evt-jit-gen1-${uuidv4()}`;
+
+        await OutboxEvent.create({
+            eventId: gen0EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        const legacyDoc = await EffectExecution.create({
+            eventId: gen0EventId,
+            effectKey,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        // Mock updateOne to return matchedCount: 2 (unexpected > 1)
+        const origUpdateOne = EffectExecution.updateOne;
+        EffectExecution.updateOne = async function (filter, update, options) {
+            if (filter._id?.toString() === legacyDoc._id.toString() && update.$set?.stableKey) {
+                return { acknowledged: true, matchedCount: 2, modifiedCount: 2 };
+            }
+            return origUpdateOne.call(this, filter, update, options);
+        };
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-unexp-mc',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-unexp-mc',
+                recoveryGeneration: 1
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        try {
+            await assert.rejects(async () => {
+                await processDomainEventJob({
+                    data: {
+                        eventId: gen1EventId,
+                        eventType: 'TimeTriggerExecutionRequested',
+                        aggregateType: 'Lead',
+                        aggregateId: testLead._id,
+                        payload: {
+                            triggerId: testTrigger._id,
+                            entityType: 'leads',
+                            automationLogIdempotencyKey: idempotencyKey,
+                            claimToken: 'claim-unexp-mc',
+                            recoveryGeneration: 1
+                        }
+                    }
+                });
+            }, /JIT_UPDATE_FAILED.*Unexpected matchedCount 2/);
+
+            assert.strictEqual(executedCount, 0, 'WorkflowEngine.executeAction must NOT be called on unexpected matchedCount');
+        } finally {
+            EffectExecution.updateOne = origUpdateOne;
+        }
     });
 });

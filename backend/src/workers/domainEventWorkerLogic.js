@@ -753,8 +753,17 @@ export const processDomainEventJob = async (job) => {
                                 throw new Error(`JIT_UPDATE_FAILED: Failed to link stableKey for legacy record ${legacyExecution._id}: ${linkErr.message}`);
                             }
 
-                            // If matchedCount is 0, re-read and verify the exact resulting state
-                            if (updateResult.matchedCount === 0) {
+                            // Strict matchedCount validation:
+                            // Must be exactly 1, OR exactly 0 followed by verified database re-read.
+                            // Any missing, null, undefined, > 1, or unexpected matchedCount must throw JIT_UPDATE_FAILED!
+                            if (!updateResult || typeof updateResult.matchedCount !== 'number') {
+                                throw new Error(`JIT_UPDATE_FAILED: Update result missing valid matchedCount (got: ${JSON.stringify(updateResult)})`);
+                            }
+
+                            if (updateResult.matchedCount === 1) {
+                                // Exactly one legacy record matched and updated with stableKey
+                            } else if (updateResult.matchedCount === 0) {
+                                // matchedCount === 0: Check if concurrent worker already linked the exact same stableKey
                                 const reReadDoc = await EffectExecution.findById(legacyExecution._id).lean();
                                 if (!reReadDoc) {
                                     throw new Error(`JIT_UPDATE_FAILED: Legacy record ${legacyExecution._id} disappeared during update`);
@@ -762,6 +771,9 @@ export const processDomainEventJob = async (job) => {
                                 if (reReadDoc.stableKey !== stableKey) {
                                     throw new Error(`JIT_UPDATE_FAILED: Legacy record ${legacyExecution._id} matchedCount === 0 and stableKey is not ${stableKey} (actual: ${reReadDoc.stableKey})`);
                                 }
+                            } else {
+                                // matchedCount > 1 or unexpected
+                                throw new Error(`JIT_UPDATE_FAILED: Unexpected matchedCount ${updateResult.matchedCount} during single legacy update`);
                             }
                         }
                     }

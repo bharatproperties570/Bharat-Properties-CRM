@@ -39,10 +39,20 @@ export const verifyEffectExecutionStableKeyIndex = async (EffectExecution) => {
                 return { valid: false, reason: 'Index on { stableKey: 1 } is not a partial index (missing partialFilterExpression)' };
             }
 
-            // partialFilterExpression must correctly restrict indexed documents to string stableKeys
+            // partialFilterExpression must strictly match exact object { stableKey: { $type: 'string' | 2 } }
             const pfe = idx.partialFilterExpression;
-            if (!pfe.stableKey || typeof pfe.stableKey !== 'object') {
+            const pfeKeys = Object.keys(pfe);
+            if (pfeKeys.length !== 1 || pfeKeys[0] !== 'stableKey') {
+                return { valid: false, reason: `Index on { stableKey: 1 } partialFilterExpression contains invalid or extra fields: ${pfeKeys.join(', ')}` };
+            }
+
+            if (!pfe.stableKey || typeof pfe.stableKey !== 'object' || Array.isArray(pfe.stableKey)) {
                 return { valid: false, reason: 'Index on { stableKey: 1 } has malformed partialFilterExpression' };
+            }
+
+            const stableKeyOps = Object.keys(pfe.stableKey);
+            if (stableKeyOps.length !== 1 || stableKeyOps[0] !== '$type') {
+                return { valid: false, reason: `Index on { stableKey: 1 } partialFilterExpression.stableKey contains invalid or extra operators: ${stableKeyOps.join(', ')}` };
             }
 
             const typeVal = pfe.stableKey.$type;
