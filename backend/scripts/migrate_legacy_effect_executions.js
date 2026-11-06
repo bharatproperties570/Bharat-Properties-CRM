@@ -12,17 +12,36 @@ export async function runMigration() {
         process.exit(1);
     }
 
+    const args = process.argv.slice(2);
+    const hasApply = args.includes('--apply');
+    const hasDryRun = args.includes('--dry-run');
+    const isApply = hasApply && !hasDryRun;
+
     console.log('[Migration] Connecting to MongoDB...');
     await mongoose.connect(mongoUri);
     console.log('[Migration] Connected to MongoDB');
 
     try {
-        console.log('[Migration] Starting backfill of legacy EffectExecution stableKeys...');
-        const report = await backfillLegacyEffectExecutions({ logger: console });
-        console.log('[Migration] Backfill completed successfully. Report:');
+        if (!isApply) {
+            console.log('[Migration] 🛡️ DEFAULTING TO DRY-RUN MODE (Zero writes will be made). Pass --apply to persist changes.');
+        } else {
+            console.log('[Migration] ⚠️ RUNNING IN APPLY MODE: Executing writes to EffectExecution collection.');
+        }
+
+        const report = await backfillLegacyEffectExecutions({
+            apply: isApply,
+            dryRun: !isApply,
+            logger: console
+        });
+
+        console.log('\n========================================');
+        console.log(`[Migration] BACKFILL REPORT (${report.dryRun ? 'DRY-RUN' : 'APPLIED'})`);
+        console.log('========================================');
         console.table({
+            mode: report.dryRun ? 'DRY-RUN (No Writes)' : 'APPLIED (Writes Committed)',
             scanned: report.scanned,
             matchedTimeTrigger: report.matchedTimeTrigger,
+            backfillable: report.backfillable,
             backfilled: report.backfilled,
             skippedAlreadyTagged: report.skippedAlreadyTagged,
             skippedNonTimeTrigger: report.skippedNonTimeTrigger,
@@ -31,13 +50,21 @@ export async function runMigration() {
         });
 
         if (report.conflicts.length > 0) {
-            console.warn('[Migration] ⚠️ Conflicts detected during backfill:');
+            console.warn('\n⚠️ CONFLICTS DETECTED:');
             console.dir(report.conflicts, { depth: null });
         }
 
         if (report.errors.length > 0) {
-            console.error('[Migration] ❌ Errors encountered during backfill:');
+            console.error('\n❌ ERRORS DETECTED:');
             console.dir(report.errors, { depth: null });
+        }
+
+        if (report.conflicts.length > 0 || report.errors.length > 0) {
+            console.error('\n[Migration] ❌ Migration finished with unresolved conflicts or errors. Operator intervention required.');
+            process.exitCode = 1;
+        } else {
+            console.log('\n[Migration] ✅ Migration completed safely with zero conflicts and zero errors.');
+            process.exitCode = 0;
         }
 
         return report;

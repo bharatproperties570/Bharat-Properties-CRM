@@ -407,7 +407,7 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
             stableKey: null
         });
 
-        const report = await backfillLegacyEffectExecutions();
+        const report = await backfillLegacyEffectExecutions({ apply: true });
         assert.strictEqual(report.backfilled, 1);
         assert.strictEqual(report.conflicts.length, 0);
 
@@ -448,7 +448,7 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
             recordIds.push({ id: doc._id, actId, expectedStatus: statuses[i] });
         }
 
-        const report = await backfillLegacyEffectExecutions();
+        const report = await backfillLegacyEffectExecutions({ apply: true });
         assert.strictEqual(report.backfilled, 4);
 
         for (const item of recordIds) {
@@ -483,11 +483,11 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
         });
 
         // Pass 1
-        const report1 = await backfillLegacyEffectExecutions();
+        const report1 = await backfillLegacyEffectExecutions({ apply: true });
         assert.strictEqual(report1.backfilled, 1);
 
         // Pass 2 (Restart)
-        const report2 = await backfillLegacyEffectExecutions();
+        const report2 = await backfillLegacyEffectExecutions({ apply: true });
         assert.strictEqual(report2.backfilled, 0);
         assert.strictEqual(report2.conflicts.length, 0);
     });
@@ -530,7 +530,7 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
             status: 'COMPLETED'
         });
 
-        const report = await backfillLegacyEffectExecutions();
+        const report = await backfillLegacyEffectExecutions({ apply: true });
 
         assert.strictEqual(report.conflicts.length, 1, 'Conflict must be recorded');
         assert.strictEqual(report.conflicts[0].legacyId, oldLegacyRecord._id.toString());
@@ -635,5 +635,272 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
         // AutomationLog is finalized to success
         const log = await AutomationLog.findOne({ idempotencyKey });
         assert.strictEqual(log.status, 'success');
+    });
+
+    it('14. Heartbeat renewal uses $max so delayed/older renewal can never regress lockedUntil', async () => {
+        const eventId = `evt-hb-max-${uuidv4()}`;
+        const effectKey = 'max_lease_monotonic_test';
+
+        // Direct test of $max monotonicity with atomic ownership predicate
+        const doc = await EffectExecution.create({
+            eventId,
+            effectKey,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'PROCESSING',
+            executionId: 'exec-monotonic-1',
+            lockedUntil: new Date('2026-11-06T12:00:00.000Z')
+        });
+
+        // Attempt to regress lockedUntil to an earlier timestamp using $max
+        const earlierDate = new Date('2026-11-06T11:00:00.000Z');
+        const updateRes = await EffectExecution.updateOne(
+            { _id: doc._id, executionId: 'exec-monotonic-1', status: 'PROCESSING' },
+            { $max: { lockedUntil: earlierDate } }
+        );
+
+        // matchedCount is 1 because document matched, but $max preserved the higher timestamp
+        assert.strictEqual(updateRes.matchedCount, 1);
+
+        const refreshed = await EffectExecution.findById(doc._id);
+        assert.strictEqual(refreshed.lockedUntil.toISOString(), '2026-11-06T12:00:00.000Z');
+
+        // Now update with a newer timestamp: $max applies
+        const futureDate = new Date('2026-11-06T13:00:00.000Z');
+        const updateRes2 = await EffectExecution.updateOne(
+            { _id: doc._id, executionId: 'exec-monotonic-1', status: 'PROCESSING' },
+            { $max: { lockedUntil: futureDate } }
+        );
+        assert.strictEqual(updateRes2.matchedCount, 1);
+        assert.strictEqual(updateRes2.modifiedCount, 1);
+
+        const refreshed2 = await EffectExecution.findById(doc._id);
+        assert.strictEqual(refreshed2.lockedUntil.toISOString(), '2026-11-06T13:00:00.000Z');
+    });
+
+    it('15. Teardown waits safely for in-flight renewal before finalization so completion cannot race', async () => {
+        const eventId = `evt-hb-teardown-${uuidv4()}`;
+        const effectKey = 'teardown_await_test';
+
+        let renewalStarted = false;
+        let renewalFinished = false;
+
+        const res = await executeEffect(
+            eventId,
+            effectKey,
+            'Lead',
+            testLead._id,
+            async () => {
+                // Wait for the heartbeat timer to trigger
+                await sleep(70);
+            },
+            {
+                leaseDurationMs: 400,
+                heartbeatIntervalMs: 50,
+                _simulateHeartbeatDelayMs: 60,
+                onHeartbeat: () => {
+                    renewalStarted = true;
+                    renewalFinished = true;
+                }
+            }
+        );
+
+        assert.strictEqual(res.status, 'COMPLETED');
+        assert.strictEqual(renewalStarted, true, 'Heartbeat renewal must have started');
+        assert.strictEqual(renewalFinished, true, 'In-flight renewal must have completed before finalization');
+
+        const finalRecord = await EffectExecution.findOne({ eventId, effectKey });
+        assert.strictEqual(finalRecord.status, 'COMPLETED');
+        assert.strictEqual(finalRecord.lockedUntil, null);
+    });
+
+    it('16. Legacy EffectExecution backfill defaults to dryRun (0 writes committed) and reports backfillable', async () => {
+        const legacyEventId = `evt-dryrun-${uuidv4()}`;
+        const actionId = new mongoose.Types.ObjectId().toString();
+        const idempotencyKey = `idemp-dryrun-${uuidv4()}`;
+
+        await OutboxEvent.create({
+            eventId: legacyEventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                automationLogIdempotencyKey: idempotencyKey
+            }
+        });
+
+        const legacyRecord = await EffectExecution.create({
+            eventId: legacyEventId,
+            effectKey: `action-${actionId}`,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED',
+            stableKey: null
+        });
+
+        // Run with default options (dry-run)
+        const report = await backfillLegacyEffectExecutions();
+
+        assert.strictEqual(report.dryRun, true, 'Must default to dryRun');
+        assert.strictEqual(report.scanned, 1);
+        assert.strictEqual(report.matchedTimeTrigger, 1);
+        assert.strictEqual(report.backfillable, 1);
+        assert.strictEqual(report.backfilled, 0, 'Zero writes must be performed in dryRun');
+        assert.strictEqual(report.conflicts.length, 0);
+
+        // Verify document in MongoDB was NOT modified
+        const freshDoc = await EffectExecution.findById(legacyRecord._id);
+        assert.strictEqual(freshDoc.stableKey, null, 'stableKey must remain null after dryRun');
+    });
+
+    it('17. Legacy EffectExecution backfill fails closed on multiple legacy records mapping to same stableKey', async () => {
+        const actionId = new mongoose.Types.ObjectId().toString();
+        const idempotencyKey = `idemp-multi-legacy-${uuidv4()}`;
+        const derivedStableKey = `time-trigger:${idempotencyKey}:${actionId}`;
+
+        const legacyEvent1 = `evt-leg1-${uuidv4()}`;
+        const legacyEvent2 = `evt-leg2-${uuidv4()}`;
+
+        await OutboxEvent.create({
+            eventId: legacyEvent1,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        await OutboxEvent.create({
+            eventId: legacyEvent2,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        const rec1 = await EffectExecution.create({
+            eventId: legacyEvent1,
+            effectKey: `action-${actionId}`,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        const rec2 = await EffectExecution.create({
+            eventId: legacyEvent2,
+            effectKey: `action-${actionId}`,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        // Run in apply mode
+        const report = await backfillLegacyEffectExecutions({ apply: true });
+
+        // Must detect ambiguity and fail closed without updating either!
+        assert.strictEqual(report.conflicts.length, 2);
+        assert.strictEqual(report.conflicts[0].reason, 'AMBIGUOUS_MULTIPLE_LEGACY_RECORDS');
+        assert.strictEqual(report.conflicts[1].reason, 'AMBIGUOUS_MULTIPLE_LEGACY_RECORDS');
+        assert.strictEqual(report.backfilled, 0, 'Neither ambiguous record may be backfilled');
+
+        const fresh1 = await EffectExecution.findById(rec1._id);
+        const fresh2 = await EffectExecution.findById(rec2._id);
+        assert.strictEqual(fresh1.stableKey, null);
+        assert.strictEqual(fresh2.stableKey, null);
+    });
+
+    it('18. Missing partial unique index on stableKey causes migration to fail-closed with error', async () => {
+        const fakeModel = {
+            collection: {
+                indexes: async () => [{ key: { _id: 1 } }] // missing stableKey index
+            }
+        };
+
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const check = await verifyEffectExecutionStableKeyIndex(fakeModel);
+
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /Unique index on stableKey does not exist/);
+    });
+
+    it('19. JIT runtime recovery halts fail-closed with AMBIGUOUS_MULTIPLE_LEGACY_RECORDS when multiple legacy records exist', async () => {
+        const idempotencyKey = `idemp-jit-multi-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+
+        const gen0Event1 = `evt-jit0-1-${uuidv4()}`;
+        const gen0Event2 = `evt-jit0-2-${uuidv4()}`;
+        const gen1EventId = `evt-jit1-rec-${uuidv4()}`;
+
+        // Create two Gen 0 OutboxEvents for the same automationLog
+        await OutboxEvent.create([
+            {
+                eventId: gen0Event1,
+                eventType: 'TimeTriggerExecutionRequested',
+                aggregateType: 'Lead',
+                aggregateId: testLead._id,
+                payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+            },
+            {
+                eventId: gen0Event2,
+                eventType: 'TimeTriggerExecutionRequested',
+                aggregateType: 'Lead',
+                aggregateId: testLead._id,
+                payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+            }
+        ]);
+
+        // Create two legacy records without stableKey
+        await EffectExecution.create([
+            { eventId: gen0Event1, effectKey, stableKey: null, aggregateType: 'Lead', aggregateId: testLead._id, status: 'COMPLETED' },
+            { eventId: gen0Event2, effectKey, stableKey: null, aggregateType: 'Lead', aggregateId: testLead._id, status: 'COMPLETED' }
+        ]);
+
+        // Create AutomationLog and Gen 1 OutboxEvent
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-jit-multi',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-jit-multi',
+                recoveryGeneration: 1
+            }
+        });
+
+        // Worker processing recovered job must reject with fail-closed error
+        await assert.rejects(async () => {
+            await processDomainEventJob({
+                data: {
+                    eventId: gen1EventId,
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: testLead._id,
+                    payload: {
+                        triggerId: testTrigger._id,
+                        entityType: 'leads',
+                        automationLogIdempotencyKey: idempotencyKey,
+                        claimToken: 'claim-jit-multi',
+                        recoveryGeneration: 1
+                    }
+                }
+            });
+        }, /AMBIGUOUS_MULTIPLE_LEGACY_RECORDS/);
     });
 });

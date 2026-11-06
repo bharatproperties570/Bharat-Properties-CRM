@@ -118,6 +118,10 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
     });
 
     after(async () => {
+        try {
+            const { distributionWorker } = await import('../src/workers/distributionWorker.js');
+            await distributionWorker.close();
+        } catch (_) {}
         await mongoose.disconnect();
         if (replset) {
             await replset.stop();
@@ -740,5 +744,46 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
         const postLead = await Lead.findById(unassignedLead._id);
         assert.strictEqual(postLead.owner || null, null, 'Lead owner must remain null on distribution rejection');
         assert.strictEqual(postLead.assignedTo || null, null);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 13: R20 Terminal Failure Audit (Worker Retry Exhaustion)
+    // ─────────────────────────────────────────────────────────────
+    it('13. R20 Terminal Failure Audit: BullMQ worker failed handler logs terminal FAILED DistributionAudit on retry exhaustion', async () => {
+        const { distributionWorker } = await import('../src/workers/distributionWorker.js');
+
+        const failedLead = await Lead.create({
+            firstName: 'Terminal',
+            lastName: 'FailLead',
+            mobile: '9999000012',
+            owner: null
+        });
+
+        const testCycleId = `cycle_terminal_${Date.now()}`;
+        const simulatedJob = {
+            id: `job_terminal_${Date.now()}`,
+            attemptsMade: 5,
+            opts: { attempts: 5 },
+            data: {
+                entityId: failedLead._id,
+                modelName: 'Lead',
+                triggerEvent: 'onCreate',
+                cycleId: testCycleId
+            }
+        };
+
+        const failedListeners = distributionWorker.listeners('failed');
+        assert.ok(failedListeners.length > 0, 'distributionWorker must have at least one failed listener');
+
+        const failedHandler = failedListeners[0];
+        await failedHandler(simulatedJob, new Error('Simulated terminal BullMQ exhaustion'));
+
+        const auditRecord = await DistributionAudit.findOne({ cycleId: testCycleId });
+        assert.ok(auditRecord, 'DistributionAudit record must exist for terminal failure');
+        assert.strictEqual(auditRecord.status, 'FAILED');
+        assert.strictEqual(auditRecord.entityId.toString(), failedLead._id.toString());
+        assert.strictEqual(auditRecord.modelName, 'Lead');
+        assert.strictEqual(auditRecord.reason, 'Simulated terminal BullMQ exhaustion');
+        assert.strictEqual(auditRecord.attempt, 5);
     });
 });

@@ -78,63 +78,98 @@ export const executeEffect = async (eventId, effectKey, aggregateType, aggregate
     let isHeartbeatActive = false;
     let ownershipLost = false;
     let currentLockedUntil = lockedUntil;
+    let inFlightRenewalPromise = null;
 
-    const stopHeartbeat = () => {
+    const stopHeartbeat = async () => {
         isHeartbeatActive = false;
         if (heartbeatTimer) {
             clearInterval(heartbeatTimer);
             heartbeatTimer = null;
         }
+        if (inFlightRenewalPromise) {
+            try {
+                await inFlightRenewalPromise;
+            } catch (_) {
+                // Heartbeat error handled inside renewLease
+            }
+        }
     };
 
     const renewLease = async () => {
         if (!isHeartbeatActive || ownershipLost) return;
-        const renewTime = new Date();
-        const nextLockedUntil = new Date(renewTime.getTime() + leaseDuration);
-
-        try {
-            if (options._simulateHeartbeatDbError) {
-                throw new Error('Simulated DB network partition during heartbeat');
-            }
-
-            // Atomic ownership-checked update: exact ID, exact executionId, status PROCESSING
-            const updateRes = await EffectExecution.updateOne(
-                {
-                    _id: claim._id,
-                    executionId: newExecutionId,
-                    status: 'PROCESSING'
-                },
-                {
-                    $set: { lockedUntil: nextLockedUntil }
-                }
-            );
-
-            if (updateRes.modifiedCount === 0) {
-                console.warn(`[EffectOrchestrator] Heartbeat renewal lost ownership for ${effectKey} (executionId: ${newExecutionId})`);
-                ownershipLost = true;
-                stopHeartbeat();
-                if (typeof options.onHeartbeatLost === 'function') {
-                    options.onHeartbeatLost();
-                }
-                return;
-            }
-
-            currentLockedUntil = nextLockedUntil;
-            if (typeof options.onHeartbeat === 'function') {
-                options.onHeartbeat(nextLockedUntil);
-            }
-        } catch (err) {
-            console.warn(`[EffectOrchestrator] Heartbeat renewal DB error for ${effectKey}: ${err.message}`);
-            // Conservative error handling: if the DB clock has passed the lease expiry,
-            // ownership is considered lost to prevent split-brain execution
-            if (Date.now() >= currentLockedUntil.getTime()) {
-                ownershipLost = true;
-                stopHeartbeat();
-            }
-            if (typeof options.onHeartbeatError === 'function') {
-                options.onHeartbeatError(err);
-            }
+        if (inFlightRenewalPromise) {
+            // Renewal already in progress: prevent overlapping asynchronous renewal operations
+            return inFlightRenewalPromise;
         }
+
+        inFlightRenewalPromise = (async () => {
+            const renewTime = new Date();
+            const nextLockedUntil = new Date(renewTime.getTime() + leaseDuration);
+
+            try {
+                if (options._simulateHeartbeatDbError) {
+                    throw new Error('Simulated DB network partition during heartbeat');
+                }
+                if (options._simulateHeartbeatDelayMs) {
+                    await new Promise(r => setTimeout(r, options._simulateHeartbeatDelayMs));
+                }
+
+                // Atomic ownership-checked update with $max:
+                // 1. Exact _id, exact executionId, status: 'PROCESSING'
+                // 2. $max guarantees an older or delayed renewal can NEVER shorten/regress lockedUntil
+                const updateRes = await EffectExecution.updateOne(
+                    {
+                        _id: claim._id,
+                        executionId: newExecutionId,
+                        status: 'PROCESSING'
+                    },
+                    {
+                        $max: { lockedUntil: nextLockedUntil }
+                    }
+                );
+
+                // If matchedCount is 0, the record no longer exists with our executionId and PROCESSING status
+                if (updateRes.matchedCount === 0) {
+                    console.warn(`[EffectOrchestrator] Heartbeat renewal lost ownership for ${effectKey} (executionId: ${newExecutionId})`);
+                    ownershipLost = true;
+                    isHeartbeatActive = false;
+                    if (heartbeatTimer) {
+                        clearInterval(heartbeatTimer);
+                        heartbeatTimer = null;
+                    }
+                    if (typeof options.onHeartbeatLost === 'function') {
+                        options.onHeartbeatLost();
+                    }
+                    return;
+                }
+
+                if (nextLockedUntil.getTime() > currentLockedUntil.getTime()) {
+                    currentLockedUntil = nextLockedUntil;
+                }
+                if (typeof options.onHeartbeat === 'function') {
+                    options.onHeartbeat(currentLockedUntil);
+                }
+            } catch (err) {
+                console.warn(`[EffectOrchestrator] Heartbeat renewal DB error for ${effectKey}: ${err.message}`);
+                // Conservative error handling: if the clock has passed the lease expiry,
+                // ownership is considered lost to prevent split-brain execution
+                if (Date.now() >= currentLockedUntil.getTime()) {
+                    ownershipLost = true;
+                    isHeartbeatActive = false;
+                    if (heartbeatTimer) {
+                        clearInterval(heartbeatTimer);
+                        heartbeatTimer = null;
+                    }
+                }
+                if (typeof options.onHeartbeatError === 'function') {
+                    options.onHeartbeatError(err);
+                }
+            } finally {
+                inFlightRenewalPromise = null;
+            }
+        })();
+
+        return inFlightRenewalPromise;
     };
 
     const startHeartbeat = () => {
@@ -151,11 +186,12 @@ export const executeEffect = async (eventId, effectKey, aggregateType, aggregate
         try {
             await fn();
         } finally {
-            stopHeartbeat();
+            await stopHeartbeat();
         }
 
         // Post-execution fence: ensure this worker still owns the lease
-        if (ownershipLost) {
+        if (ownershipLost || Date.now() >= currentLockedUntil.getTime()) {
+            ownershipLost = true;
             console.warn(`[EffectOrchestrator] STALE WORKER DETECTED after fn() execution for ${effectKey}. Lease was lost.`);
             throw new Error(`Stale worker exception during execution of ${effectKey}: lease was lost`);
         }

@@ -1,28 +1,51 @@
 import mongoose from 'mongoose';
 
 /**
+ * Verifies that the partial unique index on stableKey exists in EffectExecution collection.
+ */
+export const verifyEffectExecutionStableKeyIndex = async (EffectExecution) => {
+    try {
+        const indexes = await EffectExecution.collection.indexes();
+        const stableKeyIdx = indexes.find(idx => idx.key && idx.key.stableKey === 1);
+        if (!stableKeyIdx) {
+            return { valid: false, reason: 'Unique index on stableKey does not exist' };
+        }
+        if (!stableKeyIdx.unique) {
+            return { valid: false, reason: 'Index on stableKey exists but is not unique' };
+        }
+        return { valid: true };
+    } catch (err) {
+        return { valid: false, reason: err.message };
+    }
+};
+
+/**
  * Backfill existing eligible TimeTrigger EffectExecution records without stableKey
  * by deriving the stable identity from their associated OutboxEvent:
  * `time-trigger:${automationLogIdempotencyKey}:${actionId}`
  *
- * Requirements:
- * 1. Safe backward-compatible rollout
- * 2. Idempotent and restart-safe
- * 3. Never overwrite existing conflicting stableKey
- * 4. Detect and report conflicting records
- * 5. Preserve completed, failed, processing and ambiguous states correctly
- * 6. Safe with partial unique index on stableKey
+ * Operational and Safety Requirements:
+ * 1. Default to --dry-run (zero writes). Only write when options.apply === true.
+ * 2. Return complete operator report: scanned, matched, backfillable, backfilled, skipped, conflicts, errors.
+ * 3. Fail-closed on multiple legacy records: never arbitrarily pick one! Group by derived stableKey;
+ *    if multiple match, fail closed with AMBIGUOUS_MULTIPLE_LEGACY_RECORDS.
+ * 4. Verify unique partial index on stableKey before enabling migration.
+ * 5. Catch duplicate key errors gracefully during concurrent backfills.
+ * 6. Strictly preserve execution statuses: COMPLETED, FAILED, PROCESSING, AMBIGUOUS.
  */
 export const backfillLegacyEffectExecutions = async (options = {}) => {
     const logger = options.logger || console;
     const batchSize = options.batchSize || 100;
+    const isDryRun = options.dryRun ?? (options.apply !== true);
 
     const EffectExecution = mongoose.models.EffectExecution || (await import('../../models/EffectExecution.js')).default;
     const OutboxEvent = mongoose.models.OutboxEvent || (await import('../../models/OutboxEvent.js')).default;
 
     const report = {
+        dryRun: isDryRun,
         scanned: 0,
         matchedTimeTrigger: 0,
+        backfillable: 0,
         backfilled: 0,
         skippedAlreadyTagged: 0,
         skippedNonTimeTrigger: 0,
@@ -30,13 +53,33 @@ export const backfillLegacyEffectExecutions = async (options = {}) => {
         errors: []
     };
 
-    // Query all EffectExecution records where stableKey is null or missing
+    // 1. Verify partial unique index on stableKey
+    if (!options.skipIndexCheck) {
+        const indexCheck = await verifyEffectExecutionStableKeyIndex(EffectExecution);
+        if (!indexCheck.valid) {
+            const errMsg = `Pre-migration index check failed: ${indexCheck.reason}. Run ensureIndexes first.`;
+            report.errors.push(errMsg);
+            logger.error(`[EffectMigration] ❌ ${errMsg}`);
+            return report;
+        }
+    }
+
+    if (isDryRun) {
+        logger.log('[EffectMigration] 🔍 Running in DRY-RUN mode. No writes will be committed.');
+    } else {
+        logger.log('[EffectMigration] 🚀 Running in APPLY mode. Changes will be persisted.');
+    }
+
+    // 2. Scan legacy records without stableKey
     const cursor = EffectExecution.find({
         $or: [
             { stableKey: null },
             { stableKey: { $exists: false } }
         ]
     }).cursor({ batchSize });
+
+    // Map: derivedStableKey -> Array of legacy records
+    const candidatesByKey = new Map();
 
     for await (const record of cursor) {
         report.scanned++;
@@ -69,6 +112,41 @@ export const backfillLegacyEffectExecutions = async (options = {}) => {
             report.matchedTimeTrigger++;
             const derivedStableKey = `time-trigger:${idempotencyKey}:${actionId}`;
 
+            if (!candidatesByKey.has(derivedStableKey)) {
+                candidatesByKey.set(derivedStableKey, []);
+            }
+            candidatesByKey.get(derivedStableKey).push(record);
+        } catch (err) {
+            report.errors.push({
+                id: record._id.toString(),
+                error: err.message
+            });
+            logger.error(`[EffectMigration] Error scanning record ${record._id}:`, err.message);
+        }
+    }
+
+    // 3. Process candidate mappings with fail-closed ambiguity and conflict checks
+    for (const [derivedStableKey, records] of candidatesByKey.entries()) {
+        // Fail closed: If multiple legacy records map to the identical derivedStableKey,
+        // DO NOT arbitrarily select one. Fail closed and report conflict!
+        if (records.length > 1) {
+            logger.warn(`[EffectMigration] ⚠️ Ambiguity conflict: ${records.length} legacy records map to same stableKey: ${derivedStableKey}`);
+            for (const rec of records) {
+                report.conflicts.push({
+                    legacyId: rec._id.toString(),
+                    eventId: rec.eventId,
+                    effectKey: rec.effectKey,
+                    derivedStableKey,
+                    legacyStatus: rec.status,
+                    reason: 'AMBIGUOUS_MULTIPLE_LEGACY_RECORDS'
+                });
+            }
+            continue;
+        }
+
+        const record = records[0];
+
+        try {
             // Check if another EffectExecution document already possesses this derivedStableKey
             const existingWithKey = await EffectExecution.findOne({ stableKey: derivedStableKey }).lean();
             if (existingWithKey) {
@@ -77,7 +155,6 @@ export const backfillLegacyEffectExecutions = async (options = {}) => {
                     continue;
                 }
 
-                // Conflict: Do not overwrite an existing conflicting stableKey!
                 report.conflicts.push({
                     legacyId: record._id.toString(),
                     conflictingId: existingWithKey._id.toString(),
@@ -92,32 +169,44 @@ export const backfillLegacyEffectExecutions = async (options = {}) => {
                 continue;
             }
 
-            // Atomic update: only update if stableKey is still unset/null
-            // Status (COMPLETED, FAILED, PROCESSING, AMBIGUOUS) is strictly preserved!
-            const updateResult = await EffectExecution.updateOne(
-                {
-                    _id: record._id,
-                    $or: [
-                        { stableKey: null },
-                        { stableKey: { $exists: false } }
-                    ]
-                },
-                {
-                    $set: { stableKey: derivedStableKey }
-                }
-            );
+            report.backfillable++;
 
-            if (updateResult.modifiedCount > 0) {
-                report.backfilled++;
-            } else {
-                report.skippedAlreadyTagged++;
+            if (!isDryRun) {
+                // Atomic update: only update if stableKey is still unset/null
+                const updateResult = await EffectExecution.updateOne(
+                    {
+                        _id: record._id,
+                        $or: [
+                            { stableKey: null },
+                            { stableKey: { $exists: false } }
+                        ]
+                    },
+                    {
+                        $set: { stableKey: derivedStableKey }
+                    }
+                );
+
+                if (updateResult.modifiedCount > 0) {
+                    report.backfilled++;
+                } else {
+                    report.skippedAlreadyTagged++;
+                }
             }
         } catch (err) {
-            report.errors.push({
-                id: record._id.toString(),
-                error: err.message
-            });
-            logger.error(`[EffectMigration] Error backfilling record ${record._id}:`, err.message);
+            if (err.code === 11000) {
+                // Duplicate key error: another worker or process set this stableKey concurrently
+                report.conflicts.push({
+                    legacyId: record._id.toString(),
+                    derivedStableKey,
+                    reason: 'CONCURRENT_DUPLICATE_KEY_E11000'
+                });
+            } else {
+                report.errors.push({
+                    id: record._id.toString(),
+                    error: err.message
+                });
+                logger.error(`[EffectMigration] Error updating record ${record._id}:`, err.message);
+            }
         }
     }
 

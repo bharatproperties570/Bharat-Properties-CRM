@@ -684,6 +684,7 @@ export const processDomainEventJob = async (job) => {
 
                     // [P1.2] JIT Legacy Lookup: If no EffectExecution exists with stableKey, check if an earlier
                     // generation or legacy execution without stableKey exists for this action and link it.
+                    // Fail-closed requirement: Never arbitrarily pick if multiple legacy records exist!
                     if (stableKey) {
                         const EffectExecution = mongoose.models.EffectExecution || (await import('../../models/EffectExecution.js')).default;
                         const OutboxEvent = mongoose.models.OutboxEvent || (await import('../../models/OutboxEvent.js')).default;
@@ -697,13 +698,17 @@ export const processDomainEventJob = async (job) => {
 
                             if (earlierEvents && earlierEvents.length > 0) {
                                 const earlierEventIds = earlierEvents.map(e => e.eventId);
-                                const legacyExecution = await EffectExecution.findOne({
+                                const legacyExecutions = await EffectExecution.find({
                                     eventId: { $in: earlierEventIds },
                                     effectKey,
                                     $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
-                                });
+                                }).lean();
 
-                                if (legacyExecution) {
+                                if (legacyExecutions && legacyExecutions.length > 1) {
+                                    console.error(`[DomainEventWorker] Multiple legacy EffectExecution records found for ${stableKey}. Halting fail-closed to prevent ambiguous recovery.`);
+                                    throw new Error(`AMBIGUOUS_MULTIPLE_LEGACY_RECORDS: Found ${legacyExecutions.length} legacy records for ${stableKey}`);
+                                } else if (legacyExecutions && legacyExecutions.length === 1) {
+                                    const legacyExecution = legacyExecutions[0];
                                     try {
                                         await EffectExecution.updateOne(
                                             { _id: legacyExecution._id, $or: [{ stableKey: null }, { stableKey: { $exists: false } }] },
