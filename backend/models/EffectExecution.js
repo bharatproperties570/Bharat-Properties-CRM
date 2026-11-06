@@ -6,7 +6,7 @@ const EffectExecutionSchema = new mongoose.Schema({
     stableKey: { type: String, default: null },
     aggregateType: { type: String, required: true },
     aggregateId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    status: { type: String, enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'], default: 'PENDING', required: true },
+    status: { type: String, enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'AMBIGUOUS'], default: 'PENDING', required: true },
     attempts: { type: Number, default: 0, required: true },
     workerId: { type: String, default: null },
     executionId: { type: String, default: null },

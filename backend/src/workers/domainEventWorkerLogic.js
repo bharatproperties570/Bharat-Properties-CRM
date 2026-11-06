@@ -682,6 +682,41 @@ export const processDomainEventJob = async (job) => {
                         ? `time-trigger:${automationLogIdempotencyKey}:${action._id}`
                         : null;
 
+                    // [P1.2] JIT Legacy Lookup: If no EffectExecution exists with stableKey, check if an earlier
+                    // generation or legacy execution without stableKey exists for this action and link it.
+                    if (stableKey) {
+                        const EffectExecution = mongoose.models.EffectExecution || (await import('../../models/EffectExecution.js')).default;
+                        const OutboxEvent = mongoose.models.OutboxEvent || (await import('../../models/OutboxEvent.js')).default;
+
+                        const existingStable = await EffectExecution.findOne({ stableKey }).lean();
+                        if (!existingStable) {
+                            const earlierEvents = await OutboxEvent.find({
+                                eventType: 'TimeTriggerExecutionRequested',
+                                'payload.automationLogIdempotencyKey': automationLogIdempotencyKey
+                            }).select('eventId').lean();
+
+                            if (earlierEvents && earlierEvents.length > 0) {
+                                const earlierEventIds = earlierEvents.map(e => e.eventId);
+                                const legacyExecution = await EffectExecution.findOne({
+                                    eventId: { $in: earlierEventIds },
+                                    effectKey,
+                                    $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
+                                });
+
+                                if (legacyExecution) {
+                                    try {
+                                        await EffectExecution.updateOne(
+                                            { _id: legacyExecution._id, $or: [{ stableKey: null }, { stableKey: { $exists: false } }] },
+                                            { $set: { stableKey } }
+                                        );
+                                    } catch (linkErr) {
+                                        console.warn(`[DomainEventWorker] JIT legacy stableKey link skipped: ${linkErr.message}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     await executeEffect(eventId, effectKey, aggregateType, aggregateId, async () => {
                         await WorkflowEngine.executeAction(
                             action,

@@ -93,6 +93,7 @@ jobs:
           npm run test:phase5.2
           npm run test:phase5.3
           npm run test:phase5.4
+          npm run test:phase5.5
           npm run test:phase6
 
       - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
