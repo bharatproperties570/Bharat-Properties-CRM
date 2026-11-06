@@ -1640,7 +1640,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             });
         }
         if (!mongoose.connection || mongoose.connection.readyState !== 1) {
-            await mongoose.connect(sharedMongod.getUri());
+            await mongoose.connect(sharedMongod.getUri(), { monitorCommands: true });
         }
         return sharedMongod;
     }
@@ -3231,52 +3231,112 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
             // 23k. Concurrent write collision during index creation aborts cleanly and preserves records
             // -----------------------------------------------------------------
             await sub.test('23k. Concurrent write collision during index creation aborts cleanly and preserves records', async () => {
-                // Drop target index temporarily
-                const indexes = await DirectUploadRecord.collection.indexes();
-                const target = indexes.find(i => i.name === TARGET_INDEX_NAME);
-                if (target) {
-                    await DirectUploadRecord.collection.dropIndex(TARGET_INDEX_NAME);
-                }
+                // 1. Dedicated disposable test collection without target unique index
+                const dedicatedCollName = `test_concurrent_index_build_${Date.now()}`;
+                const DedicatedSchema = new mongoose.Schema({
+                    fileId: { type: String, required: true },
+                    sanitizedFileId: { type: String, required: true },
+                    userId: { type: String, required: true },
+                    tenantId: { type: String, default: null },
+                    batchToken: { type: String, required: true }
+                }, {
+                    autoIndex: false,
+                    autoCreate: false,
+                    collection: dedicatedCollName
+                });
+                const DedicatedModel = mongoose.model(dedicatedCollName, DedicatedSchema);
 
                 const testDocId = 'concurrent-test-doc-during-index-create.txt';
-                await DirectUploadRecord.create({
-                    fileId: testDocId,
-                    sanitizedFileId: testDocId,
-                    userId: String(userA._id),
-                    tenantId: String(userA.tenantId),
-                    batchToken: 'token-pre-create'
-                });
+                let writePromise = null;
+                let listenerTriggered = false;
 
-                const originalCreateIndex = DirectUploadRecord.collection.createIndex;
-                DirectUploadRecord.collection.createIndex = async function(spec, opts) {
-                    const err = new Error('E11000 duplicate key error collection: test.directuploadrecords index: direct_upload_records_fileid_unique dup key: { fileId: "concurrent-dup.txt" }');
-                    err.code = 11000;
-                    err.codeName = 'DuplicateKey';
-                    throw err;
+                const client = mongoose.connection.client;
+                const onCommandStarted = (event) => {
+                    if (event.commandName === 'createIndexes' && event.command.createIndexes === dedicatedCollName) {
+                        listenerTriggered = true;
+                        // Coordinate concurrent write attempt with duplicate fileId directly on MongoDB WiredTiger
+                        writePromise = mongoose.connection.db.collection(dedicatedCollName).insertOne({
+                            fileId: testDocId,
+                            sanitizedFileId: testDocId,
+                            userId: String(userB._id),
+                            tenantId: String(userB.tenantId),
+                            batchToken: 'token-concurrent-write'
+                        });
+                    }
                 };
 
-                let concurrentErr = null;
                 try {
-                    await runMigration(DirectUploadRecord);
-                } catch (err) {
-                    concurrentErr = err;
+                    // 2. Insert valid initial document
+                    await DedicatedModel.create({
+                        fileId: testDocId,
+                        sanitizedFileId: testDocId,
+                        userId: String(userA._id),
+                        tenantId: String(userA.tenantId),
+                        batchToken: 'token-pre-create'
+                    });
+
+                    // 3. Attach command listener and begin real unique index build via runMigration
+                    client.on('commandStarted', onCommandStarted);
+
+                    let concurrentErr = null;
+                    try {
+                        await runMigration(DedicatedModel);
+                    } catch (err) {
+                        concurrentErr = err;
+                    } finally {
+                        client.removeListener('commandStarted', onCommandStarted);
+                    }
+
+                    if (writePromise) {
+                        await writePromise.catch(() => {});
+                    }
+
+                    // 4. Verify invariants under genuine concurrency
+                    assert.ok(listenerTriggered, 'Command monitoring must have triggered concurrent write during createIndexes');
+                    assert.ok(concurrentErr, 'Must throw error when concurrent write collides during real createIndex');
+                    assert.strictEqual(concurrentErr.code, 11000, 'Database error code must be 11000');
+                    assert.strictEqual(concurrentErr.isConcurrentCollision, true, 'isConcurrentCollision flag must be true');
+                    assert.match(concurrentErr.message, /Concurrent write introduced duplicate fileId/, 'Error message must describe collision');
+                    assert.match(concurrentErr.message, /E11000 duplicate key error/, 'Error message must contain genuine database E11000 error');
+
+                    // Invariant A: Unique index failed to build due to duplicate key; no corrupted/partial unique index left
+                    const postIndexes = await DedicatedModel.collection.indexes();
+                    const targetUniqueIndex = postIndexes.find(i => i.name === TARGET_INDEX_NAME);
+                    assert.strictEqual(targetUniqueIndex, undefined, 'Unique index must not exist on collection after duplicate key collision');
+
+                    // Invariant B: Zero documents were deleted or overwritten
+                    const docs = await DedicatedModel.find({}).lean();
+                    assert.strictEqual(docs.length, 2, 'Both documents must exist in collection; no records deleted or overwritten');
+                    const initialDoc = docs.find(d => d.batchToken === 'token-pre-create');
+                    assert.ok(initialDoc, 'Pre-existing initial document must remain intact');
+                    assert.strictEqual(initialDoc.userId, String(userA._id));
+                    assert.strictEqual(initialDoc.tenantId, String(userA.tenantId));
+
+                    // Invariant C: Under an established unique index, duplicate writes fail closed
+                    // Clean duplicates and build unique index to verify that no duplicate fileId becomes durable
+                    await DedicatedModel.collection.deleteMany({ batchToken: 'token-concurrent-write' });
+                    const cleanBuildResult = await runMigration(DedicatedModel);
+                    assert.strictEqual(cleanBuildResult.success, true, 'Unique index builds successfully on clean collection');
+
+                    let duplicateRejected = false;
+                    try {
+                        await DedicatedModel.create({
+                            fileId: testDocId,
+                            sanitizedFileId: testDocId,
+                            userId: String(userB._id),
+                            tenantId: String(userB.tenantId),
+                            batchToken: 'token-post-index-duplicate'
+                        });
+                    } catch (dupErr) {
+                        duplicateRejected = true;
+                        assert.strictEqual(dupErr.code, 11000, 'MongoDB must reject duplicate write with code 11000');
+                    }
+                    assert.strictEqual(duplicateRejected, true, 'Duplicate write must be rejected once unique index is active');
                 } finally {
-                    DirectUploadRecord.collection.createIndex = originalCreateIndex;
+                    client.removeListener('commandStarted', onCommandStarted);
+                    await mongoose.connection.db.dropCollection(dedicatedCollName).catch(() => {});
+                    delete mongoose.models[dedicatedCollName];
                 }
-
-                assert.ok(concurrentErr, 'Must throw error when concurrent write collides during createIndex');
-                assert.strictEqual(concurrentErr.code, 11000);
-                assert.strictEqual(concurrentErr.isConcurrentCollision, true);
-                assert.match(concurrentErr.message, /Concurrent write introduced duplicate fileId/);
-
-                // Verify pre-existing records remain untouched
-                const docInDb = await DirectUploadRecord.findOne({ fileId: testDocId }).lean();
-                assert.ok(docInDb, 'Pre-existing document must not be corrupted or deleted');
-                assert.strictEqual(docInDb.batchToken, 'token-pre-create');
-
-                // Cleanup and re-create unique index
-                await DirectUploadRecord.collection.deleteMany({ fileId: testDocId });
-                await DirectUploadRecord.collection.createIndex({ fileId: 1 }, { unique: true, name: TARGET_INDEX_NAME, background: false });
             });
         } finally {
             User.findById = originalFindById;
