@@ -21,23 +21,31 @@ try {
 
     redis.on('error', () => {
         if (!redisAvailable) {
-            console.warn('⚠️  Redis not available - caching disabled (development mode)');
+            if (process.env.NODE_ENV !== 'test') {
+                console.warn('[CacheService] Redis not available - caching disabled (development mode)');
+            }
             redisAvailable = false;
         }
     });
 
     redis.on('connect', () => {
-        console.log('✅ Redis connected for permission caching');
+        if (process.env.NODE_ENV !== 'test') {
+            console.log('[CacheService] Redis connected for permission caching');
+        }
         redisAvailable = true;
     });
 
     // Try to connect
     redis.connect().catch(() => {
-        console.warn('⚠️  Redis not available - caching disabled (development mode)');
+        if (process.env.NODE_ENV !== 'test') {
+            console.warn('[CacheService] Redis not available - caching disabled (development mode)');
+        }
         redisAvailable = false;
     });
 } catch (error) {
-    console.warn('⚠️  Redis initialization failed - caching disabled');
+    if (process.env.NODE_ENV !== 'test') {
+        console.warn('[CacheService] Redis initialization failed - caching disabled');
+    }
     redisAvailable = false;
 }
 
@@ -267,8 +275,20 @@ export const getCacheStats = async () => {
     };
 };
 
+export const closeCache = async () => {
+    if (redis) {
+        try {
+            await redis.quit();
+        } catch {
+            try { redis.disconnect(); } catch {}
+        }
+        redisAvailable = false;
+    }
+};
+
 export default {
     redis,
+    closeCache,
     cacheUserPermissions,
     getCachedUserPermissions,
     invalidateUserPermissionCache,

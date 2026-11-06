@@ -10,7 +10,9 @@ class MockRedis extends EventEmitter {
         this.data = new Map();
         this.status = 'ready';
         this.isMock = true;
-        console.warn('⚠️  Redis: OPERATING IN MOCK MODE (In-memory fallback activated)');
+        if (process.env.NODE_ENV !== 'test') {
+            console.warn('[Redis] Operating in mock mode (In-memory fallback activated)');
+        }
         setTimeout(() => {
             this.emit('ready');
             this.emit('connect');
@@ -426,7 +428,9 @@ if (isProduction) {
     }
 
     if (!redisExists) {
-        console.warn('⚠️  Redis server not detected on port 6379. Pre-emptively starting in MOCK MODE.');
+        if (process.env.NODE_ENV !== 'test') {
+            console.warn('[Redis] Redis server not detected on port 6379. Pre-emptively starting in MOCK MODE.');
+        }
         internalConnection = new MockRedis();
         isRedisOnline = true;
     } else {
@@ -436,13 +440,17 @@ if (isProduction) {
             
             internalConnection.on('ready', () => {
                 isRedisOnline = true;
-                console.log('✅ Redis connected successfully');
+                if (process.env.NODE_ENV !== 'test') {
+                    console.log('[Redis] Connected successfully');
+                }
             });
 
             internalConnection.on('error', (err) => {
                 isRedisOnline = false;
                 if (!internalConnection.isMock) {
-                    console.warn('❌ Redis Error: Forcing Mock mode fallback for dev/test...');
+                    if (process.env.NODE_ENV !== 'test') {
+                        console.warn('[Redis] Error: Forcing Mock mode fallback for dev/test...');
+                    }
                     const oldConn = internalConnection;
                     internalConnection = new MockRedis();
                     isRedisOnline = true;

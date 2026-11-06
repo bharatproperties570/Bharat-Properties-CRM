@@ -72,7 +72,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
             const mmsModule = await import('mongodb-memory-server');
             MongoMemoryServer = mmsModule.MongoMemoryServer;
         } catch (err) {
-            console.error('⚠️  mongodb-memory-server unavailable', err);
+            console.error('[WARN] mongodb-memory-server unavailable', err);
             return;
         }
 

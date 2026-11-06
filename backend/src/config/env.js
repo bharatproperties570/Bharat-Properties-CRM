@@ -22,8 +22,8 @@ export const config = {
 const requiredEnvVars = ['MONGODB_URI'];
 
 requiredEnvVars.forEach(varName => {
-    if (!process.env[varName] && !config.mockMode) {
-        console.warn(`⚠️  Warning: ${varName} is not set in environment variables`);
+    if (!process.env[varName] && !config.mockMode && process.env.NODE_ENV !== 'test') {
+        console.warn(`[Config] Warning: ${varName} is not set in environment variables`);
     }
 });
 
