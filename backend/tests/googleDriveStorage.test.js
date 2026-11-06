@@ -3229,6 +3229,16 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
 
             // -----------------------------------------------------------------
             // 23k. Concurrent write collision during index creation aborts cleanly and preserves records
+            //
+            // Synchronization Mechanism & Scope Disclosure:
+            // Uses MongoDB Node Driver Command Monitoring (`commandStarted` for `createIndexes`)
+            // to coordinate a genuine concurrent write without client-side monkey patching or synthetic errors.
+            // When the duplicate write commits during the hybrid index build, MongoDB WiredTiger aborts with a genuine
+            // "Index build failed: <build-uuid> ... :: caused by :: E11000 duplicate key error".
+            // Note: Server-side thread interleaving is determined by MongoDB WiredTiger; fine-grained thread pauses
+            // cannot be locked deterministically without internal C++ debug failpoints (e.g. hangIndexBuildDuringCollectionScan),
+            // which are unavailable in standard production MongoDB binaries. Driver command coordination reliably exercises
+            // the real server abort pathway.
             // -----------------------------------------------------------------
             await sub.test('23k. Concurrent write collision during index creation aborts cleanly and preserves records', async () => {
                 // 1. Dedicated disposable test collection without target unique index
@@ -3298,6 +3308,7 @@ test('PR #31 — Google Drive-First Document Storage Remediation', async (t) => 
                     assert.strictEqual(concurrentErr.isConcurrentCollision, true, 'isConcurrentCollision flag must be true');
                     assert.match(concurrentErr.message, /Concurrent write introduced duplicate fileId/, 'Error message must describe collision');
                     assert.match(concurrentErr.message, /E11000 duplicate key error/, 'Error message must contain genuine database E11000 error');
+                    assert.match(concurrentErr.message, /Index build failed/, 'Error message must confirm genuine WiredTiger hybrid index build abort');
 
                     // Invariant A: Unique index failed to build due to duplicate key; no corrupted/partial unique index left
                     const postIndexes = await DedicatedModel.collection.indexes();
