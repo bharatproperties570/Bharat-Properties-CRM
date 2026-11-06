@@ -4,11 +4,229 @@ import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 import Activity from '../../models/Activity.js';
 import AuditLog from '../../models/AuditLog.js';
+import AutomationLog from '../../models/AutomationLog.js';
+import OutboxEvent from '../../models/OutboxEvent.js';
+import mongoose from 'mongoose';
+import { v4 as uuidv4 } from 'uuid';
 import { notificationQueue, domainEventQueue } from '../queues/queueManager.js';
 import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 import { publishPendingEvents } from '../../services/OutboxPublisher.js';
+
+export const TIME_TRIGGER_LEASE_MS = 15 * 60 * 1000; // 15 minutes lease duration
+export const MAX_RECOVERY_ATTEMPTS = 3;              // Maximum recovery threshold before terminal dead-lettering
+
+/**
+ * [C5] Atomically acquire the execution lock and enqueue the durable OutboxEvent.
+ *
+ * Normal path (new entity):
+ *   - AutomationLog.create({ status: 'pending', leaseUntil, claimToken, recoveryCount: 0 }) + OutboxEvent.create() in one Mongo transaction.
+ *
+ * R27-protected retry path (previously failed non-terminal entity):
+ *   - AutomationLog.updateOne({ status: 'pending', leaseUntil, claimToken }) + OutboxEvent.create() in one transaction.
+ *
+ * Stale lease recovery path:
+ *   - AutomationLog.findOneAndUpdate({ status: 'pending', leaseUntil <= now, recoveryCount < 3 }) + OutboxEvent.create() in one transaction.
+ *
+ * Terminal failure exhaustion path:
+ *   - When recoveryCount >= 3, updates AutomationLog to failed (terminal: true) + creates AuditLog atomically.
+ *
+ * Skip path (status = 'success' or active pending):
+ *   - Clean non-throwing transaction completion returning enqueued: false.
+ *
+ * @param {string} idempotencyKey
+ * @param {ObjectId} triggerId
+ * @param {ObjectId} entityId
+ * @param {string} entityType    - 'leads' | 'deals' | 'activities'
+ * @param {string} aggregateType - 'Lead' | 'Deal' | 'Activity'
+ * @param {ObjectId} companyId
+ * @param {Object} [options]
+ * @returns {Promise<boolean>} true if an OutboxEvent was successfully enqueued.
+ */
+export async function acquireAndEnqueue(idempotencyKey, triggerId, entityId, entityType, aggregateType, companyId, options = {}) {
+    const session = options.session || (await mongoose.startSession());
+    const isExternalSession = !!options.session;
+
+    const executeTxn = async (s) => {
+        const now = new Date();
+        const leaseDuration = options.leaseDurationMs || TIME_TRIGGER_LEASE_MS;
+        const newLeaseUntil = new Date(now.getTime() + leaseDuration);
+        const newClaimToken = options.claimToken || uuidv4();
+        const staleThreshold = new Date(now.getTime() - leaseDuration);
+
+        const existingLog = await AutomationLog.findOne({ idempotencyKey }).session(s);
+
+        if (existingLog) {
+            // 1. Permanently completed: inert
+            if (existingLog.status === 'success') {
+                return { enqueued: false, outcome: 'SKIPPED_COMPLETED' };
+            }
+
+            // 2. Previously failed (non-terminal transient retry)
+            if (existingLog.status === 'failed') {
+                if (existingLog.details?.terminal === true) {
+                    return { enqueued: false, outcome: 'SKIPPED_TERMINAL_FAILED' };
+                }
+                await AutomationLog.updateOne(
+                    { _id: existingLog._id },
+                    { $set: { status: 'pending', claimToken: newClaimToken, leaseUntil: newLeaseUntil, updatedAt: now } },
+                    { session: s }
+                );
+                await OutboxEvent.create([{
+                    eventId: uuidv4(),
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType,
+                    aggregateId: entityId,
+                    payload: {
+                        triggerId,
+                        entityType,
+                        automationLogIdempotencyKey: idempotencyKey,
+                        claimToken: newClaimToken,
+                        recoveryGeneration: existingLog.recoveryCount || 0,
+                        companyId
+                    }
+                }], { session: s });
+                return { enqueued: true, outcome: 'RECOVERED_AND_ENQUEUED' };
+            }
+
+            // 3. Pending check: active lease fast-skip
+            const isActivelyLeased = existingLog.leaseUntil && existingLog.leaseUntil > now;
+            const isFreshlyCreated = !existingLog.leaseUntil && existingLog.updatedAt > staleThreshold;
+            if (isActivelyLeased || isFreshlyCreated) {
+                return { enqueued: false, outcome: 'SKIPPED_ACTIVE' };
+            }
+
+            // 4. Pending check: recovery exhaustion threshold (dead-lettering)
+            if ((existingLog.recoveryCount || 0) >= MAX_RECOVERY_ATTEMPTS) {
+                const terminalUpdate = await AutomationLog.findOneAndUpdate(
+                    {
+                        _id: existingLog._id,
+                        status: 'pending',
+                        recoveryCount: { $gte: MAX_RECOVERY_ATTEMPTS }
+                    },
+                    {
+                        $set: {
+                            status: 'failed',
+                            'details.error': `TERMINAL_RECOVERY_EXHAUSTED: Exceeded ${MAX_RECOVERY_ATTEMPTS} stale lease recovery attempts.`,
+                            'details.terminal': true,
+                            failedAt: now
+                        },
+                        $unset: { leaseUntil: 1 }
+                    },
+                    { session: s, new: true }
+                );
+
+                if (terminalUpdate) {
+                    await AuditLog.create([{
+                        eventType: 'automation_recovery_exhausted',
+                        targetType: entityType === 'leads' ? 'lead' : (entityType === 'deals' ? 'deal' : 'activity'),
+                        targetId: entityId,
+                        targetName: `TimeTrigger: ${triggerId}`,
+                        changes: { before: 'pending', after: 'failed' },
+                        description: `Trigger evaluation reached terminal failure after ${MAX_RECOVERY_ATTEMPTS} stale recovery attempts.`,
+                        timestamp: now
+                    }], { session: s });
+                    return { enqueued: false, outcome: 'TERMINAL_TRANSITIONED' };
+                } else {
+                    return { enqueued: false, outcome: 'ALREADY_TERMINAL' };
+                }
+            }
+
+            // 5. Pending check: atomic stale recovery CAS
+            const recoveredLog = await AutomationLog.findOneAndUpdate(
+                {
+                    _id: existingLog._id,
+                    status: 'pending',
+                    recoveryCount: { $lt: MAX_RECOVERY_ATTEMPTS },
+                    $or: [
+                        { leaseUntil: { $lte: now } },
+                        { leaseUntil: null, updatedAt: { $lte: staleThreshold } }
+                    ]
+                },
+                {
+                    $set: {
+                        status: 'pending',
+                        claimToken: newClaimToken,
+                        leaseUntil: newLeaseUntil,
+                        updatedAt: now
+                    },
+                    $inc: { recoveryCount: 1 }
+                },
+                { session: s, new: true }
+            );
+
+            if (recoveredLog) {
+                await OutboxEvent.create([{
+                    eventId: uuidv4(),
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType,
+                    aggregateId: entityId,
+                    payload: {
+                        triggerId,
+                        entityType,
+                        automationLogIdempotencyKey: idempotencyKey,
+                        claimToken: newClaimToken,
+                        recoveryGeneration: recoveredLog.recoveryCount,
+                        companyId
+                    }
+                }], { session: s });
+                return { enqueued: true, outcome: 'RECOVERED_AND_ENQUEUED' };
+            } else {
+                return { enqueued: false, outcome: 'CAS_LOST' };
+            }
+        }
+
+        // 6. Fresh document
+        await AutomationLog.create([{
+            ruleType: 'TimeBasedTrigger',
+            ruleId: triggerId,
+            targetEntityId: entityId,
+            targetModule: entityType,
+            status: 'pending',
+            idempotencyKey,
+            claimToken: newClaimToken,
+            leaseUntil: newLeaseUntil,
+            recoveryCount: 0,
+            companyId
+        }], { session: s });
+
+        await OutboxEvent.create([{
+            eventId: uuidv4(),
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType,
+            aggregateId: entityId,
+            payload: {
+                triggerId,
+                entityType,
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: newClaimToken,
+                recoveryGeneration: 0,
+                companyId
+            }
+        }], { session: s });
+
+        return { enqueued: true, outcome: 'CREATED_AND_ENQUEUED' };
+    };
+
+    if (isExternalSession) {
+        const res = await executeTxn(session);
+        return res.enqueued;
+    }
+
+    try {
+        let result = null;
+        await session.withTransaction(async () => {
+            result = await executeTxn(session);
+        });
+        return result?.enqueued || false;
+    } catch (err) {
+        console.error(`[Cron Worker] [C5] Transaction failed for trigger ${triggerId} entity ${entityId}:`, err.message);
+        return false;
+    } finally {
+        await session.endSession();
+    }
+}
 
 // Setup connection options
 const workerOptions = { connection: redisConnection };
@@ -266,91 +484,8 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
             })
             .map(l => l._id);
 
-        /**
-         * [C5] Atomically acquire the execution lock and enqueue the durable OutboxEvent.
-         *
-         * Normal path (new entity):
-         *   - AutomationLog.create({ status: 'pending' }) + OutboxEvent.create() in one Mongo transaction.
-         *
-         * R27-protected retry path (previously failed entity):
-         *   - AutomationLog.findOneAndUpdate({ status: 'failed' → 'pending' }) + OutboxEvent.create() in one transaction.
-         *
-         * Skip path (status = 'success' or 'pending'):
-         *   - Skip entirely. Do NOT replay. Do NOT create an OutboxEvent.
-         *
-         * @param {string} idempotencyKey
-         * @param {ObjectId} triggerId
-         * @param {ObjectId} entityId
-         * @param {string} entityType    - 'leads' | 'deals' | 'activities'
-         * @param {string} aggregateType - 'Lead' | 'Deal' | 'Activity'
-         * @param {ObjectId} companyId
-         * @returns {boolean} true if an OutboxEvent was successfully enqueued.
-         */
-        async function acquireAndEnqueue(idempotencyKey, triggerId, entityId, entityType, aggregateType, companyId) {
-            const session = await mongoose.startSession();
-            try {
-                let enqueued = false;
-                await session.withTransaction(async () => {
-                    let isNewRecord = false;
-
-                    const existingLog = await AutomationLog.findOne({ idempotencyKey }).session(session);
-
-                    if (existingLog) {
-                        if (existingLog.status === 'failed') {
-                            await AutomationLog.updateOne(
-                                { _id: existingLog._id },
-                                { $set: { status: 'pending' } },
-                                { session }
-                            );
-                            isNewRecord = false;
-                        } else {
-                            // 'success' or existing 'pending' — leave inert, abort transaction cleanly
-                            const e = new Error('SKIP_INERT');
-                            e.code = 'SKIP_INERT';
-                            throw e;
-                        }
-                    } else {
-                        await AutomationLog.create([{
-                            ruleType: 'TimeBasedTrigger',
-                            ruleId: triggerId,
-                            targetEntityId: entityId,
-                            targetModule: entityType,
-                            status: 'pending',
-                            idempotencyKey,
-                            companyId
-                        }], { session });
-                        isNewRecord = true;
-                    }
-
-                    // AutomationLog is now 'pending' (new or reclaimed from 'failed').
-                    // Create the OutboxEvent in the same session to guarantee atomicity.
-                    await OutboxEvent.create([{
-                        eventType: 'TimeTriggerExecutionRequested',
-                        aggregateType,
-                        aggregateId: entityId,
-                        payload: {
-                            triggerId,
-                            entityType,
-                            automationLogIdempotencyKey: idempotencyKey,
-                            companyId
-                        }
-                    }], { session });
-
-                    enqueued = true;
-                    const logContext = isNewRecord ? 'new execution' : 'retry (reclaimed from failed)';
-                    console.log(`[Cron Worker] [C5] Enqueued ${logContext} for trigger ${triggerId} entity ${entityId}`);
-                });
-                return enqueued;
-            } catch (err) {
-                if (err.code === 'SKIP_INERT') {
-                    return false;
-                }
-                console.error(`[Cron Worker] [C5] Transaction failed for trigger ${triggerId} entity ${entityId}:`, err.message);
-                return false;
-            } finally {
-                await session.endSession();
-            }
-        }
+        // [C5] Uses module-level acquireAndEnqueue() with atomic stale CAS recovery,
+        // lease ownership fencing, and terminal recovery exhaustion.
 
         for (const trigger of activeTimeTriggers) {
             const companyId = trigger.companyId;

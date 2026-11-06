@@ -623,19 +623,30 @@ export const processDomainEventJob = async (job) => {
                 }
 
                 // All required effects are COMPLETED (or SKIPPED if already done).
-                // Update AutomationLog to success as the business-level execution record.
-                await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'success' } }
+                // Update AutomationLog to success as the business-level execution record with fenced ownership check.
+                const successPredicate = { idempotencyKey: automationLogIdempotencyKey };
+                if (payload.claimToken) {
+                    successPredicate.claimToken = payload.claimToken;
+                }
+                const successUpdate = await AutomationLog.updateOne(
+                    successPredicate,
+                    { $set: { status: 'success', completedAt: new Date() }, $unset: { leaseUntil: 1 } }
                 );
+                if (successUpdate.modifiedCount === 0 && payload.claimToken) {
+                    console.warn(`[DomainEventWorker] [C5] Ownership lost during success finalization for ${automationLogIdempotencyKey}. Claim token was superseded.`);
+                }
                 console.log(`[DomainEventWorker] [C5] TimeTriggerExecution succeeded — trigger=${triggerId} entity=${aggregateId}`);
             } catch (err) {
                 // A required action effect reached terminal failure (MAX_ATTEMPTS) or threw unexpectedly.
-                // Stop remaining actions. Mark AutomationLog failed.
+                // Stop remaining actions. Mark AutomationLog failed if claim token is still ours.
                 console.error(`[DomainEventWorker] [C5] TimeTriggerExecution failed — trigger=${triggerId} entity=${aggregateId}:`, err.message);
+                const failPredicate = { idempotencyKey: automationLogIdempotencyKey };
+                if (payload.claimToken) {
+                    failPredicate.claimToken = payload.claimToken;
+                }
                 await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'failed', details: { error: err.message } } }
+                    failPredicate,
+                    { $set: { status: 'failed', details: { error: err.message }, failedAt: new Date() }, $unset: { leaseUntil: 1 } }
                 );
                 throw err; // Re-throw so BullMQ marks the job as failed for its own retry tracking
             }

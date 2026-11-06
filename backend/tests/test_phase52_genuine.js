@@ -70,12 +70,13 @@ async function run() {
     assert.strictEqual(countAfterRollback, 2, "Lead should NOT be created if transaction fails");
 
     console.log("✅ All Phase 5.2 Genuine Integration Tests Passed!");
-    
-    await mongoose.disconnect();
-    await replSet.stop();
 }
 
-run().catch(async (err) => {
+run().then(async () => {
+    if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
+    if (replSet) await replSet.stop();
+    process.exit(0);
+}).catch(async (err) => {
     console.error(err);
     if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
     if (replSet) await replSet.stop();

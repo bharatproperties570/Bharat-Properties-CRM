@@ -187,7 +187,11 @@ const AuditLogSchema = new mongoose.Schema({
             'canonical_policy_synced',
             'authority_canonical_policy_synced',
             'canonical_policy_sync_reconciled',
-            'authority_canonical_policy_sync_reconciled'
+            'authority_canonical_policy_sync_reconciled',
+
+            // Automation / Reliability Events
+            'automation_recovery_exhausted',
+            'automation_manual_retry'
         ],
         index: true
     },

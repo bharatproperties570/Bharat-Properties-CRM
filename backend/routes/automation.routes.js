@@ -1,11 +1,12 @@
 import express from 'express';
-import { authenticate } from '../src/middlewares/auth.middleware.js';
+import { authenticate, authorize } from '../src/middlewares/auth.middleware.js';
 import {
     getTriggers, createTrigger, updateTrigger, deleteTrigger,
     getSequences, createSequence, getSequenceById, updateSequence, deleteSequence,
     getAutomatedActions, createAutomatedAction, updateAutomatedAction, deleteAutomatedAction,
     enrollEntityInSequence, getEntityEnrollments,
-    getAuditLogs
+    getAuditLogs,
+    retryAutomationLog
 } from '../controllers/automation.controller.js';
 
 const router = express.Router();
@@ -36,5 +37,8 @@ router.delete('/actions/:id', deleteAutomatedAction);
 
 // --- Audit Logs ---
 router.get('/audit-logs', getAuditLogs);
+
+// --- Automation Logs Recovery ---
+router.post('/logs/:id/retry', authorize('admin', 'super admin'), retryAutomationLog);
 
 export default router;
