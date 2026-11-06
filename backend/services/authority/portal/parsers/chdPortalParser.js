@@ -211,13 +211,26 @@ export const chdPortalParser = Object.freeze({
             return [];
         }
 
-        // 8. Sanitize away any accidental personal fields
+        // 7.5 Extract provisional disclaimer if present in response
+        let disclaimerText = null;
+        const disclaimerMatch = /Disclaimer\s*:\s*([^<\r\n]+)/i.exec(text);
+        if (disclaimerMatch && disclaimerMatch[1]) {
+            disclaimerText = disclaimerMatch[1].trim();
+        } else if (/does not constitute a legal document/i.test(text)) {
+            disclaimerText = 'Neither Estate Office nor NIC is responsible for any inadvertent error. This does not constitute a legal document.';
+        }
+
+        // 8. Sanitize away any accidental personal fields and attach provisional disclaimer
         const sanitizedRecords = records.map(rec => {
             const clean = {};
             for (const [k, v] of Object.entries(rec)) {
                 if (!FORBIDDEN_AUTHORITY_PERSONAL_FIELD.test(k)) {
                     clean[k] = v;
                 }
+            }
+            if (disclaimerText) {
+                clean.disclaimer = disclaimerText;
+                clean.isProvisional = true;
             }
             return clean;
         });

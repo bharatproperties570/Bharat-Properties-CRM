@@ -159,6 +159,16 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
         enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
         index: true
     },
+    requiresHumanReview: {
+        type: Boolean,
+        default: true,
+        index: true
+    },
+    isApplied: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
     claimedBy: {
         type: String,
         default: null

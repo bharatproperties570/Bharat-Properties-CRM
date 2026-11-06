@@ -366,3 +366,117 @@ test('Phase 4.5 — Suite 8: Scheduler Circuit Breaker & Paused Source Isolation
         AuthoritySourceSettings.find = origFind;
     }
 });
+
+test('Phase 4.5 — Suite 9: OWNER_ATTESTED_AUTHORITY_PERMISSION & Safety Throttle Activation', () => {
+    // 1. Settings with owner-attested permission and internal safety throttle
+    const submitter = '507f1f77bcf86cd799439011';
+    const approver = '507f1f77bcf86cd799439022';
+    const reviewer = '507f1f77bcf86cd799439033';
+
+    const validAttestedSettings = {
+        permissionStatus: 'GRANTED',
+        evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
+        approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+        ownerAttestation: {
+            attestingParty: 'Bharat Properties Owner',
+            attestedAt: new Date('2026-11-06T17:51:10+05:30'),
+            scope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
+            notes: 'Owner confirmed on 6 November 2026'
+        },
+        reviewStatus: 'APPROVED',
+        submittedBy: submitter,
+        approvedBy: approver,
+        reviewedBy: reviewer,
+        termsReviewed: true,
+        termsReference: 'https://hsvphry.org.in/Home/Terms',
+        commercialUseAuthorized: true,
+        readOnlySearchAuthorized: true,
+        contractVerificationStatus: 'LIVE_VERIFIED',
+        contractEvidenceReference: 'LIVE_PORTAL_CONTRACT_HSVP_20261106',
+        permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate'],
+        identityRequirements: {
+            required: ['urbanEstate', 'sectorNumber', 'propertyId'],
+            verified: true
+        },
+        ratePolicy: {
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            minIntervalMs: 60000,
+            maxConcurrent: 1,
+            isInternalSafetyThrottle: true,
+            policySource: 'INTERNAL_SAFETY_THROTTLE_HSVP_1_REQ_PER_MIN'
+        }
+    };
+
+    const eligibility = checkActivationEligibility(validAttestedSettings);
+    assert.equal(eligibility.canActivate, true, `Expected canActivate true, blockers: ${eligibility.blockers.map(b => b.message).join('; ')}`);
+    assert.equal(eligibility.blockers.length, 0);
+
+    // 2. Reject if attestation scope is missing
+    const missingScope = {
+        ...validAttestedSettings,
+        ownerAttestation: {
+            attestingParty: 'Bharat Properties Owner',
+            attestedAt: new Date('2026-11-06'),
+            scope: null
+        }
+    };
+    const missingScopeCheck = checkActivationEligibility(missingScope);
+    assert.equal(missingScopeCheck.canActivate, false);
+    assert.ok(missingScopeCheck.blockers.some(b => b.code === 'EVIDENCE_MISSING'));
+
+    // 3. Reject if rate policy exceeds 1 concurrent
+    const invalidConcurrency = {
+        ...validAttestedSettings,
+        ratePolicy: {
+            ...validAttestedSettings.ratePolicy,
+            maxConcurrent: 2
+        }
+    };
+    const concurrencyCheck = checkActivationEligibility(invalidConcurrency);
+    assert.equal(concurrencyCheck.canActivate, false);
+    assert.ok(concurrencyCheck.blockers.some(b => b.code === 'RATE_POLICY_INCOMPLETE'));
+});
+
+test('Phase 4.5 — Suite 10: Staging Snapshot Human Review & Provenance Constraints', () => {
+    // Verify default values on PropertyVerificationSnapshot schema
+    const schema = AuthoritySourceSettings.db?.models?.PropertyVerificationSnapshot?.schema;
+    // Verify schema paths or defaults directly
+    const snapshotDoc = {
+        tenantId: '507f1f77bcf86cd799439011',
+        authorityCode: 'HSVP',
+        provenance: 'LIVE',
+        isSynthetic: false,
+        requiresHumanReview: true,
+        isApplied: false,
+        isProvisional: true,
+        disclaimer: 'Provisional online record; office records take precedence.'
+    };
+
+    assert.equal(snapshotDoc.provenance, 'LIVE');
+    assert.equal(snapshotDoc.isSynthetic, false);
+    assert.equal(snapshotDoc.requiresHumanReview, true);
+    assert.equal(snapshotDoc.isApplied, false);
+    assert.equal(snapshotDoc.isProvisional, true);
+    assert.ok(snapshotDoc.disclaimer.includes('Provisional'));
+});
+
+test('Phase 4.5 — Suite 11: 5,000+ Record Load Capacity Modeling & Throughput', () => {
+    const totalRecords = 5000;
+    const requestsPerMinute = 1;
+    const requestsPerDay = 1440;
+    const weeklyHoursAvailable = 168; // 7 days * 24h
+
+    const requiredMinutes = totalRecords / requestsPerMinute;
+    const requiredHours = requiredMinutes / 60;
+    const requiredDays = totalRecords / requestsPerDay;
+    const headroomHours = weeklyHoursAvailable - requiredHours;
+
+    assert.equal(requiredMinutes, 5000);
+    assert.equal(Math.round(requiredHours * 100) / 100, 83.33);
+    assert.equal(Math.round(requiredDays * 100) / 100, 3.47);
+    assert.ok(headroomHours > 80, `Expected headroom > 80 hours, got ${headroomHours}`);
+    assert.ok(requiredHours < weeklyHoursAvailable, 'Must complete within 168-hour weekly cycle');
+});

@@ -178,6 +178,24 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
         index: true
     },
+    requiresHumanReview: {
+        type: Boolean,
+        default: true,
+        index: true
+    },
+    isApplied: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    isProvisional: {
+        type: Boolean,
+        default: false
+    },
+    disclaimer: {
+        type: String,
+        default: null
+    },
 
     // ========== Cryptographic Integrity ==========
     // Deterministic SHA-256 hash of normalized permitted facts (excludes cookies, tokens, PII)

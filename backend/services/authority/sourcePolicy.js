@@ -23,9 +23,16 @@ export const PERMISSION_STATUS = Object.freeze({
     NOT_OBTAINED: 'NOT_OBTAINED',
     REQUESTED: 'REQUESTED',
     APPROVED: 'APPROVED',
+    GRANTED: 'GRANTED',
     DENIED: 'DENIED',
     SUSPENDED: 'SUSPENDED',
     EXPIRED: 'EXPIRED',
+});
+
+export const EVIDENCE_BASIS = Object.freeze({
+    NOT_APPLICABLE: 'NOT_APPLICABLE',
+    OWNER_ATTESTED_AUTHORITY_PERMISSION: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
+    OFFICIAL_WRITTEN_LETTER: 'OFFICIAL_WRITTEN_LETTER'
 });
 
 export const ACCESS_METHOD = Object.freeze({
@@ -84,6 +91,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             reportedAt: '2026-11-06',
             claimedRole: 'Chief Administrator',
             status: 'PENDING_WRITTEN_REFERENCE',
+            evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
         },
 
@@ -158,6 +166,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             reportedAt: '2026-11-06',
             claimedRole: 'Estate Officer',
             status: 'PENDING_WRITTEN_REFERENCE',
+            evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
         },
 
@@ -224,6 +233,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             reportedAt: '2026-11-06',
             claimedRole: 'Chief Administrator',
             status: 'PENDING_WRITTEN_REFERENCE',
+            evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
         },
 
@@ -304,10 +314,68 @@ export const isSourceActivated = (authorityId) => {
     return { allowed: true, reason: 'All activation requirements met' };
 };
 
+export const OWNER_ATTESTED_AUTHORITY_POLICIES = Object.freeze({
+    HSVP: Object.freeze({
+        authorityId: 'HSVP',
+        permissionStatus: 'GRANTED',
+        evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
+        attestingParty: 'Bharat Properties Owner',
+        attestedAt: '2026-11-06T17:51:10+05:30',
+        claimedRole: 'Chief Administrator',
+        scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+        ratePolicy: Object.freeze({
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            maxConcurrent: 1,
+            isInternalSafetyThrottle: true,
+            policyReference: 'INTERNAL_SAFETY_THROTTLE_HSVP_1_REQ_PER_MIN'
+        })
+    }),
+    GMADA: Object.freeze({
+        authorityId: 'GMADA',
+        permissionStatus: 'GRANTED',
+        evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
+        attestingParty: 'Bharat Properties Owner',
+        attestedAt: '2026-11-06T17:51:10+05:30',
+        claimedRole: null, // do not invent official designations
+        scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+        ratePolicy: Object.freeze({
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            maxConcurrent: 1,
+            isInternalSafetyThrottle: true,
+            policyReference: 'INTERNAL_SAFETY_THROTTLE_GMADA_1_REQ_PER_MIN'
+        })
+    }),
+    ESTATE_OFFICE_CHD: Object.freeze({
+        authorityId: 'ESTATE_OFFICE_CHD',
+        permissionStatus: 'GRANTED',
+        evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
+        attestingParty: 'Bharat Properties Owner',
+        attestedAt: '2026-11-06T17:51:10+05:30',
+        claimedRole: null, // do not invent official designations
+        scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+        ratePolicy: Object.freeze({
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            maxConcurrent: 1,
+            isInternalSafetyThrottle: true,
+            policyReference: 'INTERNAL_SAFETY_THROTTLE_CHD_1_REQ_PER_MIN'
+        })
+    })
+});
+
 export default {
     PERMISSION_STATUS,
     ACCESS_METHOD,
     STOP_CONDITIONS,
     SOURCE_POLICY_MATRIX,
+    OWNER_ATTESTED_AUTHORITY_POLICIES,
     isSourceActivated,
 };
