@@ -40,10 +40,13 @@ const AutomationLogSchema = new mongoose.Schema({
     idempotencyKey: { type: String, unique: true, sparse: true, index: true }, // Prevents duplicate execution
     claimToken: { type: String }, // E.3-C.1 Ownership Lease Fields
     leaseUntil: { type: Date },
+    recoveryCount: { type: Number, default: 0 },
+    failedAt: { type: Date },
+    completedAt: { type: Date },
     tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null },
     executedAt: { type: Date, default: Date.now },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
-});
+}, { timestamps: true });
 
 AutomationLogSchema.index({ tenantId: 1, executedAt: -1 }, { background: true });
 AutomationLogSchema.index({ claimToken: 1, leaseUntil: 1 }, { background: true });

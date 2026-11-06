@@ -365,3 +365,138 @@ export const getEntityEnrollments = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+/**
+ * [Phase 5 / R27] Operator manual retry for terminally exhausted AutomationLog records.
+ * Atomically transitions status: 'failed' (terminal: true) -> 'pending' (recoveryCount: 0)
+ * and enqueues a fresh OutboxEvent with generation 0 and a new claimToken.
+ */
+export const retryAutomationLog = async (req, res) => {
+    const { id } = req.params;
+    const adminUser = req.user;
+    const rawTenantId = req.user?.tenantId || req.user?.tenant;
+    const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
+    let session = null;
+    try {
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        const AuditLog = (await import('../models/AuditLog.js')).default;
+        const { v4: uuidv4 } = await import('uuid');
+
+        session = await mongoose.startSession();
+        let updatedLog = null;
+        let conflictOrNotFound = false;
+
+        await session.withTransaction(async () => {
+            const current = await AutomationLog.findOne({ _id: id, ...tenantFilter }).session(session);
+
+            if (!current) {
+                return;
+            }
+
+            if (current.status !== 'failed' || current.details?.terminal !== true) {
+                conflictOrNotFound = true;
+                return;
+            }
+
+            const now = new Date();
+            const newClaimToken = uuidv4();
+            const TIME_TRIGGER_LEASE_MS = 15 * 60 * 1000;
+            const newLeaseUntil = new Date(now.getTime() + TIME_TRIGGER_LEASE_MS);
+
+            updatedLog = await AutomationLog.findOneAndUpdate(
+                {
+                    _id: id,
+                    status: 'failed',
+                    'details.terminal': true,
+                    ...tenantFilter
+                },
+                {
+                    $set: {
+                        status: 'pending',
+                        recoveryCount: 0,
+                        claimToken: newClaimToken,
+                        leaseUntil: newLeaseUntil,
+                        updatedAt: now,
+                        'details.lastRetriedBy': adminUser?._id,
+                        'details.lastRetriedAt': now
+                    },
+                    $unset: {
+                        'details.terminal': 1,
+                        'details.error': 1,
+                        failedAt: 1
+                    }
+                },
+                { session, new: true }
+            );
+
+            if (!updatedLog) {
+                conflictOrNotFound = true;
+                return;
+            }
+
+            // Create OutboxEvent atomically with manual retry
+            if (updatedLog.ruleType === 'TimeBasedTrigger') {
+                const modelMap = { leads: 'Lead', deals: 'Deal', activities: 'Activity' };
+                const aggregateType = modelMap[updatedLog.targetModule] || 'Lead';
+
+                await OutboxEvent.create([{
+                    eventId: uuidv4(),
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType,
+                    aggregateId: updatedLog.targetEntityId,
+                    payload: {
+                        triggerId: updatedLog.ruleId,
+                        entityType: updatedLog.targetModule,
+                        automationLogIdempotencyKey: updatedLog.idempotencyKey,
+                        claimToken: newClaimToken,
+                        recoveryGeneration: 0,
+                        companyId: updatedLog.companyId || null,
+                        manualRetryBy: adminUser?._id
+                    }
+                }], { session });
+            }
+
+            // Create immutable AuditLog entry
+            await AuditLog.create([{
+                eventType: 'automation_manual_retry',
+                targetType: updatedLog.targetModule === 'deals' ? 'deal' : 'lead',
+                targetId: updatedLog.targetEntityId,
+                targetName: `AutomationLog: ${updatedLog._id}`,
+                changes: { before: 'failed', after: 'pending' },
+                description: `Manual retry initiated by admin ${adminUser?.email || adminUser?._id}.`,
+                userId: adminUser?._id,
+                actorId: adminUser?._id,
+                performedBy: adminUser?._id,
+                timestamp: now
+            }], { session });
+        });
+
+        if (!updatedLog) {
+            if (conflictOrNotFound) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Automation log is not in a terminal failed state or was already retried.'
+                });
+            }
+            return res.status(404).json({
+                success: false,
+                message: 'Automation log not found.'
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Automation log reset to pending and outbox event enqueued successfully.',
+            data: updatedLog
+        });
+
+    } catch (err) {
+        console.error(`[AutomationController] retryAutomationLog error for ${id}:`, err.message);
+        return res.status(500).json({ success: false, message: 'Internal server error during automation log retry' });
+    } finally {
+        if (session) {
+            await session.endSession();
+        }
+    }
+};

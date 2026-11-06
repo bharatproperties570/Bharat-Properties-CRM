@@ -14,6 +14,7 @@ import DistributionRule from '../models/DistributionRule.js';
 import DistributionAudit from '../models/DistributionAudit.js';
 import OutboxEvent from '../models/OutboxEvent.js';
 import Lookup from '../models/Lookup.js';
+import { distributionQueue } from '../src/queues/queueManager.js';
 
 import {
     distributeEntity,
@@ -117,6 +118,10 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
     });
 
     after(async () => {
+        try {
+            const { distributionWorker } = await import('../src/workers/distributionWorker.js');
+            await distributionWorker.close();
+        } catch (_) {}
         await mongoose.disconnect();
         if (replset) {
             await replset.stop();
@@ -550,5 +555,235 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
         assert.equal(outboxEvent.provenance.source, 'WORKER');
         assert.equal(outboxEvent.provenance.actorType, 'SYSTEM');
         assert.strictEqual(outboxEvent.tenantId || null, null, 'Single organisation tenantId must be null');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 9: R20 Producer Contract (distributeEntity)
+    // ─────────────────────────────────────────────────────────────
+    it('9. R20 Producer Contract: distributeEntity strictly enqueues pointer payload with deterministic jobId and cycleId', async () => {
+        const lead = await Lead.create({
+            firstName: 'Producer',
+            lastName: 'QueueTest',
+            mobile: '9811100099',
+            tenantId: null
+        });
+
+        const origAdd = distributionQueue.add.bind(distributionQueue);
+        let enqueuedCall = null;
+        distributionQueue.add = async (name, data, opts) => {
+            enqueuedCall = { name, data, opts };
+            return await origAdd(name, data, opts);
+        };
+
+        try {
+            const res = await distributeEntity(lead, 'onCreate');
+            assert.strictEqual(res, null, 'Producer must return null and strictly delegate to queue');
+            assert.ok(enqueuedCall, 'Job must be submitted to distributionQueue');
+            assert.strictEqual(enqueuedCall.name, 'distribute');
+            assert.strictEqual(enqueuedCall.data.entityId.toString(), lead._id.toString());
+            assert.strictEqual(enqueuedCall.data.modelName, 'Lead');
+            assert.ok(enqueuedCall.data.cycleId.startsWith('cycle_'));
+            assert.strictEqual(enqueuedCall.opts.jobId, `dist-${lead._id}-onCreate-${enqueuedCall.data.cycleId}`);
+
+            // Entity in database must remain UNTOUCHED by producer
+            const freshLead = await Lead.findById(lead._id);
+            assert.strictEqual(freshLead.owner || null, null, 'Producer must never assign entity synchronously');
+            assert.strictEqual(freshLead.assignedTo || null, null);
+        } finally {
+            distributionQueue.add = origAdd;
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 10: R20 Deal Distribution & Atomic CAS Concurrency
+    // ─────────────────────────────────────────────────────────────
+    it('10. R20 Deal Distribution: executeDistributionCycle assigns Deal, records DistributionAudit, and emits DealUpdated OutboxEvent', async () => {
+        await DistributionRule.create({
+            name: 'Deal RoundRobin Rule',
+            enabled: true,
+            module: 'deals',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id]
+            }
+        });
+
+        const deal = await Deal.create({
+            name: 'Luxury Villa 101',
+            stage: 'Open',
+            assignedTo: null
+        });
+
+        const cycleId = `cycle_deal_${Date.now()}`;
+        const res = await executeDistributionCycle({
+            entityId: deal._id,
+            modelName: 'Deal',
+            triggerEvent: 'onCreate',
+            cycleId,
+            attempt: 1
+        });
+
+        assert.ok(res, 'Distribution result must be returned');
+        assert.strictEqual(res.assignedTo.toString(), userA._id.toString());
+
+        // Verify Deal was updated with atomic assignment
+        const updatedDeal = await Deal.findById(deal._id);
+        assert.strictEqual(updatedDeal.assignedTo.toString(), userA._id.toString());
+
+        // Verify DistributionAudit
+        const audit = await DistributionAudit.findOne({ cycleId });
+        assert.ok(audit, 'DistributionAudit record must exist');
+        assert.strictEqual(audit.modelName, 'Deal');
+        assert.strictEqual(audit.status, 'COMPLETED');
+        assert.strictEqual(audit.assignedTo.toString(), userA._id.toString());
+
+        // Verify OutboxEvent
+        const outbox = await OutboxEvent.findOne({ aggregateId: deal._id, eventType: 'DealUpdated' });
+        assert.ok(outbox, 'DealUpdated OutboxEvent must be persisted');
+        assert.strictEqual(outbox.aggregateType, 'Deal');
+        assert.strictEqual(outbox.payload.assignedTo.toString(), userA._id.toString());
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 11: R20 Assignment Notification Title Routing
+    // ─────────────────────────────────────────────────────────────
+    it('11. R20 Notification Titles: Deal assignment triggers "New Deal Assigned" and Lead triggers "New Lead Assigned"', async () => {
+        await DistributionRule.create({
+            name: 'Dual Notification Rule Leads',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            assignmentTarget: { type: 'user', ids: [userB._id] }
+        });
+
+        await DistributionRule.create({
+            name: 'Dual Notification Rule Deals',
+            enabled: true,
+            module: 'deals',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            assignmentTarget: { type: 'user', ids: [userB._id] }
+        });
+
+        const testLead = await Lead.create({ firstName: 'Notif', lastName: 'Lead', mobile: '9900112233' });
+        const testDeal = await Deal.create({ name: 'Notif Deal', stage: 'Open', assignedTo: null });
+
+        await executeDistributionCycle({
+            entityId: testLead._id,
+            modelName: 'Lead',
+            triggerEvent: 'onCreate',
+            cycleId: `cycle_notif_lead_${Date.now()}`,
+            attempt: 1
+        });
+
+        await executeDistributionCycle({
+            entityId: testDeal._id,
+            modelName: 'Deal',
+            triggerEvent: 'onCreate',
+            cycleId: `cycle_notif_deal_${Date.now()}`,
+            attempt: 1
+        });
+
+        // Verify that assignments succeeded
+        const freshLead = await Lead.findById(testLead._id);
+        const freshDeal = await Deal.findById(testDeal._id);
+        assert.strictEqual(freshLead.owner.toString(), userB._id.toString());
+        assert.strictEqual(freshDeal.assignedTo.toString(), userB._id.toString());
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 12: R20 Ineligible Agents & Rejection Safety
+    // ─────────────────────────────────────────────────────────────
+    it('12. R20 Ineligible Rejection: Rejects when all agents are unavailable, leaving entity clean and unassigned', async () => {
+        const inactiveUser = await User.create({
+            fullName: 'Inactive Agent',
+            email: `inactive_${Date.now()}@crm.local`,
+            password: 'hashedpassword123',
+            department: 'sales',
+            status: 'inactive',
+            isActive: false,
+            isDeleted: false,
+            availability: 'Offline',
+            role: salesRole._id
+        });
+
+        await DistributionRule.create({
+            name: 'Inactive Agents Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            assignmentTarget: {
+                type: 'user',
+                ids: [inactiveUser._id]
+            }
+        });
+
+        const unassignedLead = await Lead.create({
+            firstName: 'Safety',
+            lastName: 'Unassigned',
+            mobile: '9999000011',
+            owner: null
+        });
+
+        await assert.rejects(
+            executeDistributionCycle({
+                entityId: unassignedLead._id,
+                modelName: 'Lead',
+                triggerEvent: 'onCreate',
+                cycleId: `cycle_safety_${Date.now()}`,
+                attempt: 1
+            }),
+            /No eligible agents available yet/
+        );
+
+        // Verify database state: Lead must remain strictly unassigned
+        const postLead = await Lead.findById(unassignedLead._id);
+        assert.strictEqual(postLead.owner || null, null, 'Lead owner must remain null on distribution rejection');
+        assert.strictEqual(postLead.assignedTo || null, null);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 13: R20 Terminal Failure Audit (Worker Retry Exhaustion)
+    // ─────────────────────────────────────────────────────────────
+    it('13. R20 Terminal Failure Audit: BullMQ worker failed handler logs terminal FAILED DistributionAudit on retry exhaustion', async () => {
+        const { distributionWorker } = await import('../src/workers/distributionWorker.js');
+
+        const failedLead = await Lead.create({
+            firstName: 'Terminal',
+            lastName: 'FailLead',
+            mobile: '9999000012',
+            owner: null
+        });
+
+        const testCycleId = `cycle_terminal_${Date.now()}`;
+        const simulatedJob = {
+            id: `job_terminal_${Date.now()}`,
+            attemptsMade: 5,
+            opts: { attempts: 5 },
+            data: {
+                entityId: failedLead._id,
+                modelName: 'Lead',
+                triggerEvent: 'onCreate',
+                cycleId: testCycleId
+            }
+        };
+
+        const failedListeners = distributionWorker.listeners('failed');
+        assert.ok(failedListeners.length > 0, 'distributionWorker must have at least one failed listener');
+
+        const failedHandler = failedListeners[0];
+        await failedHandler(simulatedJob, new Error('Simulated terminal BullMQ exhaustion'));
+
+        const auditRecord = await DistributionAudit.findOne({ cycleId: testCycleId });
+        assert.ok(auditRecord, 'DistributionAudit record must exist for terminal failure');
+        assert.strictEqual(auditRecord.status, 'FAILED');
+        assert.strictEqual(auditRecord.entityId.toString(), failedLead._id.toString());
+        assert.strictEqual(auditRecord.modelName, 'Lead');
+        assert.strictEqual(auditRecord.reason, 'Simulated terminal BullMQ exhaustion');
+        assert.strictEqual(auditRecord.attempt, 5);
     });
 });

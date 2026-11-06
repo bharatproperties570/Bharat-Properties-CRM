@@ -559,18 +559,47 @@ export const processDomainEventJob = async (job) => {
 
         // ─── C5: Time-Based Trigger Durable Execution ───────────────────────────────
         case 'TimeTriggerExecutionRequested': {
-            const { triggerId, entityType, automationLogIdempotencyKey, companyId: triggerCompanyId } = payload;
+            const { triggerId, entityType, automationLogIdempotencyKey, claimToken, companyId: triggerCompanyId } = payload;
 
-            // [C5] Re-fetch current Trigger document. Worker does NOT use a cached snapshot.
             const TriggerModel = mongoose.models.Trigger || mongoose.model('Trigger', (await import('../../models/Trigger.js')).default.schema);
             const AutomationLog = mongoose.models.AutomationLog || mongoose.model('AutomationLog', (await import('../../models/AutomationLog.js')).default.schema);
 
+            // [P0.1] Validate claim ownership before doing any work:
+            // Must have matching idempotencyKey, status: 'pending', and matching claimToken (if provided).
+            if (automationLogIdempotencyKey) {
+                const initialOwnershipQuery = {
+                    idempotencyKey: automationLogIdempotencyKey,
+                    status: 'pending'
+                };
+                if (claimToken) {
+                    initialOwnershipQuery.claimToken = claimToken;
+                }
+                const activeLog = await AutomationLog.findOne(initialOwnershipQuery).lean();
+                if (!activeLog) {
+                    console.warn(`[DomainEventWorker] [C5] Stale or non-pending TimeTriggerExecutionRequested event for ${automationLogIdempotencyKey} (claimToken: ${claimToken || 'N/A'}). Skipping inertly.`);
+                    return { success: true, skipped: true, reason: 'STALE_OWNERSHIP' };
+                }
+            }
+
+            // [C5] Re-fetch current Trigger document. Worker does NOT use a cached snapshot.
             const trigger = await TriggerModel.findById(triggerId).lean();
             if (!trigger) {
                 console.error(`[DomainEventWorker] [C5] Trigger ${triggerId} not found — marking AutomationLog failed.`);
+                const failPredicate = {
+                    idempotencyKey: automationLogIdempotencyKey,
+                    status: 'pending'
+                };
+                if (claimToken) failPredicate.claimToken = claimToken;
                 await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'failed', details: { error: `Trigger ${triggerId} not found` } } }
+                    failPredicate,
+                    {
+                        $set: {
+                            status: 'failed',
+                            'details.error': `Trigger ${triggerId} not found`,
+                            failedAt: new Date()
+                        },
+                        $unset: { leaseUntil: 1 }
+                    }
                 );
                 break;
             }
@@ -580,9 +609,21 @@ export const processDomainEventJob = async (job) => {
             const modelName = modelNameMap[entityType];
             if (!modelName) {
                 console.error(`[DomainEventWorker] [C5] Unknown entityType: ${entityType}`);
+                const failPredicate = {
+                    idempotencyKey: automationLogIdempotencyKey,
+                    status: 'pending'
+                };
+                if (claimToken) failPredicate.claimToken = claimToken;
                 await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'failed', details: { error: `Unknown entityType: ${entityType}` } } }
+                    failPredicate,
+                    {
+                        $set: {
+                            status: 'failed',
+                            'details.error': `Unknown entityType: ${entityType}`,
+                            failedAt: new Date()
+                        },
+                        $unset: { leaseUntil: 1 }
+                    }
                 );
                 break;
             }
@@ -590,9 +631,21 @@ export const processDomainEventJob = async (job) => {
             const entity = await EntityModel.findById(aggregateId).lean();
             if (!entity) {
                 console.error(`[DomainEventWorker] [C5] Entity ${modelName} ${aggregateId} not found — marking AutomationLog failed.`);
+                const failPredicate = {
+                    idempotencyKey: automationLogIdempotencyKey,
+                    status: 'pending'
+                };
+                if (claimToken) failPredicate.claimToken = claimToken;
                 await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'failed', details: { error: `Entity ${modelName} ${aggregateId} not found` } } }
+                    failPredicate,
+                    {
+                        $set: {
+                            status: 'failed',
+                            'details.error': `Entity ${modelName} ${aggregateId} not found`,
+                            failedAt: new Date()
+                        },
+                        $unset: { leaseUntil: 1 }
+                    }
                 );
                 break;
             }
@@ -603,11 +656,128 @@ export const processDomainEventJob = async (job) => {
 
             try {
                 // [C5] Execute actions SEQUENTIALLY in trigger.actions[] array order.
-                // Each action gets its own EffectExecution keyed by the stable action._id.
-                // COMPLETED effects are skipped on retry. Failed effects are retried by EffectOrchestrator.
-                // The next action MUST NOT execute before the previous one completes.
-                for (const action of trigger.actions) {
+                // Each action gets its own stable EffectExecution keyed by stableKey: `time-trigger:${automationLogIdempotencyKey}:${action._id}`.
+                // COMPLETED effects are skipped on retry across recovery generations.
+                for (let i = 0; i < trigger.actions.length; i++) {
+                    const action = trigger.actions[i];
+
+                    // Revalidate ownership BEFORE executing each sequential action
+                    if (automationLogIdempotencyKey) {
+                        const actionOwnershipPredicate = {
+                            idempotencyKey: automationLogIdempotencyKey,
+                            status: 'pending'
+                        };
+                        if (claimToken) {
+                            actionOwnershipPredicate.claimToken = claimToken;
+                        }
+                        const stillOwner = await AutomationLog.findOne(actionOwnershipPredicate).lean();
+                        if (!stillOwner) {
+                            console.warn(`[DomainEventWorker] [C5] Ownership lost prior to action index ${i} (${action._id}) for ${automationLogIdempotencyKey}. Halting sequence.`);
+                            return { success: true, skipped: true, reason: 'OWNERSHIP_LOST_DURING_SEQUENCE' };
+                        }
+                    }
+
                     const effectKey = `action-${action._id}`;
+                    const stableKey = automationLogIdempotencyKey
+                        ? `time-trigger:${automationLogIdempotencyKey}:${action._id}`
+                        : null;
+
+                    // [P1-B] JIT Legacy Lookup & Reconciliation:
+                    // Always inspect all relevant historical legacy EffectExecution records for this
+                    // automation idempotency key and action ID, even when an existing stableKey record is present.
+                    if (stableKey) {
+                        const EffectExecution = mongoose.models.EffectExecution || (await import('../../models/EffectExecution.js')).default;
+                        const OutboxEvent = mongoose.models.OutboxEvent || (await import('../../models/OutboxEvent.js')).default;
+
+                        // 1. Find all historical OutboxEvent records for this automationLogIdempotencyKey
+                        const earlierEvents = await OutboxEvent.find({
+                            eventType: 'TimeTriggerExecutionRequested',
+                            'payload.automationLogIdempotencyKey': automationLogIdempotencyKey
+                        }).select('eventId').lean();
+
+                        const earlierEventIds = (earlierEvents || []).map(e => e.eventId);
+                        if (!earlierEventIds.includes(eventId)) {
+                            earlierEventIds.push(eventId);
+                        }
+
+                        // 2. Query ALL legacy EffectExecution records without stableKey for this action
+                        const legacyExecutions = await EffectExecution.find({
+                            eventId: { $in: earlierEventIds },
+                            effectKey,
+                            $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
+                        }).lean();
+
+                        // 3. Query existing stableKey record (if any)
+                        const existingStable = await EffectExecution.findOne({ stableKey }).lean();
+
+                        // 4. Reconcile records together:
+                        // Case A: Multiple legacy records exist -> Fail closed immediately!
+                        if (legacyExecutions && legacyExecutions.length > 1) {
+                            console.error(`[DomainEventWorker] Multiple legacy EffectExecution records found for ${stableKey}. Halting fail-closed.`);
+                            throw new Error(`AMBIGUOUS_MULTIPLE_LEGACY_RECORDS: Found ${legacyExecutions.length} legacy records for ${stableKey}`);
+                        }
+
+                        // Case B: Both existing stableKey record and legacy candidate(s) exist
+                        // Multiple distinct records represent the same logical action -> Fail closed!
+                        if (existingStable && legacyExecutions && legacyExecutions.length > 0) {
+                            console.error(`[DomainEventWorker] Conflict: Found both existing stableKey record (${existingStable._id}, status: ${existingStable.status}) and legacy record (${legacyExecutions[0]._id}, status: ${legacyExecutions[0].status}) for ${stableKey}. Halting fail-closed.`);
+                            throw new Error(`AMBIGUOUS_RECONCILIATION_CONFLICT: Both existing stableKey (${existingStable.status}) and legacy (${legacyExecutions[0].status}) records exist for ${stableKey}`);
+                        }
+
+                        // Case C: Exactly one legacy record exists and no existing stableKey record
+                        if (!existingStable && legacyExecutions && legacyExecutions.length === 1) {
+                            const legacyExecution = legacyExecutions[0];
+
+                            // Pre-check: verify unique partial index on stableKey before updating
+                            const { verifyEffectExecutionStableKeyIndex } = await import('../migrations/backfillLegacyEffectExecutions.js');
+                            const indexCheck = await verifyEffectExecutionStableKeyIndex(EffectExecution);
+                            if (!indexCheck.valid) {
+                                console.error(`[DomainEventWorker] JIT stableKey link blocked: ${indexCheck.reason}`);
+                                throw new Error(`JIT_INDEX_VERIFICATION_FAILED: ${indexCheck.reason}`);
+                            }
+
+                            let updateResult;
+                            try {
+                                if (payload._simulateJitUpdateFailure) {
+                                    throw new Error('Simulated JIT update failure');
+                                }
+                                updateResult = await EffectExecution.updateOne(
+                                    {
+                                        _id: legacyExecution._id,
+                                        $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
+                                    },
+                                    { $set: { stableKey } }
+                                );
+                            } catch (linkErr) {
+                                console.error(`[DomainEventWorker] JIT stableKey update error for ${stableKey}:`, linkErr.message);
+                                throw new Error(`JIT_UPDATE_FAILED: Failed to link stableKey for legacy record ${legacyExecution._id}: ${linkErr.message}`);
+                            }
+
+                            // Strict matchedCount validation:
+                            // Must be exactly 1, OR exactly 0 followed by verified database re-read.
+                            // Any missing, null, undefined, > 1, or unexpected matchedCount must throw JIT_UPDATE_FAILED!
+                            if (!updateResult || typeof updateResult.matchedCount !== 'number') {
+                                throw new Error(`JIT_UPDATE_FAILED: Update result missing valid matchedCount (got: ${JSON.stringify(updateResult)})`);
+                            }
+
+                            if (updateResult.matchedCount === 1) {
+                                // Exactly one legacy record matched and updated with stableKey
+                            } else if (updateResult.matchedCount === 0) {
+                                // matchedCount === 0: Check if concurrent worker already linked the exact same stableKey
+                                const reReadDoc = await EffectExecution.findById(legacyExecution._id).lean();
+                                if (!reReadDoc) {
+                                    throw new Error(`JIT_UPDATE_FAILED: Legacy record ${legacyExecution._id} disappeared during update`);
+                                }
+                                if (reReadDoc.stableKey !== stableKey) {
+                                    throw new Error(`JIT_UPDATE_FAILED: Legacy record ${legacyExecution._id} matchedCount === 0 and stableKey is not ${stableKey} (actual: ${reReadDoc.stableKey})`);
+                                }
+                            } else {
+                                // matchedCount > 1 or unexpected
+                                throw new Error(`JIT_UPDATE_FAILED: Unexpected matchedCount ${updateResult.matchedCount} during single legacy update`);
+                            }
+                        }
+                    }
+
                     await executeEffect(eventId, effectKey, aggregateType, aggregateId, async () => {
                         await WorkflowEngine.executeAction(
                             action,
@@ -615,28 +785,53 @@ export const processDomainEventJob = async (job) => {
                             trigger,
                             triggerCompanyId,
                             false,
-                            { skipLogging: true, propagateError: true }
+                            { skipLogging: true, propagateError: true, actionIndex: i }
                         );
-                    });
-                    // Reaching here means this effect is COMPLETED or was SKIPPED (already done).
-                    // Proceed to next action.
+                    }, { stableKey });
                 }
 
                 // All required effects are COMPLETED (or SKIPPED if already done).
-                // Update AutomationLog to success as the business-level execution record.
-                await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'success' } }
+                // Update AutomationLog to success as the business-level execution record with fenced ownership check.
+                const successPredicate = {
+                    idempotencyKey: automationLogIdempotencyKey,
+                    status: 'pending'
+                };
+                if (claimToken) {
+                    successPredicate.claimToken = claimToken;
+                }
+                const successUpdate = await AutomationLog.updateOne(
+                    successPredicate,
+                    { $set: { status: 'success', completedAt: new Date() }, $unset: { leaseUntil: 1 } }
                 );
+                if (successUpdate.modifiedCount === 0 && claimToken) {
+                    console.warn(`[DomainEventWorker] [C5] Ownership lost during success finalization for ${automationLogIdempotencyKey}. Claim token was superseded.`);
+                }
                 console.log(`[DomainEventWorker] [C5] TimeTriggerExecution succeeded — trigger=${triggerId} entity=${aggregateId}`);
             } catch (err) {
                 // A required action effect reached terminal failure (MAX_ATTEMPTS) or threw unexpectedly.
-                // Stop remaining actions. Mark AutomationLog failed.
+                // Stop remaining actions. Mark AutomationLog failed if claim token and pending status are still ours.
                 console.error(`[DomainEventWorker] [C5] TimeTriggerExecution failed — trigger=${triggerId} entity=${aggregateId}:`, err.message);
-                await AutomationLog.updateOne(
-                    { idempotencyKey: automationLogIdempotencyKey },
-                    { $set: { status: 'failed', details: { error: err.message } } }
+                const failPredicate = {
+                    idempotencyKey: automationLogIdempotencyKey,
+                    status: 'pending'
+                };
+                if (claimToken) {
+                    failPredicate.claimToken = claimToken;
+                }
+                const failUpdate = await AutomationLog.updateOne(
+                    failPredicate,
+                    {
+                        $set: {
+                            status: 'failed',
+                            'details.error': err.message,
+                            failedAt: new Date()
+                        },
+                        $unset: { leaseUntil: 1 }
+                    }
                 );
+                if (failUpdate.modifiedCount === 0 && claimToken) {
+                    console.warn(`[DomainEventWorker] [C5] Ownership lost during failure finalization for ${automationLogIdempotencyKey}. Claim token was superseded.`);
+                }
                 throw err; // Re-throw so BullMQ marks the job as failed for its own retry tracking
             }
             break;

@@ -24,11 +24,12 @@ async function run() {
     const Lead = (await import('../models/Lead.js')).default;
     const Project = (await import('../models/Project.js')).default;
     const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+    const Activity = (await import('../models/Activity.js')).default;
 
     await OutboxEvent.createCollection();
     await Deal.createCollection();
     await Inventory.createCollection();
-        await AutomationLog.createCollection();
+    await AutomationLog.createCollection();
     await AutomationLog.ensureIndexes();
     await AuditLog.createCollection();
     await Lookup.createCollection();
@@ -38,6 +39,7 @@ async function run() {
     await Contact.createCollection();
     await Lead.createCollection();
     await Project.createCollection();
+    await Activity.createCollection();
 
     const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
 

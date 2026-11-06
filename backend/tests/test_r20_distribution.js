@@ -35,7 +35,14 @@ mock.module('../models/User.js', {
 
 mock.module('../models/DistributionAudit.js', {
     defaultExport: {
-        create: mock.fn()
+        create: mock.fn(),
+        findOne: mock.fn(() => ({ session: () => ({ lean: () => null }), lean: () => null }))
+    }
+});
+
+mock.module('../models/OutboxEvent.js', {
+    defaultExport: {
+        create: mock.fn(() => Promise.resolve())
     }
 });
 
@@ -65,6 +72,7 @@ mock.module('../services/EventBus.js', {
 
 mock.module('bullmq', {
     namedExports: {
+        UnrecoverableError: class extends Error {},
         Worker: class {
             constructor(name, cb, opts) {
                 this.name = name;
@@ -85,6 +93,12 @@ mock.module('bullmq', {
 
 mock.module('../src/config/redis.js', {
     defaultExport: {}
+});
+
+mock.module('../src/utils/failedJobLogger.js', {
+    namedExports: {
+        writeFailedJobLog: mock.fn(() => Promise.resolve())
+    }
 });
 import fs from 'node:fs';
 import path from 'node:path';
@@ -134,7 +148,7 @@ test('R20 Durable Distribution Tests', async (t) => {
         assert.strictEqual(args[1].modelName, 'Lead');
         assert.ok(args[1].cycleId.startsWith('cycle_'));
         assert.strictEqual(args[1].attempt, 1);
-        assert.strictEqual(args[2].jobId, `dist:123:onCreate:${args[1].cycleId}`);
+        assert.strictEqual(args[2].jobId, `dist-${args[1].entityId}-${args[1].triggerEvent}-${args[1].cycleId}`);
     });
 
     await t.test('TEST 2: STALE PAYLOAD & FRESH HYDRATION', async () => {
