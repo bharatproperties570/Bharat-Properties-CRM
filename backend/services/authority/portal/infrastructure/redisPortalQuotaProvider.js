@@ -59,7 +59,7 @@ export class RedisPortalQuotaProvider {
                 timer = setTimeout(() => reject(new Error('REDIS_PING_TIMEOUT')), timeoutMs);
             });
             const res = await Promise.race([pingPromise, timeoutPromise]);
-            return res === 'PONG' || res === true || typeof res === 'string';
+            return res === 'PONG';
         } catch {
             return false;
         } finally {

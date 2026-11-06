@@ -25,21 +25,32 @@ export class RedisPortalDistributedLock {
     /**
      * Verifies actual Redis readiness with a bounded operation (PING).
      * Replaces ineffective ping-method existence check.
+     * Rejects disconnected, connecting, reconnecting, closing, or timed-out Redis clients.
+     * Accepts only the documented successful PING response ('PONG').
+     *
+     * @param {number} [timeoutMs=1000]
+     * @returns {Promise<boolean>}
      */
     async isRedisReady(timeoutMs = 1000) {
         if (!this.redisClient) return false;
+
+        // Check ioredis status
         if (typeof this.redisClient.status === 'string' && this.redisClient.status !== 'ready') {
             return false;
         }
+
+        // Check node-redis isReady / isOpen
         if (typeof this.redisClient.isReady === 'boolean' && !this.redisClient.isReady) {
             return false;
         }
         if (typeof this.redisClient.isOpen === 'boolean' && !this.redisClient.isOpen) {
             return false;
         }
+
         if (typeof this.redisClient.ping !== 'function') {
             return false;
         }
+
         let timer = null;
         try {
             const pingPromise = this.redisClient.ping();
@@ -47,7 +58,7 @@ export class RedisPortalDistributedLock {
                 timer = setTimeout(() => reject(new Error('REDIS_PING_TIMEOUT')), timeoutMs);
             });
             const res = await Promise.race([pingPromise, timeoutPromise]);
-            return res === 'PONG' || res === true || typeof res === 'string';
+            return res === 'PONG';
         } catch {
             return false;
         } finally {

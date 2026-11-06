@@ -2076,9 +2076,13 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         assert.equal(validPolicy.contentHash, 'valid-sha256-hash-value');
         assert.equal(validPolicy.maxRequestsPerMinute, 10);
 
-        // 17.6: Bounded isRedisReady check on healthy real Redis client
-        const isReady = await provider.isRedisReady(1000);
-        assert.equal(isReady, true, 'Healthy real Redis client must report isRedisReady=true');
+        // 17.6: Bounded isRedisReady check on healthy real Redis client for both QuotaProvider and DistributedLock
+        const isQuotaReady = await provider.isRedisReady(1000);
+        assert.equal(isQuotaReady, true, 'Healthy real Redis client must report isRedisReady=true for QuotaProvider');
+
+        const lock = new RedisPortalDistributedLock(redisClient, { allowInMemoryFallback: false, testMode: false });
+        const isLockReady = await lock.isRedisReady(1000);
+        assert.equal(isLockReady, true, 'Healthy real Redis client must report isRedisReady=true for DistributedLock');
 
         await redisClient.del(redisKey);
     });

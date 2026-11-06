@@ -6810,18 +6810,95 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             assert.equal(policy.updatedAt, 1700000000);
         });
 
-        // 37.9: Redis disconnected causes isRedisReady to return false and fails closed
-        await t37.test('37.9: Redis disconnected causes isRedisReady to return false and fails closed without in-memory fallback', async () => {
-            const disconnectedClient = {
+        // 37.9: RedisPortalQuotaProvider.isRedisReady contracts: PONG, unexpected string, empty string, rejection, timeout, disconnected
+        await t37.test('37.9: RedisPortalQuotaProvider.isRedisReady strictly validates PONG and rejects unexpected string, empty, error, timeout, disconnected', async () => {
+            // PONG => ready
+            const readyClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; }
+            };
+            const pReady = new RedisPortalQuotaProvider(readyClient);
+            assert.equal(await pReady.isRedisReady(100), true, 'PONG must report ready=true');
+
+            // Unexpected string => not ready
+            const unexpectedClient = {
+                status: 'ready',
+                async ping() { return 'UNEXPECTED_STRING_RESPONSE'; }
+            };
+            const pUnexpected = new RedisPortalQuotaProvider(unexpectedClient);
+            assert.equal(await pUnexpected.isRedisReady(100), false, 'Unexpected string must report ready=false');
+
+            // Empty string => not ready
+            const emptyStrClient = {
+                status: 'ready',
+                async ping() { return ''; }
+            };
+            const pEmpty = new RedisPortalQuotaProvider(emptyStrClient);
+            assert.equal(await pEmpty.isRedisReady(100), false, 'Empty string must report ready=false');
+
+            // PING rejection => not ready
+            const rejectingClient = {
+                status: 'ready',
+                async ping() { throw new Error('CONNECTION_RESET_BY_PEER'); }
+            };
+            const pReject = new RedisPortalQuotaProvider(rejectingClient);
+            assert.equal(await pReject.isRedisReady(100), false, 'PING rejection must report ready=false');
+
+            // PING timeout => not ready
+            const timeoutClient = {
+                status: 'ready',
+                async ping() {
+                    await new Promise(r => setTimeout(r, 300));
+                    return 'PONG';
+                }
+            };
+            const pTimeout = new RedisPortalQuotaProvider(timeoutClient);
+            assert.equal(await pTimeout.isRedisReady(50), false, 'PING timeout must report ready=false');
+
+            // Disconnected status / flags => not ready
+            const disconnectedStatusClient = {
+                status: 'close',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(disconnectedStatusClient).isRedisReady(100), false, 'status=close must report ready=false');
+
+            const reconnectingStatusClient = {
+                status: 'reconnecting',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(reconnectingStatusClient).isRedisReady(100), false, 'status=reconnecting must report ready=false');
+
+            const notReadyFlagClient = {
+                isReady: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(notReadyFlagClient).isRedisReady(100), false, 'isReady=false must report ready=false');
+
+            const notOpenFlagClient = {
+                isOpen: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(notOpenFlagClient).isRedisReady(100), false, 'isOpen=false must report ready=false');
+
+            const missingPingClient = {
+                status: 'ready'
+            };
+            assert.equal(await new RedisPortalQuotaProvider(missingPingClient).isRedisReady(100), false, 'missing ping method must report ready=false');
+
+            assert.equal(await new RedisPortalQuotaProvider(null).isRedisReady(100), false, 'null client must report ready=false');
+        });
+
+        // 37.10: RedisPortalQuotaProvider fails closed when Redis is unavailable
+        await t37.test('37.10: RedisPortalQuotaProvider fails closed across all operations when Redis is unavailable', async () => {
+            const unavailableClient = {
                 status: 'close',
                 isReady: false,
                 isOpen: false,
-                async ping() { throw new Error('Connection is closed'); }
+                async ping() { throw new Error('Connection closed'); }
             };
-            const provider = new RedisPortalQuotaProvider(disconnectedClient, { allowInMemoryFallback: false, testMode: false });
-            const isReady = await provider.isRedisReady(100);
-            assert.equal(isReady, false, 'isRedisReady must return false for closed connection');
+            const provider = new RedisPortalQuotaProvider(unavailableClient, { allowInMemoryFallback: false, testMode: false });
 
+            // getCanonicalPolicy fails closed
             await assert.rejects(
                 async () => {
                     await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
@@ -6829,6 +6906,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 (err) => err.code === 'REDIS_UNAVAILABLE'
             );
 
+            // setCanonicalPolicy fails closed
             await assert.rejects(
                 async () => {
                     await provider.setCanonicalPolicy({
@@ -6844,33 +6922,132 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 },
                 (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
             );
-        });
 
-        // 37.10: Redis connecting / reconnecting causes isRedisReady to return false
-        await t37.test('37.10: Redis connecting/reconnecting causes isRedisReady to return false and fails closed', async () => {
-            const connectingClient = {
-                status: 'connecting',
-                isReady: false,
-                isOpen: true,
-                async ping() {
-                    await new Promise(r => setTimeout(r, 500));
-                    return 'PONG';
-                }
-            };
-            const provider = new RedisPortalQuotaProvider(connectingClient, { allowInMemoryFallback: false, testMode: false });
-            const isReady = await provider.isRedisReady(100);
-            assert.equal(isReady, false, 'isRedisReady must return false when status is connecting');
-
+            // reserve fails closed
             await assert.rejects(
                 async () => {
-                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true, readTimeoutMs: 100 });
+                    await provider.reserve({
+                        authorityCode,
+                        policy: {
+                            policyReference: 'HSVP/RATE/01',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerHour: 100,
+                            maxRequestsPerDay: 500
+                        }
+                    });
                 },
-                (err) => err.code === 'REDIS_UNAVAILABLE'
+                (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
             );
         });
 
-        // 37.11: Controller syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy
-        await t37.test('37.11: syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy', async () => {
+        // 37.11: Directly test RedisPortalDistributedLock.isRedisReady() contracts
+        await t37.test('37.11: RedisPortalDistributedLock.isRedisReady strictly validates PONG and rejects unexpected string, empty, error, timeout, disconnected', async () => {
+            // PONG => ready
+            const readyClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; }
+            };
+            const lockReady = new RedisPortalDistributedLock(readyClient);
+            assert.equal(await lockReady.isRedisReady(100), true, 'Lock PONG must report ready=true');
+
+            // Unexpected string => not ready
+            const unexpectedClient = {
+                status: 'ready',
+                async ping() { return 'UNEXPECTED_LOCK_RESPONSE'; }
+            };
+            const lockUnexpected = new RedisPortalDistributedLock(unexpectedClient);
+            assert.equal(await lockUnexpected.isRedisReady(100), false, 'Lock unexpected string must report ready=false');
+
+            // Empty string => not ready
+            const emptyStrClient = {
+                status: 'ready',
+                async ping() { return ''; }
+            };
+            const lockEmpty = new RedisPortalDistributedLock(emptyStrClient);
+            assert.equal(await lockEmpty.isRedisReady(100), false, 'Lock empty string must report ready=false');
+
+            // PING rejection => not ready
+            const rejectingClient = {
+                status: 'ready',
+                async ping() { throw new Error('LOCK_REDIS_CONNECTION_RESET'); }
+            };
+            const lockReject = new RedisPortalDistributedLock(rejectingClient);
+            assert.equal(await lockReject.isRedisReady(100), false, 'Lock PING rejection must report ready=false');
+
+            // PING timeout => not ready
+            const timeoutClient = {
+                status: 'ready',
+                async ping() {
+                    await new Promise(r => setTimeout(r, 300));
+                    return 'PONG';
+                }
+            };
+            const lockTimeout = new RedisPortalDistributedLock(timeoutClient);
+            assert.equal(await lockTimeout.isRedisReady(50), false, 'Lock PING timeout must report ready=false');
+
+            // Disconnected status / flags => not ready
+            const disconnectedClient = {
+                status: 'close',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(disconnectedClient).isRedisReady(100), false, 'Lock status=close must report ready=false');
+
+            const reconnectingClient = {
+                status: 'reconnecting',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(reconnectingClient).isRedisReady(100), false, 'Lock status=reconnecting must report ready=false');
+
+            const notReadyClient = {
+                isReady: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(notReadyClient).isRedisReady(100), false, 'Lock isReady=false must report ready=false');
+
+            const notOpenClient = {
+                isOpen: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(notOpenClient).isRedisReady(100), false, 'Lock isOpen=false must report ready=false');
+
+            const missingPingClient = {
+                status: 'ready'
+            };
+            assert.equal(await new RedisPortalDistributedLock(missingPingClient).isRedisReady(100), false, 'Lock missing ping must report ready=false');
+
+            assert.equal(await new RedisPortalDistributedLock(null).isRedisReady(100), false, 'Lock null client must report ready=false');
+        });
+
+        // 37.12: RedisPortalDistributedLock fails closed when Redis is unavailable
+        await t37.test('37.12: RedisPortalDistributedLock fails closed across acquire and isCurrentFenceToken when Redis is unavailable', async () => {
+            const unavailableClient = {
+                status: 'close',
+                isReady: false,
+                isOpen: false,
+                async ping() { throw new Error('Connection closed'); }
+            };
+            const lock = new RedisPortalDistributedLock(unavailableClient, { allowInMemoryFallback: false, testMode: false });
+
+            // acquire fails closed
+            await assert.rejects(
+                async () => {
+                    await lock.acquire({ authorityCode });
+                },
+                (err) => err.code === 'PORTAL_LOCK_REDIS_UNAVAILABLE'
+            );
+
+            // isCurrentFenceToken fails closed
+            await assert.rejects(
+                async () => {
+                    await lock.isCurrentFenceToken(authorityCode, 1);
+                },
+                (err) => err.code === 'PORTAL_LOCK_REDIS_UNAVAILABLE'
+            );
+        });
+
+        // 37.13: Controller syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy
+        await t37.test('37.13: syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy', async () => {
             const approverRole = await Role.create({
                 name: `Approver Role Malformed Redis Test ${Date.now()}`,
                 department: 'inventory',
