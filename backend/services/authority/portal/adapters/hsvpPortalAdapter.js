@@ -34,14 +34,27 @@ export const HSVP_URBAN_ESTATE_MAP = Object.freeze({
     'panipat': 'UE027',
     'gurgaon ii': 'UE029',
     'ptaudi': 'UE030',
+    'pataudi': 'UE030',
     'jhajjar': 'UE031',
     'safidon': 'UE032',
     'dadri': 'UE033',
+    'mtratia': 'UE034',
+    'ratia': 'UE034',
+    'mtadampur': 'UE035',
+    'adampur': 'UE035',
+    'nuh': 'UE036',
+    'mahendergarh': 'UE037',
     'pinjore': 'UE038',
     'taraori': 'UE039',
+    'rgec': 'UE040',
     'murthal': 'UE041',
     'pehowa': 'UE042',
-    'palwal': 'UE047'
+    'taoru': 'UE044',
+    'gharaunda': 'UE045',
+    'faridabad ii': 'UE046',
+    'palwal': 'UE047',
+    'mandi township hathin': 'UE048',
+    'hathin': 'UE048'
 });
 
 export function resolveHsvpUrbanEstateCode(value) {
@@ -83,7 +96,7 @@ export const hsvpPortalAdapter = Object.freeze({
         params.append('SelectedUrbanEstate', ue);
         params.append('SelectedSector', sector);
         params.append('PlotNo', plotNo);
-        params.append('submitAction', options.submitAction || '');
+        params.append('submitAction', options.submitAction || 'Search');
         if (options.targetedPlotId) {
             params.append('targetedPlotId', String(options.targetedPlotId));
         }

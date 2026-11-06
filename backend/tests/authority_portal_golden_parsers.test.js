@@ -352,7 +352,7 @@ test('4. Form Adapters & Request Building', async (t) => {
         }, { viewState: 'viewstate123' });
 
         assert.equal(req.method, 'POST');
-        assert.equal(req.url, 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report_2.aspx');
+        assert.equal(req.url, 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report.aspx');
         assert.ok(req.body.includes('ddlLocations=S.A.S.+Nagar') || req.body.includes('ddlLocations=S.A.S.%20Nagar'));
         assert.ok(req.body.includes('ddlScheme=Sector+82') || req.body.includes('ddlScheme=Sector%2082'));
         assert.ok(req.body.includes('txtSearch=PLOT-99'));
