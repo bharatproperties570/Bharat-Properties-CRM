@@ -12,6 +12,9 @@ import AddProjectPriceModal from '../../components/AddProjectPriceModal';
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';
+import ProjectWebsiteModal from './components/ProjectWebsiteModal';
+import ProjectBroadcastModal from './components/ProjectBroadcastModal';
+import SocialPostModal from '../../components/SocialPostModal';
 import { applyProjectFilters } from '../../utils/projectFilterLogic';
 // import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import ProfessionalMap from '../../components/ProfessionalMap';
@@ -23,7 +26,8 @@ import { useProjectList } from '../../hooks/useProjectList';
 import { useDeleteProjectMutation, useUpdateProjectMutation } from '../../utils/crmHooks';
 
 function ProjectsPage({ onNavigate }) {
-    const { isDark } = useTheme();
+    const themeContext = useTheme();
+    const isDark = Boolean(themeContext?.isDark);
     const { data: teams = [] } = useTeams();
     const { getLookupValue } = usePropertyConfig();
     const [selectedIds, setSelectedIds] = useState([]);
@@ -96,6 +100,64 @@ function ProjectsPage({ onNavigate }) {
     const [viewMode, setViewMode] = useState('list');
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isWebsiteModalOpen, setIsWebsiteModalOpen] = useState(false);
+    const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
+    const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
+    const [actionProjectData, setActionProjectData] = useState(null);
+
+    const getSelectedProject = useCallback(() => {
+        if (actionProjectData) return actionProjectData;
+        if (selectedIds.length > 0) {
+            return projectsData.find(p => p._id === selectedIds[0]) || null;
+        }
+        return null;
+    }, [actionProjectData, selectedIds, projectsData]);
+
+    const handleBroadcastClick = () => {
+        const project = projectsData.find(p => p._id === selectedIds[0]);
+        if (project) {
+            setActionProjectData(project);
+            setIsBroadcastModalOpen(true);
+        } else {
+            toast.error('Please select a project to broadcast');
+        }
+    };
+
+    const handlePromoteClick = () => {
+        const project = projectsData.find(p => p._id === selectedIds[0]);
+        if (project) {
+            setActionProjectData(project);
+            setIsSocialModalOpen(true);
+        } else {
+            toast.error('Please select a project to promote');
+        }
+    };
+
+    const handlePublishClick = () => {
+        const project = projectsData.find(p => p._id === selectedIds[0]);
+        if (project) {
+            setActionProjectData(project);
+            setIsWebsiteModalOpen(true);
+        } else {
+            toast.error('Please select a project to publish');
+        }
+    };
+
+    const handleUpdateWebsiteSuccess = async (updateData) => {
+        const proj = getSelectedProject();
+        if (!proj?._id) return;
+        try {
+            await updateMutation.mutateAsync({
+                id: proj._id,
+                data: updateData
+            });
+            toast.success(updateData.isPublished ? 'Project published to website successfully!' : 'Project unpublished from website');
+            fetchProjects();
+        } catch (error) {
+            console.error('Error updating website status:', error);
+            toast.error('Failed to update website publication status');
+        }
+    };
 
     const handleUploadClick = () => {
         const project = projectsData.find(p => p._id === selectedIds[0]);
@@ -392,13 +454,18 @@ function ProjectsPage({ onNavigate }) {
                                             <PermissionGate module="projects" action="edit">
                                                 <button className="action-btn" title="Edit Project" onClick={handleEditProject}><i className="fas fa-edit"></i> Edit</button>
                                             </PermissionGate>
-                                            <button className="action-btn" title="Share Project"><i className="fas fa-share-alt"></i> Share</button>
-                                            <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> Preview</button>
-                                            <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
-
+                                            <button className="action-btn" title="Broadcast Project to WhatsApp, SMS, RCS, Email" onClick={handleBroadcastClick}>
+                                                <i className="fas fa-bullhorn text-indigo-500"></i> Broadcast
+                                            </button>
+                                            <button className="action-btn" title="Promote Project on Social Media & Portals" onClick={handlePromoteClick}>
+                                                <i className="fas fa-bullseye text-cyan-500"></i> Promote
+                                            </button>
+                                            <button className="action-btn" title="Publish on Website Catalog" onClick={handlePublishClick}>
+                                                <i className={`fas fa-globe ${projectsData.find(p => p._id === selectedIds[0])?.isPublished ? 'text-emerald-500' : 'text-blue-500'}`}></i> Publish
+                                            </button>
                                             <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
-
-                                            <button className="action-btn" title="Publish on Website"><i className="fas fa-globe"></i> Publish</button>
+                                            <button className="action-btn" title="Preview" onClick={() => onNavigate && onNavigate('project-detail', selectedIds[0])}><i className="fas fa-eye"></i> Preview</button>
+                                            <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
                                         </>
                                     )}
 
@@ -798,6 +865,53 @@ function ProjectsPage({ onNavigate }) {
                 onClose={() => setIsFilterPanelOpen(false)}
                 filters={filters}
                 onFilterChange={setFilters}
+            />
+
+            <ProjectWebsiteModal
+                isOpen={isWebsiteModalOpen}
+                onClose={() => {
+                    setIsWebsiteModalOpen(false);
+                    setActionProjectData(null);
+                }}
+                project={getSelectedProject()}
+                onUpdateSuccess={handleUpdateWebsiteSuccess}
+            />
+
+            <ProjectBroadcastModal
+                isOpen={isBroadcastModalOpen}
+                onClose={() => {
+                    setIsBroadcastModalOpen(false);
+                    setActionProjectData(null);
+                }}
+                project={getSelectedProject()}
+                onSuccess={() => {
+                    toast.success('Broadcast campaign launched successfully! 🚀');
+                }}
+            />
+
+            <SocialPostModal
+                isOpen={isSocialModalOpen}
+                onClose={() => {
+                    setIsSocialModalOpen(false);
+                    setActionProjectData(null);
+                }}
+                initialData={(() => {
+                    const p = getSelectedProject();
+                    if (!p) return null;
+                    return {
+                        id: p._id,
+                        name: p.name,
+                        title: p.name,
+                        location: p.address?.location || p.locationSearch || `${p.address?.city || ''}, ${p.address?.state || ''}`.replace(/^, /, ''),
+                        price: p.priceRange || (p.pricing?.minPrice ? `₹${p.pricing.minPrice} - ₹${p.pricing.maxPrice}` : "Price on Request"),
+                        description: p.description || "Explore this prime real estate opportunity!",
+                        imageUrl: p.primaryImage || p.media?.[0]?.url,
+                        reraNumber: p.reraNumber || p.reraRegistrationNumber,
+                        projectType: p.projectType || p.type || 'Residential Project',
+                        unitNo: p.unitNo || '',
+                        type: 'project'
+                    };
+                })()}
             />
         </section >
     );

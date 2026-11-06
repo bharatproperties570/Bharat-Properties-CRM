@@ -153,6 +153,8 @@ class BroadcastLiveTracker {
         name,
         dealId = null,
         dealIds = [],
+        projectId = null,
+        entityType = 'deal',
         dealTitle = 'Broadcast Deal',
         totalRecipients = 0,
         channels = ['whatsapp'],
@@ -169,6 +171,8 @@ class BroadcastLiveTracker {
                     name: name || `Broadcast: ${dealTitle}`,
                     dealId: dealId && mongoose.Types.ObjectId.isValid(dealId) ? dealId : undefined,
                     dealIds: Array.isArray(dealIds) ? dealIds.filter(id => mongoose.Types.ObjectId.isValid(id)) : [],
+                    projectId: projectId && mongoose.Types.ObjectId.isValid(projectId) ? projectId : undefined,
+                    entityType: entityType || 'deal',
                     dealTitle,
                     totalRecipients,
                     processedRecipients: 0,
@@ -431,12 +435,17 @@ class BroadcastLiveTracker {
     }
 
     /**
-     * Lists active and recent live campaigns (optionally filtered by dealId)
+     * Lists active and recent live campaigns (optionally filtered by dealId or projectId)
      */
-    static async listLiveCampaigns({ dealId = null, limit = 10 } = {}) {
+    static async listLiveCampaigns({ dealId = null, projectId = null, entityType = null, limit = 10 } = {}) {
         const query = {};
-        if (dealId && mongoose.Types.ObjectId.isValid(dealId)) {
+        if (projectId && mongoose.Types.ObjectId.isValid(projectId)) {
+            query.projectId = new mongoose.Types.ObjectId(projectId);
+        } else if (dealId && mongoose.Types.ObjectId.isValid(dealId)) {
             query.dealId = new mongoose.Types.ObjectId(dealId);
+        }
+        if (entityType) {
+            query.entityType = entityType;
         }
 
         const campaigns = await BroadcastCampaign.find(query)

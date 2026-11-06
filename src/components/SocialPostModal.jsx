@@ -1,117 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useTheme } from '../context/ThemeContext';
 import { 
   Facebook, 
   Instagram, 
   Linkedin, 
+  Twitter,
+  Youtube,
+  Store,
+  Share2, 
   Sparkles, 
   Send, 
   X, 
   Image as ImageIcon,
-  Twitter,
-  Youtube,
-  Store,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Share2,
-  Smartphone,
-  Layout,
-  PlayCircle,
-  Layers,
-  Zap,
-  ShieldCheck,
-  Eye,
-  Type,
-  Copy
+  CheckCircle2, 
+  AlertCircle, 
+  Loader2, 
+  Smartphone, 
+  Layout, 
+  PlayCircle, 
+  Zap, 
+  ShieldCheck, 
+  Eye, 
+  Type, 
+  Copy,
+  Building2,
+  Globe,
+  Lock,
+  Shield,
+  Phone,
+  MessageSquare,
+  Check,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { socialAPI, marketingAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 
-const MODAL_STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
-  
-  .premium-container {
-      animation: modalPop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-      background: linear-gradient(145deg, #ffffff, #f8fafc);
-  }
-
-  @keyframes modalPop {
-      from { opacity: 0; transform: scale(0.98) translateY(10px); }
-      to { opacity: 1; transform: scale(1) translateY(0); }
-  }
-
-  .creator-pane {
-      background: rgba(255, 255, 255, 0.6);
-  }
-
-  .preview-pane {
-      background: #0f172a;
-      position: relative;
-      overflow: hidden;
-  }
-
-  .preview-pane::before {
-      content: '';
-      position: absolute;
-      top: -20%; left: -20%; width: 140%; height: 140%;
-      background: radial-gradient(circle at center, rgba(79, 70, 229, 0.08), transparent 70%);
-      pointer-events: none;
-  }
-
-  .platform-chip {
-      transition: all 0.3s ease;
-      opacity: 0.5;
-      filter: grayscale(1);
-  }
-  .platform-chip:hover {
-      opacity: 1;
-      filter: grayscale(0);
-      transform: translateY(-2px);
-  }
-  .platform-chip.active {
-      opacity: 1;
-      filter: grayscale(0);
-      background: #ffffff !important;
-      border-color: #4f46e5 !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  }
-
-  .ai-sparkle-btn {
-      position: relative;
-      overflow: hidden;
-      transition: all 0.3s;
-  }
-  .ai-sparkle-btn:not(:disabled):hover {
-      box-shadow: 0 0 15px rgba(201, 146, 26, 0.3);
-      transform: translateY(-1px);
-  }
-
-  .blueprint-placeholder {
-      background-image: 
-          linear-gradient(rgba(79, 70, 229, 0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(79, 70, 229, 0.05) 1px, transparent 1px);
-      background-size: 20px 20px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb { 
-      background: rgba(0,0,0,0.1); 
-      border-radius: 10px; 
-  }
-
-  .glass-input {
-      transition: all 0.2s ease;
-  }
-  .glass-input:focus {
-      background: #fff !important;
-      border-color: #4f46e5 !important;
-  }
-`;
-
 /**
- * SocialPostModal - Senior UI Designer Overhaul (Performance Optimized)
+ * SocialPostModal - Enterprise Share & Promote Studio
+ * Harmonized with DealBroadcastModal design system & theme.
+ * Dual Mode:
+ * Tab 1: Social Media Studio (FB, IG, LinkedIn, X, YT, GBP) with AI Copywriting & Phone Mirror
+ * Tab 2: Real Estate Portals & Syndication (99acres, Magicbricks, Housing.com, BNA) with Anti-Poaching Privacy Guard
  */
 const SocialPostModal = ({ 
     isOpen, 
@@ -122,6 +53,20 @@ const SocialPostModal = ({
     initialContent,
     imageUrl: explicitImageUrl
 }) => {
+  const themeContext = useTheme();
+  const isDark = Boolean(themeContext?.isDark);
+
+  // Main Studio Mode Switcher
+  const [activeTab, setActiveTab] = useState('social'); // 'social' | 'portals'
+
+  // Live Clock (matching DealBroadcastModal)
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // --- TAB 1: SOCIAL MEDIA STATE ---
   const [platform, setPlatform] = useState(explicitPlatform || 'facebook');
   const [format, setFormat] = useState('post'); // 'post' | 'story' | 'reel'
   const [content, setContent] = useState('');
@@ -129,22 +74,67 @@ const SocialPostModal = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [status, setStatus] = useState('idle');
-  
-  // Scheduling States
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledTime, setScheduledTime] = useState('');
 
+  // --- TAB 2: PORTALS & SYNDICATION STATE ---
+  const [selectedPortals, setSelectedPortals] = useState([
+    '99acres', 'magicbricks', 'housing', 'commonfloor', 'makaan',
+    'olx', 'quikr', 'proptiger', 'sulekha', 'propertyguide', 'squareyards'
+  ]);
+  const [previewPortal, setPreviewPortal] = useState('99acres'); // '99acres' | 'magicbricks' | 'housing' etc.
+  const [isSyndicating, setIsSyndicating] = useState(false);
+  const [syndicateStatus, setSyndicateStatus] = useState('idle');
+  const [customHeadline, setCustomHeadline] = useState('');
+  const [portalStatuses, setPortalStatuses] = useState({});
+  const [isLoadingStatuses, setIsLoadingStatuses] = useState(false);
+
+  // Anti-Poaching Privacy Guard Matrix
+  const [privacy, setPrivacy] = useState({
+      hideUnitNo: true,        // Replaces unit # with [CONFIDENTIAL]
+      hideLocation: false,     // Replaces exact address with sector/city
+      priceOnRequest: false    // Masks price with "Price on Request"
+  });
+
   const isActuallyOpen = isOpen || show;
+
+  // 🛡️ Enterprise Phase 3: Fetch Live Portal Connection Statuses from Backend
+  useEffect(() => {
+    if (isActuallyOpen && typeof marketingAPI?.getPortalStatuses === 'function') {
+      let isMounted = true;
+      setIsLoadingStatuses(true);
+      marketingAPI.getPortalStatuses()
+        .then(res => {
+          if (isMounted && res?.success) {
+            if (res.statuses) {
+              setPortalStatuses(res.statuses);
+            } else if (Array.isArray(res.portals)) {
+              const map = {};
+              res.portals.forEach(p => { map[p.id] = p; });
+              setPortalStatuses(map);
+            }
+          }
+        })
+        .catch(err => {
+          console.warn('Could not load portal statuses in Promote modal', err);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoadingStatuses(false);
+        });
+      return () => { isMounted = false; };
+    }
+  }, [isActuallyOpen]);
 
   useEffect(() => {
     if (initialData) {
       if (initialData.text) {
         setContent(initialData.text);
       } else {
-        const defaultText = `🏠 ${initialData.name || initialData.title || initialData.unitNo || 'New Property'}\n📍 Location: ${initialData.location || ''}\n💰 Price: ${initialData.price || ''}\n\n${initialData.description || ''}`;
+        const defaultText = `🏠 ${initialData.name || initialData.title || initialData.unitNo || 'New Property Alert'}\n📍 Location: ${initialData.location || ''}\n💰 Price: ${initialData.price || ''}\n\n${initialData.description || ''}`;
         setContent(defaultText);
       }
       setImageUrl(initialData.imageUrl || initialData.primaryImage || initialData.images?.[0] || '');
+      setCustomHeadline(initialData.name || initialData.title || 'Exclusive Prime Real Estate Opportunity');
     } else if (initialContent || explicitImageUrl) {
       setContent(initialContent || '');
       setImageUrl(explicitImageUrl || '');
@@ -153,6 +143,7 @@ const SocialPostModal = ({
 
   if (!isActuallyOpen) return null;
 
+  // ── AI Copywriting Generation ──
   const handleGenerateAI = async () => {
     const propertyId = initialData?.id || initialData?._id;
     if (!propertyId) {
@@ -174,7 +165,8 @@ const SocialPostModal = ({
     }
   };
 
-  const handlePublish = async () => {
+  // ── Social Media Publishing ──
+  const handlePublishSocial = async () => {
     if (!content.trim()) {
       toast.error('Please add some content');
       return;
@@ -207,415 +199,1541 @@ const SocialPostModal = ({
         setTimeout(() => {
           onClose();
           setStatus('idle');
-        }, 2000);
+        }, 1800);
       } else {
         throw new Error(res.error || 'Publishing failed');
       }
     } catch (error) {
         setStatus('error');
         const errMsg = error.response?.data?.error || error.message;
-        toast.error(errMsg, { duration: 6000 });
+        toast.error(errMsg, { duration: 5000 });
     } finally {
       setIsPublishing(false);
     }
   };
 
-  // ── DESIGN TOKENS ──
-  const THEME = {
-    navy: '#0f172a',
-    navyGlass: 'rgba(15, 23, 42, 0.85)',
-    gold: '#c9921a',
-    goldGlow: 'rgba(201, 146, 26, 0.4)',
-    white: '#ffffff',
-    slate: '#64748b',
-    border: 'rgba(255,255,255,0.08)',
-    accent: '#4f46e5',
-    glass: 'rgba(255, 255, 255, 0.05)',
-    glassDeep: 'rgba(2, 6, 23, 0.95)'
+  // ── Portal Syndication Dispatch ──
+  const handleSyndicatePortals = async () => {
+    if (selectedPortals.length === 0) {
+      toast.error('Please select at least one portal or partner network');
+      return;
+    }
+
+    const propertyId = initialData?.id || initialData?._id;
+    const entityType = initialData?.type || 'project';
+
+    setIsSyndicating(true);
+    setSyndicateStatus('idle');
+
+    try {
+      const platformsPayload = {};
+      selectedPortals.forEach(p => {
+        platformsPayload[p] = true;
+      });
+
+      const res = await marketingAPI.broadcastToHub({
+        id: propertyId,
+        type: entityType.toLowerCase(),
+        platforms: platformsPayload,
+        privacy: {
+          hideUnitNo: privacy.hideUnitNo,
+          hideLocation: privacy.hideLocation,
+          priceOnRequest: privacy.priceOnRequest
+        }
+      });
+
+      if (res?.success) {
+        setSyndicateStatus('success');
+        const count = selectedPortals.length;
+        const unconfiguredCount = res.results?.portals?.unconfigured?.length || 0;
+        
+        if (unconfiguredCount > 0) {
+          toast.success(`Syndicated to active portals. (${unconfiguredCount} pending setup in Settings > Integrations)`, {
+            duration: 5000
+          });
+        } else {
+          toast.success(`Successfully syndicated to ${count} property portal${count > 1 ? 's' : ''}! 🚀`, {
+            duration: 4000
+          });
+        }
+        setTimeout(() => {
+          onClose();
+          setSyndicateStatus('idle');
+        }, 2000);
+      } else {
+        throw new Error(res?.message || 'Syndication failed');
+      }
+    } catch (error) {
+      setSyndicateStatus('error');
+      toast.error(error.response?.data?.message || error.message || 'Syndication request failed', {
+        duration: 5000
+      });
+    } finally {
+      setIsSyndicating(false);
+    }
   };
+
+  const togglePortal = (portalKey) => {
+    setSelectedPortals(prev => 
+      prev.includes(portalKey) ? prev.filter(p => p !== portalKey) : [...prev, portalKey]
+    );
+  };
+
+  // ── Derived Masked Display Data for Previews ──
+  const getMaskedTitle = () => {
+    let raw = initialData?.name || initialData?.title || initialData?.unitNo || 'Exclusive Property';
+    if (privacy.hideUnitNo) {
+      return raw.replace(/#?\d+[A-Za-z]*/g, '[CONFIDENTIAL]').trim() || 'Exclusive Property [CONFIDENTIAL]';
+    }
+    return raw;
+  };
+
+  const getMaskedLocation = () => {
+    let raw = initialData?.location || 'Prime Location';
+    if (privacy.hideLocation) {
+      const parts = raw.split(',');
+      return parts.length > 1 ? parts.slice(-2).join(',').trim() : raw;
+    }
+    return raw;
+  };
+
+  const getMaskedPrice = () => {
+    if (privacy.priceOnRequest) {
+      return 'Price on Request';
+    }
+    return initialData?.price || 'Price on Request';
+  };
+
+  const PORTALS_LIST = [
+    {
+      id: '99acres',
+      name: '99acres.com',
+      badge: 'Feed Ready',
+      desc: "India's #1 traffic property search marketplace",
+      color: '#005CA8',
+      icon: Building2
+    },
+    {
+      id: 'magicbricks',
+      name: 'Magicbricks',
+      badge: 'API Active',
+      desc: 'Times Group high-intent HNI & buyer leads',
+      color: '#E40046',
+      icon: Building2
+    },
+    {
+      id: 'housing',
+      name: 'Housing.com',
+      badge: 'Sync Online',
+      desc: 'REA India direct listing feed with mobile verified leads',
+      color: '#00A65A',
+      icon: Building2
+    },
+    {
+      id: 'commonfloor',
+      name: 'CommonFloor',
+      badge: 'Society Sync',
+      desc: 'Gated communities, apartment complexes & RWAs',
+      color: '#F97316',
+      icon: Building2
+    },
+    {
+      id: 'makaan',
+      name: 'Makaan.com',
+      badge: 'Smart Discovery',
+      desc: 'Seller ratings & algorithm-driven homebuyer reach',
+      color: '#8B5CF6',
+      icon: Globe
+    },
+    {
+      id: 'olx',
+      name: 'OLX India',
+      badge: 'Hyper-Local',
+      desc: 'High-volume classifieds for resale, land & apartments',
+      color: '#002F34',
+      icon: Globe
+    },
+    {
+      id: 'quikr',
+      name: 'Quikr Homes',
+      badge: 'Instant Leads',
+      desc: 'Regional buyer network with instant push alerts',
+      color: '#0083CA',
+      icon: Building2
+    },
+    {
+      id: 'proptiger',
+      name: 'PropTiger',
+      badge: 'New Launches',
+      desc: 'Advisory and institutional primary sales engine',
+      color: '#EF4444',
+      icon: Building2
+    },
+    {
+      id: 'sulekha',
+      name: 'Sulekha NoBroker',
+      badge: 'Direct Match',
+      desc: 'Direct owner & investor network with SMS alerts',
+      color: '#D97706',
+      icon: Globe
+    },
+    {
+      id: 'propertyguide',
+      name: 'Property Guide Online',
+      badge: 'NRI Syndication',
+      desc: 'Digital showcase & NRI global investor channel',
+      color: '#0284C7',
+      icon: Globe
+    },
+    {
+      id: 'squareyards',
+      name: 'Square Yards',
+      badge: 'PropTech Pro',
+      desc: 'Integrated enterprise brokerage & inventory hub',
+      color: '#059669',
+      icon: Building2
+    }
+  ];
+
+  const PORTAL_PREVIEW_METAS = {
+    '99acres': {
+      title: '99acres Verified Listing',
+      headerBg: '#005CA8',
+      watermark: 'DIRECT XML FEED',
+      tag: 'RERA Verified Partner',
+      cta1: { label: 'View Agent', icon: 'fa-phone-alt', border: '#005CA8', color: '#005CA8' },
+      cta2: { label: 'Contact Seller', icon: 'fab fa-whatsapp', bg: '#25D366', color: '#fff' }
+    },
+    'magicbricks': {
+      title: 'Magicbricks Certified Match',
+      headerBg: '#E40046',
+      watermark: 'TIMES PROP NETWORK',
+      tag: 'Certified Seller',
+      cta1: { label: 'Call Agent', icon: 'fa-phone-alt', border: '#E40046', color: '#E40046' },
+      cta2: { label: 'Instant Inquiry', icon: 'fa-paper-plane', bg: '#E40046', color: '#fff' }
+    },
+    'housing': {
+      title: 'Housing.com Verified Partner',
+      headerBg: '#00A65A',
+      watermark: 'REA FEED ACTIVE',
+      tag: 'Housing Edge Protected',
+      cta1: { label: 'Request Callback', icon: 'fa-phone-alt', border: '#00A65A', color: '#00A65A' },
+      cta2: { label: 'Book Site Visit', icon: 'fa-calendar-alt', bg: '#00A65A', color: '#fff' }
+    },
+    'commonfloor': {
+      title: 'CommonFloor Society Listing',
+      headerBg: '#F97316',
+      watermark: 'RWA VERIFIED',
+      tag: 'Community Showcase',
+      cta1: { label: 'Connect Society', icon: 'fa-building', border: '#F97316', color: '#F97316' },
+      cta2: { label: 'Contact Broker', icon: 'fa-phone-alt', bg: '#F97316', color: '#fff' }
+    },
+    'makaan': {
+      title: 'Makaan.com Seller Rated',
+      headerBg: '#8B5CF6',
+      watermark: 'MAKAAN IQ',
+      tag: 'Top Rated Broker',
+      cta1: { label: 'Price Trends', icon: 'fa-chart-line', border: '#8B5CF6', color: '#8B5CF6' },
+      cta2: { label: 'View Phone', icon: 'fa-phone-alt', bg: '#8B5CF6', color: '#fff' }
+    },
+    'olx': {
+      title: 'OLX Featured Classified',
+      headerBg: '#002F34',
+      watermark: 'VERIFIED USER',
+      tag: 'Direct Listing',
+      cta1: { label: 'Chat with Seller', icon: 'fa-comment-dots', border: '#002F34', color: '#002F34' },
+      cta2: { label: 'Call Seller', icon: 'fa-phone-alt', bg: '#23e5db', color: '#002F34' }
+    },
+    'quikr': {
+      title: 'Quikr Homes Verified Feed',
+      headerBg: '#0083CA',
+      watermark: 'INSTANT ALERTS',
+      tag: 'Quikr Assured',
+      cta1: { label: 'Get SMS Alerts', icon: 'fa-bell', border: '#0083CA', color: '#0083CA' },
+      cta2: { label: 'WhatsApp Inquiry', icon: 'fab fa-whatsapp', bg: '#25D366', color: '#fff' }
+    },
+    'proptiger': {
+      title: 'PropTiger Advisory Showcase',
+      headerBg: '#EF4444',
+      watermark: 'INSTITUTIONAL DESK',
+      tag: 'Primary Market',
+      cta1: { label: 'Brochure PDF', icon: 'fa-file-pdf', border: '#EF4444', color: '#EF4444' },
+      cta2: { label: 'Consult Advisor', icon: 'fa-user-tie', bg: '#EF4444', color: '#fff' }
+    },
+    'sulekha': {
+      title: 'Sulekha NoBroker Direct Match',
+      headerBg: '#D97706',
+      watermark: 'ZERO BROKERAGE',
+      tag: 'Direct Match',
+      cta1: { label: 'SMS Details', icon: 'fa-sms', border: '#D97706', color: '#D97706' },
+      cta2: { label: 'Connect Owner', icon: 'fa-handshake', bg: '#D97706', color: '#fff' }
+    },
+    'propertyguide': {
+      title: 'Property Guide Global NRI Feed',
+      headerBg: '#0284C7',
+      watermark: 'GLOBAL REACH',
+      tag: 'NRI Investor Portal',
+      cta1: { label: 'NRI Support', icon: 'fa-globe-americas', border: '#0284C7', color: '#0284C7' },
+      cta2: { label: 'Virtual Tour', icon: 'fa-video', bg: '#0284C7', color: '#fff' }
+    },
+    'squareyards': {
+      title: 'Square Yards PropTech Network',
+      headerBg: '#059669',
+      watermark: 'PROPINVENTORY SYNC',
+      tag: 'Enterprise Inventory',
+      cta1: { label: 'Book Inspection', icon: 'fa-clipboard-check', border: '#059669', color: '#059669' },
+      cta2: { label: 'Submit Offer', icon: 'fa-tag', bg: '#059669', color: '#fff' }
+    }
+  };
+
+  const handleSelectAllPortals = () => {
+    setSelectedPortals(PORTALS_LIST.map(p => p.id));
+  };
+
+  const handleSelectConnectedPortals = () => {
+    const connectedIds = PORTALS_LIST
+      .map(p => p.id)
+      .filter(id => portalStatuses[id]?.connected);
+    if (connectedIds.length === 0) {
+      toast('No portals currently active with credentials. Configure in Settings > Integrations.', {
+        icon: 'ℹ️',
+        duration: 4000
+      });
+      return;
+    }
+    setSelectedPortals(connectedIds);
+    toast.success(`Selected ${connectedIds.length} connected portal${connectedIds.length > 1 ? 's' : ''}`);
+  };
+
+  const handleClearAllPortals = () => {
+    setSelectedPortals([]);
+  };
+
+  const maxSocialChars = platform === 'twitter' ? 280 : 2200;
+  const isOverCharLimit = content.length > maxSocialChars;
+
+  const SOCIAL_PLATFORMS = [
+    { id: 'facebook', name: 'Facebook', icon: Facebook, color: '#1877F2', faIcon: 'fab fa-facebook-f' },
+    { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E4405F', faIcon: 'fab fa-instagram' },
+    { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: '#0A66C2', faIcon: 'fab fa-linkedin-in' },
+    { id: 'twitter', name: 'Twitter/X', icon: Twitter, color: '#0f172a', faIcon: 'fab fa-x-twitter' },
+    { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000', faIcon: 'fab fa-youtube' },
+    { id: 'google_business', name: 'Google Business', icon: Store, color: '#4285F4', faIcon: 'fab fa-google' }
+  ];
 
   const modalContent = (
     <div 
       style={{ 
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-        zIndex: 9999999, background: 'rgba(2, 6, 23, 0.9)',
+        backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-        padding: '20px', fontFamily: '"Outfit", "Inter", sans-serif'
+        zIndex: 99999, padding: '16px', overflowY: 'auto'
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <style>{MODAL_STYLES}</style>
-
       <div 
-        className="premium-container"
         style={{ 
-          width: '100%', maxWidth: '1200px', 
-          height: '850px', maxHeight: '92vh',
-          borderRadius: '48px', 
-          display: 'flex', overflow: 'hidden',
-          boxShadow: '0 60px 120px -20px rgba(0,0,0,0.5)',
-          position: 'relative', border: '1px solid rgba(255,255,255,0.1)'
+          background: isDark ? '#0f172a' : '#ffffff',
+          border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #e2e8f0',
+          borderRadius: '20px',
+          width: '100%', maxWidth: '1080px', maxHeight: '92vh',
+          display: 'flex', flexDirection: 'column',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.45)',
+          overflow: 'hidden'
         }}
       >
-        {/* LEFT: CREATOR PANE */}
-        <div className="creator-pane custom-scrollbar" style={{ flex: '1.2', display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
-            {/* Header Area */}
-            <div style={{ padding: '40px 48px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    <div style={{ 
-                        width: '64px', height: '64px', borderRadius: '22px', 
-                        background: `linear-gradient(135deg, ${THEME.accent}, #6366f1)`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-                        boxShadow: '0 12px 24px rgba(79, 70, 229, 0.25)' 
-                    }}>
-                        <Share2 size={32} strokeWidth={2.5} />
-                    </div>
-                    <div>
-                        <h2 style={{ margin: 0, fontSize: '2rem', fontWeight: 800, color: THEME.navy, letterSpacing: '-0.04em' }}>Content Creator</h2>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
-                            <span style={{ fontSize: '0.85rem', color: THEME.slate, fontWeight: 600 }}>Social Sync Engine Active</span>
-                        </div>
-                    </div>
-                </div>
-                <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', width: '50px', height: '50px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: THEME.slate, transition: '0.2s' }}>
-                    <X size={24} strokeWidth={3} />
-                </button>
-            </div>
-
-            <div style={{ padding: '0 48px 48px', display: 'flex', flexDirection: 'column', gap: '40px' }}>
-                
-                {/* Format & Style Selectors */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                    <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 800, color: THEME.slate, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-                            <Layout size={14} /> Campaign Format
-                        </label>
-                        <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '6px', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
-                           {['post', 'story', 'reel'].map(f => (
-                             <button
-                                key={f}
-                                onClick={() => setFormat(f)}
-                                style={{
-                                  flex: 1, padding: '10px', borderRadius: '14px', border: 'none',
-                                  cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700,
-                                  background: format === f ? THEME.navy : 'transparent',
-                                  color: format === f ? '#fff' : THEME.slate,
-                                  transition: '0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  boxShadow: format === f ? '0 8px 16px rgba(15, 23, 42, 0.2)' : 'none'
-                                }}
-                             >
-                               {f.charAt(0).toUpperCase() + f.slice(1)}
-                             </button>
-                           ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 800, color: THEME.slate, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-                            <Smartphone size={14} /> Target Channels
-                        </label>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                           {[
-                             { id: 'facebook', icon: Facebook, color: '#1877F2' },
-                             { id: 'instagram', icon: Instagram, color: '#E4405F' },
-                             { id: 'linkedin', icon: Linkedin, color: '#0A66C2' },
-                             { id: 'twitter', icon: Twitter, color: '#14171A' },
-                             { id: 'youtube', icon: Youtube, color: '#FF0000' },
-                             { id: 'google_business', icon: Store, color: '#4285F4' }
-                           ].map(p => (
-                             <button
-                                key={p.id}
-                                onClick={() => setPlatform(p.id)}
-                                disabled={p.id === 'linkedin' && (format === 'story' || format === 'reel')}
-                                className={`platform-chip ${platform === p.id ? 'active' : ''}`}
-                                style={{
-                                  width: '44px', height: '44px', borderRadius: '12px', border: '1px solid #e2e8f0',
-                                  background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}
-                                title={p.id.replace('_', ' ')}
-                             >
-                                <p.icon size={20} style={{ color: p.color }} />
-                             </button>
-                           ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* AI & Content Area */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                        <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 800, color: THEME.slate, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
-                                <Type size={14} /> Narrative Composition
-                            </label>
-                            <p style={{ margin: 0, fontSize: '0.85rem', color: THEME.slate, fontWeight: 500 }}>AI will optimize for {platform} {format} standards.</p>
-                        </div>
-                        <div style={{ display: 'flex', gap: '12px' }}>
-                            <button 
-                                onClick={handleGenerateAI}
-                                disabled={isGenerating || !initialData}
-                                className="ai-sparkle-btn"
-                                style={{ 
-                                    background: `linear-gradient(135deg, ${THEME.navy}, ${THEME.navy}dd)`, 
-                                    padding: '12px 24px', borderRadius: '16px', fontSize: '0.85rem', 
-                                    fontWeight: 800, color: THEME.white, display: 'flex', alignItems: 'center', gap: '10px',
-                                    cursor: 'pointer', border: 'none', transition: '0.3s'
-                                }}
-                            >
-                                {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} style={{ color: THEME.gold }} />}
-                                {isGenerating ? 'Crystalizing...' : 'Premium AI Genesis'}
-                            </button>
-                            <button 
-                                title="Copy to clipboard"
-                                onClick={() => {
-                                    navigator.clipboard.writeText(content);
-                                    toast.success('Narrative copied! 📋');
-                                }}
-                                style={{ 
-                                    background: '#f1f5f9', border: '1px solid #e2e8f0',
-                                    padding: '12px 18px', borderRadius: '16px', color: THEME.slate,
-                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-                                    fontSize: '0.85rem', fontWeight: 700
-                                }}
-                            >
-                                <Copy size={16} /> Copy
-                            </button>
-                        </div>
-                    </div>
-
-                    <div style={{ position: 'relative' }}>
-                        <textarea
-                            value={content}
-                            onChange={(e) => setContent(e.target.value)}
-                            className="glass-input"
-                            style={{
-                                width: '100%', height: '260px', padding: '32px', borderRadius: '32px',
-                                border: '1px solid #e2e8f0', background: 'rgba(248, 250, 252, 0.8)',
-                                outline: 'none', fontSize: '1.1rem', color: THEME.navy, lineHeight: '1.7',
-                                fontFamily: 'inherit', resize: 'none'
-                            }}
-                            placeholder="Architect your property narrative here..."
-                        />
-                        <div style={{ 
-                            position: 'absolute', bottom: '24px', right: '24px', 
-                            padding: '6px 12px', background: 'rgba(255,255,255,0.8)', borderRadius: '10px',
-                            fontSize: '0.75rem', color: THEME.slate, fontWeight: 700, border: '1px solid #e2e8f0' 
-                        }}>
-                            {content.length} / 2200
-                        </div>
-                    </div>
-                </div>
-
-                {/* Media Management */}
-                <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 800, color: THEME.slate, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
-                        <PlayCircle size={14} /> Media Assets
-                    </label>
-                    <div style={{ 
-                        width: '100%', height: '140px', borderRadius: '32px', border: '2px dashed #cbd5e1', 
-                        background: '#f8fafc', overflow: 'hidden', position: 'relative'
-                    }}>
-                        {imageUrl ? (
-                            <img src={imageUrl} alt="Property" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                            <div className="blueprint-placeholder" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
-                                <ImageIcon size={32} style={{ color: THEME.accent, opacity: 0.4 }} />
-                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: THEME.slate, opacity: 0.6 }}>No visual asset detected</span>
-                            </div>
-                        )}
-                        <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px' }}>
-                            {imageUrl && <button onClick={() => setImageUrl('')} style={{ background: '#ef4444', color: '#fff', border: 'none', width: '36px', height: '36px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><X size={18} /></button>}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Scheduling Area */}
-                <div style={{ 
-                    padding: '20px', 
-                    borderRadius: '24px', 
-                    background: isScheduled ? `${THEME.accent}08` : '#f8fafc',
-                    border: `1px solid ${isScheduled ? `${THEME.accent}20` : '#e2e8f0'}`,
-                    transition: '0.3s'
+        {/* ── Modal Header (Exact DealBroadcastModal Theme) ────────────────────── */}
+        <div style={{
+            padding: '20px 24px',
+            borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: isDark ? 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)' : 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)'
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                    width: '44px', height: '44px', borderRadius: '12px',
+                    background: activeTab === 'social' 
+                        ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' 
+                        : 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(79, 70, 229, 0.35)', color: '#fff',
+                    transition: 'all 0.3s'
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ 
-                                width: '36px', height: '36px', borderRadius: '10px', 
-                                background: isScheduled ? THEME.accent : '#e2e8f0',
-                                color: isScheduled ? '#fff' : THEME.slate,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                transition: '0.3s'
+                    <i className={`fas ${activeTab === 'social' ? 'fa-share-alt' : 'fa-globe'}`} style={{ fontSize: '18px' }}></i>
+                </div>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                            Share & Promote Studio
+                        </h3>
+                        {initialData?.name && (
+                            <span style={{
+                                fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '12px',
+                                background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff',
+                                color: isDark ? '#a5b4fc' : '#3730a3',
+                                border: isDark ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid #c7d2fe'
                             }}>
-                                <Zap size={18} />
-                            </div>
-                            <div>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: THEME.navy }}>Schedule Publication</span>
-                                <p style={{ margin: 0, fontSize: '0.7rem', color: THEME.slate }}>Optimal timing for maximum reach</p>
-                            </div>
+                                <i className="fas fa-building" style={{ marginRight: '5px' }}></i>
+                                {initialData.name}
+                            </span>
+                        )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                            <i className="far fa-clock" style={{ color: '#818cf8', fontSize: '11px' }}></i>
+                            <span>{currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                            <span style={{ opacity: 0.4 }}>•</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                                {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                            </span>
                         </div>
-                        <div 
-                            onClick={() => setIsScheduled(!isScheduled)}
-                            style={{ 
-                                width: '48px', height: '24px', borderRadius: '12px', 
-                                background: isScheduled ? THEME.accent : '#cbd5e1',
-                                position: 'relative', cursor: 'pointer', transition: '0.3s'
-                            }}
-                        >
-                            <div style={{ 
-                                width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-                                position: 'absolute', top: '3px', left: isScheduled ? '27px' : '3px',
-                                transition: '0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                            }}></div>
+                        <span style={{ opacity: 0.3 }}>•</span>
+                        <span style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                            {activeTab === 'social' 
+                                ? 'Omnichannel Social Media Broadcast & AI Narrative Creator' 
+                                : 'Real Estate Portal Syndication & Anti-Poaching Guard'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <button
+                onClick={onClose}
+                style={{
+                    width: '36px', height: '36px', borderRadius: '10px',
+                    border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc',
+                    color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '16px', transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                onMouseLeave={e => e.currentTarget.style.color = isDark ? '#94a3b8' : '#64748b'}
+                title="Close Studio"
+            >
+                <i className="fas fa-times"></i>
+            </button>
+        </div>
+
+        {/* ── Modal Body (Scrollable, 2-Column Grid) ────────────────────── */}
+        <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* ── Section 1: Studio Mode Switcher Bar ──────────────────────── */}
+            <div style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                borderRadius: '16px', padding: '14px 18px',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                        width: '32px', height: '32px', borderRadius: '8px',
+                        background: activeTab === 'social' ? (isDark ? 'rgba(79, 70, 229, 0.15)' : '#e0e7ff') : (isDark ? 'rgba(2, 132, 199, 0.15)' : '#e0f2fe'),
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: activeTab === 'social' ? '#4f46e5' : '#0284c7'
+                    }}>
+                        <i className={`fas ${activeTab === 'social' ? 'fa-share-nodes' : 'fa-network-wired'}`} style={{ fontSize: '15px' }}></i>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                            {activeTab === 'social' ? 'Social Media Distribution Hub' : 'Portals & Network Syndication'}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                            {activeTab === 'social'
+                                ? 'Create AI-crafted narrative & publish across Facebook, Instagram, LinkedIn, X, YouTube, and Google Business.'
+                                : 'Syndicate real-time listing feeds to 99acres, Magicbricks, Housing.com and BNA Broker syndicate.'}
                         </div>
                     </div>
-
-                    {isScheduled && (
-                        <div style={{ marginTop: '16px', animation: 'modalPop 0.3s' }}>
-                            <input 
-                                type="datetime-local" 
-                                value={scheduledTime}
-                                onChange={(e) => setScheduledTime(e.target.value)}
-                                style={{ 
-                                    width: '100%', padding: '12px 16px', borderRadius: '12px',
-                                    border: '1px solid #e2e8f0', background: '#fff',
-                                    fontSize: '0.9rem', color: THEME.navy, fontWeight: 600,
-                                    outline: 'none'
-                                }}
-                            />
-                        </div>
-                    )}
                 </div>
 
-                {/* Publication Bar */}
-                <div style={{ marginTop: 'auto', display: 'flex', gap: '16px' }}>
+                {/* Dual Mode Tab Selector Buttons */}
+                <div style={{
+                    display: 'flex', gap: '4px',
+                    background: isDark ? '#1e293b' : '#e2e8f0',
+                    padding: '3px', borderRadius: '10px'
+                }}>
                     <button
-                        onClick={handlePublish}
-                        disabled={isPublishing || status === 'success' || (isScheduled && !scheduledTime)}
+                        type="button"
+                        onClick={() => setActiveTab('social')}
                         style={{
-                            flex: 1, padding: '24px', borderRadius: '24px', border: 'none',
-                            background: status === 'success' ? '#10b981' : THEME.navy,
-                            color: '#fff', fontSize: '1.2rem', fontWeight: 800, cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px',
-                            boxShadow: status === 'success' ? '0 20px 40px rgba(16, 185, 129, 0.3)' : '0 20px 40px rgba(15, 23, 42, 0.3)',
-                            transition: 'all 0.4s'
+                            padding: '6px 16px', borderRadius: '8px', border: 'none',
+                            background: activeTab === 'social' ? '#4f46e5' : 'transparent',
+                            color: activeTab === 'social' ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                            fontSize: '0.76rem', fontWeight: 800, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            transition: 'all 0.15s'
                         }}
                     >
-                        {isPublishing ? <Loader2 className="animate-spin" /> : status === 'success' ? <CheckCircle2 /> : isScheduled ? <Zap size={24} style={{ fill: THEME.gold, color: THEME.gold }} /> : <Send size={24} />}
-                        {isPublishing ? 'Synchronizing Node...' : status === 'success' ? 'Listing Handled' : isScheduled ? `Schedule for ${platform}` : `Launch to ${platform}`}
+                        <i className="fas fa-mobile-screen"></i>
+                        <span>Social Media Studio</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('portals')}
+                        style={{
+                            padding: '6px 16px', borderRadius: '8px', border: 'none',
+                            background: activeTab === 'portals' ? '#4f46e5' : 'transparent',
+                            color: activeTab === 'portals' ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                            fontSize: '0.76rem', fontWeight: 800, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            transition: 'all 0.15s'
+                        }}
+                    >
+                        <i className="fas fa-globe"></i>
+                        <span>Portals & Syndication</span>
+                        <span style={{
+                            fontSize: '0.62rem', fontWeight: 800, padding: '1px 6px', borderRadius: '6px',
+                            background: activeTab === 'portals' ? 'rgba(255,255,255,0.2)' : (isDark ? 'rgba(16, 185, 129, 0.15)' : '#dcfce7'),
+                            color: activeTab === 'portals' ? '#ffffff' : '#10b981'
+                        }}>
+                            Anti-Poaching
+                        </span>
                     </button>
                 </div>
             </div>
-        </div>
 
-        {/* RIGHT: PERSPECTIVE PANE (PREVIEW) */}
-        <div className="preview-pane" style={{ flex: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-            
-            {/* Header / Mode Indicator */}
-            <div style={{ position: 'absolute', top: '40px', left: '0', right: '0', textAlign: 'center' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '10px 24px', borderRadius: '40px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
-                   <Eye size={16} style={{ color: THEME.gold }} />
-                   <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.15em' }}>High Fidelity Mirror</span>
-                </div>
-            </div>
-
-            {/* iPhone Mockup Containter */}
-            <div style={{ 
-                width: '320px', height: '640px', borderRadius: '54px', 
-                background: '#000', border: '14px solid #1e293b', 
-                boxShadow: `0 40px 80px rgba(0,0,0,0.8), 0 0 100px ${THEME.accent}10`,
-                position: 'relative', overflow: 'hidden', padding: '0',
-                display: 'flex', flexDirection: 'column'
-            }}>
-                {/* Notch */}
-                <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '120px', height: '28px', background: '#000', borderRadius: '0 0 16px 16px', zIndex: 100 }}></div>
-
-                {/* Content Area */}
-                <div style={{ flex: 1, background: format === 'post' ? '#fff' : '#000', display: 'flex', flexDirection: 'column', overflowY: 'auto' }} className="custom-scrollbar">
+            {/* ── Section 2: 2-Column Grid (Configuration & Live Preview) ────────── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '20px' }}>
+                
+                {/* ════════════════════════════════════════════════════════════════
+                    LEFT COLUMN: CONFIGURATION & TARGETS
+                   ════════════════════════════════════════════════════════════════ */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     
-                    {format === 'post' ? (
-                        /* SOCIAL FEED POST MOCKUP */
+                    {/* ────── TAB 1 (SOCIAL) CONFIGURATION ────── */}
+                    {activeTab === 'social' && (
                         <>
-                            <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: THEME.navy, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '10px', fontWeight: 900 }}>BP</div>
-                                    <div>
-                                        <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: THEME.navy }}>bharat_properties</p>
-                                        <p style={{ margin: 0, fontSize: '0.6rem', color: THEME.slate, fontWeight: 600 }}>Sponsored</p>
-                                    </div>
+                            {/* Target Channels */}
+                            <div style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                borderRadius: '14px', padding: '16px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', margin: 0 }}>
+                                        TARGET SOCIAL PLATFORMS <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
+                                    <span style={{
+                                        fontSize: '0.68rem', color: '#4f46e5', fontWeight: 800,
+                                        background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff',
+                                        padding: '2px 8px', borderRadius: '10px'
+                                    }}>
+                                        Active: {platform.toUpperCase()}
+                                    </span>
                                 </div>
-                                <div style={{ fontSize: '1rem', color: THEME.slate }}>•••</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                    {SOCIAL_PLATFORMS.map(p => {
+                                        const isSelected = platform === p.id;
+                                        return (
+                                            <button
+                                                key={p.id}
+                                                type="button"
+                                                onClick={() => setPlatform(p.id)}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px',
+                                                    border: `1.5px solid ${isSelected ? '#4f46e5' : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0')}`,
+                                                    borderRadius: '10px',
+                                                    background: isSelected 
+                                                        ? (isDark ? 'rgba(79, 70, 229, 0.15)' : '#eef2ff') 
+                                                        : (isDark ? 'rgba(255, 255, 255, 0.02)' : '#ffffff'),
+                                                    cursor: 'pointer', transition: 'all 0.15s',
+                                                    color: isSelected ? '#4f46e5' : (isDark ? '#f8fafc' : '#334155')
+                                                }}
+                                            >
+                                                <i className={p.faIcon} style={{ fontSize: '15px', color: p.color }}></i>
+                                                <span style={{ fontSize: '0.78rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {p.name}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
 
-                            <div style={{ width: '100%', aspectRatio: '1/1', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                {imageUrl ? (
-                                    <img src={imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                ) : (
-                                    <div className="blueprint-placeholder" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <ImageIcon size={48} style={{ color: THEME.accent, opacity: 0.1 }} />
+                            {/* Campaign Format */}
+                            <div style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                borderRadius: '14px', padding: '16px'
+                            }}>
+                                <label style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', marginBottom: '8px', display: 'block' }}>
+                                    CAMPAIGN FORMAT
+                                </label>
+                                <div style={{
+                                    display: 'flex', gap: '6px',
+                                    background: isDark ? '#1e293b' : '#e2e8f0',
+                                    padding: '3px', borderRadius: '10px'
+                                }}>
+                                    {['post', 'story', 'reel'].map(f => {
+                                        const isSelected = format === f;
+                                        return (
+                                            <button
+                                                key={f}
+                                                type="button"
+                                                onClick={() => setFormat(f)}
+                                                style={{
+                                                    flex: 1, padding: '7px', borderRadius: '8px', border: 'none',
+                                                    background: isSelected ? '#4f46e5' : 'transparent',
+                                                    color: isSelected ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                                                    fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer',
+                                                    transition: 'all 0.15s'
+                                                }}
+                                            >
+                                                {f.charAt(0).toUpperCase() + f.slice(1)}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Narrative Composition & AI Copywriter */}
+                            <div style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', margin: 0, display: 'block' }}>
+                                            NARRATIVE COMPOSITION
+                                        </label>
+                                        <span style={{ fontSize: '0.66rem', color: isDark ? '#64748b' : '#94a3b8' }}>
+                                            Optimized for {platform} {format}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button 
+                                            type="button"
+                                            onClick={handleGenerateAI}
+                                            disabled={isGenerating || !initialData}
+                                            style={{ 
+                                                background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', 
+                                                padding: '6px 14px', borderRadius: '8px', fontSize: '0.74rem', 
+                                                fontWeight: 800, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px',
+                                                cursor: (isGenerating || !initialData) ? 'not-allowed' : 'pointer', border: 'none',
+                                                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)'
+                                            }}
+                                        >
+                                            {isGenerating ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sparkles text-amber-300"></i>}
+                                            {isGenerating ? 'Synthesizing...' : 'AI Copywriter'}
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            title="Copy text to clipboard"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(content);
+                                                toast.success('Narrative copied! 📋');
+                                            }}
+                                            style={{ 
+                                                background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+                                                border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                                padding: '6px 10px', borderRadius: '8px', color: isDark ? '#94a3b8' : '#64748b',
+                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                                                fontSize: '0.74rem', fontWeight: 700
+                                            }}
+                                        >
+                                            <i className="far fa-copy"></i>
+                                            <span>Copy</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style={{ position: 'relative' }}>
+                                    <textarea
+                                        value={content}
+                                        onChange={(e) => setContent(e.target.value)}
+                                        style={{
+                                            width: '100%', height: '150px', padding: '14px', borderRadius: '10px',
+                                            border: isOverCharLimit 
+                                                ? '1.5px solid #ef4444' 
+                                                : (isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1'),
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            color: isDark ? '#f8fafc' : '#0f172a',
+                                            outline: 'none', fontSize: '0.84rem', lineHeight: '1.55',
+                                            fontFamily: 'inherit', resize: 'none'
+                                        }}
+                                        placeholder="Write property description, key highlights, price and call to action..."
+                                    />
+                                    <div style={{ 
+                                        position: 'absolute', bottom: '10px', right: '10px', 
+                                        padding: '2px 8px', background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(241,245,249,0.9)',
+                                        borderRadius: '6px', fontSize: '0.66rem',
+                                        color: isOverCharLimit ? '#ef4444' : (isDark ? '#94a3b8' : '#64748b'),
+                                        fontWeight: 700, 
+                                        border: isOverCharLimit ? '1px solid #ef4444' : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0') 
+                                    }}>
+                                        {content.length} / {maxSocialChars} {isOverCharLimit ? '⚠️ Exceeds Limit' : (platform === 'twitter' ? '• X Limit' : '')}
+                                    </div>
+                                </div>
+
+                                {platform === 'youtube' && (
+                                    <div style={{
+                                        padding: '8px 12px', borderRadius: '8px',
+                                        background: isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2',
+                                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                                        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem',
+                                        color: isDark ? '#fca5a5' : '#b91c1c'
+                                    }}>
+                                        <i className="fab fa-youtube text-red-500" style={{ fontSize: '15px' }}></i>
+                                        <span>
+                                            <strong>YouTube Dispatch:</strong> First line will be used as video Title and remainder as Description. Video URL / file (.mp4) required.
+                                        </span>
+                                    </div>
+                                )}
+
+                                {platform === 'google_business' && (
+                                    <div style={{
+                                        padding: '8px 12px', borderRadius: '8px',
+                                        background: isDark ? 'rgba(66, 133, 244, 0.1)' : '#eff6ff',
+                                        border: '1px solid rgba(66, 133, 244, 0.25)',
+                                        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem',
+                                        color: isDark ? '#93c5fd' : '#1d4ed8'
+                                    }}>
+                                        <i className="fab fa-google text-blue-500" style={{ fontSize: '15px' }}></i>
+                                        <span>
+                                            <strong>Google Business Profile:</strong> Posts an interactive "Call" / "Learn More" update directly onto Google Search & Maps.
+                                        </span>
                                     </div>
                                 )}
                             </div>
 
-                            <div style={{ padding: '12px 18px' }}>
-                                <div style={{ display: 'flex', gap: '16px', marginBottom: '10px' }}>
-                                    <div style={{ width: '24px', height: '24px', border: '2.5px solid #1e293b', borderRadius: '6px' }}></div>
-                                    <div style={{ width: '24px', height: '24px', border: '2.5px solid #1e293b', borderRadius: '6px' }}></div>
-                                    <div style={{ width: '24px', height: '24px', border: '2.5px solid #1e293b', borderRadius: '6px' }}></div>
+                            {/* Visual Media & Scheduling Row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                {/* Media Box */}
+                                <div style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                    borderRadius: '14px', padding: '12px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ fontSize: '0.68rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', margin: 0 }}>
+                                            VISUAL MEDIA
+                                        </label>
+                                        {imageUrl && (
+                                            <button 
+                                                type="button"
+                                                onClick={() => setImageUrl('')} 
+                                                style={{ background: '#ef4444', color: '#fff', border: 'none', width: '20px', height: '20px', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px' }}
+                                                title="Remove photo"
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div style={{ 
+                                        height: '76px', borderRadius: '8px', border: '1.5px dashed #cbd5e1', 
+                                        background: isDark ? '#1e293b' : '#ffffff', overflow: 'hidden', position: 'relative'
+                                    }}>
+                                        {imageUrl ? (
+                                            <img src={imageUrl} alt="Property" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '2px' }}>
+                                                <i className="fas fa-image" style={{ color: '#6366f1', opacity: 0.5, fontSize: '16px' }}></i>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>No photo</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                                <div style={{ fontSize: '0.85rem', color: THEME.navy, fontWeight: 500, lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                                    <span style={{ fontWeight: 800, marginRight: '6px' }}>bharat_properties</span>
-                                    {content || 'Establishing narrative structure...'}
+
+                                {/* Scheduling Box */}
+                                <div style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                    borderRadius: '14px', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Schedule Post</div>
+                                            <div style={{ fontSize: '0.64rem', color: isDark ? '#94a3b8' : '#64748b' }}>Queue for peak hours</div>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={isScheduled}
+                                            onChange={(e) => setIsScheduled(e.target.checked)}
+                                            style={{ accentColor: '#4f46e5', width: '16px', height: '16px', cursor: 'pointer' }}
+                                        />
+                                    </div>
+                                    {isScheduled && (
+                                        <input 
+                                            type="datetime-local" 
+                                            value={scheduledTime}
+                                            onChange={(e) => setScheduledTime(e.target.value)}
+                                            style={{ 
+                                                width: '100%', padding: '6px 8px', borderRadius: '6px',
+                                                border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #cbd5e1',
+                                                background: isDark ? '#1e293b' : '#ffffff',
+                                                color: isDark ? '#f8fafc' : '#0f172a',
+                                                fontSize: '0.74rem', fontWeight: 600, outline: 'none'
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </>
-                    ) : (
-                        /* STORY / REEL FULLSCREEN MOCKUP */
-                        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                            {imageUrl && <img src={imageUrl} alt="Background" style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} />}
-                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 15%, transparent 80%, rgba(0,0,0,0.8) 100%)' }}></div>
-                            
-                            {/* Top Story Bar */}
-                            <div style={{ position: 'absolute', top: '24px', left: '16px', right: '16px', display: 'flex', gap: '4px' }}>
-                                <div style={{ flex: 1, height: '2px', background: '#fff', borderRadius: '1px' }}></div>
-                                <div style={{ flex: 1, height: '2px', background: 'rgba(255,255,255,0.3)', borderRadius: '1px' }}></div>
-                            </div>
-
-                            <div style={{ position: 'absolute', top: '40px', left: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#fff', padding: '2px' }}>
-                                    <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: THEME.navy, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '9px', fontWeight: 900 }}>BP</div>
-                                </div>
-                                <span style={{ color: '#fff', fontSize: '0.85rem', fontWeight: 800 }}>bharat_properties</span>
-                                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>2h</span>
-                            </div>
-
-                            <div style={{ position: 'absolute', bottom: '32px', left: '16px', right: '16px' }}>
-                                <p style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600, marginBottom: '20px', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
-                                    {content.length > 120 ? content.substring(0, 120) + '...' : content || 'Establishing visual presence...'}
-                                </p>
-                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                    <div style={{ flex: 1, height: '44px', borderRadius: '22px', border: '2px solid rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', padding: '0 16px', color: '#fff', fontSize: '0.8rem' }}>
-                                        Send message...
-                                    </div>
-                                    <div style={{ width: '28px', height: '28px', color: '#fff' }}><Send size={24} /></div>
-                                </div>
-                            </div>
-                        </div>
                     )}
+
+                    {/* ────── TAB 2 (PORTALS) CONFIGURATION ────── */}
+                    {activeTab === 'portals' && (
+                        <>
+                            {/* Section 1: Anti-Poaching Privacy Guard */}
+                            <div style={{
+                                background: isDark ? 'rgba(79, 70, 229, 0.06)' : '#eef2ff',
+                                border: isDark ? '1px solid rgba(99, 102, 241, 0.25)' : '1px solid #c7d2fe',
+                                borderRadius: '14px', padding: '16px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ 
+                                            width: '28px', height: '28px', borderRadius: '8px', 
+                                            background: '#4f46e5', color: '#fff',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                        }}>
+                                            <i className="fas fa-shield-alt" style={{ fontSize: '14px' }}></i>
+                                        </div>
+                                        <div>
+                                            <h4 style={{ margin: 0, fontSize: '0.88rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                                Anti-Poaching Privacy Guard
+                                            </h4>
+                                            <span style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                Prevents buyer/builder bypass to protect broker commission
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span style={{ 
+                                        fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: '10px',
+                                        background: '#10b981', color: '#ffffff', letterSpacing: '0.04em'
+                                    }}>
+                                        SHIELD ACTIVE
+                                    </span>
+                                </div>
+
+                                {/* 3 Toggles Matrix */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                    
+                                    {/* Toggle 1: Mask Unit No */}
+                                    <div 
+                                        onClick={() => setPrivacy(p => ({ ...p, hideUnitNo: !p.hideUnitNo }))}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '10px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${privacy.hideUnitNo ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: '4px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Mask Unit #</span>
+                                            <input type="checkbox" checked={privacy.hideUnitNo} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {privacy.hideUnitNo ? 'Shows [CONFIDENTIAL]' : 'Shows Exact Unit #'}
+                                        </span>
+                                    </div>
+
+                                    {/* Toggle 2: Hide Exact Pin */}
+                                    <div 
+                                        onClick={() => setPrivacy(p => ({ ...p, hideLocation: !p.hideLocation }))}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '10px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${privacy.hideLocation ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: '4px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Hide Exact Pin</span>
+                                            <input type="checkbox" checked={privacy.hideLocation} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {privacy.hideLocation ? 'Shows Sector/City' : 'Shows Street Address'}
+                                        </span>
+                                    </div>
+
+                                    {/* Toggle 3: Price on Request */}
+                                    <div 
+                                        onClick={() => setPrivacy(p => ({ ...p, priceOnRequest: !p.priceOnRequest }))}
+                                        style={{
+                                            padding: '8px 10px', borderRadius: '10px',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            border: `1.5px solid ${privacy.priceOnRequest ? '#4f46e5' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: '4px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>Price on Request</span>
+                                            <input type="checkbox" checked={privacy.priceOnRequest} readOnly style={{ accentColor: '#4f46e5', cursor: 'pointer' }} />
+                                        </div>
+                                        <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {privacy.priceOnRequest ? 'Conceals Numeric Price' : 'Displays Listed Price'}
+                                        </span>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            {/* Section 2: Target Portals & Syndication Network */}
+                            <div style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                borderRadius: '14px', padding: '16px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', margin: 0 }}>
+                                        TARGET REAL ESTATE PORTALS & SYNDICATION CHANNELS <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
+                                    <span style={{
+                                        fontSize: '0.68rem', color: '#4f46e5', fontWeight: 800,
+                                        background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff',
+                                        padding: '2px 8px', borderRadius: '10px'
+                                    }}>
+                                        {selectedPortals.length} of {PORTALS_LIST.length} Selected
+                                    </span>
+                                </div>
+
+                                {/* Enterprise Phase 3: Bulk Selection Bar & Settings Gateway */}
+                                <div style={{
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    flexWrap: 'wrap', gap: '8px', marginBottom: '12px',
+                                    padding: '8px 12px', borderRadius: '10px',
+                                    background: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f1f5f9',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid #e2e8f0'
+                                }}>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={handleSelectAllPortals}
+                                            style={{
+                                                padding: '4px 10px', borderRadius: '6px',
+                                                border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                                background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                                                color: isDark ? '#cbd5e1' : '#475569',
+                                                fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                        >
+                                            <i className="fas fa-check-double text-indigo-500"></i>
+                                            <span>Select All (11)</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSelectConnectedPortals}
+                                            style={{
+                                                padding: '4px 10px', borderRadius: '6px',
+                                                border: isDark ? '1px solid rgba(16,185,129,0.3)' : '1px solid #a7f3d0',
+                                                background: isDark ? 'rgba(16,185,129,0.1)' : '#ecfdf5',
+                                                color: '#059669',
+                                                fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                        >
+                                            <i className="fas fa-bolt text-emerald-500"></i>
+                                            <span>Connected Only</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleClearAllPortals}
+                                            style={{
+                                                padding: '4px 10px', borderRadius: '6px',
+                                                border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                                background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                                                color: isDark ? '#94a3b8' : '#64748b',
+                                                fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer'
+                                            }}
+                                        >
+                                            Clear All
+                                        </button>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                        <i className="fas fa-shield-halved text-indigo-400"></i>
+                                        <span>Credentials & Feeds managed in <strong>Settings &gt; Integrations</strong></span>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    {PORTALS_LIST.map(portal => {
+                                        const isSelected = selectedPortals.includes(portal.id);
+                                        const isConnected = Boolean(portalStatuses[portal.id]?.connected);
+                                        return (
+                                            <div 
+                                                key={portal.id}
+                                                onClick={() => {
+                                                    togglePortal(portal.id);
+                                                    setPreviewPortal(portal.id);
+                                                }}
+                                                className={`portal-card ${isSelected ? 'selected' : ''}`}
+                                                style={{
+                                                    padding: '12px 14px', borderRadius: '12px',
+                                                    background: isSelected 
+                                                        ? (isDark ? 'rgba(79, 70, 229, 0.1)' : '#f0fdf4') 
+                                                        : (isDark ? '#1e293b' : '#ffffff'),
+                                                    border: `1.5px solid ${isSelected ? '#4f46e5' : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0')}`,
+                                                    display: 'flex', flexDirection: 'column', gap: '6px',
+                                                    cursor: 'pointer', transition: 'all 0.15s'
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{ 
+                                                            width: '26px', height: '26px', borderRadius: '6px', 
+                                                            background: `${portal.color}18`, color: portal.color,
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                        }}>
+                                                            <portal.icon size={14} />
+                                                        </div>
+                                                        <span style={{ fontSize: '0.84rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                                            {portal.name}
+                                                        </span>
+                                                    </div>
+
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        {/* Live Status Pill: Active vs Setup Needed */}
+                                                        {isConnected ? (
+                                                            <span style={{
+                                                                fontSize: '0.58rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                                                                background: isDark ? 'rgba(16,185,129,0.15)' : '#dcfce7',
+                                                                color: '#10b981', display: 'flex', alignItems: 'center', gap: '3px'
+                                                            }}>
+                                                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#10b981' }}></span>
+                                                                ACTIVE
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{
+                                                                fontSize: '0.58rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                                                                background: isDark ? 'rgba(245,158,11,0.12)' : '#fef3c7',
+                                                                color: '#d97706'
+                                                            }}>
+                                                                SETUP NEEDED
+                                                            </span>
+                                                        )}
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={isSelected} 
+                                                            readOnly 
+                                                            style={{ accentColor: '#4f46e5', width: '15px', height: '15px', cursor: 'pointer' }} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <p style={{ margin: 0, fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b', lineHeight: '1.3' }}>
+                                                    {portal.desc}
+                                                </p>
+
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                                    <span style={{ 
+                                                        fontSize: '0.6rem', fontWeight: 800, padding: '1px 6px', borderRadius: '4px',
+                                                        background: `${portal.color}15`, color: portal.color, textTransform: 'uppercase'
+                                                    }}>
+                                                        {portal.badge}
+                                                    </span>
+                                                    {portal.id === previewPortal && (
+                                                        <span style={{ fontSize: '0.62rem', color: '#6366f1', fontWeight: 700 }}>
+                                                            • In Preview
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Section 3: Custom Syndication Headline */}
+                            <div style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                borderRadius: '14px', padding: '14px'
+                            }}>
+                                <label style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', marginBottom: '6px', display: 'block' }}>
+                                    PORTAL LISTING HEADLINE
+                                </label>
+                                <input 
+                                    type="text"
+                                    value={customHeadline}
+                                    onChange={(e) => setCustomHeadline(e.target.value)}
+                                    style={{ 
+                                        width: '100%', padding: '10px 14px', borderRadius: '8px',
+                                        border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1',
+                                        background: isDark ? '#1e293b' : '#ffffff',
+                                        color: isDark ? '#f8fafc' : '#0f172a',
+                                        fontSize: '0.84rem', fontWeight: 600, outline: 'none'
+                                    }}
+                                    placeholder="e.g. Ultra Luxury High-Rise Residences on Golf Course Ext Rd"
+                                />
+                            </div>
+                        </>
+                    )}
+
                 </div>
+
+                {/* ════════════════════════════════════════════════════════════════
+                    RIGHT COLUMN: LIVE HIGH-FIDELITY PREVIEW (Exact DealBroadcast Section 3 Theme)
+                   ════════════════════════════════════════════════════════════════ */}
+                <div style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                    borderRadius: '16px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px'
+                }}>
+                    {/* Preview Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                                width: '28px', height: '28px', borderRadius: '8px',
+                                background: activeTab === 'social' ? '#dbeafe' : '#cffafe',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                                <i className={`fas ${activeTab === 'social' ? 'fa-mobile-screen' : 'fa-globe'}`} style={{ color: activeTab === 'social' ? '#2563eb' : '#0891b2', fontSize: '14px' }}></i>
+                            </div>
+                            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', letterSpacing: '0.5px' }}>
+                                {activeTab === 'social' 
+                                    ? `LIVE SOCIAL PREVIEW — ${platform.toUpperCase()}` 
+                                    : `LIVE PORTAL PREVIEW — ${previewPortal.toUpperCase()}`}
+                            </span>
+                        </div>
+
+                        {/* Switchers in Preview Header */}
+                        {activeTab === 'social' ? (
+                            <div style={{
+                                display: 'flex', gap: '3px',
+                                background: isDark ? '#1e293b' : '#e2e8f0',
+                                padding: '2px', borderRadius: '8px'
+                            }}>
+                                {['post', 'story', 'reel'].map(f => (
+                                    <button
+                                        key={f}
+                                        type="button"
+                                        onClick={() => setFormat(f)}
+                                        style={{
+                                            padding: '3px 8px', borderRadius: '6px', border: 'none',
+                                            background: format === f ? '#4f46e5' : 'transparent',
+                                            color: format === f ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                                            fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer'
+                                        }}
+                                    >
+                                        {f.toUpperCase()}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{
+                                display: 'flex', gap: '3px',
+                                background: isDark ? '#1e293b' : '#e2e8f0',
+                                padding: '2px', borderRadius: '8px',
+                                maxWidth: '320px', overflowX: 'auto', scrollbarWidth: 'none'
+                            }}>
+                                {PORTALS_LIST.map(p => (
+                                    <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => setPreviewPortal(p.id)}
+                                        style={{
+                                            padding: '3px 8px', borderRadius: '6px', border: 'none',
+                                            background: previewPortal === p.id ? '#4f46e5' : 'transparent',
+                                            color: previewPortal === p.id ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                                            fontSize: '0.66rem', fontWeight: 700, cursor: 'pointer',
+                                            whiteSpace: 'nowrap'
+                                        }}
+                                        title={`Preview on ${p.name}`}
+                                    >
+                                        {p.name.replace('.com', '').replace(' India', '')}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Preview Box Body */}
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, minHeight: '380px' }}>
+                        
+                        {/* ────── PREVIEW 1: SOCIAL PHONE MIRROR ────── */}
+                        {activeTab === 'social' && (
+                            <div style={{ 
+                                width: '280px', height: '480px', borderRadius: '32px', 
+                                background: isDark ? '#020617' : '#ffffff', 
+                                border: isDark ? '8px solid #1e293b' : '8px solid #0f172a', 
+                                boxShadow: isDark ? '0 15px 35px rgba(0,0,0,0.6)' : '0 15px 35px rgba(15,23,42,0.15)',
+                                position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column'
+                            }}>
+                                {/* Phone Notch */}
+                                <div style={{ 
+                                    position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', 
+                                    width: '80px', height: '14px', background: isDark ? '#1e293b' : '#0f172a', 
+                                    borderRadius: '0 0 10px 10px', zIndex: 100 
+                                }}></div>
+
+                                {format === 'post' ? (
+                                    /* FEED POST PREVIEW */
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', background: isDark ? '#0f172a' : '#ffffff' }}>
+                                        {/* Post Header */}
+                                        <div style={{ padding: '16px 12px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #f1f5f9' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '9px', fontWeight: 900 }}>BP</div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.74rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>bharat_properties</div>
+                                                    <div style={{ fontSize: '0.58rem', color: isDark ? '#94a3b8' : '#64748b' }}>Sponsored • {platform}</div>
+                                                </div>
+                                            </div>
+                                            <span style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>•••</span>
+                                        </div>
+
+                                        {/* Image Box */}
+                                        <div style={{ width: '100%', height: '160px', background: isDark ? '#1e293b' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                            {imageUrl ? (
+                                                <img src={imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <div style={{ textAlign: 'center', color: isDark ? '#64748b' : '#94a3b8' }}>
+                                                    <i className="fas fa-image" style={{ fontSize: '24px' }}></i>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Content & Actions */}
+                                        <div style={{ padding: '10px 12px', flex: 1 }}>
+                                            <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', color: isDark ? '#94a3b8' : '#64748b', fontSize: '13px' }}>
+                                                <i className="far fa-heart"></i>
+                                                <i className="far fa-comment"></i>
+                                                <i className="far fa-paper-plane"></i>
+                                            </div>
+                                            <div style={{ fontSize: '0.74rem', color: isDark ? '#f8fafc' : '#0f172a', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
+                                                <strong style={{ marginRight: '4px' }}>bharat_properties</strong>
+                                                {content || 'Establishing narrative structure...'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* STORY / REEL PREVIEW */
+                                    <div style={{ flex: 1, position: 'relative', background: '#000' }}>
+                                        {imageUrl && <img src={imageUrl} alt="Background" style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} />}
+                                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 20%, transparent 75%, rgba(0,0,0,0.85) 100%)' }}></div>
+                                        <div style={{ position: 'absolute', top: '24px', left: '10px', right: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '8px', fontWeight: 900 }}>BP</div>
+                                            <span style={{ color: '#fff', fontSize: '0.72rem', fontWeight: 800 }}>bharat_properties</span>
+                                            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.68rem' }}>Just now</span>
+                                        </div>
+                                        <div style={{ position: 'absolute', bottom: '16px', left: '10px', right: '10px' }}>
+                                            <p style={{ color: '#fff', fontSize: '0.74rem', fontWeight: 600, marginBottom: '8px' }}>
+                                                {content.length > 90 ? content.substring(0, 90) + '...' : content || 'Establishing visual presence...'}
+                                            </p>
+                                            <div style={{ height: '30px', borderRadius: '15px', border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', padding: '0 10px', color: '#fff', fontSize: '0.68rem' }}>
+                                                Send message...
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ────── PREVIEW 2: REAL ESTATE PORTAL CARD ────── */}
+                        {activeTab === 'portals' && (() => {
+                            const activeMeta = PORTAL_PREVIEW_METAS[previewPortal] || PORTAL_PREVIEW_METAS['99acres'];
+                            return (
+                                <div style={{ width: '100%', maxWidth: '380px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    <div style={{
+                                        background: isDark ? '#1e293b' : '#ffffff',
+                                        borderRadius: '16px', overflow: 'hidden',
+                                        boxShadow: isDark ? '0 12px 30px rgba(0,0,0,0.5)' : '0 12px 30px rgba(0,0,0,0.08)',
+                                        border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0'
+                                    }}>
+                                        {/* Dynamic Portal Header Watermark */}
+                                        <div style={{ 
+                                            padding: '8px 14px', 
+                                            background: activeMeta.headerBg,
+                                            color: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                        }}>
+                                            <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>
+                                                {activeMeta.title}
+                                            </span>
+                                            <span style={{ fontSize: '0.6rem', background: 'rgba(255,255,255,0.25)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                                {activeMeta.watermark}
+                                            </span>
+                                        </div>
+
+                                        {/* Image Showcase */}
+                                        <div style={{ height: '140px', background: isDark ? '#0f172a' : '#f1f5f9', position: 'relative', overflow: 'hidden' }}>
+                                            {imageUrl ? (
+                                                <img src={imageUrl} alt="Property" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fas fa-building" style={{ fontSize: '32px', color: isDark ? '#64748b' : '#cbd5e1' }}></i>
+                                                </div>
+                                            )}
+
+                                            {/* Anti-Poaching Indicator on Card */}
+                                            <div style={{ 
+                                                position: 'absolute', top: '8px', left: '8px',
+                                                background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(4px)',
+                                                padding: '3px 7px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px',
+                                                color: '#fff', fontSize: '0.62rem', fontWeight: 700
+                                            }}>
+                                                <i className="fas fa-shield-alt text-emerald-400"></i>
+                                                <span>Protected Listing</span>
+                                            </div>
+
+                                            {initialData?.reraNumber && (
+                                                <div style={{ 
+                                                    position: 'absolute', bottom: '8px', right: '8px',
+                                                    background: 'rgba(0,0,0,0.75)', color: '#67e8f9',
+                                                    padding: '2px 6px', borderRadius: '4px', fontSize: '0.58rem', fontWeight: 800
+                                                }}>
+                                                    RERA: {initialData.reraNumber}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Card Content & Details */}
+                                        <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            
+                                            {/* Price & Area */}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                                <div>
+                                                    <span style={{ fontSize: '1.15rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                                        {getMaskedPrice()}
+                                                    </span>
+                                                    {privacy.priceOnRequest && (
+                                                        <span style={{ display: 'block', fontSize: '0.62rem', color: '#6366f1', fontWeight: 700 }}>
+                                                            🔒 Numeric Price Concealed
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                                                    {initialData?.projectType || 'Premium Residential'}
+                                                </span>
+                                            </div>
+
+                                            {/* Property Title (Masked Unit) */}
+                                            <div>
+                                                <h5 style={{ margin: 0, fontSize: '0.88rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', lineHeight: '1.3' }}>
+                                                    {customHeadline || getMaskedTitle()}
+                                                </h5>
+                                                <p style={{ margin: '3px 0 0', fontSize: '0.74rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fas fa-map-marker-alt text-red-500" style={{ fontSize: '11px' }}></i>
+                                                    <span>{getMaskedLocation()}</span>
+                                                </p>
+                                            </div>
+
+                                            {/* Masking Status Tags */}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '2px' }}>
+                                                {privacy.hideUnitNo && (
+                                                    <span style={{ fontSize: '0.6rem', background: isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff', color: '#2563eb', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                                        🔒 Unit Masked
+                                                    </span>
+                                                )}
+                                                {privacy.hideLocation && (
+                                                    <span style={{ fontSize: '0.6rem', background: isDark ? 'rgba(16,185,129,0.15)' : '#f0fdf4', color: '#10b981', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                                        📍 Micro-Market
+                                                    </span>
+                                                )}
+                                                {privacy.priceOnRequest && (
+                                                    <span style={{ fontSize: '0.6rem', background: isDark ? 'rgba(124,58,237,0.15)' : '#faf5ff', color: '#7c3aed', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                                        💰 Price On Request
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {/* Broker Dynamic CTA Buttons for Selected Portal */}
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px', paddingTop: '8px', borderTop: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #f1f5f9' }}>
+                                                <button style={{
+                                                    padding: '6px', borderRadius: '8px', border: `1px solid ${activeMeta.cta1.border}`,
+                                                    background: 'transparent', color: activeMeta.cta1.color, fontSize: '0.72rem', fontWeight: 700,
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px'
+                                                }}>
+                                                    <i className={`fas ${activeMeta.cta1.icon}`}></i> {activeMeta.cta1.label}
+                                                </button>
+                                                <button style={{
+                                                    padding: '6px', borderRadius: '8px', border: 'none',
+                                                    background: activeMeta.cta2.bg, color: activeMeta.cta2.color, fontSize: '0.72rem', fontWeight: 700,
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px'
+                                                }}>
+                                                    <i className={activeMeta.cta2.icon}></i> {activeMeta.cta2.label}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span style={{ textAlign: 'center', fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                        Live syndicated card replica for <strong>{activeMeta.title}</strong> with Anti-Poaching Guard applied
+                                    </span>
+                                </div>
+                            );
+                        })()}
+
+                    </div>
+
+                    {/* Preview Footnote */}
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b',
+                        paddingTop: '8px', borderTop: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #f1f5f9'
+                    }}>
+                        <span>
+                            <i className="fas fa-shield-alt text-emerald-500" style={{ marginRight: '4px' }}></i>
+                            {activeTab === 'social' ? 'Platform API Ready & Formatted' : 'Anti-Poaching Protection Active'}
+                        </span>
+                        <span style={{ color: '#4f46e5', fontWeight: 700 }}>
+                            {activeTab === 'social' ? `${platform.toUpperCase()} Sync` : 'Syndication Verified'}
+                        </span>
+                    </div>
+
+                </div>
+
             </div>
 
-            {/* Footer / Safety Indicators */}
-            <div style={{ position: 'absolute', bottom: '40px', left: '0', right: '0', textAlign: 'center' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
-                        <ShieldCheck size={14} style={{ color: '#10b981' }} /> Secure Data Node
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
-                        <AlertCircle size={14} style={{ color: THEME.gold }} /> Multi-Region Sync
-                    </div>
-                </div>
+        </div>
+
+        {/* ── Modal Footer (Exact DealBroadcastModal Theme) ────────────────────── */}
+        <div style={{
+            padding: '16px 24px',
+            borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: isDark ? '#0f172a' : '#ffffff'
+        }}>
+            <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                {activeTab === 'social' ? (
+                    <>
+                        <span>
+                            Target: <strong style={{ color: '#4f46e5' }}>{platform.toUpperCase()}</strong>
+                        </span>
+                        <span>•</span>
+                        <span>
+                            Format: <strong style={{ color: isDark ? '#f8fafc' : '#1e293b' }}>{format.toUpperCase()}</strong>
+                        </span>
+                        <span>•</span>
+                        <span style={{
+                            padding: '3px 10px', borderRadius: '8px',
+                            background: isDark ? 'rgba(79,70,229,0.15)' : '#e0e7ff',
+                            color: '#4f46e5', fontWeight: 800
+                        }}>
+                            <i className="fas fa-pen-nib" style={{ marginRight: '5px' }}></i>
+                            {content.length} Characters
+                        </span>
+                        {isScheduled && scheduledTime && (
+                            <span style={{
+                                padding: '3px 10px', borderRadius: '8px',
+                                background: isDark ? 'rgba(16,185,129,0.15)' : '#dcfce7',
+                                color: '#10b981', fontWeight: 800
+                            }}>
+                                <i className="far fa-calendar-check" style={{ marginRight: '5px' }}></i>
+                                Scheduled: {new Date(scheduledTime).toLocaleDateString()}
+                            </span>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <span>
+                            Portals: <strong style={{ color: '#4f46e5' }}>{selectedPortals.length} Selected</strong>
+                        </span>
+                        <span>•</span>
+                        <span style={{
+                            padding: '3px 10px', borderRadius: '8px',
+                            background: isDark ? 'rgba(16,185,129,0.15)' : '#dcfce7',
+                            color: '#10b981', fontWeight: 800
+                        }}>
+                            <i className="fas fa-shield-alt" style={{ marginRight: '5px' }}></i>
+                            Anti-Poaching Shield Active
+                        </span>
+                        <span>•</span>
+                        <span style={{
+                            padding: '3px 10px', borderRadius: '8px',
+                            background: isDark ? 'rgba(99,102,241,0.15)' : '#eef2ff',
+                            color: '#4f46e5', fontWeight: 800
+                        }}>
+                            <i className="fas fa-rss" style={{ marginRight: '5px' }}></i>
+                            Direct Hub Syndication
+                        </span>
+                    </>
+                )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    style={{
+                        padding: '10px 18px', borderRadius: '10px',
+                        border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1',
+                        background: 'transparent',
+                        color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.82rem', fontWeight: 700,
+                        cursor: 'pointer'
+                    }}
+                >
+                    Cancel
+                </button>
+
+                {activeTab === 'social' ? (
+                    <button
+                        type="button"
+                        onClick={handlePublishSocial}
+                        disabled={isPublishing || status === 'success' || (isScheduled && !scheduledTime)}
+                        style={{
+                            padding: '10px 24px', borderRadius: '10px', border: 'none',
+                            background: status === 'success' 
+                                ? '#10b981' 
+                                : 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                            color: '#ffffff',
+                            fontSize: '0.85rem', fontWeight: 800,
+                            cursor: (isPublishing || status === 'success' || (isScheduled && !scheduledTime)) ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            boxShadow: status === 'success' ? '0 4px 14px rgba(16, 185, 129, 0.4)' : '0 4px 14px rgba(79, 70, 229, 0.4)',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {isPublishing ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin"></i>
+                                <span>Publishing to {platform}...</span>
+                            </>
+                        ) : status === 'success' ? (
+                            <>
+                                <i className="fas fa-check-circle"></i>
+                                <span>Broadcast Complete!</span>
+                            </>
+                        ) : isScheduled ? (
+                            <>
+                                <i className="fas fa-calendar-plus"></i>
+                                <span>Schedule for {platform}</span>
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-paper-plane"></i>
+                                <span>Launch to {platform}</span>
+                            </>
+                        )}
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={handleSyndicatePortals}
+                        disabled={isSyndicating || syndicateStatus === 'success' || selectedPortals.length === 0}
+                        style={{
+                            padding: '10px 24px', borderRadius: '10px', border: 'none',
+                            background: syndicateStatus === 'success'
+                                ? '#10b981'
+                                : 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                            color: '#ffffff',
+                            fontSize: '0.85rem', fontWeight: 800,
+                            cursor: (isSyndicating || syndicateStatus === 'success' || selectedPortals.length === 0) ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            boxShadow: syndicateStatus === 'success' ? '0 4px 14px rgba(16, 185, 129, 0.4)' : '0 4px 14px rgba(79, 70, 229, 0.4)',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {isSyndicating ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin"></i>
+                                <span>Syndicating Feeds...</span>
+                            </>
+                        ) : syndicateStatus === 'success' ? (
+                            <>
+                                <i className="fas fa-check-circle"></i>
+                                <span>Syndication Broadcast Complete!</span>
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-globe"></i>
+                                <span>Syndicate to Selected Portals ({selectedPortals.length})</span>
+                            </>
+                        )}
+                    </button>
+                )}
             </div>
         </div>
       </div>

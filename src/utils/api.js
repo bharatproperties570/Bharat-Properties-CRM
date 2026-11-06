@@ -121,6 +121,7 @@ export const marketingAPI = {
     getStats: () => api.get('/marketing/stats').then(res => res.data),
     getCampaignHistory: () => api.get('/marketing/campaign-runs').then(res => res.data),
     getRecentDeals: () => api.get('/marketing/recent-deals').then(res => res.data),
+    broadcastToHub: (data) => api.post('/marketing/broadcast', data).then(res => res.data),
     generateSocial: (dealId, platform) => api.post('/marketing/generate-social', { dealId, platform }).then(res => res.data),
     generateEmail: (dealId, audience) => api.post('/marketing/generate-email', { dealId, audience }).then(res => res.data),
     runAgent: () => api.post('/marketing/run-agent').then(res => res.data),
@@ -157,6 +158,12 @@ export const marketingAPI = {
     publishContent: (contentId, phoneNumber) => api.post('/marketing/publish', { contentId, phoneNumber }).then(res => res.data),
     triggerLinkedInSync: () => api.post('/marketing/linkedin/trigger-sync').then(res => res.data),
     
+    // ── Real Estate Portals & Multi-Listing Syndication ──
+    getPortalStatuses: () => api.get('/marketing/portals/status').then(res => res.data),
+    savePortalConfig: (portalId, config) => api.post('/marketing/portals/config', { portalId, config }).then(res => res.data),
+    testPortalConnection: (portalId, config) => api.post('/marketing/portals/test', { portalId, config }).then(res => res.data),
+    syndicateToPortals: (payload) => api.post('/marketing/portals/syndicate', payload).then(res => res.data),
+
     // ── Orchestration & Scheduling Monitor ──
     getScheduled: () => api.get('/marketing/scheduled').then(res => res.data),
     deleteScheduled: (id, type) => api.delete(`/marketing/scheduled/${id}`, { params: { type } }).then(res => res.data),
@@ -181,7 +188,7 @@ export const socialAPI = {
     getFacebookComments: (postId) => api.get('/social/fb/comments', { params: { postId } }).then(res => res.data),
     replyToComment: (commentId, message) => api.post('/social/comment/reply', { commentId, message }).then(res => res.data),
     likeComment: (commentId) => api.post('/social/comment/like', { commentId }).then(res => res.data),
-    testConnection: () => api.post('/social/test-connection').then(res => res.data),
+    testConnection: (data = {}) => api.post('/social/test-connection', data).then(res => res.data),
     
     startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
     getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),

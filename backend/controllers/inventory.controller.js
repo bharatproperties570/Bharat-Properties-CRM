@@ -504,8 +504,10 @@ export const getInventory = async (req, res) => {
 
                 const projectConditions = [];
                 if (projectIds.length > 0) {
-                    projectConditions.push({ projectId: { $in: projectIds } });
-                    projectConditions.push({ project: { $in: projectIds } }); // Support legacy project string reference
+                    const objectIds = projectIds.map(id => new mongoose.Types.ObjectId(id));
+                    const allIds = [...objectIds, ...projectIds];
+                    projectConditions.push({ projectId: { $in: allIds } });
+                    projectConditions.push({ project: { $in: allIds } }); // Support legacy project string reference
                 }
                 if (projectNames.length > 0) {
                     projectConditions.push({ projectName: { $in: projectNames } });

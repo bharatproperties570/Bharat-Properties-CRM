@@ -201,6 +201,7 @@ class SocialCommentService {
     async getUnifiedStatus() {
         const config = await this._getConfig();
         const lnSetting = await SystemSetting.findOne({ key: 'linkedin_integration' }).lean();
+        const twSetting = await SystemSetting.findOne({ key: 'twitter_integration' }).lean();
         
         return {
             success: true,
@@ -223,6 +224,10 @@ class SocialCommentService {
             linkedin: {
                 connected: lnSetting?.value?.status === 'Connected',
                 health: lnSetting?.value?.health || 'DISCONNECTED'
+            },
+            twitter: {
+                connected: !!(twSetting?.value?.apiKey || twSetting?.value?.bearerToken),
+                health: (twSetting?.value?.apiKey || twSetting?.value?.bearerToken) ? 'HEALTHY' : 'DISCONNECTED'
             }
         };
     }
