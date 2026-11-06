@@ -1,19 +1,60 @@
 import mongoose from 'mongoose';
 
 /**
- * Verifies that the partial unique index on stableKey exists in EffectExecution collection.
+ * Verifies that the partial unique index on stableKey exists in EffectExecution collection
+ * matching the complete index contract:
+ * - Key exactly { stableKey: 1 }
+ * - unique === true
+ * - partialFilterExpression correctly restricts indexed documents to string stableKeys
+ * - Rejects normal non-partial unique indexes
+ * - Rejects missing, malformed or incompatible index definitions
+ * - Does NOT create or alter production indexes automatically
  */
 export const verifyEffectExecutionStableKeyIndex = async (EffectExecution) => {
     try {
         const indexes = await EffectExecution.collection.indexes();
-        const stableKeyIdx = indexes.find(idx => idx.key && idx.key.stableKey === 1);
-        if (!stableKeyIdx) {
-            return { valid: false, reason: 'Unique index on stableKey does not exist' };
+        if (!Array.isArray(indexes)) {
+            return { valid: false, reason: 'Unable to retrieve indexes list from collection' };
         }
-        if (!stableKeyIdx.unique) {
-            return { valid: false, reason: 'Index on stableKey exists but is not unique' };
+
+        const matchingIndexes = indexes.filter(idx => idx.key && idx.key.stableKey !== undefined);
+        if (matchingIndexes.length === 0) {
+            return { valid: false, reason: 'Index on stableKey does not exist' };
         }
-        return { valid: true };
+
+        for (const idx of matchingIndexes) {
+            const keys = Object.keys(idx.key);
+            // Key must be exactly { stableKey: 1 }
+            if (keys.length !== 1 || idx.key.stableKey !== 1) {
+                continue;
+            }
+
+            // Must be unique
+            if (idx.unique !== true) {
+                return { valid: false, reason: 'Index on { stableKey: 1 } exists but is not unique' };
+            }
+
+            // Must be a partial index (reject normal non-partial unique index)
+            if (!idx.partialFilterExpression || typeof idx.partialFilterExpression !== 'object') {
+                return { valid: false, reason: 'Index on { stableKey: 1 } is not a partial index (missing partialFilterExpression)' };
+            }
+
+            // partialFilterExpression must correctly restrict indexed documents to string stableKeys
+            const pfe = idx.partialFilterExpression;
+            if (!pfe.stableKey || typeof pfe.stableKey !== 'object') {
+                return { valid: false, reason: 'Index on { stableKey: 1 } has malformed partialFilterExpression' };
+            }
+
+            const typeVal = pfe.stableKey.$type;
+            if (typeVal !== 'string' && typeVal !== 2) {
+                return { valid: false, reason: `Index on { stableKey: 1 } partialFilterExpression must restrict stableKey to string type (got: ${JSON.stringify(typeVal)})` };
+            }
+
+            // Exact partial unique index contract verified
+            return { valid: true };
+        }
+
+        return { valid: false, reason: 'No index matching exact contract { stableKey: 1 } with unique: true and partialFilterExpression string restriction' };
     } catch (err) {
         return { valid: false, reason: err.message };
     }

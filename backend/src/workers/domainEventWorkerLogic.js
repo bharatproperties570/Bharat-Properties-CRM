@@ -682,41 +682,85 @@ export const processDomainEventJob = async (job) => {
                         ? `time-trigger:${automationLogIdempotencyKey}:${action._id}`
                         : null;
 
-                    // [P1.2] JIT Legacy Lookup: If no EffectExecution exists with stableKey, check if an earlier
-                    // generation or legacy execution without stableKey exists for this action and link it.
-                    // Fail-closed requirement: Never arbitrarily pick if multiple legacy records exist!
+                    // [P1-B] JIT Legacy Lookup & Reconciliation:
+                    // Always inspect all relevant historical legacy EffectExecution records for this
+                    // automation idempotency key and action ID, even when an existing stableKey record is present.
                     if (stableKey) {
                         const EffectExecution = mongoose.models.EffectExecution || (await import('../../models/EffectExecution.js')).default;
                         const OutboxEvent = mongoose.models.OutboxEvent || (await import('../../models/OutboxEvent.js')).default;
 
+                        // 1. Find all historical OutboxEvent records for this automationLogIdempotencyKey
+                        const earlierEvents = await OutboxEvent.find({
+                            eventType: 'TimeTriggerExecutionRequested',
+                            'payload.automationLogIdempotencyKey': automationLogIdempotencyKey
+                        }).select('eventId').lean();
+
+                        const earlierEventIds = (earlierEvents || []).map(e => e.eventId);
+                        if (!earlierEventIds.includes(eventId)) {
+                            earlierEventIds.push(eventId);
+                        }
+
+                        // 2. Query ALL legacy EffectExecution records without stableKey for this action
+                        const legacyExecutions = await EffectExecution.find({
+                            eventId: { $in: earlierEventIds },
+                            effectKey,
+                            $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
+                        }).lean();
+
+                        // 3. Query existing stableKey record (if any)
                         const existingStable = await EffectExecution.findOne({ stableKey }).lean();
-                        if (!existingStable) {
-                            const earlierEvents = await OutboxEvent.find({
-                                eventType: 'TimeTriggerExecutionRequested',
-                                'payload.automationLogIdempotencyKey': automationLogIdempotencyKey
-                            }).select('eventId').lean();
 
-                            if (earlierEvents && earlierEvents.length > 0) {
-                                const earlierEventIds = earlierEvents.map(e => e.eventId);
-                                const legacyExecutions = await EffectExecution.find({
-                                    eventId: { $in: earlierEventIds },
-                                    effectKey,
-                                    $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
-                                }).lean();
+                        // 4. Reconcile records together:
+                        // Case A: Multiple legacy records exist -> Fail closed immediately!
+                        if (legacyExecutions && legacyExecutions.length > 1) {
+                            console.error(`[DomainEventWorker] Multiple legacy EffectExecution records found for ${stableKey}. Halting fail-closed.`);
+                            throw new Error(`AMBIGUOUS_MULTIPLE_LEGACY_RECORDS: Found ${legacyExecutions.length} legacy records for ${stableKey}`);
+                        }
 
-                                if (legacyExecutions && legacyExecutions.length > 1) {
-                                    console.error(`[DomainEventWorker] Multiple legacy EffectExecution records found for ${stableKey}. Halting fail-closed to prevent ambiguous recovery.`);
-                                    throw new Error(`AMBIGUOUS_MULTIPLE_LEGACY_RECORDS: Found ${legacyExecutions.length} legacy records for ${stableKey}`);
-                                } else if (legacyExecutions && legacyExecutions.length === 1) {
-                                    const legacyExecution = legacyExecutions[0];
-                                    try {
-                                        await EffectExecution.updateOne(
-                                            { _id: legacyExecution._id, $or: [{ stableKey: null }, { stableKey: { $exists: false } }] },
-                                            { $set: { stableKey } }
-                                        );
-                                    } catch (linkErr) {
-                                        console.warn(`[DomainEventWorker] JIT legacy stableKey link skipped: ${linkErr.message}`);
-                                    }
+                        // Case B: Both existing stableKey record and legacy candidate(s) exist
+                        // Multiple distinct records represent the same logical action -> Fail closed!
+                        if (existingStable && legacyExecutions && legacyExecutions.length > 0) {
+                            console.error(`[DomainEventWorker] Conflict: Found both existing stableKey record (${existingStable._id}, status: ${existingStable.status}) and legacy record (${legacyExecutions[0]._id}, status: ${legacyExecutions[0].status}) for ${stableKey}. Halting fail-closed.`);
+                            throw new Error(`AMBIGUOUS_RECONCILIATION_CONFLICT: Both existing stableKey (${existingStable.status}) and legacy (${legacyExecutions[0].status}) records exist for ${stableKey}`);
+                        }
+
+                        // Case C: Exactly one legacy record exists and no existing stableKey record
+                        if (!existingStable && legacyExecutions && legacyExecutions.length === 1) {
+                            const legacyExecution = legacyExecutions[0];
+
+                            // Pre-check: verify unique partial index on stableKey before updating
+                            const { verifyEffectExecutionStableKeyIndex } = await import('../migrations/backfillLegacyEffectExecutions.js');
+                            const indexCheck = await verifyEffectExecutionStableKeyIndex(EffectExecution);
+                            if (!indexCheck.valid) {
+                                console.error(`[DomainEventWorker] JIT stableKey link blocked: ${indexCheck.reason}`);
+                                throw new Error(`JIT_INDEX_VERIFICATION_FAILED: ${indexCheck.reason}`);
+                            }
+
+                            let updateResult;
+                            try {
+                                if (payload._simulateJitUpdateFailure) {
+                                    throw new Error('Simulated JIT update failure');
+                                }
+                                updateResult = await EffectExecution.updateOne(
+                                    {
+                                        _id: legacyExecution._id,
+                                        $or: [{ stableKey: null }, { stableKey: { $exists: false } }]
+                                    },
+                                    { $set: { stableKey } }
+                                );
+                            } catch (linkErr) {
+                                console.error(`[DomainEventWorker] JIT stableKey update error for ${stableKey}:`, linkErr.message);
+                                throw new Error(`JIT_UPDATE_FAILED: Failed to link stableKey for legacy record ${legacyExecution._id}: ${linkErr.message}`);
+                            }
+
+                            // If matchedCount is 0, re-read and verify the exact resulting state
+                            if (updateResult.matchedCount === 0) {
+                                const reReadDoc = await EffectExecution.findById(legacyExecution._id).lean();
+                                if (!reReadDoc) {
+                                    throw new Error(`JIT_UPDATE_FAILED: Legacy record ${legacyExecution._id} disappeared during update`);
+                                }
+                                if (reReadDoc.stableKey !== stableKey) {
+                                    throw new Error(`JIT_UPDATE_FAILED: Legacy record ${legacyExecution._id} matchedCount === 0 and stableKey is not ${stableKey} (actual: ${reReadDoc.stableKey})`);
                                 }
                             }
                         }

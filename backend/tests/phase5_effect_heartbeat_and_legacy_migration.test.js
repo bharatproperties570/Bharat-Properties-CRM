@@ -810,19 +810,119 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
         assert.strictEqual(fresh2.stableKey, null);
     });
 
-    it('18. Missing partial unique index on stableKey causes migration to fail-closed with error', async () => {
-        const fakeModel = {
+    // ─────────────────────────────────────────────────────────────
+    // P1-A: EXACT PARTIAL UNIQUE INDEX VERIFICATION TESTS
+    // ─────────────────────────────────────────────────────────────
+
+    it('18.1. Correct partial unique index accepted by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const validModel = {
             collection: {
-                indexes: async () => [{ key: { _id: 1 } }] // missing stableKey index
+                indexes: async () => [
+                    { key: { _id: 1 } },
+                    {
+                        key: { stableKey: 1 },
+                        unique: true,
+                        partialFilterExpression: { stableKey: { $type: 'string' } }
+                    }
+                ]
             }
         };
 
-        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
-        const check = await verifyEffectExecutionStableKeyIndex(fakeModel);
-
-        assert.strictEqual(check.valid, false);
-        assert.match(check.reason, /Unique index on stableKey does not exist/);
+        const check = await verifyEffectExecutionStableKeyIndex(validModel);
+        assert.strictEqual(check.valid, true);
     });
+
+    it('18.2. Missing stableKey index is rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const missingModel = {
+            collection: {
+                indexes: async () => [{ key: { _id: 1 } }]
+            }
+        };
+
+        const check = await verifyEffectExecutionStableKeyIndex(missingModel);
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /Index on stableKey does not exist/);
+    });
+
+    it('18.3. Non-unique index is rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const nonUniqueModel = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: false,
+                        partialFilterExpression: { stableKey: { $type: 'string' } }
+                    }
+                ]
+            }
+        };
+
+        const check = await verifyEffectExecutionStableKeyIndex(nonUniqueModel);
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /exists but is not unique/);
+    });
+
+    it('18.4. Unique but non-partial index is rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+        const nonPartialModel = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: true
+                        // missing partialFilterExpression
+                    }
+                ]
+            }
+        };
+
+        const check = await verifyEffectExecutionStableKeyIndex(nonPartialModel);
+        assert.strictEqual(check.valid, false);
+        assert.match(check.reason, /is not a partial index/);
+    });
+
+    it('18.5. Incorrect partialFilterExpression is rejected by verifyEffectExecutionStableKeyIndex', async () => {
+        const { verifyEffectExecutionStableKeyIndex } = await import('../src/migrations/backfillLegacyEffectExecutions.js');
+
+        // Test with $exists instead of $type: string
+        const badFilterModel1 = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: true,
+                        partialFilterExpression: { stableKey: { $exists: true } }
+                    }
+                ]
+            }
+        };
+        const check1 = await verifyEffectExecutionStableKeyIndex(badFilterModel1);
+        assert.strictEqual(check1.valid, false);
+        assert.match(check1.reason, /must restrict stableKey to string type/);
+
+        // Test with $type: int instead of string
+        const badFilterModel2 = {
+            collection: {
+                indexes: async () => [
+                    {
+                        key: { stableKey: 1 },
+                        unique: true,
+                        partialFilterExpression: { stableKey: { $type: 'int' } }
+                    }
+                ]
+            }
+        };
+        const check2 = await verifyEffectExecutionStableKeyIndex(badFilterModel2);
+        assert.strictEqual(check2.valid, false);
+        assert.match(check2.reason, /must restrict stableKey to string type/);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // P1-B: JIT RECOVERY CONFLICT FENCING & RECONCILIATION TESTS
+    // ─────────────────────────────────────────────────────────────
 
     it('19. JIT runtime recovery halts fail-closed with AMBIGUOUS_MULTIPLE_LEGACY_RECORDS when multiple legacy records exist', async () => {
         const idempotencyKey = `idemp-jit-multi-${uuidv4()}`;
@@ -902,5 +1002,419 @@ describe('Phase 5 — P1 Remediation: Effect Lease Heartbeat & Legacy Migration 
                 }
             });
         }, /AMBIGUOUS_MULTIPLE_LEGACY_RECORDS/);
+    });
+
+    it('20. Existing stableKey PENDING + legacy COMPLETED must fail closed', async () => {
+        const idempotencyKey = `idemp-jit-pnd-comp-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+        const stableKey = `time-trigger:${idempotencyKey}:${action._id}`;
+
+        const gen0EventId = `evt-jit-gen0-${uuidv4()}`;
+        const gen1EventId = `evt-jit-gen1-${uuidv4()}`;
+
+        // 1. Gen 0 OutboxEvent + Legacy COMPLETED without stableKey
+        await OutboxEvent.create({
+            eventId: gen0EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        await EffectExecution.create({
+            eventId: gen0EventId,
+            effectKey,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        // 2. Pre-existing distinct stableKey record with status PENDING
+        await EffectExecution.create({
+            eventId: `evt-other-${uuidv4()}`,
+            effectKey,
+            stableKey,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'PENDING'
+        });
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-pnd-comp',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-pnd-comp',
+                recoveryGeneration: 1
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        await assert.rejects(async () => {
+            await processDomainEventJob({
+                data: {
+                    eventId: gen1EventId,
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: testLead._id,
+                    payload: {
+                        triggerId: testTrigger._id,
+                        entityType: 'leads',
+                        automationLogIdempotencyKey: idempotencyKey,
+                        claimToken: 'claim-pnd-comp',
+                        recoveryGeneration: 1
+                    }
+                }
+            });
+        }, /AMBIGUOUS_RECONCILIATION_CONFLICT/);
+
+        assert.strictEqual(executedCount, 0, 'Action must NOT be executed on reconciliation conflict');
+    });
+
+    it('21. Existing stableKey COMPLETED + legacy PENDING must not arbitrarily reconcile', async () => {
+        const idempotencyKey = `idemp-jit-comp-pnd-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+        const stableKey = `time-trigger:${idempotencyKey}:${action._id}`;
+
+        const gen0EventId = `evt-jit-gen0-${uuidv4()}`;
+        const gen1EventId = `evt-jit-gen1-${uuidv4()}`;
+
+        // 1. Legacy record with status PENDING
+        await OutboxEvent.create({
+            eventId: gen0EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        await EffectExecution.create({
+            eventId: gen0EventId,
+            effectKey,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'PENDING'
+        });
+
+        // 2. Pre-existing distinct stableKey record with status COMPLETED
+        await EffectExecution.create({
+            eventId: `evt-other-${uuidv4()}`,
+            effectKey,
+            stableKey,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-comp-pnd',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-comp-pnd',
+                recoveryGeneration: 1
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        await assert.rejects(async () => {
+            await processDomainEventJob({
+                data: {
+                    eventId: gen1EventId,
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: testLead._id,
+                    payload: {
+                        triggerId: testTrigger._id,
+                        entityType: 'leads',
+                        automationLogIdempotencyKey: idempotencyKey,
+                        claimToken: 'claim-comp-pnd',
+                        recoveryGeneration: 1
+                    }
+                }
+            });
+        }, /AMBIGUOUS_RECONCILIATION_CONFLICT/);
+
+        assert.strictEqual(executedCount, 0, 'Action must NOT be executed on reconciliation conflict');
+    });
+
+    it('22. One legacy record whose JIT update fails must not execute the action', async () => {
+        const idempotencyKey = `idemp-jit-fail-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+
+        const gen0EventId = `evt-jit-gen0-${uuidv4()}`;
+        const gen1EventId = `evt-jit-gen1-${uuidv4()}`;
+
+        await OutboxEvent.create({
+            eventId: gen0EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        await EffectExecution.create({
+            eventId: gen0EventId,
+            effectKey,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-fail',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-fail',
+                recoveryGeneration: 1,
+                _simulateJitUpdateFailure: true
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        await assert.rejects(async () => {
+            await processDomainEventJob({
+                data: {
+                    eventId: gen1EventId,
+                    eventType: 'TimeTriggerExecutionRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: testLead._id,
+                    payload: {
+                        triggerId: testTrigger._id,
+                        entityType: 'leads',
+                        automationLogIdempotencyKey: idempotencyKey,
+                        claimToken: 'claim-fail',
+                        recoveryGeneration: 1,
+                        _simulateJitUpdateFailure: true
+                    }
+                }
+            });
+        }, /JIT_UPDATE_FAILED/);
+
+        assert.strictEqual(executedCount, 0, 'WorkflowEngine.executeAction must NOT be called if JIT update fails');
+    });
+
+    it('23. Unique index conflict during JIT update prevents action execution', async () => {
+        const idempotencyKey = `idemp-jit-idx-conf-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const effectKey = `action-${action._id}`;
+        const stableKey = `time-trigger:${idempotencyKey}:${action._id}`;
+
+        const gen0EventId = `evt-jit-gen0-${uuidv4()}`;
+        const gen1EventId = `evt-jit-gen1-${uuidv4()}`;
+
+        await OutboxEvent.create({
+            eventId: gen0EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: { triggerId: testTrigger._id, entityType: 'leads', automationLogIdempotencyKey: idempotencyKey }
+        });
+
+        // 1. Create a legacy record without stableKey
+        const legacyDoc = await EffectExecution.create({
+            eventId: gen0EventId,
+            effectKey,
+            stableKey: null,
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            status: 'COMPLETED'
+        });
+
+        // 2. Mock EffectExecution.updateOne to simulate MongoDB E11000 unique index conflict
+        const origUpdateOne = EffectExecution.updateOne;
+        EffectExecution.updateOne = async function (filter, update, options) {
+            if (filter._id?.toString() === legacyDoc._id.toString() && update.$set?.stableKey) {
+                const err = new Error('E11000 duplicate key error collection: test.effectexecutions index: unique_effect_execution_stable_key');
+                err.code = 11000;
+                throw err;
+            }
+            return origUpdateOne.call(this, filter, update, options);
+        };
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-idx-conf',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 1
+        });
+
+        await OutboxEvent.create({
+            eventId: gen1EventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-idx-conf',
+                recoveryGeneration: 1
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        try {
+            await assert.rejects(async () => {
+                await processDomainEventJob({
+                    data: {
+                        eventId: gen1EventId,
+                        eventType: 'TimeTriggerExecutionRequested',
+                        aggregateType: 'Lead',
+                        aggregateId: testLead._id,
+                        payload: {
+                            triggerId: testTrigger._id,
+                            entityType: 'leads',
+                            automationLogIdempotencyKey: idempotencyKey,
+                            claimToken: 'claim-idx-conf',
+                            recoveryGeneration: 1
+                        }
+                    }
+                });
+            }, /JIT_UPDATE_FAILED/);
+
+            assert.strictEqual(executedCount, 0, 'WorkflowEngine.executeAction must NOT be called on unique index conflict');
+        } finally {
+            EffectExecution.updateOne = origUpdateOne;
+        }
+    });
+
+    it('24. No legacy record and no stableKey record permits normal first execution', async () => {
+        const idempotencyKey = `idemp-fresh-first-${uuidv4()}`;
+        const action = testTrigger.actions[0];
+        const eventId = `evt-fresh-${uuidv4()}`;
+
+        await AutomationLog.create({
+            ruleType: 'TimeBasedTrigger',
+            ruleId: testTrigger._id,
+            targetEntityId: testLead._id,
+            targetModule: 'leads',
+            status: 'pending',
+            idempotencyKey,
+            claimToken: 'claim-fresh',
+            leaseUntil: new Date(Date.now() + 60000),
+            recoveryCount: 0
+        });
+
+        await OutboxEvent.create({
+            eventId,
+            eventType: 'TimeTriggerExecutionRequested',
+            aggregateType: 'Lead',
+            aggregateId: testLead._id,
+            payload: {
+                triggerId: testTrigger._id,
+                entityType: 'leads',
+                automationLogIdempotencyKey: idempotencyKey,
+                claimToken: 'claim-fresh',
+                recoveryGeneration: 0
+            }
+        });
+
+        let executedCount = 0;
+        WorkflowEngine.executeAction = async () => {
+            executedCount++;
+        };
+
+        await processDomainEventJob({
+            data: {
+                eventId,
+                eventType: 'TimeTriggerExecutionRequested',
+                aggregateType: 'Lead',
+                aggregateId: testLead._id,
+                payload: {
+                    triggerId: testTrigger._id,
+                    entityType: 'leads',
+                    automationLogIdempotencyKey: idempotencyKey,
+                    claimToken: 'claim-fresh',
+                    recoveryGeneration: 0
+                }
+            }
+        });
+
+        assert.strictEqual(executedCount, 1, 'Fresh event must execute action normally exactly once');
+
+        const stableKey = `time-trigger:${idempotencyKey}:${action._id}`;
+        const createdRecord = await EffectExecution.findOne({ stableKey });
+        assert.ok(createdRecord, 'EffectExecution record must be created with stableKey');
+        assert.strictEqual(createdRecord.status, 'COMPLETED');
+
+        const finalLog = await AutomationLog.findOne({ idempotencyKey });
+        assert.strictEqual(finalLog.status, 'success');
     });
 });
