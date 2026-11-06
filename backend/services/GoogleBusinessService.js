@@ -57,18 +57,26 @@ class GoogleBusinessService {
      * @param {string} locationId - The location name (e.g. accounts/123/locations/456)
      * @param {string} mediaUrl - Optional image URL
      */
-    async createPost(text, locationId, mediaUrl = null) {
+    async createPost(text, locationId = null, mediaUrl = null) {
         try {
             const auth = await this._getOAuthClient();
-            // Local Posts belong to the Performance/Business Profile API
-            const myBusiness = google.mybusinessbusinessinformation({ version: 'v1', auth });
             
+            // Resolve primary location ID if not explicitly provided
+            let targetLocationId = locationId;
+            if (!targetLocationId) {
+                const locations = await this.getLocations();
+                if (!locations || locations.length === 0) {
+                    throw new Error('No Google Business Profile locations found for this account.');
+                }
+                targetLocationId = locations[0].name;
+            }
+
             const postBody = {
                 languageCode: 'en-US',
                 summary: text,
                 callToAction: {
                     actionType: 'LEARN_MORE',
-                    url: process.env.FRONTEND_URL || 'https://bharatproperties.com'
+                    url: process.env.FRONTEND_URL || 'https://bharatproperties.in'
                 }
             };
 
@@ -79,18 +87,15 @@ class GoogleBusinessService {
                 }];
             }
 
-            console.log(`[GoogleBusinessService] Creating real post for location: ${locationId}`);
+            console.log(`[GoogleBusinessService] Creating real post for location: ${targetLocationId}`);
             
-            // Note: In real GMB, the endpoint is actually within the 'mybusiness' (Legacy) or specialized v4
-            // but for v1 BusinessInfo, we typically use the performance/localPost structure.
-            // Using googleapis internal mapping for localPosts:
             const response = await auth.request({
-                url: `https://mybusiness.googleapis.com/v4/${locationId}/localPosts`,
+                url: `https://mybusiness.googleapis.com/v4/${targetLocationId}/localPosts`,
                 method: 'POST',
                 data: postBody
             });
 
-            return { success: true, data: response.data };
+            return { success: true, data: response.data, locationId: targetLocationId };
         } catch (error) {
             console.error('[GoogleBusinessService] Post error:', error.response?.data || error.message);
             throw new Error(error.response?.data?.error?.message || error.message);

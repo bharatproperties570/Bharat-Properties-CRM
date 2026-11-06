@@ -21,6 +21,17 @@ const broadcastCampaignSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Deal'
     }],
+    projectId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Project',
+        index: true
+    },
+    entityType: {
+        type: String,
+        enum: ['deal', 'project'],
+        default: 'deal',
+        index: true
+    },
     dealTitle: {
         type: String,
         default: 'Broadcast Deal'

@@ -42,13 +42,14 @@ const isMarketingBroadcastContext = (tpl) => {
  * Replaces lead/deal/portfolio placeholders into template text or HTML across WhatsApp, SMS, RCS, and Email
  * Powered by Universal Variable Engine with 100% dictionary coverage.
  */
-function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml = false, recipient = null, currentUser = null, users = [] }) {
+function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml = false, recipient = null, currentUser = null, users = [], project = null }) {
     if (!rawText || typeof rawText !== 'string') return '';
     return resolveAllTemplateVariables(rawText, {
         deal: singleDeal,
         singleDeal,
         singleMeta,
         selectedDeals,
+        project,
         isMultiDeal,
         isHtml,
         recipient,
@@ -66,7 +67,7 @@ function interpolateWebTemplateText(template, ctx) {
 }
 
 
-function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [], onSuccess }) {
+function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [], project = null, projectId = null, onSuccess }) {
     const { isDark } = useTheme();
     const { currentUser } = useUserContext();
     const { data: users = [] } = useUsers();
@@ -162,8 +163,29 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         }
     }, []);
 
-    // Fetch Matched Leads across all selected deals (Deduplicated & Scored)
+    // Fetch Matched Leads across all selected deals (Deduplicated & Scored) or Project Leads
     const loadMatchedLeadsForDeals = useCallback(async (targetIds) => {
+        const pid = project?._id || project?.id || projectId;
+        if ((!Array.isArray(targetIds) || targetIds.length === 0) && pid) {
+            setLoadingMatchedLeads(true);
+            try {
+                const res = await api.get(`/projects/${pid}/leads?limit=100`);
+                const list = res.data?.data || res.data?.leads || [];
+                const mapped = list.map(l => ({
+                    ...l,
+                    score: l.score || 85,
+                    matchedDealsCount: 1,
+                    matchedDealCodes: [project?.name || 'Project Lead']
+                }));
+                setMatchedLeads(mapped);
+            } catch (err) {
+                console.warn('[DealBroadcastModal] Failed to load project leads:', err.message);
+            } finally {
+                setLoadingMatchedLeads(false);
+            }
+            return;
+        }
+
         if (!Array.isArray(targetIds) || targetIds.length === 0) {
             setMatchedLeads([]);
             return;
@@ -401,15 +423,16 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
     }, [isOpen, selectedDeals?.[0]?._id]);
 
     // Primary deal metadata for single-deal mode (using live hydrated deal when available)
-    const singleDeal = hydratedSingleDeal || selectedDeals[0] || null;
-    const singleMeta = singleDeal ? (dealsMeta[singleDeal._id] || singleDeal.broadcastMetadata) : null;
-    const isSingleReady = Boolean(singleMeta?.isReady);
+    const singleDeal = hydratedSingleDeal || selectedDeals[0] || (project ? { _id: project._id, projectName: project.name, title: project.name, price: project.pricing?.basePrice?.amount, location: project.address?.location || project.locationSearch, ...project } : null);
+    const singleMeta = singleDeal ? (dealsMeta[singleDeal._id] || singleDeal.broadcastMetadata || (project ? { title: project.name, location: project.address?.location || project.locationSearch || 'Prime Location', price: project.pricing?.basePrice?.amount ? `₹ ${Number(project.pricing.basePrice.amount).toLocaleString('en-IN')}` : 'Price on Request', isReady: true } : null)) : null;
+    const isSingleReady = Boolean(singleMeta?.isReady || project);
 
     // Multi-deal metadata consolidation
     const allDealsReady = useMemo(() => {
+        if (project && (!selectedDeals || selectedDeals.length === 0)) return true;
         if (!isMultiDeal) return isSingleReady;
         return selectedDeals.every(d => Boolean(dealsMeta[d._id]?.isReady || d.broadcastMetadata?.isReady));
-    }, [isMultiDeal, isSingleReady, selectedDeals, dealsMeta]);
+    }, [isMultiDeal, isSingleReady, selectedDeals, dealsMeta, project]);
 
     // Live preview for WhatsApp Web direct text
     const richPreviewText = useMemo(() => {
@@ -946,8 +969,10 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         setSending(true);
         try {
             const payload = {
-                dealId: dealIds[0],
-                dealIds: dealIds,
+                dealId: dealIds[0] || (selectedDeals[0]?._id) || undefined,
+                dealIds: dealIds.length > 0 ? dealIds : (selectedDeals.map(d => d._id).filter(Boolean)),
+                projectId: project?._id || project?.id || projectId || undefined,
+                entityType: project ? 'project' : 'deal',
                 groupIds: selectedGroups,
                 contactGroupIds: selectedContactGroups,
                 leadIds: selectedMatchedLeads,
@@ -1073,15 +1098,25 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
                                     Marketing & BNA Broadcast Hub
                                 </h3>
-                                <span style={{
-                                    fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '12px',
-                                    background: isMultiDeal ? '#fef3c7' : '#e0e7ff',
-                                    color: isMultiDeal ? '#92400e' : '#3730a3',
-                                    border: isMultiDeal ? '1px solid #fde68a' : '1px solid #c7d2fe'
-                                }}>
-                                    <i className={`fas ${isMultiDeal ? 'fa-layer-group' : 'fa-tag'}`} style={{ marginRight: '5px' }}></i>
-                                    {isMultiDeal ? `${selectedDeals.length} Deals Selected (Portfolio Mode)` : '1 Deal Selected'}
-                                </span>
+                                {project ? (
+                                    <span style={{
+                                        fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '12px',
+                                        background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe'
+                                    }}>
+                                        <i className="fas fa-building" style={{ marginRight: '5px' }}></i>
+                                        Project: {project.name || 'Project Broadcast'}
+                                    </span>
+                                ) : (
+                                    <span style={{
+                                        fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '12px',
+                                        background: isMultiDeal ? '#fef3c7' : '#e0e7ff',
+                                        color: isMultiDeal ? '#92400e' : '#3730a3',
+                                        border: isMultiDeal ? '1px solid #fde68a' : '1px solid #c7d2fe'
+                                    }}>
+                                        <i className={`fas ${isMultiDeal ? 'fa-layer-group' : 'fa-tag'}`} style={{ marginRight: '5px' }}></i>
+                                        {isMultiDeal ? `${selectedDeals.length} Deals Selected (Portfolio Mode)` : '1 Deal Selected'}
+                                    </span>
+                                )}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>

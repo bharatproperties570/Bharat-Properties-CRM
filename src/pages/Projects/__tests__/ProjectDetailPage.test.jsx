@@ -38,7 +38,10 @@ let mockProjectQuery = {
 };
 
 vi.mock('../../../utils/crmHooks', () => ({
-    useProject: () => mockProjectQuery
+    useProject: () => mockProjectQuery,
+    useUpdateProjectMutation: () => ({
+        mutateAsync: vi.fn().mockResolvedValue({ success: true })
+    })
 }));
 
 vi.mock('../../../utils/api', () => ({
@@ -61,6 +64,12 @@ vi.mock('react-apexcharts', () => ({
 }));
 
 vi.mock('../../../components/Marketing/PublishModal', () => ({
+    default: () => null
+}));
+vi.mock('../components/ProjectWebsiteModal', () => ({
+    default: () => null
+}));
+vi.mock('../../Deals/components/DealBroadcastModal', () => ({
     default: () => null
 }));
 vi.mock('../../../components/SocialPostModal', () => ({
@@ -143,21 +152,18 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         expect(screen.getByText('Project audit logs and communication history...')).toBeInTheDocument();
     });
 
-    it('switches to Inventory tab and renders DataTable with 5 semantic column headers', async () => {
+    it('switches to Inventory tab and renders DataTable with 7 semantic column headers', async () => {
         const { container } = render(<ProjectDetailPage projectId="60d5ec49f1b24b0015987111" />);
 
         const inventoryTabBtn = await screen.findByText('Inventory');
         fireEvent.click(inventoryTabBtn);
 
-        expect(await screen.findByText(/Project Units/)).toBeInTheDocument();
+        expect(await screen.findByText(/Units & Inventory Register|Project Units/i)).toBeInTheDocument();
 
         const headers = container.querySelectorAll('th');
-        expect(headers).toHaveLength(5);
-        expect(screen.getByText('Block / Unit')).toBeInTheDocument();
-        expect(screen.getByText('Unit Type')).toBeInTheDocument();
-        expect(screen.getByText('Attributes')).toBeInTheDocument();
-        expect(screen.getByText('Status')).toBeInTheDocument();
-        expect(screen.getByText('Actions')).toBeInTheDocument();
+        expect(headers).toHaveLength(7);
+        const headerTexts = Array.from(headers).map(th => th.textContent.trim());
+        expect(headerTexts).toEqual(['Block / Unit', 'Unit Type', 'Area / Dimension', 'Listing Price', 'Specs & Floor', 'Allocation Status', 'Actions']);
     });
 
     it('renders populated inventory units with block, unit type, attributes, and status badge', async () => {
@@ -166,17 +172,17 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         fireEvent.click(await screen.findByText('Inventory'));
 
         expect(await screen.findByText('A-101')).toBeInTheDocument();
-        expect(screen.getByText('Tower A')).toBeInTheDocument();
-        expect(screen.getByText('3BHK Luxury')).toBeInTheDocument();
+        expect(screen.getAllByText('Tower A').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('3BHK Luxury').length).toBeGreaterThan(0);
         expect(screen.getByText('East Facing')).toBeInTheDocument();
         expect(screen.getByText('North-East')).toBeInTheDocument();
-        expect(screen.getByText('Available')).toBeInTheDocument();
+        expect(screen.getAllByText('Available').length).toBeGreaterThan(0);
 
         expect(screen.getByText('B-202')).toBeInTheDocument();
-        expect(screen.getByText('Tower B')).toBeInTheDocument();
-        expect(screen.getByText('2BHK Premium')).toBeInTheDocument();
+        expect(screen.getAllByText('Tower B').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('2BHK Premium').length).toBeGreaterThan(0);
         expect(screen.getByText('West Facing')).toBeInTheDocument();
-        expect(screen.getByText('Sold Out')).toBeInTheDocument();
+        expect(screen.getAllByText('Sold Out').length).toBeGreaterThan(0);
     });
 
     it('clicking unit number invokes onNavigate with inventory-detail route and unit ID', async () => {
@@ -324,12 +330,12 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         await screen.findByText('A-101');
 
         const headers = Array.from(container.querySelectorAll('thead th')).map(th => th.textContent.trim());
-        expect(headers).toEqual(['Block / Unit', 'Unit Type', 'Attributes', 'Status', 'Actions']);
+        expect(headers).toEqual(['Block / Unit', 'Unit Type', 'Area / Dimension', 'Listing Price', 'Specs & Floor', 'Allocation Status', 'Actions']);
 
         // Verify row contents
-        expect(screen.getByText('Tower A')).toBeInTheDocument();
-        expect(screen.getByText('3BHK Luxury')).toBeInTheDocument();
+        expect(screen.getAllByText('Tower A').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('3BHK Luxury').length).toBeGreaterThan(0);
         expect(screen.getByText('East Facing')).toBeInTheDocument();
-        expect(screen.getByText('Available')).toBeInTheDocument();
+        expect(screen.getAllByText('Available').length).toBeGreaterThan(0);
     });
 });

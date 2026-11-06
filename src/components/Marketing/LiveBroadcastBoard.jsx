@@ -18,7 +18,7 @@ const STATUS_CONFIG = {
     FAILED: { label: 'Broadcast Halted', color: '#dc2626', bg: 'rgba(220, 38, 38, 0.12)', border: 'rgba(220, 38, 38, 0.3)' }
 };
 
-export default function LiveBroadcastBoard({ dealId, campaignId: propCampaignId, onCampaignChange }) {
+export default function LiveBroadcastBoard({ dealId, projectId, campaignId: propCampaignId, onCampaignChange }) {
     const { isDark } = useTheme();
     const [campaigns, setCampaigns] = useState([]);
     const [selectedCampaignId, setSelectedCampaignId] = useState(propCampaignId || '');
@@ -31,10 +31,15 @@ export default function LiveBroadcastBoard({ dealId, campaignId: propCampaignId,
     const pollingRef = useRef(null);
     const timerRef = useRef(null);
 
-    // 1. Fetch campaigns matching dealId (or recent)
+    // 1. Fetch campaigns matching projectId, dealId (or recent)
     const fetchCampaigns = useCallback(async () => {
         try {
-            const url = dealId ? `/marketing/broadcast/live?dealId=${dealId}&limit=5` : `/marketing/broadcast/live?limit=8`;
+            let url = `/marketing/broadcast/live?limit=8`;
+            if (projectId) {
+                url = `/marketing/broadcast/live?projectId=${projectId}&limit=5`;
+            } else if (dealId) {
+                url = `/marketing/broadcast/live?dealId=${dealId}&limit=5`;
+            }
             const res = await api.get(url);
             if (res.data?.success) {
                 const list = res.data.data || [];
@@ -47,7 +52,7 @@ export default function LiveBroadcastBoard({ dealId, campaignId: propCampaignId,
         } catch (err) {
             console.error('[LiveBroadcastBoard] Failed to fetch campaign list:', err);
         }
-    }, [dealId, selectedCampaignId]);
+    }, [dealId, projectId, selectedCampaignId]);
 
     // 2. Fetch specific live campaign state
     const fetchLiveState = useCallback(async (id) => {
@@ -80,8 +85,9 @@ export default function LiveBroadcastBoard({ dealId, campaignId: propCampaignId,
         if (propCampaignId && propCampaignId !== selectedCampaignId) {
             setSelectedCampaignId(propCampaignId);
             fetchLiveState(propCampaignId);
+            fetchCampaigns();
         }
-    }, [propCampaignId, selectedCampaignId, fetchLiveState]);
+    }, [propCampaignId, selectedCampaignId, fetchLiveState, fetchCampaigns]);
 
     // Polling effect
     useEffect(() => {

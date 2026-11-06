@@ -36,7 +36,11 @@ import {
     pauseBroadcastCampaign,
     resumeBroadcastCampaign,
     cancelBroadcastCampaign,
-    retryFailedBroadcastRecipients
+    retryFailedBroadcastRecipients,
+    getPortalStatuses,
+    savePortalConfig,
+    testPortalConnection,
+    syndicateToPortals
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -106,6 +110,12 @@ router.post('/tracked-link', createCampaignTrackedLink);
 
 router.get('/whatsapp/variable-registry', getVariableRegistry);
 router.post('/import-audience', upload.single('file'), importAudience);
+
+// ── Real Estate Portals & Multi-Listing Syndication ────────────────────────────
+router.get('/portals/status',    getPortalStatuses);
+router.post('/portals/config',   savePortalConfig);
+router.post('/portals/test',     testPortalConnection);
+router.post('/portals/syndicate', syndicateToPortals);
 
 // ── LinkedIn Integration ──────────────────────────────────────────────────────
 router.get('/linkedin/auth-url',    getLinkedInAuthUrl);

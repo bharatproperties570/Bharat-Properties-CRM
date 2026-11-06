@@ -385,3 +385,476 @@ export const checkDuplicatesImport = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+/**
+ * @desc    Get project-specific analytics (inventory, deals, sales velocity, price trends)
+ * @route   GET /projects/:id/analytics
+ * @access  Private
+ */
+export const getProjectAnalytics = async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Project ID format" });
+        }
+
+        // Verify project exists and user has access
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const project = await Project.findOne({
+            _id: req.params.id,
+            ...visibilityFilter
+        }).select('_id name pricing totalUnits').lean();
+
+        if (!project) {
+            return res.status(404).json({ success: false, error: "Project not found or access denied" });
+        }
+
+        const projectId = new mongoose.Types.ObjectId(req.params.id);
+        const Inventory = mongoose.model('Inventory');
+        const Deal = mongoose.model('Deal');
+        const Lookup = mongoose.model('Lookup');
+        const Booking = mongoose.model('Booking');
+
+        const escapedProjectName = project?.name ? project.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+
+        // ── 1. Inventory Analytics (All units mapped to this project) ──
+        const projectInvs = await Inventory.find({
+            $or: [
+                { projectId },
+                ...(escapedProjectName ? [{ projectName: new RegExp(`^${escapedProjectName}$`, 'i') }] : [])
+            ]
+        }).select('_id status').populate({ path: 'status', select: 'lookup_value' }).lean();
+
+        const projectInvIds = projectInvs.map(i => i._id);
+        const inventoryTotal = projectInvs.length || Number(project?.totalUnits) || 0;
+
+        // ── 2. Deal Analytics (Connected via projectId, projectName, or inventory units) ──
+        const dealConditions = [
+            { projectId },
+            { projectId: String(req.params.id) },
+            ...(escapedProjectName ? [{ projectName: new RegExp(`^${escapedProjectName}$`, 'i') }] : []),
+            ...(projectInvIds.length > 0 ? [{ inventoryId: { $in: projectInvIds } }] : [])
+        ];
+        const allDeals = await Deal.find({ $or: dealConditions })
+            .select('stage status price quotePrice ratePerUnit stageChangedAt updatedAt inventoryId')
+            .lean();
+        const dealIds = allDeals.map(d => d._id);
+
+        // ── 3. Bookings Analytics (Connected via project inventory or deals) ──
+        const bookingConditions = [];
+        if (projectInvIds.length > 0) bookingConditions.push({ property: { $in: projectInvIds } });
+        if (dealIds.length > 0) bookingConditions.push({ dealId: { $in: dealIds } });
+        
+        const allBookings = bookingConditions.length > 0
+            ? await Booking.find({ $or: bookingConditions }).select('status totalDealAmount totalPaidAmount tokenAmount property dealId createdAt').lean()
+            : [];
+
+        // ── 4. Deal Stages Classification: Open, Quote, Negotiation, Closed (Won/Lost) ──
+        const activeStages = ['Open', 'Quote', 'Negotiation'];
+        const wonStages = ['Closed Won', 'Closed (Won)', 'Sold Out'];
+        const lostStages = ['Closed Lost', 'Closed (Lost)', 'Cancelled'];
+
+        let activeDeals = 0, closedWonDeals = 0, closedLostDeals = 0;
+        let totalPipelineValue = 0;
+        let totalDealValue = 0, ratePerUnitSum = 0, ratePerUnitCount = 0;
+
+        const wonInventoryIds = new Set();
+
+        for (const deal of allDeals) {
+            const stage = deal.stage || 'Open';
+            const status = deal.status || '';
+            const price = Number(deal.price) || Number(deal.quotePrice) || 0;
+
+            const isWon = wonStages.includes(stage) || (stage === 'Closed' && (status === 'Won' || status === 'Closed Won'));
+            const isLost = lostStages.includes(stage) || (stage === 'Closed' && (status === 'Lost' || status === 'Unqualified' || status === 'Cancelled'));
+
+            if (isWon) {
+                closedWonDeals++;
+                if (deal.inventoryId) wonInventoryIds.add(deal.inventoryId.toString());
+            } else if (isLost) {
+                closedLostDeals++;
+            } else if (activeStages.includes(stage) || !isLost) {
+                activeDeals++;
+                totalPipelineValue += price;
+            }
+
+            if (price > 0) totalDealValue += price;
+            if (deal.ratePerUnit && deal.ratePerUnit > 0) {
+                ratePerUnitSum += deal.ratePerUnit;
+                ratePerUnitCount++;
+            }
+        }
+
+        // ── 5. Realized Revenue from Bookings ──
+        const confirmedBookings = allBookings.filter(b => b.status !== 'Cancelled');
+        const bookedInventoryIds = new Set();
+        let totalRealizedRevenue = 0;
+
+        for (const booking of confirmedBookings) {
+            if (booking.property) bookedInventoryIds.add(booking.property.toString());
+            const amount = Number(booking.totalPaidAmount) || Number(booking.totalDealAmount) || 0;
+            totalRealizedRevenue += amount;
+        }
+
+        // Fallback: If no bookings yet but there are Closed Won deals, add won deal revenue
+        if (totalRealizedRevenue === 0 && closedWonDeals > 0) {
+            totalRealizedRevenue = allDeals
+                .filter(d => wonStages.includes(d.stage) || (d.stage === 'Closed' && d.status === 'Won'))
+                .reduce((sum, d) => sum + (Number(d.price) || 0), 0);
+        }
+
+        // ── 6. Units Sold: Bookings + Won Deals (Mark as Sold) + Status Sold ──
+        const soldUnitIds = new Set([...bookedInventoryIds, ...wonInventoryIds]);
+        for (const inv of projectInvs) {
+            const statusStr = (inv.status && typeof inv.status === 'object' && inv.status.lookup_value)
+                ? inv.status.lookup_value.toLowerCase()
+                : (typeof inv.status === 'string' ? inv.status.toLowerCase() : '');
+            if (statusStr.includes('sold')) {
+                soldUnitIds.add(inv._id.toString());
+            }
+        }
+
+        const sold = soldUnitIds.size;
+        const available = Math.max(0, inventoryTotal - sold);
+        const absorptionRate = inventoryTotal > 0 ? parseFloat(((sold / inventoryTotal) * 100).toFixed(1)) : 0;
+
+        // ── 7. Market Insights: Avg Ticket Size & Stock Potential ──
+        const validDeals = allDeals.filter(d => (Number(d.price) || 0) > 0);
+        const avgDealValue = validDeals.length > 0
+            ? Math.round(validDeals.reduce((sum, d) => sum + Number(d.price), 0) / validDeals.length)
+            : (confirmedBookings.length > 0 && totalRealizedRevenue > 0
+                ? Math.round(totalRealizedRevenue / confirmedBookings.length)
+                : (project?.pricing?.basePrice?.amount ? Number(project.pricing.basePrice.amount) * 1000 : 0));
+
+        const stockPotential = available * avgDealValue;
+        const avgRatePerUnit = ratePerUnitCount > 0 ? Math.round(ratePerUnitSum / ratePerUnitCount) : 0;
+
+        // ── Sales Velocity (last 12 months) ──
+        const twelveMonthsAgo = new Date();
+        twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+        twelveMonthsAgo.setDate(1);
+        twelveMonthsAgo.setHours(0, 0, 0, 0);
+
+        const salesVelocityAgg = await Deal.aggregate([
+            {
+                $match: {
+                    $or: dealConditions,
+                    stage: { $in: [...wonStages, 'Closed'] },
+                    $expr: {
+                        $gte: [{ $ifNull: ['$stageChangedAt', '$updatedAt'] }, twelveMonthsAgo]
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: {
+                            format: '%Y-%m',
+                            date: { $ifNull: ['$stageChangedAt', '$updatedAt'] }
+                        }
+                    },
+                    count: { $sum: 1 },
+                    value: { $sum: { $ifNull: ['$price', 0] } }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]);
+
+        const salesVelocity = salesVelocityAgg.map(item => ({
+            month: item._id,
+            count: item.count,
+            value: item.value
+        }));
+
+        // ── Price Trend (last 12 months) ──
+        const priceTrendAgg = await Deal.aggregate([
+            {
+                $match: {
+                    $or: dealConditions,
+                    ratePerUnit: { $gt: 0 },
+                    $expr: {
+                        $gte: [{ $ifNull: ['$stageChangedAt', '$updatedAt'] }, twelveMonthsAgo]
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: {
+                            format: '%Y-%m',
+                            date: { $ifNull: ['$stageChangedAt', '$updatedAt'] }
+                        }
+                    },
+                    avgRate: { $avg: '$ratePerUnit' },
+                    dealCount: { $sum: 1 }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]);
+
+        const priceTrend = priceTrendAgg.map(item => ({
+            month: item._id,
+            avgRate: Math.round(item.avgRate),
+            dealCount: item.dealCount
+        }));
+
+        // ── Stage Distribution ──
+        const stageDistAgg = await Deal.aggregate([
+            { $match: { $or: dealConditions } },
+            {
+                $group: {
+                    _id: '$stage',
+                    count: { $sum: 1 },
+                    value: { $sum: { $ifNull: ['$price', 0] } }
+                }
+            },
+            { $sort: { count: -1 } }
+        ]);
+
+        const stageDistribution = stageDistAgg.map(item => ({
+            stage: item._id || 'Open',
+            count: item.count,
+            value: item.value
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                inventory: {
+                    total: inventoryTotal,
+                    available,
+                    sold,
+                    absorptionRate
+                },
+                deals: {
+                    total: allDeals.length,
+                    active: activeDeals,
+                    closed: closedWonDeals,
+                    cancelled: closedLostDeals,
+                    totalPipelineValue,
+                    totalRealizedRevenue,
+                    avgDealValue,
+                    stockPotential,
+                    avgRatePerUnit
+                },
+                bookings: {
+                    total: allBookings.length,
+                    confirmed: confirmedBookings.length,
+                    realizedRevenue: totalRealizedRevenue
+                },
+                salesVelocity,
+                priceTrend,
+                stageDistribution
+            }
+        });
+    } catch (error) {
+        console.error("[Project Analytics] Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Get leads interested in this project
+ * @route   GET /projects/:id/leads
+ * @access  Private
+ */
+export const getProjectLeads = async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Project ID format" });
+        }
+
+        // Verify project exists and user has access
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const project = await Project.findOne({
+            _id: req.params.id,
+            ...visibilityFilter
+        }).select('name').lean();
+
+        if (!project) {
+            return res.status(404).json({ success: false, error: "Project not found or access denied" });
+        }
+
+        const Lead = mongoose.model('Lead');
+        const Lookup = mongoose.model('Lookup');
+        const { page = 1, limit = 25 } = req.query;
+
+        // Lead.projectName is an array of strings — this matches if the array contains the name
+        const leadQuery = { projectName: project.name };
+
+        const results = await paginate(
+            Lead,
+            leadQuery,
+            Number(page),
+            Number(limit),
+            { updatedAt: -1 },
+            [{ path: 'assignedTo', select: 'fullName email' }]
+        );
+
+        // Compute source distribution from ALL matching leads (not just current page)
+        const sourceDistAgg = await Lead.aggregate([
+            { $match: leadQuery },
+            {
+                $group: {
+                    _id: '$source',
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { count: -1 } }
+        ]);
+
+        // Resolve source lookup values
+        const sourceDistribution = await Promise.all(sourceDistAgg.map(async (item) => {
+            let sourceName = 'Unknown';
+            if (item._id) {
+                if (mongoose.Types.ObjectId.isValid(item._id)) {
+                    const lookup = await Lookup.findById(item._id).select('lookup_value').lean();
+                    if (lookup) sourceName = lookup.lookup_value;
+                } else {
+                    sourceName = String(item._id);
+                }
+            }
+            return { source: sourceName, count: item.count };
+        }));
+
+        // Compute status distribution
+        const statusDistAgg = await Lead.aggregate([
+            { $match: leadQuery },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { count: -1 } }
+        ]);
+
+        // Resolve status lookup values
+        const statusDistribution = await Promise.all(statusDistAgg.map(async (item) => {
+            let statusName = 'Unknown';
+            if (item._id) {
+                if (mongoose.Types.ObjectId.isValid(item._id)) {
+                    const lookup = await Lookup.findById(item._id).select('lookup_value').lean();
+                    if (lookup) statusName = lookup.lookup_value;
+                } else {
+                    statusName = String(item._id);
+                }
+            }
+            return { status: statusName, count: item.count };
+        }));
+
+        res.json({
+            success: true,
+            data: results.records,
+            totalCount: results.totalCount,
+            totalPages: results.totalPages,
+            currentPage: results.currentPage,
+            sourceDistribution,
+            statusDistribution
+        });
+    } catch (error) {
+        console.error("[Project Leads] Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Get activities related to this project's deals and leads
+ * @route   GET /projects/:id/activities
+ * @access  Private
+ */
+export const getProjectActivities = async (req, res) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Project ID format" });
+        }
+
+        // Verify project exists and user has access
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const project = await Project.findOne({
+            _id: req.params.id,
+            ...visibilityFilter
+        }).select('name').lean();
+
+        if (!project) {
+            return res.status(404).json({ success: false, error: "Project not found or access denied" });
+        }
+
+        const Deal = mongoose.model('Deal');
+        const Lead = mongoose.model('Lead');
+        const Activity = mongoose.model('Activity');
+        const { page = 1, limit = 25 } = req.query;
+
+        const projectId = new mongoose.Types.ObjectId(req.params.id);
+
+        // Get all deal IDs and their linked lead IDs for this project
+        const projectDeals = await Deal.find({ projectId }).select('_id leadId leads').lean();
+        const dealIds = projectDeals.map(d => d._id);
+
+        // Collect lead IDs from deals
+        const dealLeadIds = new Set();
+        for (const deal of projectDeals) {
+            if (deal.leadId) dealLeadIds.add(deal.leadId.toString());
+            if (Array.isArray(deal.leads)) {
+                deal.leads.forEach(lid => dealLeadIds.add(lid.toString()));
+            }
+        }
+
+        // Also get leads directly interested in this project
+        const projectLeads = await Lead.find({ projectName: project.name }).select('_id').lean();
+        const directLeadIds = projectLeads.map(l => l._id);
+
+        // Merge all lead IDs
+        directLeadIds.forEach(lid => dealLeadIds.add(lid.toString()));
+        const allLeadIds = Array.from(dealLeadIds)
+            .filter(id => mongoose.Types.ObjectId.isValid(id))
+            .map(id => new mongoose.Types.ObjectId(id));
+
+        // Build activity query — match by entityType+entityId or details.dealId
+        const activityConditions = [];
+
+        if (dealIds.length > 0) {
+            activityConditions.push({ entityType: 'Deal', entityId: { $in: dealIds } });
+            activityConditions.push({ 'details.dealId': { $in: dealIds } });
+        }
+
+        if (allLeadIds.length > 0) {
+            activityConditions.push({ entityType: 'Lead', entityId: { $in: allLeadIds } });
+        }
+
+        // If no deals or leads found, return empty
+        if (activityConditions.length === 0) {
+            return res.json({
+                success: true,
+                data: [],
+                totalCount: 0,
+                totalPages: 0,
+                currentPage: 1
+            });
+        }
+
+        const activityQuery = { $or: activityConditions };
+
+        const results = await paginate(
+            Activity,
+            activityQuery,
+            Number(page),
+            Number(limit),
+            { dueDate: -1, createdAt: -1 },
+            [
+                { path: 'createdBy', select: 'fullName' },
+                { path: 'assignedTo', select: 'fullName' }
+            ]
+        );
+
+        res.json({
+            success: true,
+            data: results.records,
+            totalCount: results.totalCount,
+            totalPages: results.totalPages,
+            currentPage: results.currentPage
+        });
+    } catch (error) {
+        console.error("[Project Activities] Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

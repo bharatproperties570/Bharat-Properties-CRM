@@ -56,7 +56,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     useEffect(() => {
         if (type === 'twilio') {
             loadConfig();
-        } else if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin', 'whatsapp'].includes(type)) {
+        } else if (type?.startsWith('portal_') || type === 'twitter' || ['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin', 'whatsapp', 'facebook', 'instagram'].includes(type)) {
             loadAiConfig();
             if (type === 'whatsapp') {
                 loadWaAccounts();
@@ -66,6 +66,29 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
 
     const loadAiConfig = async () => {
         try {
+            if (type?.startsWith('portal_')) {
+                const portalId = type.replace('portal_', '');
+                const res = await systemSettingsAPI.getByKey('portal_syndication_config');
+                if (res?.data?.value?.[portalId]) {
+                    setConfig(res.data.value[portalId]);
+                    setLastKnownStatus('Connected');
+                } else {
+                    setLastKnownStatus('Disconnected');
+                }
+                return;
+            }
+
+            if (type === 'twitter') {
+                const res = await systemSettingsAPI.getByKey('twitter_integration');
+                if (res?.data?.value && Object.keys(res.data.value).length > 0) {
+                    setConfig(prev => ({ ...prev, ...res.data.value }));
+                    setLastKnownStatus(res.data.value.apiKey ? 'Connected' : 'Disconnected');
+                } else {
+                    setLastKnownStatus('Disconnected');
+                }
+                return;
+            }
+
             let configKey;
             if (type === 'linkedin') {
                 configKey = 'linkedin_integration';
@@ -115,6 +138,23 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
         setIsSaving(true);
         setTestResult(null);
         try {
+            if (type?.startsWith('portal_')) {
+                const portalId = type.replace('portal_', '');
+                await marketingAPI.savePortalConfig(portalId, config);
+                setLastKnownStatus('Connected');
+                toast.success(`${connectionData?.label || portalId} credentials saved successfully!`);
+                if (onConnect) onConnect();
+                return;
+            }
+
+            if (type === 'twitter') {
+                await socialAPI.saveConfig('twitter', config);
+                setLastKnownStatus('Connected');
+                toast.success('Twitter / X credentials saved successfully!');
+                if (onConnect) onConnect();
+                return;
+            }
+
             const configKey = type === 'linkedin' ? 'linkedin_integration' : `ai_${type}_config`;
             if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin', 'facebook', 'instagram', 'whatsapp'].includes(type)) {
                 if (type === 'linkedin') {
@@ -186,6 +226,11 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
             let res;
             if (['openai', 'gemini', 'claude'].includes(type)) {
                 res = await systemSettingsAPI.testAi(type, config);
+            } else if (type?.startsWith('portal_')) {
+                const portalId = type.replace('portal_', '');
+                res = await marketingAPI.testPortalConnection(portalId, config);
+            } else if (type === 'twitter') {
+                res = await socialAPI.testConnection({ platform: 'twitter', config });
             } else if (['facebook', 'instagram', 'whatsapp'].includes(type)) {
                 if (type === 'whatsapp') {
                     // Senior Professional: Real-world connectivity test (sync check)
@@ -429,7 +474,39 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     showWebhook: true
                 };
             case 'webhook': return { title: 'Inbound Webhook', icon: 'fas fa-code', color: 'var(--text-main)', steps: ['Define external API endpoint.', 'Generate API Secret Key.', 'Map incoming data fields.'], showWebhook: true };
-            default: return {};
+            case 'twitter':
+                return {
+                    title: 'Twitter / X API Integration',
+                    icon: 'fab fa-x-twitter',
+                    color: '#0f172a',
+                    steps: [
+                        'Go to developer.x.com and log in with your Twitter/X account.',
+                        'Navigate to Developer Portal > Projects & Apps.',
+                        'Set User authentication settings to Read and Write.',
+                        'Copy your Consumer API Key & API Secret.',
+                        'Generate User Access Token & Access Token Secret.',
+                        'Enter credentials below to enable live tweets from Promote Studio.'
+                    ],
+                    showWebhook: false
+                };
+            default:
+                if (type?.startsWith('portal_')) {
+                    const portalName = connectionData?.label || type.replace('portal_', '');
+                    return {
+                        title: `${portalName} Partner Syndication`,
+                        icon: connectionData?.icon || 'fas fa-building',
+                        color: connectionData?.color || '#005CA8',
+                        steps: [
+                            `Log in to your ${portalName} developer or channel partner console.`,
+                            'Locate your Merchant / Partner / Channel Partner ID.',
+                            'Generate or copy your Secret API Key or Auth Token.',
+                            'Enter your credentials below and click Save Configuration.',
+                            'Your listings in Promote Studio will automatically syndicate to this portal.'
+                        ],
+                        showWebhook: false
+                    };
+                }
+                return {};
         }
     };
 
@@ -1035,6 +1112,61 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 </div>
                             </>
                         )}
+                        {type === 'twitter' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>API Key (Consumer Key)</label>
+                                    <input type="text" placeholder="Twitter API Key" value={config.apiKey || ''} onChange={e => setConfig({ ...config, apiKey: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>API Key Secret (Consumer Secret)</label>
+                                    <input type="password" placeholder="Twitter API Secret" value={config.apiSecret || ''} onChange={e => setConfig({ ...config, apiSecret: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>User Access Token</label>
+                                    <input type="text" placeholder="OAuth Access Token" value={config.accessToken || ''} onChange={e => setConfig({ ...config, accessToken: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>User Access Token Secret</label>
+                                    <input type="password" placeholder="OAuth Access Token Secret" value={config.accessTokenSecret || ''} onChange={e => setConfig({ ...config, accessTokenSecret: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Bearer Token (Optional v2)</label>
+                                    <input type="password" placeholder="App-only Bearer Token" value={config.bearerToken || ''} onChange={e => setConfig({ ...config, bearerToken: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+                        {type?.startsWith('portal_') && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Partner ID / Merchant Code / Agency Code</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Partner Code (e.g. 99AC-12345 or Merchant UUID)" 
+                                        value={config.partnerId || config.clientId || config.vendorId || config.publisherId || config.dealerId || ''} 
+                                        onChange={e => setConfig({ ...config, partnerId: e.target.value })} 
+                                    />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>API Key / Secret Token / FTP Password</label>
+                                    <input 
+                                        type="password" 
+                                        placeholder="Portal Secret API Key or Token" 
+                                        value={config.apiKey || ''} 
+                                        onChange={e => setConfig({ ...config, apiKey: e.target.value })} 
+                                    />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Custom Syndication Feed / Endpoint (Optional)</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="https://api.portal.com/v1/listings (Leave blank for default)" 
+                                        value={config.feedUrl || ''} 
+                                        onChange={e => setConfig({ ...config, feedUrl: e.target.value })} 
+                                    />
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* LinkedIn OAuth CTA Block */}
@@ -1135,6 +1267,20 @@ const IntegrationsSettingsPage = () => {
         openai: { category: 'AI Intelligence', status: 'disconnected', label: 'ChatGPT (OpenAI)', icon: 'fas fa-robot', color: '#74aa9c' },
         gemini: { category: 'AI Intelligence', status: 'disconnected', label: 'Google Gemini', icon: 'fab fa-google', color: '#4285f4' },
         claude: { category: 'AI Intelligence', status: 'disconnected', label: 'Claude (Anthropic)', icon: 'fas fa-brain', color: '#d97757' },
+        
+        // Property Portals & Syndication (11 Major Indian PropTech Networks)
+        portal_99acres: { category: 'Property Portals', status: 'disconnected', label: '99acres.com', icon: 'fas fa-building', color: '#005CA8', description: "India's highest traffic property search marketplace (XML Feed / FTP Syndication)." },
+        portal_magicbricks: { category: 'Property Portals', status: 'disconnected', label: 'Magicbricks', icon: 'fas fa-city', color: '#E40046', description: 'Times Group flagship property portal with high-intent verified buyer leads.' },
+        portal_housing: { category: 'Property Portals', status: 'disconnected', label: 'Housing.com', icon: 'fas fa-home', color: '#00A65A', description: 'REA India group portal with verified mobile-first buyer inquiries.' },
+        portal_commonfloor: { category: 'Property Portals', status: 'disconnected', label: 'CommonFloor', icon: 'fas fa-layer-group', color: '#F97316', description: 'Platform for apartment complexes, RWAs, and residential societies.' },
+        portal_makaan: { category: 'Property Portals', status: 'disconnected', label: 'Makaan.com', icon: 'fas fa-compass', color: '#8B5CF6', description: 'Seller ratings & algorithm-driven homebuyer discovery reach.' },
+        portal_olx: { category: 'Property Portals', status: 'disconnected', label: 'OLX India', icon: 'fas fa-tags', color: '#002F34', description: 'High-volume hyper-local classifieds for resale, land, and apartments.' },
+        portal_quikr: { category: 'Property Portals', status: 'disconnected', label: 'Quikr Homes', icon: 'fas fa-bolt', color: '#0083CA', description: 'Regional buyer reach with automated matching algorithms.' },
+        portal_proptiger: { category: 'Property Portals', status: 'disconnected', label: 'PropTiger', icon: 'fas fa-chart-line', color: '#EF4444', description: 'Premier primary market developer new launches and advisory sales.' },
+        portal_sulekha: { category: 'Property Portals', status: 'disconnected', label: 'Sulekha NoBroker', icon: 'fas fa-user-shield', color: '#D97706', description: 'Direct match property search portal with instant SMS lead alerts.' },
+        portal_propertyguide: { category: 'Property Portals', status: 'disconnected', label: 'Property Guide Online', icon: 'fas fa-newspaper', color: '#0284C7', description: 'Digital property catalog, NRI investor syndication, and luxury showcase.' },
+        portal_squareyards: { category: 'Property Portals', status: 'disconnected', label: 'Square Yards', icon: 'fas fa-vector-square', color: '#059669', description: "India's largest integrated real estate platform with institutional brokerage." },
+
         twilio: { category: 'Communication Channels', status: 'disconnected', label: 'Twilio (Voice & SMS)', icon: 'fas fa-sms', color: '#F22F46' },
         knowlarity: { category: 'Voice & Telephony', status: 'disconnected', label: 'Knowlarity (Voice)', icon: 'fas fa-phone-volume', color: '#f37021' },
         gupshup: { category: 'Communication Channels', status: 'disconnected', label: 'Gupshup (Omnichannel)', icon: 'fas fa-comment-dots', color: '#00aed9' },
@@ -1145,6 +1291,7 @@ const IntegrationsSettingsPage = () => {
         instagram: { category: 'Social Marketing', status: 'disconnected', label: 'Instagram Business', icon: 'fab fa-instagram', color: '#E4405F' },
         messenger: { category: 'Social Marketing', status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' },
         linkedin: { category: 'Social Marketing', status: 'disconnected', label: 'LinkedIn Business', icon: 'fab fa-linkedin', color: '#0077b5' },
+        twitter: { category: 'Social Marketing', status: 'disconnected', label: 'Twitter / X', icon: 'fab fa-x-twitter', color: '#0f172a', description: 'Direct OAuth 1.0a & v2 tweet publishing with image media upload.' },
         google_calendar: { category: 'Connectivity & Productivity', status: 'disconnected', label: 'Google Calendar (Legacy)', icon: 'fab fa-google', color: '#4285F4' },
         apple_calendar: { category: 'Connectivity & Productivity', status: 'disconnected', label: 'iCloud Calendar', icon: 'fab fa-apple', color: 'var(--text-muted)' },
         webhook: { category: 'Automation', status: 'disconnected', label: 'Custom Inbound Webhook', icon: 'fas fa-code', color: 'var(--text-main)' }
@@ -1242,33 +1389,68 @@ const IntegrationsSettingsPage = () => {
                 };
             }
 
-            // Unified Social Status (WhatsApp, Messenger, Instagram)
+            // Unified Social Status (WhatsApp, Messenger, Instagram, Twitter)
             try {
                 const socialRes = await socialAPI.getUnifiedStatus();
-                if (socialRes.success) {
-                    newConnections.whatsapp = { 
-                        ...newConnections.whatsapp, 
-                        status: socialRes.whatsapp.connected ? 'connected' : 'disconnected',
-                        health: socialRes.whatsapp.health 
-                    };
-                    newConnections.messenger = { 
-                        ...newConnections.messenger, 
-                        status: socialRes.messenger.connected ? 'connected' : 'disconnected',
-                        health: socialRes.messenger.health 
-                    };
-                    newConnections.facebook = { 
-                        ...newConnections.facebook, 
-                        status: socialRes.facebook.connected ? 'connected' : 'disconnected',
-                        health: 'HEALTHY'
-                    };
-                    newConnections.instagram = { 
-                        ...newConnections.instagram, 
-                        status: socialRes.instagram.connected ? 'connected' : 'disconnected',
-                        health: 'HEALTHY'
-                    };
+                if (socialRes && socialRes.success) {
+                    if (socialRes.whatsapp && newConnections.whatsapp) {
+                        newConnections.whatsapp = { 
+                            ...newConnections.whatsapp, 
+                            status: socialRes.whatsapp.connected ? 'connected' : 'disconnected',
+                            health: socialRes.whatsapp.health 
+                        };
+                    }
+                    if (socialRes.messenger && newConnections.messenger) {
+                        newConnections.messenger = { 
+                            ...newConnections.messenger, 
+                            status: socialRes.messenger.connected ? 'connected' : 'disconnected',
+                            health: socialRes.messenger.health 
+                        };
+                    }
+                    if (socialRes.facebook && newConnections.facebook) {
+                        newConnections.facebook = { 
+                            ...newConnections.facebook, 
+                            status: socialRes.facebook.connected ? 'connected' : 'disconnected',
+                            health: 'HEALTHY'
+                        };
+                    }
+                    if (socialRes.instagram && newConnections.instagram) {
+                        newConnections.instagram = { 
+                            ...newConnections.instagram, 
+                            status: socialRes.instagram.connected ? 'connected' : 'disconnected',
+                            health: 'HEALTHY'
+                        };
+                    }
+                    if (socialRes.twitter && newConnections.twitter) {
+                        newConnections.twitter = {
+                            ...newConnections.twitter,
+                            status: socialRes.twitter.connected ? 'connected' : 'disconnected',
+                            health: socialRes.twitter.health || 'DISCONNECTED'
+                        };
+                    }
                 }
             } catch (socErr) {
                 console.warn('Social status fetch failed', socErr);
+            }
+
+            // Real Estate Property Portals Status
+            try {
+                const portalRes = await marketingAPI.getPortalStatuses();
+                if (portalRes && portalRes.success && Array.isArray(portalRes.portals)) {
+                    portalRes.portals.forEach(p => {
+                        const portalKey = `portal_${p.id}`;
+                        if (newConnections[portalKey]) {
+                            newConnections[portalKey] = {
+                                ...newConnections[portalKey],
+                                status: p.connected ? 'connected' : 'disconnected',
+                                health: p.health,
+                                lastSyncedAt: p.lastSyncedAt
+                            };
+                        }
+                    });
+                }
+            } catch (pErr) {
+                console.warn('Failed to load portal statuses', pErr);
             }
 
             setConnections(newConnections);
@@ -1393,9 +1575,10 @@ const IntegrationsSettingsPage = () => {
 
             <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
                 <div style={{ width: '100%' }}>
-                    {['AI Intelligence', 'Communication Channels', 'Voice & Telephony', 'Social Marketing', 'Connectivity & Productivity', 'Automation'].map(cat => {
+                    {['AI Intelligence', 'Property Portals', 'Communication Channels', 'Voice & Telephony', 'Social Marketing', 'Connectivity & Productivity', 'Automation'].map(cat => {
                         const catIcons = {
                             'AI Intelligence': 'fas fa-brain',
+                            'Property Portals': 'fas fa-network-wired',
                             'Communication Channels': 'fas fa-comments',
                             'Voice & Telephony': 'fas fa-phone-alt',
                             'Social Marketing': 'fas fa-share-alt',
@@ -1436,19 +1619,21 @@ const IntegrationsSettingsPage = () => {
                                             </div>
                                             <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>{item.label}</h3>
                                             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.6' }}>
-                                                {key === 'openai' && 'Leverage GPT-4o for high-fidelity content generation and reasoning.'}
-                                                {key === 'gemini' && 'Deep context window analysis and multimodal capabilities by Google.'}
-                                                {key === 'claude' && 'Safe, steerable, and highly intelligent models for complex workflows.'}
-                                                {key === 'twilio' && 'Send and receive high-volume SMS and trigger automated voice calls via Twilio.'}
-                                                {key === 'knowlarity' && 'Indian cloud telephony leader for automated outbound calls and IVR flows.'}
-                                                {key === 'gupshup' && 'Premier omnichannel marketing for WhatsApp Business, SMS, and RCS in India.'}
-                                                {key === 'whatsapp' && 'Connect Meta Business API for verified messaging.'}
-                                                {key === 'telegram' && 'Manage customer engagement via Telegram bots.'}
-                                                {key === 'rcs' && 'The next generation of business messaging with rich media.'}
-                                                {key === 'messenger' && 'Directly sync Facebook Page messages with Bharat CRM.'}
-                                                {key === 'linkedin' && 'Direct lead synchronization and automated posting for LinkedIn company pages.'}
-                                                {key === 'google_calendar' && 'Sync your activities and meetings with Google Calendar.'}
-                                                {key === 'apple_calendar' && 'Connect your iCloud Calendar for seamless scheduling on iOS.'}
+                                                {item.description || (
+                                                    key === 'openai' ? 'Leverage GPT-4o for high-fidelity content generation and reasoning.' :
+                                                    key === 'gemini' ? 'Deep context window analysis and multimodal capabilities by Google.' :
+                                                    key === 'claude' ? 'Safe, steerable, and highly intelligent models for complex workflows.' :
+                                                    key === 'twilio' ? 'Send and receive high-volume SMS and trigger automated voice calls via Twilio.' :
+                                                    key === 'knowlarity' ? 'Indian cloud telephony leader for automated outbound calls and IVR flows.' :
+                                                    key === 'gupshup' ? 'Premier omnichannel marketing for WhatsApp Business, SMS, and RCS in India.' :
+                                                    key === 'whatsapp' ? 'Connect Meta Business API for verified messaging.' :
+                                                    key === 'telegram' ? 'Manage customer engagement via Telegram bots.' :
+                                                    key === 'rcs' ? 'The next generation of business messaging with rich media.' :
+                                                    key === 'messenger' ? 'Directly sync Facebook Page messages with Bharat CRM.' :
+                                                    key === 'linkedin' ? 'Direct lead synchronization and automated posting for LinkedIn company pages.' :
+                                                    key === 'google_calendar' ? 'Sync your activities and meetings with Google Calendar.' :
+                                                    key === 'apple_calendar' ? 'Connect your iCloud Calendar for seamless scheduling on iOS.' : ''
+                                                )}
                                             </p>
 
                                             <div style={{ marginTop: '24px', borderTop: '1px solid #f1f5f9', paddingTop: '20px', display: 'flex', gap: '12px' }}>

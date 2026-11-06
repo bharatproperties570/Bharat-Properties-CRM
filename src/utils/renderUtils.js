@@ -15,13 +15,17 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
 
     let result = val;
     // If it's a non-primitive object, try to extract a string value
-    if (typeof val === 'object') {
-        const extracted = val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName || val.code;
-
+    if (typeof val === 'object' && val !== null) {
         // A. Handle Measurement Objects { value, unit }
-        if (extracted === undefined && val.value !== undefined && val.unit !== undefined) {
-             return `${val.value} ${val.unit}`;
+        if (val.unit !== undefined && (val.value !== undefined || val.amount !== undefined)) {
+            const numVal = val.value !== undefined ? val.value : val.amount;
+            if (numVal !== null && numVal !== undefined && numVal !== '') {
+                return `${numVal} ${val.unit}`;
+            }
+            return emptyValue;
         }
+
+        const extracted = val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName || val.code;
 
         // B. Handle Property Config Objects { _id, name } or { id, name }
         if (extracted === undefined && val.name && (val._id || val.id)) {

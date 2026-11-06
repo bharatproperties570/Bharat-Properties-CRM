@@ -1314,7 +1314,37 @@ export const getDeals = async (req, res) => {
         }
 
         // Project & Block Filters
-        if (projectId && mongoose.Types.ObjectId.isValid(projectId)) query.projectId = projectId;
+        if (projectId && mongoose.Types.ObjectId.isValid(projectId)) {
+            const projectConditions = [
+                { projectId: new mongoose.Types.ObjectId(projectId) },
+                { projectId: String(projectId) }
+            ];
+            
+            const projectDoc = await Project.findById(projectId).select('name').lean();
+            if (projectDoc && projectDoc.name) {
+                const escapedName = escapeRegExp(projectDoc.name);
+                projectConditions.push({ projectName: new RegExp(`^${escapedName}$`, 'i') });
+                
+                // Also match all deals created on this project's inventory units
+                const matchingInvs = await Inventory.find({
+                    $or: [
+                        { projectId: new mongoose.Types.ObjectId(projectId) },
+                        { projectName: new RegExp(`^${escapedName}$`, 'i') }
+                    ]
+                }).select('_id').lean();
+                
+                if (matchingInvs.length > 0) {
+                    projectConditions.push({ inventoryId: { $in: matchingInvs.map(i => i._id) } });
+                }
+            }
+
+            if (query.$or) {
+                query.$and = (query.$and || []).concat([{ $or: query.$or }, { $or: projectConditions }]);
+                delete query.$or;
+            } else {
+                query.$or = projectConditions;
+            }
+        }
         if (block) {
             const blocks = Array.isArray(block) ? block : block.split(',').filter(Boolean);
             if (blocks.length > 0) query.block = { $in: blocks.map(b => new RegExp(`^${escapeRegExp(b)}$`, 'i')) };
@@ -1323,9 +1353,11 @@ export const getDeals = async (req, res) => {
         // Deal State Filters
         if (queryIntent) query.intent = await resolveMultiFilter('Intent', queryIntent);
         const rawStage = queryStage || req.query['stage[]'];
-        if (rawStage) {
+        if (rawStage && rawStage !== 'all') {
             const stages = Array.isArray(rawStage) ? rawStage : (typeof rawStage === 'string' ? rawStage.split(',').filter(Boolean) : [rawStage]);
             if (stages.length > 0) query.stage = { $in: stages };
+        } else if (rawStage === 'all' || req.query.includeClosed === 'true') {
+            // Keep all stages including Closed Won, Closed Lost, etc.
         } else {
             // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by default
             query.stage = { $nin: ['Closed Won', 'Closed Lost', 'Cancelled', 'Closed', 'Sold Out'] };

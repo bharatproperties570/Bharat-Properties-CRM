@@ -1076,6 +1076,9 @@ const processMarketingJob = async (job) => {
 
         const { default: fbService } = await import('../../services/FacebookService.js');
         const { default: liService } = await import('../../services/LinkedInService.js');
+        const { default: twService } = await import('../../services/TwitterService.js');
+        const { default: gbpService } = await import('../../services/GoogleBusinessService.js');
+        const { default: ytService } = await import('../../services/YouTubeService.js');
         const { default: Activity } = await import('../../models/Activity.js');
 
         let result;
@@ -1087,11 +1090,22 @@ const processMarketingJob = async (job) => {
             } else if (targetPlatform === 'instagram') {
                 result = await fbService.postToInstagram(text, imageUrl, format);
             } else if (targetPlatform === 'linkedin') {
-                // For LinkedIn, we assume image and other assets are already handled or not required for basic scheduled post
                 result = await liService.postToOrganization(text, null, null);
+            } else if (targetPlatform === 'twitter') {
+                result = await twService.postTweet(text, imageUrl);
+            } else if (targetPlatform === 'google_business') {
+                result = await gbpService.createPost(text, null, imageUrl);
+            } else if (targetPlatform === 'youtube') {
+                const videoPath = data.videoPath || data.filePath;
+                if (videoPath) {
+                    result = await ytService.uploadVideo(text.slice(0, 70), text, videoPath);
+                } else {
+                    await job.log('YouTube scheduled dispatch skipped: no video asset attached');
+                    result = { success: false, reason: 'Video asset missing' };
+                }
             } else {
-                await job.log(`Warning: ${targetPlatform} dispatch is mock-only`);
-                result = { success: true, id: `mock_${Date.now()}` };
+                await job.log(`Warning: ${targetPlatform} dispatch is unsupported`);
+                result = { success: false, reason: 'Unsupported platform' };
             }
 
             // Log as Activity for Timeline visibility

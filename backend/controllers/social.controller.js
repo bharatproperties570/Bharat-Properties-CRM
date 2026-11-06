@@ -8,6 +8,9 @@ import facebookService from '../services/FacebookService.js';
 import whatsAppService from '../services/WhatsAppService.js';
 import linkedInService from '../services/LinkedInService.js';
 import metaLeadService from '../services/MetaLeadService.js';
+import twitterService from '../services/TwitterService.js';
+import googleBusinessService from '../services/GoogleBusinessService.js';
+import youtubeService from '../services/YouTubeService.js';
 import Conversation from '../models/Conversation.js';
 import { generateBotResponse } from '../services/aiBot.service.js';
 import axios from 'axios';
@@ -39,8 +42,12 @@ export const saveSocialConfig = async (req, res) => {
         updateObj['category'] = 'integration';
         updateObj['active'] = true;
 
+        const targetSettingKey = platform.toLowerCase() === 'twitter' 
+            ? 'twitter_integration' 
+            : 'social_graph_config';
+
         await SystemSetting.findOneAndUpdate(
-            { key: 'social_graph_config' },
+            { key: targetSettingKey },
             { $set: updateObj },
             { upsert: true }
         );
@@ -1155,44 +1162,43 @@ export const postSocialMedia = async (req, res) => {
                 }
             }
             result = await linkedInService.postToOrganization(text, null, assetUrn);
-        } else if (['twitter', 'youtube', 'google_business'].includes(targetPlatform)) {
-            // Enterprise Marketing OS: Support for expanded platforms via Mock Dispatch & Activity Logging
-            // Real API integration would require dedicated X/YouTube/GBP OAuth services.
-            const { entityId, entityType: passedEntityType } = req.body;
-            console.log(`[SocialController] Dispatching Premium Listing to ${targetPlatform} (Format: ${format})`);
-            
-            result = { 
-                success: true, 
-                message: `Broadcasting successful on ${targetPlatform}`,
-                platform: targetPlatform,
-                status: 'dispatched',
-                id: `mock_${Date.now()}`
-            };
-
-            // Log as Activity for Timeline visibility
-            try {
-                const Activity = (await import('../models/Activity.js')).default;
-                await Activity.create({
-                    type: 'Social Post',
-                    subject: `Shared Listing to ${targetPlatform}`,
-                    entityType: passedEntityType || 'System',
-                    entityId: entityId || null,
-                    description: text,
-                    status: 'Completed',
-                    performedBy: req.user?.fullName || 'Marketing Engine',
-                    details: {
-                        platform: targetPlatform,
-                        format: format,
-                        imageUrl: imageUrl,
-                        dispatchedAt: new Date()
-                    },
-                    dueDate: new Date()
-                });
-            } catch (actErr) {
-                console.error('[SocialController] Failed to log activity:', actErr.message);
+        } else if (targetPlatform === 'twitter') {
+            result = await twitterService.postTweet(text, imageUrl);
+        } else if (targetPlatform === 'google_business') {
+            result = await googleBusinessService.createPost(text, null, imageUrl);
+        } else if (targetPlatform === 'youtube') {
+            const videoPath = req.body.videoPath || req.body.filePath;
+            if (videoPath) {
+                result = await youtubeService.uploadVideo(text.slice(0, 70), text, videoPath);
+            } else {
+                throw new Error('YouTube publishing requires an uploaded video (.mp4). For static posts, please use Instagram, Facebook, or LinkedIn.');
             }
         } else {
             return res.status(400).json({ success: false, error: 'Unsupported platform for posting' });
+        }
+
+        // Enterprise: Log all successful social dispatches to Activity Timeline
+        try {
+            const { entityId, entityType: passedEntityType } = req.body;
+            await Activity.create({
+                type: 'Social Post',
+                subject: `Published Listing to ${platform}`,
+                entityType: passedEntityType || 'System',
+                entityId: entityId || null,
+                description: text,
+                status: 'Completed',
+                performedBy: req.user?.fullName || 'Marketing Engine',
+                details: {
+                    platform: targetPlatform,
+                    format: format,
+                    imageUrl: imageUrl,
+                    dispatchedAt: new Date(),
+                    resultData: result
+                },
+                dueDate: new Date()
+            });
+        } catch (actErr) {
+            console.error('[SocialController] Failed to log activity:', actErr.message);
         }
 
         res.json(result);
@@ -1239,10 +1245,15 @@ export const getSocialAnalytics = async (req, res) => {
 };
 /**
  * POST /api/social/test-connection
- * Verify Meta credentials by fetching basic Page/Account info.
+ * Verify Meta or Twitter credentials.
  */
 export const testSocialConnection = async (req, res) => {
     try {
+        const { platform, config } = req.body || {};
+        if (platform === 'twitter') {
+            const result = await twitterService.verifyCredentials(config);
+            return res.json(result);
+        }
         const result = await facebookService.testConnection();
         res.json(result);
     } catch (err) {
