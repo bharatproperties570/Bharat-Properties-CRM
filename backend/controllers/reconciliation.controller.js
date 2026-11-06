@@ -564,8 +564,6 @@ export const rejectGroup = async (req, res, next) => {
 export const executeGroup = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
-
         const group = await ReconciliationGroup.findById(id);
         if (!group) {
             return res.status(404).json({ success: false, message: 'Reconciliation group not found' });
@@ -580,15 +578,11 @@ export const executeGroup = async (req, res, next) => {
             });
         }
 
-        const result = await ContactReconciliationService.executeReconciliation(id, {
-            user: req.user,
-            idempotencyKey
-        });
-
-        res.status(200).json({
-            success: true,
-            message: 'Reconciliation executed successfully',
-            data: result
+        // Absolute Contact Data Protection Policy: automated contact modifications are strictly disabled
+        return res.status(403).json({
+            success: false,
+            code: 'CONTACT_MUTATION_PROHIBITED',
+            message: 'Automated contact merge and mutation is strictly disabled by enterprise data protection policy. Contact reconciliation operates in read-only inspection mode. All merges and deduplication must be executed manually by administrators.'
         });
     } catch (error) {
         const status = error.statusCode || 500;
@@ -603,9 +597,6 @@ export const executeGroup = async (req, res, next) => {
 export const disassociatePhone = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { targetContactId, action, reason } = req.body;
-        const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
-
         const group = await ReconciliationGroup.findById(id);
         if (!group) {
             return res.status(404).json({ success: false, message: 'Reconciliation group not found' });
@@ -620,18 +611,11 @@ export const disassociatePhone = async (req, res, next) => {
             });
         }
 
-        const result = await ContactReconciliationService.disassociatePhone(id, {
-            user: req.user,
-            targetContactId,
-            action,
-            reason,
-            idempotencyKey
-        });
-
-        res.status(200).json({
-            success: true,
-            message: 'Phone disassociation completed successfully',
-            data: result
+        // Absolute Contact Data Protection Policy: automated phone mutations are strictly disabled
+        return res.status(403).json({
+            success: false,
+            code: 'PHONE_DISASSOCIATION_PROHIBITED',
+            message: 'Automated phone disassociation and mutation is strictly disabled by enterprise data protection policy. Contact reconciliation operates in read-only inspection mode. All phone adjustments must be executed manually by administrators.'
         });
     } catch (error) {
         const status = error.statusCode || 500;
@@ -646,7 +630,6 @@ export const disassociatePhone = async (req, res, next) => {
 export const rollbackGroup = async (req, res, next) => {
     try {
         const { id } = req.params;
-
         const group = await ReconciliationGroup.findById(id);
         if (!group) {
             return res.status(404).json({ success: false, message: 'Reconciliation group not found' });
@@ -661,14 +644,11 @@ export const rollbackGroup = async (req, res, next) => {
             });
         }
 
-        const result = await ContactReconciliationService.rollbackReconciliation(id, {
-            user: req.user
-        });
-
-        res.status(200).json({
-            success: true,
-            message: 'Reconciliation rolled back successfully',
-            data: result
+        // Absolute Contact Data Protection Policy: automated rollback is disabled
+        return res.status(403).json({
+            success: false,
+            code: 'RECONCILIATION_ROLLBACK_PROHIBITED',
+            message: 'Automated contact rollback is disabled because automated contact modifications are prohibited. Contact data remains strictly immutable through reconciliation endpoints.'
         });
     } catch (error) {
         const status = error.statusCode || 500;

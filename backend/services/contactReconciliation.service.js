@@ -389,11 +389,12 @@ export class ContactReconciliationService {
     }
 
     /**
-     * Execute approved reconciliation merge with distributed locking and audit.
-     * Enforces strict safety gates:
-     * 1. DO_NOT_MERGE is strictly barred from merge.
-     * 2. Approval must match exact current group fingerprint.
-     * 3. REVIEW_REQUIRED requires explicit operator adjudication.
+     * Execute approved reconciliation merge with safety gates and data protection policy.
+     * Enforces strict validation gates:
+     * 1. DO_NOT_MERGE is strictly barred from merge (DO_NOT_MERGE_VIOLATION).
+     * 2. Approval must match exact current group fingerprint (STALE_APPROVAL_REPLAY).
+     * 3. REVIEW_REQUIRED requires explicit operator adjudication (REVIEW_ADJUDICATION_INCOMPLETE).
+     * 4. Absolute Contact Data Protection Policy: All automated contact modifications are barred (CONTACT_MUTATION_PROHIBITED).
      */
     static async executeReconciliation(groupId, { user, idempotencyKey } = {}) {
         const group = await ReconciliationGroup.findById(groupId);
@@ -432,103 +433,18 @@ export class ContactReconciliationService {
             }
         }
 
-        // Idempotency check
-        if (idempotencyKey) {
-            const idemp = await ContactLockService.checkIdempotency(idempotencyKey);
-            if (idemp.isDuplicate) return idemp.cachedResult;
-        }
-
-        const canonicalId = group.selectedCanonicalMasterId || group.suggestedCanonicalMasterId;
-        const allIds = group.contactIds.map(c => c.toString());
-        const duplicateIds = allIds.filter(id => id !== canonicalId.toString());
-
-        // Dynamic re-validation of contacts in group: ensure no DO_NOT_MERGE condition exists
-        const contactDocs = await Contact.find({ _id: { $in: allIds } }).lean();
-        if (contactDocs.length < 2) {
-            const err = new Error('Execution Rejected: Fewer than 2 contacts remain in this group.');
-            err.statusCode = 400;
-            throw err;
-        }
-
-        // Acquire distributed lock across all participating contacts
-        const lock = await ContactLockService.acquireMergeLocks(allIds, { ttlMs: 45000 });
-
-        try {
-            const result = await withMongoTransaction(async (session) => {
-                let currentMaster = await Contact.findById(canonicalId).session(session).lean();
-                const duplicates = await Contact.find({ _id: { $in: duplicateIds } }).session(session).lean();
-
-                const beforeSnapshots = [
-                    { contactId: currentMaster._id, snapshot: currentMaster },
-                    ...duplicates.map(d => ({ contactId: d._id, snapshot: d }))
-                ];
-
-                const completedAudits = [];
-                const allFieldChanges = [];
-                const allReferenceRewires = [];
-
-                for (const dup of duplicates) {
-                    const p = await previewMerge(currentMaster, dup);
-                    const audit = await executeMerge(currentMaster._id, dup._id, p, { userId: user?._id });
-                    completedAudits.push(audit);
-                    allFieldChanges.push(...(audit.fieldChanges || []));
-                    allReferenceRewires.push(...(audit.referenceRewires || []));
-                    currentMaster = await Contact.findById(canonicalId).session(session).lean();
-                }
-
-                const afterSnapshots = [
-                    { contactId: currentMaster._id, snapshot: currentMaster },
-                    ...duplicates.map(d => ({ contactId: d._id, snapshot: { ...d, isDeleted: true, isMerged: true, mergedInto: canonicalId } }))
-                ];
-
-                const reconAudit = await ReconciliationAudit.create([{
-                    operationId: uuidv4(),
-                    groupFingerprint: group.fingerprint,
-                    operationType: 'AUTO_MERGE',
-                    canonicalMasterId: canonicalId,
-                    duplicateContactIds: duplicateIds,
-                    phoneMasked: group.phoneMasked,
-                    beforeSnapshots,
-                    afterSnapshots,
-                    fieldChanges: allFieldChanges,
-                    referenceRewires: allReferenceRewires,
-                    operator: user?._id || null,
-                    status: 'SUCCESS',
-                    rollbackAvailable: true
-                }], { session });
-
-                group.status = 'EXECUTED';
-                group.executedBy = user?._id || null;
-                group.executedAt = new Date();
-                group.mergeOperationId = completedAudits[0]?.mergeOperationId || null;
-                group.migrationReadinessStatus = 'RESOLVED';
-                await group.save({ session });
-
-                return {
-                    success: true,
-                    operationId: reconAudit[0].operationId,
-                    groupFingerprint: group.fingerprint,
-                    canonicalMasterId: canonicalId,
-                    mergedDuplicateCount: duplicateIds.length,
-                    rewireCount: allReferenceRewires.length
-                };
-            });
-
-            if (idempotencyKey) {
-                await ContactLockService.recordIdempotency(idempotencyKey, result);
-            }
-
-            return result;
-        } finally {
-            await ContactLockService.releaseMergeLocks(lock.acquiredKeys, lock.token, true);
-        }
+        // Absolute Contact Data Protection Policy: Automated contact modifications are strictly prohibited
+        const err = new Error('Execution Rejected: Automated contact merge and mutation is strictly disabled by enterprise data protection policy. Contact reconciliation operates in read-only inspection mode.');
+        err.statusCode = 403;
+        err.code = 'CONTACT_MUTATION_PROHIBITED';
+        throw err;
     }
 
     /**
-     * Operator disassociates duplicate secondary phone from Contact B in DO_NOT_MERGE groups.
-     * Enforces target verification, preserves other phones, and supports idempotency.
+     * Operator disassociates duplicate secondary phone: Enforces target verification,
+     * then blocks automated mutation under the Absolute Contact Data Protection Policy.
      */
-    static async disassociatePhone(groupId, { user, targetContactId, action = 'REMOVE_SECONDARY', reason, idempotencyKey }) {
+    static async disassociatePhone(groupId, { user, targetContactId, action = 'REMOVE_SECONDARY', reason, idempotencyKey } = {}) {
         const group = await ReconciliationGroup.findById(groupId);
         if (!group) throw new Error('ReconciliationGroup not found');
 
@@ -543,116 +459,22 @@ export class ContactReconciliationService {
             throw err;
         }
 
-        // Idempotency check
-        if (idempotencyKey) {
-            const idemp = await ContactLockService.checkIdempotency(idempotencyKey);
-            if (idemp.isDuplicate) return idemp.cachedResult;
-        }
-
-        const result = await withMongoTransaction(async (session) => {
-            const contact = await Contact.findById(targetId).session(session);
-            if (!contact) throw new Error('Target contact not found');
-
-            const phoneToDisassociate = group.phoneNumber;
-            const beforeSnapshot = contact.toObject();
-
-            if (action === 'REMOVE_SECONDARY') {
-                const updatedPhones = (contact.phones || []).filter(p => p.number !== phoneToDisassociate);
-                if (updatedPhones.length === contact.phones.length) {
-                    throw new Error(`Phone number ${group.phoneMasked} was not found on target contact`);
-                }
-                contact.phones = updatedPhones;
-            } else if (action === 'MARK_SHARED') {
-                const phoneEntry = (contact.phones || []).find(p => p.number === phoneToDisassociate);
-                if (phoneEntry) {
-                    phoneEntry.type = 'Shared';
-                    contact.markModified('phones');
-                }
-            }
-
-            await contact.save({ session });
-
-            const audit = await ReconciliationAudit.create([{
-                operationId: uuidv4(),
-                groupFingerprint: group.fingerprint,
-                operationType: 'PHONE_DISASSOCIATION',
-                canonicalMasterId: group.suggestedCanonicalMasterId,
-                duplicateContactIds: [targetId],
-                phoneMasked: group.phoneMasked,
-                beforeSnapshots: [{ contactId: contact._id, snapshot: beforeSnapshot }],
-                afterSnapshots: [{ contactId: contact._id, snapshot: contact.toObject() }],
-                fieldChanges: [{ field: 'phones', oldValue: beforeSnapshot.phones, newValue: contact.phones }],
-                referenceRewires: [],
-                operator: user?._id || null,
-                status: 'SUCCESS',
-                rollbackAvailable: true
-            }], { session });
-
-            group.status = 'DISASSOCIATED';
-            group.executedBy = user?._id || null;
-            group.executedAt = new Date();
-            group.phoneDisassociationResult = {
-                action,
-                targetContactId: targetId,
-                reason: reason || 'Disassociated secondary duplicate phone',
-                operationId: audit[0].operationId
-            };
-            group.migrationReadinessStatus = 'RESOLVED';
-            await group.save({ session });
-
-            return {
-                success: true,
-                operationId: audit[0].operationId,
-                action,
-                targetContactId: targetId
-            };
-        });
-
-        if (idempotencyKey) {
-            await ContactLockService.recordIdempotency(idempotencyKey, result);
-        }
-
-        return result;
+        // Absolute Contact Data Protection Policy: automated phone mutations are strictly disabled
+        const err = new Error('Disassociation Rejected: Automated phone disassociation and mutation is strictly disabled by enterprise data protection policy. Contact reconciliation operates in read-only inspection mode.');
+        err.statusCode = 403;
+        err.code = 'PHONE_DISASSOCIATION_PROHIBITED';
+        throw err;
     }
 
     /**
-     * Rollback a completed reconciliation operation.
-     * Enforces caller verification and exact restoration of state.
+     * Rollback a completed reconciliation operation: STRICTLY DISABLED by Absolute Contact Data Protection Policy.
+     * Contact data remains strictly immutable through reconciliation workflows.
      */
-    static async rollbackReconciliation(groupId, { user }) {
-        const group = await ReconciliationGroup.findById(groupId);
-        if (!group) throw new Error('ReconciliationGroup not found');
-
-        if (group.status !== 'EXECUTED' && group.status !== 'DISASSOCIATED') {
-            throw new Error(`Group in status ${group.status} cannot be rolled back.`);
-        }
-
-        if (group.status === 'EXECUTED' && group.mergeOperationId) {
-            await rollbackMerge(group.mergeOperationId, { user });
-            group.status = 'ROLLED_BACK';
-            group.migrationReadinessStatus = 'BLOCKED';
-            await group.save();
-            return { success: true, message: `Reconciliation ${group.mergeOperationId} rolled back cleanly.` };
-        }
-
-        if (group.status === 'DISASSOCIATED') {
-            const audit = await ReconciliationAudit.findOne({
-                groupFingerprint: group.fingerprint,
-                operationType: 'PHONE_DISASSOCIATION'
-            }).sort({ createdAt: -1 });
-
-            if (audit && audit.beforeSnapshots?.[0]?.snapshot) {
-                const targetId = audit.duplicateContactIds[0];
-                const originalPhones = audit.beforeSnapshots[0].snapshot.phones;
-                await Contact.updateOne({ _id: targetId }, { $set: { phones: originalPhones } });
-                group.status = 'ROLLED_BACK';
-                group.migrationReadinessStatus = 'BLOCKED';
-                await group.save();
-                return { success: true, message: 'Phone disassociation rolled back cleanly.' };
-            }
-        }
-
-        throw new Error('Rollback data not found for this operation');
+    static async rollbackReconciliation(groupId, { user } = {}) {
+        const err = new Error('Rollback Rejected: Automated contact rollback is disabled because automated contact modifications are prohibited.');
+        err.statusCode = 403;
+        err.code = 'RECONCILIATION_ROLLBACK_PROHIBITED';
+        throw err;
     }
 }
 

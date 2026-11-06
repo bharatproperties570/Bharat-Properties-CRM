@@ -44,7 +44,11 @@ import {
     isAuthoritativeGlobalAdmin,
     resolveAuthoritativeUser,
     getMigrationReadiness,
-    syncGroups
+    syncGroups,
+    executeGroup,
+    disassociatePhone,
+    rollbackGroup,
+    generatePlan
 } from '../controllers/reconciliation.controller.js';
 
 describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', () => {
@@ -416,7 +420,7 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // 7. DO_NOT_MERGE EXECUTION REJECTION GATE
+    // 7. DO_NOT_MERGE EXECUTION REJECTION GATE (READ-ONLY DATA PROTECTION)
     // ─────────────────────────────────────────────────────────────────────────────
     it('7. Safety Gate: Automated merge execution on DO_NOT_MERGE group is strictly rejected', async () => {
         const c1 = await Contact.create({ name: 'Anil Kapoor', phones: [{ number: '9833445566' }], isDeleted: false, isMerged: false });
@@ -434,22 +438,30 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
             status: 'PENDING_REVIEW'
         });
 
-        // Attempt to execute merge on DO_NOT_MERGE group MUST fail
+        // Attempt to execute merge on DO_NOT_MERGE group MUST fail closed under DO_NOT_MERGE safety gate
         await assert.rejects(
             async () => {
                 await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
             },
             (err) => {
                 assert.equal(err.code, 'DO_NOT_MERGE_VIOLATION');
+                assert.equal(err.statusCode, 400);
                 return true;
             }
         );
+
+        // Verify contacts remain 100% untouched
+        const [freshC1, freshC2] = await Promise.all([Contact.findById(c1._id), Contact.findById(c2._id)]);
+        assert.equal(freshC1.isDeleted, false);
+        assert.equal(freshC1.isMerged, false);
+        assert.equal(freshC2.isDeleted, false);
+        assert.equal(freshC2.isMerged, false);
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // 8. PHONE DISASSOCIATION WORKFLOW FOR DO_NOT_MERGE
+    // 8. PHONE DISASSOCIATION REJECTION GATE (READ-ONLY DATA PROTECTION)
     // ─────────────────────────────────────────────────────────────────────────────
-    it('8. Disassociation: Removes duplicate alternate phone from Contact B preserving Contact A', async () => {
+    it('8. Disassociation: Rejects automated phone disassociation and preserves all contact phones', async () => {
         const c1 = await Contact.create({
             name: 'Suresh Raina',
             phones: [{ number: '9855554444', type: 'Personal' }],
@@ -479,28 +491,32 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
             status: 'PENDING_REVIEW'
         });
 
-        const disResult = await ContactReconciliationService.disassociatePhone(group._id, {
-            user: testAdminUser,
-            targetContactId: c2._id,
-            action: 'REMOVE_SECONDARY',
-            reason: 'Removed alternate phone duplicate'
-        });
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.disassociatePhone(group._id, {
+                    user: testAdminUser,
+                    targetContactId: c2._id,
+                    action: 'REMOVE_SECONDARY',
+                    reason: 'Removed alternate phone duplicate'
+                });
+            },
+            (err) => {
+                assert.equal(err.code, 'PHONE_DISASSOCIATION_PROHIBITED');
+                assert.equal(err.statusCode, 403);
+                return true;
+            }
+        );
 
-        assert.ok(disResult.success);
-
-        // Verify Contact 2 no longer has the colliding phone, but keeps its primary
+        // Verify Contact 2 phones remain 100% untouched
         const updatedC2 = await Contact.findById(c2._id);
-        assert.equal(updatedC2.phones.length, 1);
+        assert.equal(updatedC2.phones.length, 2);
         assert.equal(updatedC2.phones[0].number, '9899990000');
+        assert.equal(updatedC2.phones[1].number, '9855554444');
 
         // Contact 1 remains completely untouched with its primary phone
         const untouchedC1 = await Contact.findById(c1._id);
         assert.equal(untouchedC1.phones.length, 1);
         assert.equal(untouchedC1.phones[0].number, '9855554444');
-
-        // Group status is DISASSOCIATED
-        const updatedGroup = await ReconciliationGroup.findById(group._id);
-        assert.equal(updatedGroup.status, 'DISASSOCIATED');
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -625,13 +641,27 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
             }
         );
 
-        // Case C: Full operator adjudication succeeds
+        // Case C: Full operator adjudication records review notes on group, but execution is blocked by Data Protection Policy
         group.reviewNotes = 'Verified KYC docs and sales agent ownership assignment.';
         await group.save();
 
-        const result = await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
-        assert.ok(result.success);
-        assert.equal(result.mergedDuplicateCount, 1);
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+            },
+            (err) => {
+                assert.equal(err.code, 'CONTACT_MUTATION_PROHIBITED');
+                assert.equal(err.statusCode, 403);
+                return true;
+            }
+        );
+
+        // Verify contacts remain 100% untouched
+        const [freshC1, freshC2] = await Promise.all([Contact.findById(c1._id), Contact.findById(c2._id)]);
+        assert.equal(freshC1.isDeleted, false);
+        assert.equal(freshC1.isMerged, false);
+        assert.equal(freshC2.isDeleted, false);
+        assert.equal(freshC2.isMerged, false);
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -667,17 +697,26 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
             }
         );
 
-        // Case B: Valid disassociation on Contact 2 removes duplicate phone and keeps second phone
-        const disResult = await ContactReconciliationService.disassociatePhone(group._id, {
-            user: testAdminUser,
-            targetContactId: c2._id,
-            action: 'REMOVE_SECONDARY'
-        });
-        assert.ok(disResult.success);
+        // Case B: Valid disassociation on Contact 2 is blocked by Data Protection Policy and preserves all phones
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.disassociatePhone(group._id, {
+                    user: testAdminUser,
+                    targetContactId: c2._id,
+                    action: 'REMOVE_SECONDARY'
+                });
+            },
+            (err) => {
+                assert.equal(err.code, 'PHONE_DISASSOCIATION_PROHIBITED');
+                assert.equal(err.statusCode, 403);
+                return true;
+            }
+        );
 
         const updatedC2 = await Contact.findById(c2._id);
-        assert.equal(updatedC2.phones.length, 1);
-        assert.equal(updatedC2.phones[0].number, '9844998877');
+        assert.equal(updatedC2.phones.length, 2);
+        assert.equal(updatedC2.phones[0].number, '9844112233');
+        assert.equal(updatedC2.phones[1].number, '9844998877');
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -1119,6 +1158,168 @@ describe('Phase 4.7 — Enterprise Contact Reconciliation Engine Test Suite', ()
         // Case E: Invalid ObjectId in contactIds array -> must fail closed
         const visInvalidId = await verifyGroupVisibility(testAdminUser, [contactA._id, 'not-a-valid-object-id']);
         assert.equal(visInvalidId, false, 'Invalid ObjectId in contactIds array must fail closed');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 22. ABSOLUTE DATA PROTECTION POLICY: HTTP RECONCILIATION MUTATION BLOCKERS
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('22. Absolute Data Protection: HTTP endpoints strictly block executeGroup, disassociatePhone, and rollbackGroup with HTTP 403', async () => {
+        const contactX = await Contact.create({ name: 'Protection Test 1', phones: [{ number: '9877889900' }], isDeleted: false, isMerged: false });
+        const contactY = await Contact.create({ name: 'Protection Test 2', phones: [{ number: '9877889900' }, { number: '9877889911' }], isDeleted: false, isMerged: false });
+
+        const fp = computeGroupFingerprint('9877889900', [contactX._id, contactY._id]);
+        const group = await ReconciliationGroup.create({
+            fingerprint: fp,
+            phoneNumber: '9877889900',
+            phoneMasked: maskPhoneNumber('9877889900'),
+            primaryClassification: 'SAFE_AUTO_MERGE',
+            contactIds: [contactX._id, contactY._id],
+            suggestedCanonicalMasterId: contactX._id,
+            suggestedDuplicateIds: [contactY._id],
+            status: 'APPROVED',
+            approvedFingerprint: fp
+        });
+
+        // Test executeGroup endpoint
+        let execStatus = null;
+        let execBody = null;
+        const mockReqExec = {
+            params: { id: group._id.toString() },
+            headers: {},
+            user: testAdminUser
+        };
+        const mockResExec = {
+            status: (code) => { execStatus = code; return mockResExec; },
+            json: (body) => { execBody = body; return mockResExec; }
+        };
+        await executeGroup(mockReqExec, mockResExec);
+        assert.equal(execStatus, 403, 'executeGroup must return HTTP 403');
+        assert.equal(execBody.code, 'CONTACT_MUTATION_PROHIBITED');
+
+        // Test disassociatePhone endpoint
+        let disStatus = null;
+        let disBody = null;
+        const mockReqDis = {
+            params: { id: group._id.toString() },
+            body: { targetContactId: contactY._id.toString(), action: 'REMOVE_SECONDARY' },
+            headers: {},
+            user: testAdminUser
+        };
+        const mockResDis = {
+            status: (code) => { disStatus = code; return mockResDis; },
+            json: (body) => { disBody = body; return mockResDis; }
+        };
+        await disassociatePhone(mockReqDis, mockResDis);
+        assert.equal(disStatus, 403, 'disassociatePhone must return HTTP 403');
+        assert.equal(disBody.code, 'PHONE_DISASSOCIATION_PROHIBITED');
+
+        // Test rollbackGroup endpoint
+        let rbStatus = null;
+        let rbBody = null;
+        const mockReqRb = {
+            params: { id: group._id.toString() },
+            user: testAdminUser
+        };
+        const mockResRb = {
+            status: (code) => { rbStatus = code; return mockResRb; },
+            json: (body) => { rbBody = body; return mockResRb; }
+        };
+        await rollbackGroup(mockReqRb, mockResRb);
+        assert.equal(rbStatus, 403, 'rollbackGroup must return HTTP 403');
+        assert.equal(rbBody.code, 'RECONCILIATION_ROLLBACK_PROHIBITED');
+
+        // Verify Contact X and Contact Y remain 100% untouched
+        const [freshX, freshY] = await Promise.all([Contact.findById(contactX._id), Contact.findById(contactY._id)]);
+        assert.equal(freshX.isDeleted, false);
+        assert.equal(freshX.isMerged, false);
+        assert.equal(freshX.phones.length, 1);
+        assert.equal(freshY.isDeleted, false);
+        assert.equal(freshY.isMerged, false);
+        assert.equal(freshY.phones.length, 2);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 23. ABSOLUTE DATA PROTECTION: ZERO CONTACT WRITES & ZERO REFERENCE REWIRES
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('23. Absolute Data Protection: SAFE_AUTO_MERGE groups with references perform zero Contact writes and zero reference rewires', async () => {
+        const canonical = await Contact.create({
+            name: 'Original Client',
+            phones: [{ number: '9866112233', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false
+        });
+        const duplicate = await Contact.create({
+            name: 'Original Client',
+            phones: [{ number: '9866112233', type: 'Personal' }],
+            isDeleted: false,
+            isMerged: false
+        });
+
+        // Create references on duplicate
+        const linkedLead = await Lead.create({ firstName: 'Referenced', lastName: 'Lead', mobile: '9866112233', contactDetails: duplicate._id, leadStatus: 'New' });
+        const linkedDeal = await Deal.create({ dealName: 'Referenced Deal', owner: duplicate._id, stage: 'Open' });
+
+        const fp = computeGroupFingerprint('9866112233', [canonical._id, duplicate._id]);
+        const group = await ReconciliationGroup.create({
+            fingerprint: fp,
+            phoneNumber: '9866112233',
+            phoneMasked: maskPhoneNumber('9866112233'),
+            primaryClassification: 'SAFE_AUTO_MERGE',
+            reasonCodes: ['EXACT_MATCH'],
+            contactIds: [canonical._id, duplicate._id],
+            suggestedCanonicalMasterId: canonical._id,
+            suggestedDuplicateIds: [duplicate._id],
+            status: 'PENDING_REVIEW'
+        });
+
+        // 1. Dry run plan is strictly read-only and succeeds
+        const plan = await ContactReconciliationService.generateDryRunPlan(group._id);
+        assert.ok(plan.plannedRewires.length > 0, 'Dry-run plan calculates potential rewires without modifying DB');
+
+        // 2. Service execution MUST throw CONTACT_MUTATION_PROHIBITED
+        await assert.rejects(
+            async () => {
+                await ContactReconciliationService.executeReconciliation(group._id, { user: testAdminUser });
+            },
+            (err) => {
+                assert.equal(err.code, 'CONTACT_MUTATION_PROHIBITED');
+                assert.equal(err.statusCode, 403);
+                return true;
+            }
+        );
+
+        // 3. Verify Contact records are completely unmodified
+        const [freshCan, freshDup] = await Promise.all([Contact.findById(canonical._id), Contact.findById(duplicate._id)]);
+        assert.equal(freshCan.isDeleted, false);
+        assert.equal(freshCan.isMerged, false);
+        assert.equal(freshDup.isDeleted, false);
+        assert.equal(freshDup.isMerged, false);
+        assert.equal(freshDup.mergedInto, undefined);
+
+        // 4. Verify references are NOT rewired
+        const [freshLead, freshDeal] = await Promise.all([Lead.findById(linkedLead._id), Deal.findById(linkedDeal._id)]);
+        assert.equal(freshLead.contactDetails.toString(), duplicate._id.toString(), 'Lead reference must NOT be rewired');
+        assert.equal(freshDeal.owner.toString(), duplicate._id.toString(), 'Deal reference must NOT be rewired');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 24. DATA SAFETY & MIGRATION BOUNDARIES: MIGRATION 004 REMAINS UNEXECUTED
+    // ─────────────────────────────────────────────────────────────────────────────
+    it('24. Migration Boundary: Migration 004 index remains uncreated and readiness reports BLOCKED while duplicates exist', async () => {
+        // Seed duplicate contacts to test readiness evaluator boundary
+        await Contact.create({ name: 'Active User 1', phones: [{ number: '9988776655' }], isDeleted: false, isMerged: false });
+        await Contact.create({ name: 'Active User 2', phones: [{ number: '9988776655' }], isDeleted: false, isMerged: false });
+
+        // Verify index does NOT exist
+        const indexes = await Contact.collection.indexes();
+        const hasUniqueIndex = indexes.some(idx => idx.name === 'contacts_phones_number_active_unique');
+        assert.equal(hasUniqueIndex, false, 'Migration 004 unique index must NOT be created in database');
+
+        // Verify readiness evaluator reports BLOCKED
+        const readiness = await MigrationReadinessService.evaluateReadiness();
+        assert.equal(readiness.ready, false);
+        assert.equal(readiness.status, 'BLOCKED');
+        assert.ok(readiness.duplicateCount > 0);
     });
 
     // ─────────────────────────────────────────────────────────────────────────────

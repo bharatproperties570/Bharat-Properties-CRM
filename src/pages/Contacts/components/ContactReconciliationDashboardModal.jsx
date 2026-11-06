@@ -68,7 +68,7 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
         }
     };
 
-    const handleApprove = async () => {
+    const handleSaveReview = async () => {
         if (!selectedGroup) return;
         setActionLoading(true);
         try {
@@ -78,78 +78,13 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                 expectedFingerprint: selectedGroup.fingerprint
             });
             if (res.data?.success) {
-                toast.success('Group approved for reconciliation');
+                toast.success('Review notes and canonical recommendation saved');
                 fetchSummary();
                 fetchGroups();
                 setSelectedGroup(null);
             }
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Failed to approve group');
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleExecute = async (groupId) => {
-        if (!window.confirm('Are you sure you want to execute this merge reconciliation? Master and duplicate records will be transactionally updated.')) {
-            return;
-        }
-        setActionLoading(true);
-        try {
-            const res = await axios.post(`/api/reconciliation/groups/${groupId}/execute`, {}, {
-                headers: { 'idempotency-key': `exec_${groupId}_${Date.now()}` }
-            });
-            if (res.data?.success) {
-                toast.success('Reconciliation executed successfully');
-                fetchSummary();
-                fetchGroups();
-                setSelectedGroup(null);
-            }
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Execution failed');
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleDisassociatePhone = async (groupId) => {
-        if (!window.confirm('Are you sure you want to disassociate the secondary phone number from Contact B? Contact identities will be safely preserved.')) {
-            return;
-        }
-        setActionLoading(true);
-        try {
-            const res = await axios.post(`/api/reconciliation/groups/${groupId}/disassociate-phone`, {
-                action: 'REMOVE_SECONDARY',
-                reason: 'Operator verified secondary duplicate removal'
-            });
-            if (res.data?.success) {
-                toast.success('Phone disassociated cleanly');
-                fetchSummary();
-                fetchGroups();
-                setSelectedGroup(null);
-            }
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Disassociation failed');
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleRollback = async (groupId) => {
-        if (!window.confirm('Are you sure you want to rollback this reconciliation operation?')) {
-            return;
-        }
-        setActionLoading(true);
-        try {
-            const res = await axios.post(`/api/reconciliation/groups/${groupId}/rollback`);
-            if (res.data?.success) {
-                toast.success('Reconciliation rolled back cleanly');
-                fetchSummary();
-                fetchGroups();
-                setSelectedGroup(null);
-            }
-        } catch (err) {
-            toast.error(err.response?.data?.message || 'Rollback failed');
+            toast.error(err.response?.data?.message || 'Failed to save review notes');
         } finally {
             setActionLoading(false);
         }
@@ -170,10 +105,23 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                             Enterprise Contact Reconciliation & Deduplication Engine
                         </h2>
                         <span style={{ fontSize: '12px', color: '#64748b' }}>
-                            Phase 4.7 Production Gate — Verified 332 Duplicate Phone Groups
+                            Phase 4 Production Gate — Read-Only Inspection & Review (332 Duplicate Phone Groups)
                         </span>
                     </div>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#64748b' }}>&times;</button>
+                </div>
+
+                {/* Read-Only Enterprise Protection Banner */}
+                <div style={{ padding: '12px 24px', background: '#eff6ff', borderBottom: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, background: '#1d4ed8', color: '#ffffff' }}>
+                            READ-ONLY MODE
+                        </span>
+                        <span style={{ fontSize: '12px', color: '#1e40af' }}>
+                            <strong>Enterprise Contact Data Protection Active:</strong> Automated contact modifications, merges, and phone disassociations are disabled. Use this dashboard to inspect duplicate groups, review dry-run plans, and record review notes for manual administrator deduplication.
+                        </span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600 }}>Manual Admin Action Only</span>
                 </div>
 
                 {/* Migration 004 Readiness Banner */}
@@ -187,7 +135,7 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                                 {readiness.ready ? 'All duplicate phone groups resolved. Database is ready for unique index.' : `${readiness.duplicateCount} active duplicate phone groups currently block unique index creation.`}
                             </span>
                         </div>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>Strict Read-Only Evaluator</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>Strict Read-Only Evaluator (Pending Manual Resolution)</span>
                     </div>
                 )}
 
@@ -264,7 +212,7 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                                     <th style={{ padding: '10px 12px' }}>Classification</th>
                                     <th style={{ padding: '10px 12px' }}>Contacts</th>
                                     <th style={{ padding: '10px 12px' }}>Reason Codes</th>
-                                    <th style={{ padding: '10px 12px' }}>Status</th>
+                                    <th style={{ padding: '10px 12px' }}>Review Status</th>
                                     <th style={{ padding: '10px 12px', textAlign: 'right' }}>Actions</th>
                                 </tr>
                             </thead>
@@ -304,44 +252,17 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                                             ))}
                                         </td>
                                         <td style={{ padding: '10px 12px' }}>
-                                            <span style={{ fontSize: '11px', fontWeight: 600, color: g.status === 'EXECUTED' ? '#15803d' : (g.status === 'DISASSOCIATED' ? '#0891b2' : '#64748b') }}>
-                                                {g.status}
+                                            <span style={{ fontSize: '11px', fontWeight: 600, color: g.status === 'APPROVED' ? '#2563eb' : (g.status === 'REJECTED' ? '#dc2626' : '#64748b') }}>
+                                                {g.status === 'APPROVED' ? 'REVIEWED / APPROVED' : (g.status === 'REJECTED' ? 'REJECTED' : 'PENDING REVIEW')}
                                             </span>
                                         </td>
                                         <td style={{ padding: '10px 12px', textAlign: 'right' }}>
                                             <button
                                                 onClick={() => handleOpenPlan(g)}
-                                                style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '11px', cursor: 'pointer', marginRight: '6px' }}
+                                                style={{ padding: '5px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '11px', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}
                                             >
-                                                Details / Plan
+                                                Inspect & Plan
                                             </button>
-                                            {g.primaryClassification === 'SAFE_AUTO_MERGE' && g.status === 'PENDING_REVIEW' && (
-                                                <button
-                                                    onClick={() => handleExecute(g._id)}
-                                                    disabled={actionLoading}
-                                                    style={{ padding: '4px 10px', borderRadius: '4px', border: 'none', background: '#16a34a', color: '#ffffff', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
-                                                >
-                                                    Merge
-                                                </button>
-                                            )}
-                                            {g.primaryClassification === 'DO_NOT_MERGE' && g.status === 'PENDING_REVIEW' && (
-                                                <button
-                                                    onClick={() => handleDisassociatePhone(g._id)}
-                                                    disabled={actionLoading}
-                                                    style={{ padding: '4px 10px', borderRadius: '4px', border: 'none', background: '#0284c7', color: '#ffffff', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
-                                                >
-                                                    Disassociate
-                                                </button>
-                                            )}
-                                            {(g.status === 'EXECUTED' || g.status === 'DISASSOCIATED') && (
-                                                <button
-                                                    onClick={() => handleRollback(g._id)}
-                                                    disabled={actionLoading}
-                                                    style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #fecaca', background: '#fff1f2', color: '#e11d48', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
-                                                >
-                                                    Rollback
-                                                </button>
-                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -361,19 +282,23 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                                 <button onClick={() => setSelectedGroup(null)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' }}>&times;</button>
                             </div>
                             <div style={{ padding: '20px', overflowY: 'auto', flex: 1, fontSize: '13px' }}>
+                                {/* Read-Only Policy Notice */}
+                                <div style={{ padding: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', color: '#166534', marginBottom: '16px' }}>
+                                    <strong>🛡️ Read-Only Inspection Mode:</strong> No Contact records will be modified or deleted. Review the designated canonical master recommendation and dry-run reference rewires below to guide manual administrator actions in the CRM.
+                                </div>
+
                                 {planLoading ? (
                                     <div style={{ textAlign: 'center', padding: '20px' }}>Generating dry-run preview...</div>
                                 ) : (
                                     <div>
                                         {selectedGroup.primaryClassification === 'DO_NOT_MERGE' && (
                                             <div style={{ padding: '12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', color: '#991b1b', marginBottom: '16px' }}>
-                                                <strong>⚠️ Automated Merge Strictly Prohibited:</strong> Distinct identities detected sharing this phone number.
-                                                <div style={{ marginTop: '4px', fontSize: '12px' }}>Recommended action: Disassociate alternate/secondary phone from Contact B.</div>
+                                                <strong>⚠️ Genuine Identity Conflict:</strong> Distinct contacts share this phone number. Automated merge is strictly prohibited. Recommended manual action: Administrator may manually edit or disassociate alternate phone from Contact B in the Contact details page.
                                             </div>
                                         )}
 
                                         <div style={{ marginBottom: '16px' }}>
-                                            <label style={{ fontWeight: 600, display: 'block', marginBottom: '6px' }}>Designated Canonical Master:</label>
+                                            <label style={{ fontWeight: 600, display: 'block', marginBottom: '6px' }}>Designated Canonical Master (Recommendation):</label>
                                             {(selectedGroup.contacts || []).map(c => (
                                                 <label key={c._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer' }}>
                                                     <input
@@ -391,12 +316,12 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
 
                                         {dryRunPlan && dryRunPlan.plannedRewires?.length > 0 && (
                                             <div style={{ marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ fontWeight: 600, marginBottom: '6px' }}>Planned Reference Rewires:</div>
+                                                <div style={{ fontWeight: 600, marginBottom: '6px' }}>Planned Reference Rewires (Simulation Only):</div>
                                                 {dryRunPlan.plannedRewires.map(rw => (
                                                     <div key={rw.duplicateId} style={{ fontSize: '12px', color: '#475569' }}>
                                                         Duplicate {rw.duplicateId.slice(-6)}: {rw.rewireCount} reference(s) rewired
                                                         {rw.rewiresByCollection && (
-                                                            <span> ({JSON.stringify(rw.rewiresByCollection)})</span>
+                                                             <span> ({JSON.stringify(rw.rewiresByCollection)})</span>
                                                         )}
                                                     </div>
                                                 ))}
@@ -417,35 +342,15 @@ export default function ContactReconciliationDashboardModal({ isOpen, onClose })
                             </div>
                             <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc' }}>
                                 <button onClick={() => setSelectedGroup(null)} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '12px', cursor: 'pointer' }}>
-                                    Cancel
+                                    Close
                                 </button>
-                                {selectedGroup.primaryClassification !== 'DO_NOT_MERGE' && (
-                                    <>
-                                        <button
-                                            onClick={handleApprove}
-                                            disabled={actionLoading}
-                                            style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                                        >
-                                            Approve Selection
-                                        </button>
-                                        <button
-                                            onClick={() => handleExecute(selectedGroup._id)}
-                                            disabled={actionLoading}
-                                            style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', background: '#16a34a', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                                        >
-                                            Execute Merge
-                                        </button>
-                                    </>
-                                )}
-                                {selectedGroup.primaryClassification === 'DO_NOT_MERGE' && (
-                                    <button
-                                        onClick={() => handleDisassociatePhone(selectedGroup._id)}
-                                        disabled={actionLoading}
-                                        style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', background: '#0284c7', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                                    >
-                                        Disassociate Phone
-                                    </button>
-                                )}
+                                <button
+                                    onClick={handleSaveReview}
+                                    disabled={actionLoading}
+                                    style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    Save Review Notes
+                                </button>
                             </div>
                         </div>
                     </div>
