@@ -120,6 +120,10 @@ export const isExactProductionHost = (host) => {
  * 6. Non-browser production (SSR / Node) routes to STABLE_TUNNEL_URL.
  * 7. Non-browser development fallback routes to local backend default.
  */
+export const isVercelPreview = typeof window !== 'undefined' &&
+  Boolean(window.location?.hostname?.endsWith('vercel.app')) &&
+  !window.location.hostname.includes('bharatproperties.co');
+
 export const resolveApiBaseUrl = (options = {}) => {
     const envApiUrl = ('envApiUrl' in options) ? options.envApiUrl : (getEnvVar('VITE_API_URL') || '');
     const envProd = ('envProd' in options) ? options.envProd : getEnvVar('PROD');
@@ -311,6 +315,9 @@ api.interceptors.request.use(
     const token = getAuthToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    if (isVercelPreview) {
+      config.headers['X-Client-Environment'] = 'preview';
     }
     // Also normalize the URL here for safety if called directly
     if (config.url && config.url.startsWith('/')) {

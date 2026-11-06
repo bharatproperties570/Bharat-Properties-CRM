@@ -263,10 +263,16 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
         it('9. _sendViaBaileys marks deliveryStatus as DELIVERY_UNKNOWN when outbound lock is lost during in-flight send', async () => {
             const config = { integrationId: 'test_session_lost_009', provider: 'BAILEYS' };
 
+            let sendStarted;
+            const sendStartedPromise = new Promise(resolve => { sendStarted = resolve; });
+
             const mockSocket = {
                 user: { id: '919811100109:1@s.whatsapp.net' },
                 ws: { isOpen: true },
-                sendMessage: async () => new Promise(() => {}),
+                sendMessage: async () => {
+                    sendStarted();
+                    return new Promise(() => {});
+                },
                 sendPresenceUpdate: async () => {}
             };
             const origGetSocket = BaileysConnectionManager.getSocket;
@@ -277,8 +283,11 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
             BaileysConnectionManager.serializeSend = async (intId, fn) => {
                 const abortController = new AbortController();
                 fn({ isLockLost: () => false, signal: abortController.signal });
-                // Let task initiate socket write
-                await new Promise(r => setTimeout(r, 20));
+                // Deterministically wait for socket write initiation before aborting
+                await Promise.race([
+                    sendStartedPromise,
+                    new Promise(r => setTimeout(r, 2000))
+                ]);
                 abortController.abort();
                 const err = new Error('DISTRIBUTED_LOCK_LOST: Outbound lock for Baileys session test_session_lost_009 expired or was acquired by another process.');
                 err.code = 'DISTRIBUTED_LOCK_LOST';

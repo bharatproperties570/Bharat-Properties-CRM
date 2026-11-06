@@ -199,6 +199,121 @@ export class RedisPortalQuotaProvider {
     }
 
     /**
+     * Inspects the current canonical policy in Redis or in-memory fallback.
+     * When authoritative: true, strictly queries Redis:
+     * - Fails closed if Redis is disconnected, unavailable, or read times out.
+     * - Never falls back to in-memory state for recovery decisions.
+     *
+     * @param {object} args
+     * @param {string} args.authorityCode
+     * @param {boolean} [args.authoritative=false]
+     * @param {number} [args.readTimeoutMs=3000]
+     * @returns {Promise<object|null>}
+     */
+    async getCanonicalPolicy({ authorityCode, authoritative = false, readTimeoutMs = 3000 } = {}) {
+        const code = String(authorityCode || '').trim().toUpperCase();
+        if (!code) return null;
+
+        if (authoritative) {
+            if (!this.redisClient) {
+                const err = new Error(`Redis client is unavailable for authoritative policy inspection (authority: ${code})`);
+                err.code = 'REDIS_UNAVAILABLE';
+                throw err;
+            }
+
+            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            if (!isReady) {
+                const err = new Error(`Redis client is not ready (status: ${this.redisClient.status || 'unknown'})`);
+                err.code = 'REDIS_UNAVAILABLE';
+                throw err;
+            }
+
+            if (typeof this.redisClient.hgetall !== 'function') {
+                const err = new Error('Redis client does not support hgetall');
+                err.code = 'REDIS_UNAVAILABLE';
+                throw err;
+            }
+
+            const canKey = `quota:canonical:${code}`;
+            let timer = null;
+            try {
+                const fetchPromise = this.redisClient.hgetall(canKey);
+                const timeoutPromise = new Promise((_, reject) => {
+                    timer = setTimeout(() => {
+                        const tErr = new Error(`Redis read timed out after ${readTimeoutMs}ms during authoritative policy inspection`);
+                        tErr.code = 'REDIS_READ_TIMEOUT';
+                        reject(tErr);
+                    }, readTimeoutMs);
+                });
+
+                const data = await Promise.race([fetchPromise, timeoutPromise]);
+                if (data && Object.keys(data).length > 0 && data.version) {
+                    return {
+                        authorityCode: code,
+                        version: Number(data.version),
+                        contentHash: data.contentHash || null,
+                        policyReference: data.ref || null,
+                        minIntervalMs: Number(data.minIntervalMs || 0),
+                        maxRequestsPerMinute: Number(data.maxPerMin || 0),
+                        maxRequestsPerHour: Number(data.maxPerHour || 0),
+                        maxRequestsPerDay: Number(data.maxPerDay || 0),
+                        approvedBy: data.approvedBy || null,
+                        updatedAt: Number(data.updatedAt || 0)
+                    };
+                }
+                return null;
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        }
+
+        // Non-authoritative mode (e.g. telemetry / introspection):
+        if (this.redisClient) {
+            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            if (isReady && typeof this.redisClient.hgetall === 'function') {
+                const canKey = `quota:canonical:${code}`;
+                try {
+                    const data = await this.redisClient.hgetall(canKey);
+                    if (data && Object.keys(data).length > 0 && data.version) {
+                        return {
+                            authorityCode: code,
+                            version: Number(data.version),
+                            contentHash: data.contentHash || null,
+                            policyReference: data.ref || null,
+                            minIntervalMs: Number(data.minIntervalMs || 0),
+                            maxRequestsPerMinute: Number(data.maxPerMin || 0),
+                            maxRequestsPerHour: Number(data.maxPerHour || 0),
+                            maxRequestsPerDay: Number(data.maxPerDay || 0),
+                            approvedBy: data.approvedBy || null,
+                            updatedAt: Number(data.updatedAt || 0)
+                        };
+                    }
+                } catch {
+                    // Fall back to memory map if Redis call fails
+                }
+            }
+        }
+
+        const mem = this._canonicalPolicies.get(code);
+        if (mem) {
+            return {
+                authorityCode: code,
+                version: Number(mem.version),
+                contentHash: mem.contentHash || null,
+                policyReference: mem.ref || null,
+                minIntervalMs: Number(mem.minIntervalMs || 0),
+                maxRequestsPerMinute: Number(mem.maxPerMin || 0),
+                maxRequestsPerHour: Number(mem.maxPerHour || 0),
+                maxRequestsPerDay: Number(mem.maxPerDay || 0),
+                approvedBy: mem.approvedBy || null,
+                updatedAt: Number(mem.updatedAt || 0)
+            };
+        }
+
+        return null;
+    }
+
+    /**
      * Reserves quota for a single physical request.
      * Enforces rate policy authority-wide across all tenants, with IST day/hour rollover
      * and canonical policy enforcement.

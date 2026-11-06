@@ -6,6 +6,8 @@ module.exports = {
             cwd: "/home/ubuntu/bharat-crm-runtime",
             instances: 1,
             exec_mode: "fork",
+            wait_ready: true,
+            listen_timeout: 15000,
             kill_timeout: 65000,
             max_memory_restart: "480M",
             node_args: "--max-old-space-size=450",

@@ -33,7 +33,7 @@ import {
     syncCanonicalPolicy,
     setTestQuotaProvider
 } from '../controllers/authorityVerification.controller.js';
-import { checkApprovalRight } from '../middlewares/permission.middleware.js';
+import { checkApprovalRight, checkPermission } from '../middlewares/permission.middleware.js';
 import AuditLog from '../models/AuditLog.js';
 import { invalidateUserPermissionCache, cacheUserPermissions } from '../services/cache.service.js';
 import { createConfiguredPortalRuntime } from '../services/authority/portal/portalRuntimeFactory.js';
@@ -2463,6 +2463,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
     await t.test('32. Authenticated Canonical Policy Controller Maker-Checker & Audit (Remediation 3)', async () => {
         const authorityCode = 'HSVP';
+        await AuditLog.ensureIdempotencyIndex();
 
         // 32.1: Unauthorized request (missing req.user) is rejected with 401
         {
@@ -2755,6 +2756,116 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
             // Restore approver role
             await Role.updateOne({ _id: authorizedApproverRole._id }, { $set: { 'approvalRights.manageAuthoritySettings': true } });
+            await invalidateUserPermissionCache(approverUser._id);
+        }
+
+        // 32.4b4: Stale module-permission revocation immunity on rotate & sync routes (Objective 1)
+        {
+            // 1. Seed authorized role with authorityVerification.edit=true and manageAuthoritySettings=true
+            const testModuleAccess = {
+                authorityVerification: { view: true, create: true, edit: true, delete: false }
+            };
+            const testApprovalRights = {
+                manageAuthoritySettings: true,
+                approveAuthorityChanges: true
+            };
+            await Role.updateOne(
+                { _id: authorizedApproverRole._id },
+                { $set: { moduleAccess: testModuleAccess, approvalRights: testApprovalRights } }
+            );
+
+            // Populate the Redis permission cache with edit=true and manageAuthoritySettings=true
+            await cacheUserPermissions(approverUser._id.toString(), authorizedApproverRole._id.toString(), {
+                department: approverUser.department,
+                moduleAccess: testModuleAccess,
+                approvalRights: testApprovalRights
+            });
+
+            // 2. Revoke ONLY authorityVerification.edit in MongoDB (leaving manageAuthoritySettings=true)
+            // Deliberately simulate Redis invalidation failure / delay (leave stale cache entry in Redis)
+            await Role.updateOne(
+                { _id: authorizedApproverRole._id },
+                { $set: { 'moduleAccess.authorityVerification.edit': false } }
+            );
+
+            // Compose the middleware stack used by rotate & sync routes:
+            // checkPermission('authorityVerification', 'edit', { skipCache: true })
+            // checkApprovalRight('manageAuthoritySettings', { skipCache: true })
+            const permMiddleware = checkPermission('authorityVerification', 'edit', { skipCache: true });
+            const rightMiddleware = checkApprovalRight('manageAuthoritySettings', { skipCache: true });
+
+            let rotatePermPassed = false;
+            let rotateRightPassed = false;
+            let rotateStatus = null;
+            let rotateBody = null;
+
+            const reqRotate = {
+                user: approverUser,
+                ip: '127.0.0.1',
+                originalUrl: `/api/authority/canonical-policy/${authorityCode}/rotate`,
+                method: 'POST',
+                get: () => 'test-agent'
+            };
+            const resRotate = {
+                status(c) { rotateStatus = c; return this; },
+                json(b) { rotateBody = b; return this; }
+            };
+
+            await permMiddleware(reqRotate, resRotate, async () => {
+                rotatePermPassed = true;
+                await rightMiddleware(reqRotate, resRotate, async () => {
+                    rotateRightPassed = true;
+                });
+            });
+
+            assert.equal(rotatePermPassed, false, 'Rotate middleware stack must reject request when authorityVerification.edit is revoked in Mongo despite stale Redis cache');
+            assert.equal(rotateRightPassed, false, 'Controller/downstream must not be reached');
+            assert.equal(rotateStatus, 403, 'Must return HTTP 403 on revoked module permission');
+            assert.ok(rotateBody.message.includes('Insufficient permissions: Cannot edit authorityVerification'));
+
+            // Test on sync route as well
+            let syncPermPassed = false;
+            let syncStatus = null;
+            let syncBody = null;
+            const reqSync = {
+                user: approverUser,
+                ip: '127.0.0.1',
+                originalUrl: `/api/authority/canonical-policy/${authorityCode}/sync`,
+                method: 'POST',
+                get: () => 'test-agent'
+            };
+            const resSync = {
+                status(c) { syncStatus = c; return this; },
+                json(b) { syncBody = b; return this; }
+            };
+
+            await permMiddleware(reqSync, resSync, async () => {
+                syncPermPassed = true;
+            });
+
+            assert.equal(syncPermPassed, false, 'Sync middleware stack must reject request when authorityVerification.edit is revoked in Mongo');
+            assert.equal(syncStatus, 403);
+            assert.ok(syncBody.message.includes('Insufficient permissions: Cannot edit authorityVerification'));
+
+            // 3. Converse control: when current edit=true and current manageAuthoritySettings=true, both pass
+            await Role.updateOne(
+                { _id: authorizedApproverRole._id },
+                { $set: { 'moduleAccess.authorityVerification.edit': true } }
+            );
+
+            let controlPermPassed = false;
+            let controlRightPassed = false;
+            await permMiddleware(reqRotate, resRotate, async () => {
+                controlPermPassed = true;
+                await rightMiddleware(reqRotate, resRotate, async () => {
+                    controlRightPassed = true;
+                });
+            });
+
+            assert.equal(controlPermPassed, true, 'Control: checkPermission must pass when edit=true in Mongo');
+            assert.equal(controlRightPassed, true, 'Control: checkApprovalRight must pass when manageAuthoritySettings=true in Mongo');
+
+            // Cleanup cache
             await invalidateUserPermissionCache(approverUser._id);
         }
 
@@ -3367,6 +3478,1007 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 'metadata.operationId': 'sync-contract-op-42'
             });
             assert.equal(auditEntries2.length, 1, 'Idempotent retry must not create duplicate audit record');
+
+            // P2-D Case 4: Atomic Concurrency under Explicit Promise Barrier (Objective 2)
+            await AuditLog.deleteMany({ eventType: 'canonical_policy_synced', 'metadata.authorityCode': authorityCode });
+            let redisCallCount = 0;
+            let req1EnteredRedis = null;
+            const req1RedisPromise = new Promise((resolve) => { req1EnteredRedis = resolve; });
+            let releaseReq1Gate = null;
+            const req1Gate = new Promise((resolve) => { releaseReq1Gate = resolve; });
+            let gateEngaged = false;
+
+            const concurrentQuotaProvider = {
+                async setCanonicalPolicy() {
+                    redisCallCount++;
+                    if (!gateEngaged) {
+                        gateEngaged = true;
+                        req1EnteredRedis(); // Signals that req1 has written intent in Mongo and reached Redis
+                        await req1Gate; // Holds req1 at Redis boundary until released
+                    }
+                    return { success: true };
+                },
+                async getCanonicalPolicy() {
+                    return null;
+                }
+            };
+            setTestQuotaProvider(concurrentQuotaProvider);
+
+            try {
+                const concurrentReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'atomic-concurrent-op-99' }
+                };
+                const concurrentReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'atomic-concurrent-op-99' }
+                };
+
+                let c1Code = null, c1Body = null;
+                const c1Res = {
+                    status(c) { c1Code = c; return this; },
+                    json(b) { c1Body = b; return this; }
+                };
+                let c2Code = null, c2Body = null;
+                const c2Res = {
+                    status(c) { c2Code = c; return this; },
+                    json(b) { c2Body = b; return this; }
+                };
+
+                // Launch request 1 which creates intent and pauses at Redis gate
+                const p1 = syncCanonicalPolicy(concurrentReq1, c1Res);
+                // Wait for explicit barrier: req1 has written intent and reached Redis! (ZERO fixed sleep)
+                await req1RedisPromise;
+
+                // Launch request 2 which attempts to insert same correlationId and catches duplicate key error
+                const p2 = syncCanonicalPolicy(concurrentReq2, c2Res);
+                // Await request 2: finishes immediately with 202 OPERATION_IN_PROGRESS
+                await p2;
+
+                // Release request 1 to complete Redis sync
+                releaseReq1Gate();
+                await p1;
+
+                // Assertions for atomic concurrency
+                assert.equal(redisCallCount, 1, 'Exactly one Redis setCanonicalPolicy invocation must occur');
+                assert.equal(c1Body.success, true, 'First request must succeed');
+                assert.equal(c2Code, 202, 'Second overlapping request must return HTTP 202');
+                assert.equal(c2Body.code, 'OPERATION_IN_PROGRESS', 'Second request must report OPERATION_IN_PROGRESS');
+                assert.equal(c2Body.status, 'IN_PROGRESS');
+
+                const currentPolicy = await getCanonicalPolicy(authorityCode);
+                const scopedCorrelationId = `canonical_sync:${currentPolicy._id.toString()}:atomic-concurrent-op-99`;
+                const auditRecords = await AuditLog.find({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: scopedCorrelationId
+                });
+                assert.equal(auditRecords.length, 1, 'Exactly one durable audit intent/completed record must exist');
+                assert.equal(auditRecords[0].metadata.syncPhase, 'COMPLETED');
+                assert.equal(auditRecords[0].status, 'success');
+
+                // Case 4b: Retry after completion must return HTTP 200 without second Redis sync
+                let c3Code = null, c3Body = null;
+                const c3Res = {
+                    status(c) { c3Code = c; return this; },
+                    json(b) { c3Body = b; return this; }
+                };
+                await syncCanonicalPolicy(concurrentReq1, c3Res);
+                assert.equal(c3Code, 200, 'Retry after completion must return HTTP 200');
+                assert.equal(c3Body.idempotent, true);
+                assert.equal(c3Body.status, 'COMPLETED');
+                assert.equal(redisCallCount, 1, 'Redis must not be called a second time on completed retry');
+
+                const auditRecordsAfter = await AuditLog.find({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: scopedCorrelationId
+                });
+                assert.equal(auditRecordsAfter.length, 1, 'Audit record count must strictly remain 1');
+
+                // Case 4c: Independent operation IDs and independent target policies remain isolated
+                const diffOpReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'distinct-op-101' }
+                };
+                let diffCode = null, diffBody = null;
+                const diffRes = {
+                    status(c) { diffCode = c; return this; },
+                    json(b) { diffBody = b; return this; }
+                };
+                await syncCanonicalPolicy(diffOpReq, diffRes);
+                assert.equal(diffBody.success, true);
+                assert.equal(redisCallCount, 2, 'Distinct operationId must independently invoke sync');
+
+                // Seed GMADA policy and test identical operationId across different authorities
+                const gmadaPolicy = await registerOrRotateCanonicalPolicy({
+                    authorityCode: 'GMADA',
+                    policy: {
+                        policyReference: 'GMADA/CANONICAL/01',
+                        minIntervalMs: 20000,
+                        maxRequestsPerMinute: 5,
+                        maxRequestsPerDay: 200,
+                        expiresAt: new Date(Date.now() + 86400000)
+                    },
+                    reviewedBy: activeReviewer._id.toString(),
+                    approvedBy: approverUser._id.toString()
+                });
+                const gmadaAudit = await AuditLog.create({
+                    eventType: 'canonical_policy_rotated',
+                    targetType: 'authority_canonical_policy',
+                    targetId: gmadaPolicy._id,
+                    description: 'GMADA audit',
+                    status: 'success'
+                });
+                await markCanonicalPolicyAudited({ policyId: gmadaPolicy._id, auditLogId: gmadaAudit._id });
+
+                const gmadaReq = {
+                    params: { authorityCode: 'GMADA' },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'atomic-concurrent-op-99' }
+                };
+                let gmadaCode = null, gmadaBody = null;
+                const gmadaRes = {
+                    status(c) { gmadaCode = c; return this; },
+                    json(b) { gmadaBody = b; return this; }
+                };
+                await syncCanonicalPolicy(gmadaReq, gmadaRes);
+                assert.equal(gmadaBody.success, true);
+                assert.equal(redisCallCount, 3, 'Different target policy must not collide with same client operation ID');
+
+                // Case 4d: Operation ID format, whitespace, and boundary validations
+                // 1. Explicitly supplied empty string in body
+                const emptyBodyReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: '' }
+                };
+                let ebCode = null, ebBody = null;
+                await syncCanonicalPolicy(emptyBodyReq, {
+                    status(c) { ebCode = c; return this; },
+                    json(b) { ebBody = b; return this; }
+                });
+                assert.equal(ebCode, 400);
+                assert.equal(ebBody.code, 'INVALID_OPERATION_ID');
+
+                // 2. Whitespace-only string in body
+                const wsBodyReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: '   ' }
+                };
+                let wsCode = null, wsBody = null;
+                await syncCanonicalPolicy(wsBodyReq, {
+                    status(c) { wsCode = c; return this; },
+                    json(b) { wsBody = b; return this; }
+                });
+                assert.equal(wsCode, 400);
+                assert.equal(wsBody.code, 'INVALID_OPERATION_ID');
+
+                // 3. Explicitly supplied null in body
+                const nullBodyReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: null }
+                };
+                let nbCode = null, nbBody = null;
+                await syncCanonicalPolicy(nullBodyReq, {
+                    status(c) { nbCode = c; return this; },
+                    json(b) { nbBody = b; return this; }
+                });
+                assert.equal(nbCode, 400);
+                assert.equal(nbBody.code, 'INVALID_OPERATION_ID');
+
+                // 4. Empty idempotency-key header
+                const emptyHdrReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    headers: { 'idempotency-key': '' }
+                };
+                let ehCode = null, ehBody = null;
+                await syncCanonicalPolicy(emptyHdrReq, {
+                    status(c) { ehCode = c; return this; },
+                    json(b) { ehBody = b; return this; }
+                });
+                assert.equal(ehCode, 400);
+                assert.equal(ehBody.code, 'INVALID_OPERATION_ID');
+
+                // 5. Whitespace-only idempotency-key header
+                const wsHdrReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    headers: { 'idempotency-key': '   \t  ' }
+                };
+                let whCode = null, whBody = null;
+                await syncCanonicalPolicy(wsHdrReq, {
+                    status(c) { whCode = c; return this; },
+                    json(b) { whBody = b; return this; }
+                });
+                assert.equal(whCode, 400);
+                assert.equal(whBody.code, 'INVALID_OPERATION_ID');
+
+                // 6. Invalid characters in operation ID
+                const invalidOpReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: 'invalid<script>alert(1)</script>' }
+                };
+                let invCode = null, invBody = null;
+                await syncCanonicalPolicy(invalidOpReq, {
+                    status(c) { invCode = c; return this; },
+                    json(b) { invBody = b; return this; }
+                });
+                assert.equal(invCode, 400);
+                assert.equal(invBody.code, 'INVALID_OPERATION_ID');
+
+                // 7. Header contract: valid idempotency-key header succeeds
+                const validHdrReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    headers: { 'idempotency-key': 'valid-hdr-op-88' }
+                };
+                let vhCode = null, vhBody = null;
+                await syncCanonicalPolicy(validHdrReq, {
+                    status(c) { vhCode = c; return this; },
+                    json(b) { vhBody = b; return this; }
+                });
+                assert.equal(vhBody.success, true);
+                assert.equal(vhBody.operationId, 'valid-hdr-op-88');
+
+                // Case 4e: Requests without operationId are distinct and independent
+                const noOpReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: {}
+                };
+                let noOp1Code = null, noOp1Body = null;
+                const noOp1Res = {
+                    status(c) { noOp1Code = c; return this; },
+                    json(b) { noOp1Body = b; return this; }
+                };
+                let noOp2Code = null, noOp2Body = null;
+                const noOp2Res = {
+                    status(c) { noOp2Code = c; return this; },
+                    json(b) { noOp2Body = b; return this; }
+                };
+                await syncCanonicalPolicy(noOpReq, noOp1Res);
+                await syncCanonicalPolicy(noOpReq, noOp2Res);
+                assert.equal(noOp1Body.success, true);
+                assert.equal(noOp2Body.success, true);
+
+                // Case 4f: Safe recovery from crash BEFORE Redis publication (abandoned intent)
+                // Seed an abandoned INTENT record (>5s old) where Redis has NOT been updated
+                const abandonedOpId = 'abandoned-crash-before-redis-99';
+                const abandonedCorrId = `canonical_sync:${currentPolicy._id.toString()}:${abandonedOpId}`;
+                const abandonedDoc = await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: abandonedCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated abandoned pre-sync intent',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'INTENT',
+                        operationId: abandonedOpId
+                    },
+                    status: 'warning',
+                    timestamp: new Date(Date.now() - 15000)
+                });
+                await AuditLog.collection.updateOne(
+                    { _id: abandonedDoc._id },
+                    { $set: { timestamp: new Date(Date.now() - 15000), createdAt: new Date(Date.now() - 15000), updatedAt: new Date(Date.now() - 15000) } }
+                );
+
+                const countBefore4f = redisCallCount;
+                const recoveryReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: abandonedOpId }
+                };
+                let recCode = null, recBody = null;
+                await syncCanonicalPolicy(recoveryReq, {
+                    status(c) { recCode = c; return this; },
+                    json(b) { recBody = b; return this; }
+                });
+                assert.equal(recBody.success, true, 'Recovery must succeed');
+                assert.equal(recBody.status, 'COMPLETED');
+                assert.equal(recBody.reconciled, true, 'Response must indicate reconciled recovery');
+                assert.equal(redisCallCount, countBefore4f + 1, 'Redis must be called exactly once to complete un-synced abandoned intent');
+
+                // Verify recovery audit log was generated
+                const reconAudits = await AuditLog.find({
+                    eventType: 'canonical_policy_sync_reconciled',
+                    'metadata.operationId': abandonedOpId
+                });
+                assert.equal(reconAudits.length, 1, 'Reconciliation audit event must be logged');
+                assert.equal(reconAudits[0].metadata.reconciliationAction, 'ABANDONED_INTENT_RECOVERED_AND_PUBLISHED');
+
+                // Case 4g: Safe recovery from crash AFTER Redis publication (Redis-success / audit-finalization failure)
+                // Simulate Redis ALREADY having the target version and content hash, but DB marked PENDING_RECONCILIATION
+                const postSyncCrashOpId = 'post-sync-crash-recon-44';
+                const postSyncCorrId = `canonical_sync:${currentPolicy._id.toString()}:${postSyncCrashOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: postSyncCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated post-sync unfinalized intent',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING_RECONCILIATION',
+                        syncPhase: 'INTENT',
+                        operationId: postSyncCrashOpId
+                    },
+                    status: 'warning',
+                    createdAt: new Date(Date.now() - 10000)
+                });
+
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'PENDING_RECONCILIATION', redisSyncError: 'Simulated post-sync crash' } }
+                );
+
+                // Mock quotaProvider returning that Redis already holds this exact policy!
+                const postSyncProvider = {
+                    async setCanonicalPolicy() {
+                        throw new Error('REDIS_MUST_NOT_BE_CALLED_WHEN_ALREADY_SYNCED');
+                    },
+                    async getCanonicalPolicy({ authorityCode: ac }) {
+                        if (ac === authorityCode) {
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(postSyncProvider);
+
+                const postSyncReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: postSyncCrashOpId }
+                };
+                let psCode = null, psBody = null;
+                await syncCanonicalPolicy(postSyncReq, {
+                    status(c) { psCode = c; return this; },
+                    json(b) { psBody = b; return this; }
+                });
+
+                assert.equal(psBody.success, true, 'Recovery must succeed without throwing');
+                assert.equal(psBody.status, 'COMPLETED');
+                assert.equal(psBody.reconciled, true, 'Response must indicate reconciled: true');
+
+                // Verify policy in database is now reconciled to SYNCED
+                const policyAfterRecon = await getCanonicalPolicy(authorityCode);
+                assert.equal(policyAfterRecon.redisSyncStatus, 'SYNCED', 'Policy status must be reconciled to SYNCED');
+                assert.equal(policyAfterRecon.redisSyncError, null);
+
+                // Verify reconciliation audit was recorded
+                const reconAudits4g = await AuditLog.find({
+                    eventType: 'canonical_policy_sync_reconciled',
+                    'metadata.operationId': postSyncCrashOpId
+                });
+                assert.equal(reconAudits4g.length, 1, 'Reconciliation audit event must be recorded');
+                assert.equal(reconAudits4g[0].metadata.reconciliationAction, 'AUDIT_FINALIZED_EXISTING_REDIS');
+
+                // Case 4h: Simultaneous identical operation IDs racing without barrier
+                const simProvider = {
+                    calls: 0,
+                    async setCanonicalPolicy() {
+                        this.calls++;
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(simProvider);
+
+                const simOpId = 'simultaneous-identical-op-55';
+                const simReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: simOpId }
+                };
+                const simReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: simOpId }
+                };
+
+                let sim1Code = null, sim1Body = null;
+                let sim2Code = null, sim2Body = null;
+
+                await Promise.all([
+                    syncCanonicalPolicy(simReq1, { status(c) { sim1Code = c; return this; }, json(b) { sim1Body = b; return this; } }),
+                    syncCanonicalPolicy(simReq2, { status(c) { sim2Code = c; return this; }, json(b) { sim2Body = b; return this; } })
+                ]);
+
+                // Exactly 1 Redis call must occur
+                assert.equal(simProvider.calls, 1, 'Simultaneous requests must invoke Redis exactly once');
+                const codes = [sim1Code || 200, sim2Code || 200].sort();
+                assert.ok(
+                    (codes[0] === 200 && codes[1] === 202) || (codes[0] === 200 && codes[1] === 200),
+                    `Simultaneous requests must safely arbitrate: exactly 1 sync, got codes ${JSON.stringify(codes)}`
+                );
+
+                // Case 4i: Genuine long-running concurrency test (Worker 1 holds Redis operation beyond 5 seconds)
+                // Worker 1 holds Redis operation for 5500ms (> 5000ms initial lease duration).
+                // Periodic atomic heartbeat extends leaseExpiresAt in MongoDB.
+                // Worker 2 attempts the same operation at 5100ms (> 5000ms).
+                // Worker 2 receives HTTP 202 OPERATION_IN_PROGRESS without republishing.
+                // Worker 1 completes successfully with HTTP 200.
+                // Assert exactly one Redis publication occurred.
+                const genuineLongOpId = 'genuine-long-op-beyond-5s';
+                let genuinePublishCount = 0;
+                let worker1Started = false;
+
+                const genuineLongProvider = {
+                    async setCanonicalPolicy() {
+                        genuinePublishCount++;
+                        worker1Started = true;
+                        // Genuine delay exceeding 5 seconds (7500ms) to ensure lease renewal is active
+                        await new Promise(r => setTimeout(r, 7500));
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(genuineLongProvider);
+
+                const genuineReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: genuineLongOpId }
+                };
+                let g1Code = null, g1Body = null;
+                const g1Promise = syncCanonicalPolicy(genuineReq1, {
+                    status(c) { g1Code = c; return this; },
+                    json(b) { g1Body = b; return this; }
+                });
+
+                // Wait until Worker 1 enters setCanonicalPolicy
+                while (!worker1Started) {
+                    await new Promise(r => setTimeout(r, 50));
+                }
+
+                // Wait until 5100ms has elapsed (> 5s initial lease window!)
+                await new Promise(r => setTimeout(r, 5100));
+
+                // Worker 2 attempts the exact same operation while Worker 1 is still inside setCanonicalPolicy
+                const genuineReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: genuineLongOpId }
+                };
+                let g2Code = null, g2Body = null;
+                await syncCanonicalPolicy(genuineReq2, {
+                    status(c) { g2Code = c; return this; },
+                    json(b) { g2Body = b; return this; }
+                });
+                assert.equal(g2Code, 202, 'Worker 2 must receive HTTP 202 while Worker 1 heartbeat renews lease beyond 5s');
+                assert.equal(g2Body.code, 'OPERATION_IN_PROGRESS');
+
+                // Await Worker 1 completion
+                await g1Promise;
+                assert.equal(g1Code, 200, 'Worker 1 must complete successfully after long Redis operation');
+                assert.equal(g1Body.status, 'COMPLETED');
+                assert.equal(genuinePublishCount, 1, 'Exactly one Redis publication must occur');
+
+                // Subsequent request after completion returns 200 idempotent without republishing
+                let g3Code = null, g3Body = null;
+                await syncCanonicalPolicy(genuineReq2, {
+                    status(c) { g3Code = c; return this; },
+                    json(b) { g3Body = b; return this; }
+                });
+                assert.equal(g3Code, 200, 'Subsequent request must return 200 idempotent');
+                assert.equal(genuinePublishCount, 1, 'Subsequent request must not publish to Redis again');
+
+                // Case 4i.2: Redis-side idempotency and recovery after worker crash (Redis already synced)
+                const longRedisOpId = 'long-redis-op-99';
+                const longRedisCorrId = `canonical_sync:${currentPolicy._id.toString()}:${longRedisOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: longRedisCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated expired worker lease where Redis publication finished after 5s',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'PUBLISHING',
+                        leaseOwner: 'worker-expired-1',
+                        leaseExpiresAt: new Date(Date.now() - 1000), // Expired lease
+                        operationId: longRedisOpId
+                    },
+                    status: 'warning',
+                    timestamp: new Date(Date.now() - 6000)
+                });
+
+                let longRedisCalls = 0;
+                const longRedisProvider = {
+                    async setCanonicalPolicy() {
+                        longRedisCalls++;
+                        throw new Error('REDIS_MUST_NOT_BE_CALLED_IF_ALREADY_SYNCED');
+                    },
+                    async getCanonicalPolicy({ authorityCode: ac, authoritative }) {
+                        assert.equal(authoritative, true, 'Reconciliation must query Redis authoritatively');
+                        if (ac === authorityCode) {
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(longRedisProvider);
+
+                const longRedisReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: longRedisOpId }
+                };
+                let lrCode = null, lrBody = null;
+                await syncCanonicalPolicy(longRedisReq, {
+                    status(c) { lrCode = c; return this; },
+                    json(b) { lrBody = b; return this; }
+                });
+                assert.equal(lrBody.success, true);
+                assert.equal(lrBody.status, 'COMPLETED');
+                assert.equal(lrBody.reconciled, true);
+                assert.equal(longRedisCalls, 0, 'Redis setCanonicalPolicy must not be called when already synced in Redis');
+
+                // Case 4j: Two workers competing for expired lease (Redis not yet updated)
+                const expiredRaceOpId = 'expired-lease-race-88';
+                const expiredRaceCorrId = `canonical_sync:${currentPolicy._id.toString()}:${expiredRaceOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: expiredRaceCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated expired worker lease before Redis publication',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'PUBLISHING',
+                        leaseOwner: 'worker-dead-initial',
+                        leaseExpiresAt: new Date(Date.now() - 2000), // Expired
+                        operationId: expiredRaceOpId
+                    },
+                    status: 'warning',
+                    timestamp: new Date(Date.now() - 8000)
+                });
+
+                let expiredRacePublishCount = 0;
+                const expiredRaceProvider = {
+                    async setCanonicalPolicy() {
+                        expiredRacePublishCount++;
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative }) {
+                        assert.equal(authoritative, true);
+                        return null; // Not yet in Redis
+                    }
+                };
+                setTestQuotaProvider(expiredRaceProvider);
+
+                const raceReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: expiredRaceOpId }
+                };
+                const raceReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: expiredRaceOpId }
+                };
+                let r1Code = null, r1Body = null;
+                let r2Code = null, r2Body = null;
+                await Promise.all([
+                    syncCanonicalPolicy(raceReq1, { status(c) { r1Code = c; return this; }, json(b) { r1Body = b; return this; } }),
+                    syncCanonicalPolicy(raceReq2, { status(c) { r2Code = c; return this; }, json(b) { r2Body = b; return this; } })
+                ]);
+
+                // Exactly 1 worker wins the lease and publishes, the other receives 202
+                const raceCodes = [r1Code || 200, r2Code || 200].sort();
+                assert.deepEqual(raceCodes, [200, 202], 'Two competing workers on expired lease must result in one 200 and one 202');
+                assert.equal(expiredRacePublishCount, 1, 'Exactly one Redis publication must occur between competing workers');
+
+                // Case 4k: Authoritative Redis read timeout & Redis unavailable
+                const timeoutOpId = 'redis-timeout-op-77';
+                const timeoutCorrId = `canonical_sync:${currentPolicy._id.toString()}:${timeoutOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: timeoutCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated expired lease to test Redis read timeout',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'PUBLISHING',
+                        leaseOwner: 'worker-timeout-test',
+                        leaseExpiresAt: new Date(Date.now() - 1000),
+                        operationId: timeoutOpId
+                    },
+                    status: 'warning',
+                    timestamp: new Date(Date.now() - 7000)
+                });
+
+                let timeoutCalls = 0;
+                const timeoutProvider = {
+                    async setCanonicalPolicy() {
+                        timeoutCalls++;
+                        throw new Error('SET_MUST_NOT_BE_CALLED_ON_TIMEOUT');
+                    },
+                    async getCanonicalPolicy({ authoritative }) {
+                        assert.equal(authoritative, true);
+                        const err = new Error('Redis read timed out after 3000ms');
+                        err.code = 'REDIS_READ_TIMEOUT';
+                        throw err;
+                    }
+                };
+                setTestQuotaProvider(timeoutProvider);
+
+                const timeoutReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: timeoutOpId }
+                };
+                let toCode = null, toBody = null;
+                await syncCanonicalPolicy(timeoutReq, {
+                    status(c) { toCode = c; return this; },
+                    json(b) { toBody = b; return this; }
+                });
+                assert.equal(toCode, 503, 'Redis read timeout must fail closed with HTTP 503');
+                assert.equal(toBody.code, 'REDIS_READ_TIMEOUT');
+                assert.equal(toBody.status, 'PENDING_RECONCILIATION');
+                assert.equal(timeoutCalls, 0, 'Redis setCanonicalPolicy must not be called when read times out');
+
+                // Case 4l: Redis unavailable during reconciliation
+                const unavailOpId = 'redis-unavail-op-66';
+                const unavailCorrId = `canonical_sync:${currentPolicy._id.toString()}:${unavailOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: unavailCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated expired lease to test Redis unavailable',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'PUBLISHING',
+                        leaseOwner: 'worker-unavail-test',
+                        leaseExpiresAt: new Date(Date.now() - 1000),
+                        operationId: unavailOpId
+                    },
+                    status: 'warning',
+                    timestamp: new Date(Date.now() - 7000)
+                });
+
+                let unavailCalls = 0;
+                const unavailProvider = {
+                    async setCanonicalPolicy() {
+                        unavailCalls++;
+                        throw new Error('SET_MUST_NOT_BE_CALLED_WHEN_UNAVAILABLE');
+                    },
+                    async getCanonicalPolicy({ authoritative }) {
+                        assert.equal(authoritative, true);
+                        const err = new Error('Redis connection refused: ECONNREFUSED');
+                        err.code = 'REDIS_UNAVAILABLE';
+                        throw err;
+                    }
+                };
+                setTestQuotaProvider(unavailProvider);
+
+                const unavailReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: unavailOpId }
+                };
+                let uaCode = null, uaBody = null;
+                await syncCanonicalPolicy(unavailReq, {
+                    status(c) { uaCode = c; return this; },
+                    json(b) { uaBody = b; return this; }
+                });
+                assert.equal(uaCode, 503, 'Redis unavailable must fail closed with HTTP 503');
+                assert.equal(uaBody.code, 'REDIS_UNAVAILABLE');
+                assert.equal(uaBody.status, 'PENDING_RECONCILIATION');
+                assert.equal(unavailCalls, 0, 'Redis setCanonicalPolicy must not be called when unavailable');
+
+                // Case 4m: Stale worker attempting finalization after lease was preempted
+                const staleWorkerOpId = 'stale-worker-op-33';
+                const staleWorkerCorrId = `canonical_sync:${currentPolicy._id.toString()}:${staleWorkerOpId}`;
+                const staleAuditDoc = await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: staleWorkerCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated worker whose lease was stolen before finalization',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING',
+                        syncPhase: 'PUBLISHING',
+                        leaseOwner: 'stale-lease-token-11',
+                        leaseExpiresAt: new Date(Date.now() + 5000),
+                        operationId: staleWorkerOpId
+                    },
+                    status: 'warning'
+                });
+
+                // Simulate Worker 2 preempting the lease in MongoDB:
+                await AuditLog.updateOne(
+                    { _id: staleAuditDoc._id },
+                    {
+                        $set: {
+                            'metadata.leaseOwner': 'active-lease-token-22',
+                            'metadata.recoveryClaimedAt': new Date()
+                        }
+                    }
+                );
+
+                // Now any competing request while lease is active returns 202:
+                const secondWorkerReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: staleWorkerOpId }
+                };
+                let swCode = null, swBody = null;
+                await syncCanonicalPolicy(secondWorkerReq, {
+                    status(c) { swCode = c; return this; },
+                    json(b) { swBody = b; return this; }
+                });
+                assert.equal(swCode, 202, 'Active lease held by another worker must return HTTP 202');
+                assert.equal(swBody.code, 'OPERATION_IN_PROGRESS');
+
+                // Now simulate a stale worker whose lease was stolen during its Redis I/O
+                let staleWorkerPublishes = 0;
+                const staleWorkerProvider = {
+                    async setCanonicalPolicy() {
+                        staleWorkerPublishes++;
+                        // Preempt the lease in MongoDB while this worker is publishing to Redis:
+                        await AuditLog.updateOne(
+                            { correlationId: `canonical_sync:${currentPolicy._id.toString()}:stale-finalization-op-44` },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'competing-worker-took-lease',
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(staleWorkerProvider);
+
+                const staleFinOpId = 'stale-finalization-op-44';
+                const staleFinReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: staleFinOpId }
+                };
+                let sfCode = null, sfBody = null;
+                await syncCanonicalPolicy(staleFinReq, {
+                    status(c) { sfCode = c; return this; },
+                    json(b) { sfBody = b; return this; }
+                });
+                assert.equal(sfCode, 409, 'Stale worker whose lease was lost must fail with HTTP 409');
+                assert.equal(sfBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(staleWorkerPublishes, 1, 'Redis was called before finalization check');
+
+                // Case 4o: Heartbeat renewal database failure marks lease as lost and stops renewals
+                const origFindOneAndUpdate = AuditLog.findOneAndUpdate;
+                let heartbeatErrorThrown = false;
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        heartbeatErrorThrown = true;
+                        throw new Error('Simulated MongoDB connection lost during heartbeat renewal');
+                    }
+                    return origFindOneAndUpdate.call(this, filter, update, options);
+                };
+
+                let hbFailPublishes = 0;
+                const hbFailProvider = {
+                    async setCanonicalPolicy() {
+                        hbFailPublishes++;
+                        // Wait long enough for heartbeat interval (1500ms) to fire and throw
+                        await new Promise(r => setTimeout(r, 1600));
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(hbFailProvider);
+
+                try {
+                    const hbFailOpId = 'hb-fail-op-55';
+                    const hbFailReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: hbFailOpId }
+                    };
+                    let hbfCode = null, hbfBody = null;
+                    await syncCanonicalPolicy(hbFailReq, {
+                        status(c) { hbfCode = c; return this; },
+                        json(b) { hbfBody = b; return this; }
+                    });
+                    assert.equal(heartbeatErrorThrown, true, 'Heartbeat renewal must have attempted update and thrown');
+                    assert.equal(hbfCode, 409, 'Heartbeat database failure must mark lease as lost and fail closed with HTTP 409');
+                    assert.equal(hbfBody.code, 'STALE_WORKER_LEASE_LOST');
+                    assert.equal(hbFailPublishes, 1, 'Exactly one Redis publication attempted before lease loss');
+
+                    // Verify policy in DB was NOT marked SYNCED
+                    const polDoc = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.notEqual(polDoc.redisSyncStatus, 'SYNCED', 'Policy must not be marked SYNCED after heartbeat failure');
+                } finally {
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate;
+                }
+
+                // Case 4p: Expired lease with unchanged owner must NEVER finalize
+                let expOwnerPublishes = 0;
+                const expOwnerProvider = {
+                    async setCanonicalPolicy() {
+                        expOwnerPublishes++;
+                        // Set leaseExpiresAt into the past WITHOUT changing leaseOwner
+                        await AuditLog.updateOne(
+                            { correlationId: `canonical_sync:${currentPolicy._id.toString()}:expired-unchanged-owner-op-66` },
+                            {
+                                $set: {
+                                    'metadata.leaseExpiresAt': new Date(Date.now() - 5000)
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(expOwnerProvider);
+
+                const expOwnerOpId = 'expired-unchanged-owner-op-66';
+                const expOwnerReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: expOwnerOpId }
+                };
+                let eoCode = null, eoBody = null;
+                await syncCanonicalPolicy(expOwnerReq, {
+                    status(c) { eoCode = c; return this; },
+                    json(b) { eoBody = b; return this; }
+                });
+                assert.equal(eoCode, 409, 'Expired lease with unchanged owner must fail closed with HTTP 409');
+                assert.equal(eoBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(expOwnerPublishes, 1, 'Exactly one Redis publication occurred');
+
+                // Verify policy in DB was NOT marked SYNCED
+                const polDocExp = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.notEqual(polDocExp.redisSyncStatus, 'SYNCED', 'Policy must never be finalized by expired lease worker');
+
+                // Case 4n: Durability - Policy update failure after Redis sync fails closed
+                const normalMockProvider = {
+                    async setCanonicalPolicy() { return { success: true }; },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(normalMockProvider);
+
+                const origPolicyUpdate = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        return { acknowledged: false, matchedCount: 1, modifiedCount: 0 };
+                    }
+                    return origPolicyUpdate.call(this, filter, update, options);
+                };
+
+                try {
+                    const failUpdateOpId = 'fail-policy-update-op-12';
+                    const failUpdateReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: failUpdateOpId }
+                    };
+                    let fuCode = null, fuBody = null;
+                    await syncCanonicalPolicy(failUpdateReq, {
+                        status(c) { fuCode = c; return this; },
+                        json(b) { fuBody = b; return this; }
+                    });
+                    assert.equal(fuCode, 500, 'Unacknowledged/unmatched policy update must fail closed with HTTP 500');
+                    assert.equal(fuBody.code, 'POLICY_UPDATE_FAILED');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origPolicyUpdate;
+                }
+            } finally {
+                setTestQuotaProvider(null);
+            }
         }
     });
 

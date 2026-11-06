@@ -30,6 +30,7 @@ import ContactDependencyModal from '../../components/modals/ContactDependencyMod
 import ManageGroupsModal from './components/ManageGroupsModal';
 import AssignGroupModal from './components/AssignGroupModal';
 import MergeContactsModal from '../../components/modals/MergeContactsModal';
+import ContactReconciliationDashboardModal from './components/ContactReconciliationDashboardModal';
 
 const renderAddressField = (val, getLookupValue, lookupType = null) => {
     if (val === null || val === undefined || val === '') return '';
@@ -472,6 +473,7 @@ function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
   const [isManageGroupsOpen, setIsManageGroupsOpen] = useState(false);
   const [isAssignGroupModalOpen, setIsAssignGroupModalOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [isReconciliationOpen, setIsReconciliationOpen] = useState(false);
   
   const { data: users = [] } = useUsers();
     
@@ -812,6 +814,11 @@ function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
                   setSelectedIds([]);
                 }}><i className="fas fa-random"></i> Distribute</button>
                 <button className="action-btn" onClick={handleSendMessage}><i className="fas fa-paper-plane"></i> Send Message</button>
+                <PermissionGate module="contacts" action="edit">
+                  <button className="action-btn" onClick={() => setIsReconciliationOpen(true)} title="Deduplication & Reconciliation">
+                    <i className="fas fa-shield-alt"></i> Reconciliation
+                  </button>
+                </PermissionGate>
                 <div style={{ marginLeft: "auto" }}>
                   <PermissionGate module="contacts" action="delete">
                     <button className="action-btn danger" onClick={delete_contact}><i className="fas fa-trash-alt"></i></button>
@@ -1214,6 +1221,13 @@ function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
             setSelectedIds([]);
             fetchContacts();
           }}
+        />
+      )}
+
+      {isReconciliationOpen && (
+        <ContactReconciliationDashboardModal
+          isOpen={isReconciliationOpen}
+          onClose={() => setIsReconciliationOpen(false)}
         />
       )}
 
