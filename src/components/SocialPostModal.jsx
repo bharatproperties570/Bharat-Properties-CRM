@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -34,7 +34,7 @@ import {
   Calendar,
   Clock
 } from 'lucide-react';
-import { socialAPI, marketingAPI } from '../utils/api';
+import { socialAPI, marketingAPI, api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 /**
@@ -71,6 +71,9 @@ const SocialPostModal = ({
   const [format, setFormat] = useState('post'); // 'post' | 'story' | 'reel'
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const fileInputRef = useRef(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [status, setStatus] = useState('idle');
@@ -194,11 +197,63 @@ const SocialPostModal = ({
     }
   };
 
+  // ── Media Upload Handler ──
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingMedia(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        _silentError: true
+      });
+      const uploadedUrl = res.data?.url || res.data?.downloadUrl;
+      const isVideo = file.type.startsWith('video/') || file.name.endsWith('.mp4') || file.name.endsWith('.mov');
+      if (isVideo) {
+        setVideoUrl(uploadedUrl || `/uploads/${file.name}`);
+        setImageUrl('');
+        toast.success(`Video attached: ${file.name} 🎬`);
+      } else {
+        setImageUrl(uploadedUrl || `/uploads/${file.name}`);
+        setVideoUrl('');
+        toast.success(`Photo attached: ${file.name} 📸`);
+      }
+    } catch (err) {
+      console.warn('[SocialPostModal] Server upload fallback to local preview:', err.message);
+      const localUrl = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith('video/') || file.name.endsWith('.mp4');
+      if (isVideo) {
+        setVideoUrl(localUrl);
+        setImageUrl('');
+        toast.success(`Video selected: ${file.name} 🎬`);
+      } else {
+        setImageUrl(localUrl);
+        setVideoUrl('');
+        toast.success(`Photo selected: ${file.name} 📸`);
+      }
+    } finally {
+      setIsUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // ── Social Media Publishing ──
   const handlePublishSocial = async () => {
     if (!content.trim()) {
       toast.error('Please add some content');
       return;
+    }
+
+    // 🛡️ Client-Side Validation for YouTube: Check video attachment
+    if (platform === 'youtube') {
+      const hasVideo = videoUrl || (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.endsWith('.mov') || imageUrl.includes('video')));
+      if (!hasVideo) {
+        toast.error('YouTube requires a video file (.mp4). Please click the Visual Media box to upload a video (.mp4), or switch to Instagram, Facebook, or LinkedIn for static photos.', { duration: 6000 });
+        return;
+      }
     }
 
     setIsPublishing(true);
@@ -212,6 +267,8 @@ const SocialPostModal = ({
         platform,
         text: content,
         imageUrl: imageUrl,
+        videoUrl: videoUrl,
+        videoPath: videoUrl,
         format: format,
         entityId: propertyId,
         entityType: entityType,
@@ -239,8 +296,8 @@ const SocialPostModal = ({
       }
     } catch (error) {
         setStatus('error');
-        const errMsg = error.response?.data?.error || error.message;
-        toast.error(errMsg, { duration: 5000 });
+        const errMsg = error.response?.data?.error || error.response?.data?.message || error.message;
+        toast.error(errMsg, { duration: 6000 });
     } finally {
       setIsPublishing(false);
     }
@@ -1101,31 +1158,76 @@ const SocialPostModal = ({
                                     border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
                                     borderRadius: '14px', padding: '12px'
                                 }}>
+                                    <input 
+                                        type="file"
+                                        ref={fileInputRef}
+                                        onChange={handleFileUpload}
+                                        accept={platform === 'youtube' ? 'video/mp4,video/quicktime' : 'image/*,video/mp4'}
+                                        style={{ display: 'none' }}
+                                    />
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.68rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', letterSpacing: '0.5px', margin: 0 }}>
-                                            VISUAL MEDIA
+                                        <label style={{ 
+                                            fontSize: '0.68rem', fontWeight: 800, 
+                                            color: platform === 'youtube' && !videoUrl ? '#ef4444' : (isDark ? '#94a3b8' : '#64748b'), 
+                                            letterSpacing: '0.5px', margin: 0, display: 'flex', alignItems: 'center', gap: '4px' 
+                                        }}>
+                                            {platform === 'youtube' ? 'VISUAL MEDIA (VIDEO .MP4)' : 'VISUAL MEDIA'}
+                                            {platform === 'youtube' && !videoUrl && (
+                                                <span style={{ fontSize: '0.60rem', color: '#ef4444', fontWeight: 800 }}>• REQUIRED</span>
+                                            )}
                                         </label>
-                                        {imageUrl && (
+                                        {(imageUrl || videoUrl) && (
                                             <button 
                                                 type="button"
-                                                onClick={() => setImageUrl('')} 
+                                                onClick={() => { setImageUrl(''); setVideoUrl(''); }} 
                                                 style={{ background: '#ef4444', color: '#fff', border: 'none', width: '20px', height: '20px', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px' }}
-                                                title="Remove photo"
+                                                title="Remove media"
                                             >
                                                 <i className="fas fa-times"></i>
                                             </button>
                                         )}
                                     </div>
-                                    <div style={{ 
-                                        height: '76px', borderRadius: '8px', border: '1.5px dashed #cbd5e1', 
-                                        background: isDark ? '#1e293b' : '#ffffff', overflow: 'hidden', position: 'relative'
-                                    }}>
-                                        {imageUrl ? (
-                                            <img src={imageUrl} alt="Property" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <div 
+                                        onClick={() => fileInputRef.current?.click()}
+                                        style={{ 
+                                            height: '76px', borderRadius: '8px', 
+                                            border: platform === 'youtube' && !videoUrl ? '1.5px dashed #f87171' : '1.5px dashed #cbd5e1', 
+                                            background: isDark ? '#1e293b' : '#ffffff', overflow: 'hidden', position: 'relative',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                        }}
+                                        title={platform === 'youtube' ? "Click to upload video (.mp4)" : "Click to upload photo or video"}
+                                    >
+                                        {isUploadingMedia ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', color: '#4f46e5' }}>
+                                                <i className="fas fa-spinner fa-spin" style={{ fontSize: '18px' }}></i>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 700 }}>Uploading...</span>
+                                            </div>
+                                        ) : videoUrl ? (
+                                            <div style={{ width: '100%', height: '100%', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '4px', color: '#38bdf8' }}>
+                                                <i className="fas fa-film" style={{ fontSize: '20px' }}></i>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f8fafc' }}>Video (.mp4) Ready</span>
+                                                <span style={{ fontSize: '0.58rem', color: '#94a3b8' }}>Click to change</span>
+                                            </div>
+                                        ) : imageUrl ? (
+                                            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                                <img src={imageUrl} alt="Property" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                {platform === 'youtube' && (
+                                                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4px', textAlign: 'center' }}>
+                                                        <i className="fas fa-exclamation-circle text-amber-400" style={{ fontSize: '14px', marginBottom: '2px' }}></i>
+                                                        <span style={{ fontSize: '0.62rem', color: '#fef08a', fontWeight: 800, lineHeight: 1.2 }}>YouTube needs .mp4</span>
+                                                        <span style={{ fontSize: '0.58rem', color: '#ffffff', textDecoration: 'underline' }}>Click to upload video</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         ) : (
-                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '2px' }}>
-                                                <i className="fas fa-image" style={{ color: '#6366f1', opacity: 0.5, fontSize: '16px' }}></i>
-                                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>No photo</span>
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '2px', textAlign: 'center', padding: '4px' }}>
+                                                <i className={`fas ${platform === 'youtube' ? 'fa-video text-red-500' : 'fa-upload text-indigo-500'}`} style={{ fontSize: '16px' }}></i>
+                                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                                    {platform === 'youtube' ? 'Upload Video (.mp4)' : 'Upload Photo / Video'}
+                                                </span>
+                                                <span style={{ fontSize: '0.58rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                    {platform === 'youtube' ? 'Click to select .mp4 file' : 'Click to browse files'}
+                                                </span>
                                             </div>
                                         )}
                                     </div>
@@ -1571,10 +1673,26 @@ const SocialPostModal = ({
                                             <span style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>•••</span>
                                         </div>
 
-                                        {/* Image Box */}
-                                        <div style={{ width: '100%', height: '160px', background: isDark ? '#1e293b' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                            {imageUrl ? (
-                                                <img src={imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        {/* Media Preview Box */}
+                                        <div style={{ width: '100%', height: '160px', background: isDark ? '#1e293b' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
+                                            {videoUrl ? (
+                                                <div style={{ width: '100%', height: '100%', background: '#020617', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                                                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(79, 70, 229, 0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                                        <i className="fas fa-play" style={{ fontSize: '15px', marginLeft: '3px' }}></i>
+                                                    </div>
+                                                    <span style={{ position: 'absolute', bottom: '6px', left: '8px', background: 'rgba(0,0,0,0.7)', color: '#38bdf8', fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px' }}>
+                                                        <i className="fas fa-video"></i> .MP4 VIDEO
+                                                    </span>
+                                                </div>
+                                            ) : imageUrl ? (
+                                                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                                    <img src={imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    {platform === 'youtube' && (
+                                                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(239, 68, 68, 0.85)', color: '#ffffff', fontSize: '8px', fontWeight: 800, padding: '3px 6px', textAlign: 'center' }}>
+                                                            ⚠️ YouTube requires video file (.mp4)
+                                                        </div>
+                                                    )}
+                                                </div>
                                             ) : (
                                                 <div style={{ textAlign: 'center', color: isDark ? '#64748b' : '#94a3b8' }}>
                                                     <i className="fas fa-image" style={{ fontSize: '24px' }}></i>

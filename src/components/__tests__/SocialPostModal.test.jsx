@@ -209,4 +209,26 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
       });
     });
   });
+
+  it('validates video requirement when launching to YouTube without video', async () => {
+    const toast = (await import('react-hot-toast')).default;
+    render(
+      <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
+    );
+
+    // Click on YouTube platform
+    const ytButton = screen.getByText('YouTube');
+    fireEvent.click(ytButton);
+
+    // Click Launch to youtube
+    const launchButton = screen.getByText(/Launch to youtube/i);
+    fireEvent.click(launchButton);
+
+    // Must warn user via toast without calling API
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining('YouTube requires a video file (.mp4)'),
+      expect.any(Object)
+    );
+    expect(socialAPI.postContent).not.toHaveBeenCalled();
+  });
 });

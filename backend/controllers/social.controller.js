@@ -1,5 +1,8 @@
 import IntegrationGuard from "../src/utils/IntegrationGuard.js";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
+import os from "os";
 
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import { resolveMessageTemplate, interpolateTemplateText } from '../utils/templateResolver.js';
@@ -1165,13 +1168,73 @@ export const postSocialMedia = async (req, res) => {
         } else if (targetPlatform === 'twitter') {
             result = await twitterService.postTweet(text, imageUrl);
         } else if (targetPlatform === 'google_business') {
-            result = await googleBusinessService.createPost(text, null, imageUrl);
+            try {
+                result = await googleBusinessService.createPost(text, req.body.locationId || null, imageUrl);
+            } catch (gbErr) {
+                console.error('[SocialController] Google Business Profile error:', gbErr.message);
+                return res.status(400).json({
+                    success: false,
+                    error: gbErr.message || 'Failed to publish to Google Business Profile'
+                });
+            }
         } else if (targetPlatform === 'youtube') {
-            const videoPath = req.body.videoPath || req.body.filePath;
-            if (videoPath) {
-                result = await youtubeService.uploadVideo(text.slice(0, 70), text, videoPath);
-            } else {
-                throw new Error('YouTube publishing requires an uploaded video (.mp4). For static posts, please use Instagram, Facebook, or LinkedIn.');
+            const rawVideo = req.body.videoPath || req.body.filePath || req.body.videoUrl || (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.endsWith('.mov') || imageUrl.includes('video')) ? imageUrl : null);
+            
+            if (!rawVideo) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'YouTube publishing requires an uploaded video (.mp4). For static posts with property photos, please use Instagram, Facebook, or LinkedIn.' 
+                });
+            }
+
+            let resolvedFilePath = null;
+            let shouldCleanup = false;
+
+            // Resolve file location (local path vs uploads folder vs remote URL)
+            if (fs.existsSync(rawVideo)) {
+                resolvedFilePath = rawVideo;
+            } else if (rawVideo.startsWith('/uploads/') || rawVideo.startsWith('uploads/')) {
+                const localRel = rawVideo.startsWith('/') ? rawVideo.slice(1) : rawVideo;
+                const absPath = path.resolve(process.cwd(), localRel);
+                if (fs.existsSync(absPath)) {
+                    resolvedFilePath = absPath;
+                }
+            } else if (rawVideo.startsWith('http://') || rawVideo.startsWith('https://')) {
+                try {
+                    const tempPath = path.join(os.tmpdir(), `yt-upload-${Date.now()}-${Math.round(Math.random() * 1e6)}.mp4`);
+                    const resp = await axios.get(rawVideo, { responseType: 'stream', timeout: 60000 });
+                    const writer = fs.createWriteStream(tempPath);
+                    resp.data.pipe(writer);
+                    await new Promise((resolve, reject) => {
+                        writer.on('finish', resolve);
+                        writer.on('error', reject);
+                    });
+                    resolvedFilePath = tempPath;
+                    shouldCleanup = true;
+                } catch (dlErr) {
+                    console.error('[SocialController] Failed to download video URL for YouTube:', dlErr.message);
+                }
+            }
+
+            if (!resolvedFilePath || !fs.existsSync(resolvedFilePath)) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Could not access the specified video file for YouTube upload. Please attach a valid .mp4 file.'
+                });
+            }
+
+            try {
+                result = await youtubeService.uploadVideo(text.slice(0, 70), text, resolvedFilePath);
+            } catch (ytErr) {
+                console.error('[SocialController] YouTube upload error:', ytErr.message);
+                return res.status(400).json({
+                    success: false,
+                    error: ytErr.message || 'Failed to upload video to YouTube'
+                });
+            } finally {
+                if (shouldCleanup && resolvedFilePath && fs.existsSync(resolvedFilePath)) {
+                    try { fs.unlinkSync(resolvedFilePath); } catch (_) {}
+                }
             }
         } else {
             return res.status(400).json({ success: false, error: 'Unsupported platform for posting' });
@@ -1208,12 +1271,12 @@ export const postSocialMedia = async (req, res) => {
         console.error('[SocialController] postSocialMedia error:', errorMessage);
         
         // Determine status code based on error message
-        let statusCode = 500;
-        if (errorMessage.includes('missing') || errorMessage.includes('configure')) {
-            statusCode = 400; // Client needs to configure credentials
+        let statusCode = 400; // Default to client validation / external API handling
+        if (errorMessage.includes('missing') || errorMessage.includes('configure') || errorMessage.includes('video') || errorMessage.includes('requires') || errorMessage.includes('quota') || errorMessage.includes('Google Business')) {
+            statusCode = 400;
         } else if (errorMessage.includes('local image')) {
             statusCode = 400;
-        } else if (errorMessage.includes('token') || errorMessage.includes('authentication')) {
+        } else if (errorMessage.includes('token') || errorMessage.includes('authentication') || errorMessage.includes('session expired') || errorMessage.includes('invalid_grant')) {
             statusCode = 401;
         }
 

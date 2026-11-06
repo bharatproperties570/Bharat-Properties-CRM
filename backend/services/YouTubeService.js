@@ -11,16 +11,33 @@ class YouTubeService {
     async _getOAuthClient() {
         const config = await SystemSetting.findOne({ key: 'google_integration' }).lean();
         if (!config || !config.value || !config.value.tokens) {
-            throw new Error('Google Integration not connected');
+            throw new Error('Google Integration is not connected. Please connect Google in CRM Settings > Integrations.');
         }
 
         const oauth2Client = new google.auth.OAuth2(
             process.env.GOOGLE_CLIENT_ID,
             process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI
+            process.env.GOOGLE_REDIRECT_URI || `${process.env.FRONTEND_URL || 'https://crm.bharatproperties.co'}/google-callback`
         );
 
         oauth2Client.setCredentials(config.value.tokens);
+
+        // Auto-persist refreshed tokens so access tokens stay valid
+        oauth2Client.on('tokens', async (newTokens) => {
+            try {
+                const current = await SystemSetting.findOne({ key: 'google_integration' }).lean();
+                if (current?.value?.tokens) {
+                    await SystemSetting.findOneAndUpdate(
+                        { key: 'google_integration' },
+                        { 'value.tokens': { ...current.value.tokens, ...newTokens } }
+                    );
+                    console.log('[YouTubeService] Persisted refreshed OAuth tokens');
+                }
+            } catch (pErr) {
+                console.warn('[YouTubeService] Token persist failed:', pErr.message);
+            }
+        });
+
         return oauth2Client;
     }
 
@@ -69,7 +86,14 @@ class YouTubeService {
             };
         } catch (error) {
             console.error('[YouTubeService] Upload error:', error.response?.data || error.message);
-            throw new Error(error.response?.data?.error?.message || error.message);
+            const errDetail = error.response?.data?.error?.message || error.message;
+            if (errDetail.includes('invalid_grant')) {
+                throw new Error('Google account session expired. Please go to CRM Settings > Integrations and click "Reconnect Google" to refresh access.');
+            }
+            if (errDetail.includes('quotaExceeded')) {
+                throw new Error('YouTube API daily upload quota reached. Please try again tomorrow or contact admin.');
+            }
+            throw new Error(errDetail);
         }
     }
 }
