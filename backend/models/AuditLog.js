@@ -247,7 +247,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Status ==========
     status: {
         type: String,
-        enum: ['success', 'failure', 'warning', 'compensated'],
+        enum: ['success', 'failure', 'failed', 'warning', 'compensated'],
         default: 'success'
     },
     department: { type: String, index: true }, // Regional tracking for Enterprise Isolation

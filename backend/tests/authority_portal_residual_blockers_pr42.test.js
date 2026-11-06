@@ -4998,6 +4998,288 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
                 const pol4y = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
                 assert.equal(pol4y.redisSyncStatus, 'SYNCED');
+
+                // Case 4z1: Expire FINALIZING lease during blocked MongoDB policy update
+                const race4z1OpId = 'race-4z1-expire-finalizing-lease-blocked-policy-update';
+                const race4z1CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z1OpId}`;
+
+                let worker1InFinalizingBlock = false;
+                let worker2Finished = false;
+
+                const originalUpdateOne4z1 = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (filter?._id?.toString() === currentPolicy._id.toString() && update?.$set?.redisSyncStatus === 'SYNCED') {
+                        const callerStack = new Error().stack;
+                        if (callerStack.includes('executeRedisSyncAndFinalize') && !worker1InFinalizingBlock) {
+                            worker1InFinalizingBlock = true;
+                            while (!worker2Finished) {
+                                await new Promise(r => setTimeout(r, 20));
+                            }
+                        }
+                    }
+                    return originalUpdateOne4z1.apply(this, arguments);
+                };
+
+                try {
+                    const race4z1Provider = {
+                        async setCanonicalPolicy() {
+                            return { success: true };
+                        },
+                        async getCanonicalPolicy({ authoritative } = {}) {
+                            assert.equal(authoritative, true);
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                    };
+                    setTestQuotaProvider(race4z1Provider);
+
+                    const race4z1Req1 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z1OpId }
+                    };
+                    let r4z1Code = null, r4z1Body = null;
+                    const worker1Promise = syncCanonicalPolicy(race4z1Req1, {
+                        status(c) { r4z1Code = c; return this; },
+                        json(b) { r4z1Body = b; return this; }
+                    });
+
+                    while (!worker1InFinalizingBlock) {
+                        await new Promise(r => setTimeout(r, 20));
+                    }
+
+                    const auditBeforeExpire = await AuditLog.findOne({ correlationId: race4z1CorrId });
+                    assert.equal(auditBeforeExpire.metadata?.syncPhase, 'FINALIZING', 'Worker 1 must have entered FINALIZING phase');
+                    const worker1LeaseToken = auditBeforeExpire.metadata?.leaseOwner;
+
+                    // Expire Worker 1 lease
+                    await AuditLog.updateOne(
+                        { correlationId: race4z1CorrId },
+                        {
+                            $set: {
+                                'metadata.leaseExpiresAt': new Date(Date.now() - 2000)
+                            }
+                        }
+                    );
+
+                    // Worker 2 calls syncCanonicalPolicy (reconciliation Case A)
+                    const race4z1Req2 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z1OpId }
+                    };
+                    let r4z2Code = null, r4z2Body = null;
+                    await syncCanonicalPolicy(race4z1Req2, {
+                        status(c) { r4z2Code = c; return this; },
+                        json(b) { r4z2Body = b; return this; }
+                    });
+
+                    assert.equal(r4z2Code, 200, 'Recovery Worker 2 must succeed with HTTP 200');
+                    assert.equal(r4z2Body.status, 'COMPLETED');
+                    assert.equal(r4z2Body.reconciled, true);
+
+                    const auditAfterWorker2 = await AuditLog.findOne({ correlationId: race4z1CorrId });
+                    assert.equal(auditAfterWorker2.metadata?.syncPhase, 'COMPLETED');
+                    const worker2LeaseToken = auditAfterWorker2.metadata?.leaseOwner;
+                    assert.notEqual(worker1LeaseToken, worker2LeaseToken);
+
+                    const polAfterWorker2 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polAfterWorker2.lastSyncWorkerLease, worker2LeaseToken);
+
+                    // Unblock Worker 1
+                    worker2Finished = true;
+                    await worker1Promise;
+
+                    assert.equal(r4z1Code, 409, 'Delayed Worker 1 must fail with HTTP 409 STALE_WORKER_LEASE_LOST');
+                    assert.equal(r4z1Body.code, 'STALE_WORKER_LEASE_LOST');
+
+                    // Prove Worker 1 could not modify Worker 2 result
+                    const polFinal = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal.lastSyncWorkerLease, worker2LeaseToken);
+                    assert.equal(polFinal.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal = await AuditLog.findOne({ correlationId: race4z1CorrId });
+                    assert.equal(auditFinal.metadata?.leaseOwner, worker2LeaseToken);
+                    assert.equal(auditFinal.metadata?.syncPhase, 'COMPLETED');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = originalUpdateOne4z1;
+                }
+
+                // Case 4z2: Redis malformed and unavailable races with competing recovery workers
+                const race4z2OpId = 'race-4z2-redis-malformed-unavailable';
+                const race4z2CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z2OpId}`;
+
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: race4z2CorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    userName: 'Admin',
+                    description: 'Initial failed sync',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'FAILED',
+                        syncPhase: 'FAILED',
+                        leaseOwner: 'old-stale-worker',
+                        leaseExpiresAt: new Date(Date.now() - 5000),
+                        operationId: race4z2OpId
+                    },
+                    status: 'failure'
+                });
+
+                let workerAEnteredRedis = false;
+                let workerBDone = false;
+                const race4z2Provider = {
+                    async setCanonicalPolicy() {
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        assert.equal(authoritative, true);
+                        workerAEnteredRedis = true;
+                        while (!workerBDone) {
+                            await new Promise(r => setTimeout(r, 20));
+                        }
+                        return { version: 'NOT_A_NUMBER', contentHash: '' };
+                    }
+                };
+                setTestQuotaProvider(race4z2Provider);
+
+                const race4z2ReqA = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4z2OpId }
+                };
+                let r4z2ACode = null, r4z2ABody = null;
+                const workerAPromise = syncCanonicalPolicy(race4z2ReqA, {
+                    status(c) { r4z2ACode = c; return this; },
+                    json(b) { r4z2ABody = b; return this; }
+                });
+
+                while (!workerAEnteredRedis) {
+                    await new Promise(r => setTimeout(r, 20));
+                }
+
+                // Worker B attempts recovery while Worker A holds lease
+                const race4z2ReqB = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4z2OpId }
+                };
+                let r4z2BCode = null, r4z2BBody = null;
+                await syncCanonicalPolicy(race4z2ReqB, {
+                    status(c) { r4z2BCode = c; return this; },
+                    json(b) { r4z2BBody = b; return this; }
+                });
+
+                assert.equal(r4z2BCode, 202, 'Competing Worker B must receive 202 OPERATION_IN_PROGRESS while Worker A is recovering');
+                assert.equal(r4z2BBody.code, 'OPERATION_IN_PROGRESS');
+
+                workerBDone = true;
+                await workerAPromise;
+
+                assert.equal(r4z2ACode, 502, 'Worker A must fail closed with 502 MALFORMED_REDIS_POLICY');
+                assert.equal(r4z2ABody.code, 'MALFORMED_REDIS_POLICY');
+                assert.equal(r4z2ABody.status, 'PENDING_RECONCILIATION');
+
+                const audit4z2 = await AuditLog.findOne({ correlationId: race4z2CorrId });
+                assert.equal(audit4z2.metadata?.syncPhase, 'PENDING_RECONCILIATION');
+                assert.equal(audit4z2.metadata?.redisSyncStatus, 'MALFORMED_REDIS_POLICY');
+
+                // Case 4z3: Transaction rollback and idempotent retry
+                const race4z3OpId = 'race-4z3-transaction-rollback-and-retry';
+                const race4z3CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z3OpId}`;
+
+                let attemptNumber = 0;
+                const origUpdate4z3 = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (filter?._id?.toString() === currentPolicy._id.toString() && update?.$set?.redisSyncStatus === 'SYNCED') {
+                        attemptNumber++;
+                        if (attemptNumber === 1) {
+                            const err = new Error('TRANSACTION_MOCK_FAILURE');
+                            err.code = 'POLICY_UPDATE_FAILED';
+                            throw err;
+                        }
+                    }
+                    return origUpdate4z3.apply(this, arguments);
+                };
+
+                try {
+                    const race4z3Provider = {
+                        async setCanonicalPolicy() {
+                            return { success: true };
+                        },
+                        async getCanonicalPolicy({ authoritative } = {}) {
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                    };
+                    setTestQuotaProvider(race4z3Provider);
+
+                    const race4z3Req1 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z3OpId }
+                    };
+                    let r4z3Code1 = null, r4z3Body1 = null;
+                    await syncCanonicalPolicy(race4z3Req1, {
+                        status(c) { r4z3Code1 = c; return this; },
+                        json(b) { r4z3Body1 = b; return this; }
+                    });
+
+                    assert.equal(r4z3Code1, 500, 'First attempt must fail with 500 POLICY_UPDATE_FAILED');
+                    assert.equal(r4z3Body1.code, 'POLICY_UPDATE_FAILED');
+
+                    const polAfterFail = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.notEqual(polAfterFail.redisSyncStatus, 'SYNCED');
+
+                    // Retry with the exact same operationId
+                    const race4z3Req2 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z3OpId }
+                    };
+                    let r4z3Code2 = null, r4z3Body2 = null;
+                    await syncCanonicalPolicy(race4z3Req2, {
+                        status(c) { r4z3Code2 = c; return this; },
+                        json(b) { r4z3Body2 = b; return this; }
+                    });
+
+                    assert.equal(r4z3Code2, 200, 'Retry must recover and succeed with HTTP 200');
+                    assert.equal(r4z3Body2.status, 'COMPLETED');
+                    assert.equal(r4z3Body2.reconciled, true);
+
+                    const polFinal3 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal3.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal3 = await AuditLog.findOne({ correlationId: race4z3CorrId });
+                    assert.equal(auditFinal3.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal3.status, 'success');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdate4z3;
+                }
             } finally {
                 setTestQuotaProvider(null);
             }
