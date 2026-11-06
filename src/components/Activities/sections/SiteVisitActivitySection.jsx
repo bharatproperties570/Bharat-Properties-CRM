@@ -67,13 +67,13 @@ const JourneyProgressTracker = ({ formData, isDark, onManage }) => {
         if (deliveryStatus === 'READ') {
             return { label: 'Journey Read', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)', border: 'rgba(5, 150, 105, 0.35)', icon: 'fas fa-check-double' };
         }
-        if (deliveryStatus === 'DELIVERED') {
+        if (deliveryStatus === 'DELIVERED' || (!deliveryStatus && formData.details?.journeyShared)) {
             return { label: 'Journey Delivered', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.35)', icon: 'fas fa-check-double' };
         }
         if (deliveryStatus === 'SENT' || dispatchStatus === 'SENT') {
             return { label: 'Journey Sent', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)', border: 'rgba(6, 182, 212, 0.35)', icon: 'fas fa-paper-plane' };
         }
-        if (dispatchStatus === 'ACCEPTED' || formData.details?.journeyShared) {
+        if (dispatchStatus === 'ACCEPTED') {
             return { label: 'Journey Accepted', color: '#0284c7', bg: 'rgba(2, 132, 199, 0.12)', border: 'rgba(2, 132, 199, 0.35)', icon: 'fas fa-clock' };
         }
         if (formData.details?.confirmationStatus === 'CONFIRMED_JOURNEY_PENDING' || (formData.details?.customerConfirmed && dispatchStatus === 'FAILED')) {

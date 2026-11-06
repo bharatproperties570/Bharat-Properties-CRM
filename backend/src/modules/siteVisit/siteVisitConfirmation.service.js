@@ -379,39 +379,24 @@ export class SiteVisitConfirmationService {
 
         // Fast-path idempotency check if already confirmed
         if (activity.details?.customerConfirmed === true) {
-            if (activity.details?.confirmationStatus === 'CONFIRMED') {
-                console.log(`[SiteVisitConfirmation][${traceId}] Idempotent callback suppressed: Activity ${activity._id} is already CONFIRMED.`);
-                return {
-                    matched: true,
-                    success: true,
-                    duplicate: true,
-                    activity,
-                    confirmationStatus: 'CONFIRMED'
-                };
-            }
-            if (activity.details?.journeyDispatchStatus === 'PENDING') {
-                console.log(`[SiteVisitConfirmation][${traceId}] In-flight confirmation suppressed for Activity ${activity._id}.`);
-                return {
-                    matched: true,
-                    success: true,
-                    duplicate: true,
-                    inFlight: true,
-                    confirmationStatus: activity.details?.confirmationStatus || 'CONFIRMED'
-                };
-            }
+            console.log(`[SiteVisitConfirmation][${traceId}] Idempotent callback suppressed: Activity ${activity._id} is already customerConfirmed.`);
+            return {
+                matched: true,
+                success: true,
+                duplicate: true,
+                activity,
+                confirmationStatus: activity.details?.confirmationStatus || 'CONFIRMED'
+            };
         }
 
-        // ── ATOMIC CAS CLAIM BEFORE PROVIDER DISPATCH ──
-        // Only one concurrent worker can claim the confirmation intent
+        // ── SINGLE-WINNER ATOMIC CLAIM BEFORE PROVIDER DISPATCH ──
+        // Conditional update ensures exactly ONE concurrent request can claim confirmation intent
         const claimToken = incomingMsgId || `claim_${activity._id}_${Date.now()}`;
         const claimFilter = {
             _id: activity._id,
             tenantId,
             status: { $in: ['Pending', 'Scheduled'] },
-            $or: [
-                { 'details.customerConfirmed': { $ne: true } },
-                { 'details.confirmationMessageId': incomingMsgId }
-            ]
+            'details.customerConfirmed': { $ne: true }
         };
 
         const claimUpdate = {
@@ -423,8 +408,9 @@ export class SiteVisitConfirmationService {
                 'details.confirmationOpaqueId': originalMessageId || message?.context?.id || null,
                 'details.confirmationClaimToken': claimToken,
                 'details.confirmationClaimAt': now,
-                'details.confirmationStatus': activity.details?.confirmationStatus || 'CONFIRMED_JOURNEY_PENDING',
-                'details.journeyDispatchStatus': 'PENDING'
+                'details.confirmationStatus': 'CONFIRMED_JOURNEY_PENDING',
+                'details.journeyDispatchStatus': 'PENDING',
+                'details.journeyDispatchId': `sv_journey_${activity._id}`
             },
             $push: {
                 'details.auditHistory': {
@@ -453,54 +439,246 @@ export class SiteVisitConfirmationService {
 
         if (!claimedActivity) {
             // Concurrent request already claimed or completed confirmation
-            const latest = await ActivityModel.findById(activity._id);
-            console.log(`[SiteVisitConfirmation][${traceId}] Concurrent callback suppressed by CAS claim for Activity ${activity._id}.`);
+            const latest = typeof ActivityModel.findById === 'function' ? await ActivityModel.findById(activity._id) : null;
+            console.log(`[SiteVisitConfirmation][${traceId}] Concurrent callback suppressed by atomic claim for Activity ${activity._id}.`);
             return {
                 matched: true,
                 success: true,
                 duplicate: true,
+                reason: 'ALREADY_CLAIMED',
                 activity: latest || activity,
                 confirmationStatus: latest?.details?.confirmationStatus || 'CONFIRMED'
             };
         }
 
-        // Generate / Retrieve Personal Journey Link
+        // ── DURABLE OUTBOX DISPATCH WITH LEASE MANAGEMENT ──
+        const dispatchResult = await this.processDurableDispatch(activity._id, {
+            tenantId,
+            session,
+            traceId,
+            incomingMsgId
+        });
+
+        return {
+            matched: true,
+            success: true,
+            duplicate: false,
+            activity: claimedActivity || activity,
+            confirmationStatus: dispatchResult.confirmationStatus || 'CONFIRMED',
+            journeyDispatched: dispatchResult.success,
+            dispatchStatus: dispatchResult.dispatchStatus,
+            messageId: dispatchResult.messageId || null
+        };
+    }
+
+    /**
+     * Executes durable outbox dispatch for the journey template with lease-based locking
+     * and crash recovery semantics:
+     * 1. Acquires a time-limited lease on the activity record (status -> PROCESSING).
+     * 2. Checks if provider already accepted this idempotency key (preventing duplicate sends).
+     * 3. Generates the personal journey link and cryptographic token.
+     * 4. Calls external provider with stable unique idempotency key.
+     * 5. On provider acceptance (HTTP 200), updates status -> ACCEPTED (without setting journeyShared!).
+     * 6. On failure, handles retries or transitions to FAILED with audit history.
+     */
+    static async processDurableDispatch(activityId, options = {}) {
+        const traceId = options.traceId || crypto.randomBytes(6).toString('hex');
+        const ActivityModel = mongoose.models.Activity || Activity;
+        const tenantId = options.tenantId || null;
+        const sessionOpt = options.session ? { session: options.session } : undefined;
+        const now = new Date();
+        const leaseTtlMs = options.leaseTtlMs || 30000; // 30s lease
+        const leaseExpiresAt = new Date(now.getTime() + leaseTtlMs);
+        const leaseToken = crypto.randomBytes(16).toString('hex');
+        const maxRetries = options.maxRetries || 3;
+
+        // ── 0. FAST-PATH: ALREADY ACCEPTED CHECK ──
+        if (typeof ActivityModel.findById === 'function') {
+            const preCheck = await ActivityModel.findById(activityId, null, sessionOpt);
+            if (preCheck?.details?.journeyDispatchStatus === 'ACCEPTED' || preCheck?.details?.journeyMessageId) {
+                console.log(`[SiteVisitConfirmation][${traceId}] Activity ${activityId} is already ACCEPTED. Skipping dispatch.`);
+                return {
+                    success: true,
+                    duplicate: true,
+                    messageId: preCheck.details?.journeyMessageId || null,
+                    dispatchStatus: 'ACCEPTED',
+                    confirmationStatus: 'CONFIRMED'
+                };
+            }
+        }
+
+        // ── 1. ATOMIC LEASE ACQUISITION ──
+        const leaseFilter = {
+            _id: activityId,
+            'details.customerConfirmed': true,
+            $or: [
+                { 'details.journeyDispatchStatus': 'PENDING' },
+                {
+                    'details.journeyDispatchStatus': 'PROCESSING',
+                    'details.dispatchLeaseExpiresAt': { $lt: now } // Expired lease recovery
+                },
+                {
+                    'details.journeyDispatchStatus': 'FAILED',
+                    'details.dispatchAttempts': { $lt: maxRetries } // Retryable failure
+                }
+            ]
+        };
+        if (tenantId) leaseFilter.tenantId = tenantId;
+
+        const leaseUpdate = {
+            $set: {
+                'details.journeyDispatchStatus': 'PROCESSING',
+                'details.dispatchLeaseToken': leaseToken,
+                'details.dispatchLeaseAcquiredAt': now,
+                'details.dispatchLeaseExpiresAt': leaseExpiresAt
+            },
+            $inc: {
+                'details.dispatchAttempts': 1
+            }
+        };
+
+        let leasedActivity = null;
+        if (typeof ActivityModel.findOneAndUpdate === 'function') {
+            leasedActivity = await ActivityModel.findOneAndUpdate(
+                leaseFilter,
+                leaseUpdate,
+                { new: true, ...sessionOpt }
+            );
+        }
+
+        if (!leasedActivity) {
+            console.log(`[SiteVisitConfirmation][${traceId}] Lease unavailable for Activity ${activityId} (in-flight, locked, or already terminal).`);
+            const current = typeof ActivityModel.findById === 'function' ? await ActivityModel.findById(activityId) : null;
+            return {
+                success: current?.details?.journeyDispatchStatus === 'ACCEPTED',
+                dispatchStatus: current?.details?.journeyDispatchStatus || 'SKIPPED',
+                confirmationStatus: current?.details?.confirmationStatus || 'CONFIRMED'
+            };
+        }
+
+        const stableIdempotencyKey = `sv_journey_${activityId}`;
+
+        // ── 2. PREFLIGHT PROVIDER ACCEPTANCE CHECK ──
+        // Check if provider acceptance is already known (prevents duplicate dispatch across crashes)
+        if (leasedActivity.details?.journeyMessageId) {
+            console.log(`[SiteVisitConfirmation][${traceId}] Provider acceptance already recorded on Activity ${activityId}: ${leasedActivity.details.journeyMessageId}`);
+            if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+                await ActivityModel.findByIdAndUpdate(activityId, {
+                    $set: {
+                        'details.journeyDispatchStatus': 'ACCEPTED',
+                        'details.confirmationStatus': 'CONFIRMED',
+                        'details.dispatchLeaseToken': null,
+                        'details.dispatchLeaseExpiresAt': null
+                    }
+                }, sessionOpt);
+            }
+            return {
+                success: true,
+                messageId: leasedActivity.details.journeyMessageId,
+                dispatchStatus: 'ACCEPTED',
+                confirmationStatus: 'CONFIRMED',
+                duplicate: true
+            };
+        }
+
+        // Check if WhatsAppDispatch table already has this idempotencyKey accepted
+        try {
+            const WhatsAppDispatch = mongoose.models.WhatsAppDispatch;
+            if (WhatsAppDispatch && typeof WhatsAppDispatch.findOne === 'function') {
+                const existingDispatch = await WhatsAppDispatch.findOne({
+                    idempotencyKey: stableIdempotencyKey,
+                    status: { $in: ['SERVER_ACKNOWLEDGED', 'DELIVERY_CONFIRMED', 'READ', 'DISPATCHED'] }
+                });
+                if (existingDispatch && (existingDispatch.providerMessageId || existingDispatch.status)) {
+                    const recoveredMsgId = existingDispatch.providerMessageId || `wamid.recovered.${activityId}`;
+                    console.log(`[SiteVisitConfirmation][${traceId}] Recovered existing dispatch record for Activity ${activityId}: ${recoveredMsgId}`);
+                    if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+                        await ActivityModel.findByIdAndUpdate(activityId, {
+                            $set: {
+                                'details.journeyDispatchStatus': 'ACCEPTED',
+                                'details.confirmationStatus': 'CONFIRMED',
+                                'details.journeyMessageId': recoveredMsgId,
+                                'details.journeyDispatchedAt': existingDispatch.createdAt || now,
+                                'details.dispatchLeaseToken': null,
+                                'details.dispatchLeaseExpiresAt': null
+                            },
+                            $push: {
+                                'details.auditHistory': {
+                                    action: 'JOURNEY_TEMPLATE_ACCEPTED_RECOVERED',
+                                    timestamp: now,
+                                    metadata: { messageId: recoveredMsgId, idempotencyKey: stableIdempotencyKey }
+                                }
+                            }
+                        }, sessionOpt);
+                    }
+                    return {
+                        success: true,
+                        messageId: recoveredMsgId,
+                        dispatchStatus: 'ACCEPTED',
+                        confirmationStatus: 'CONFIRMED',
+                        recovered: true
+                    };
+                }
+            }
+        } catch (dispatchCheckErr) {
+            console.warn(`[SiteVisitConfirmation][${traceId}] WhatsAppDispatch check error:`, dispatchCheckErr.message);
+        }
+
+        // ── 3. RESOLVE JOURNEY LINK ──
         let journeyInfo = null;
         try {
-            journeyInfo = await SiteVisitService.getJourneyLink(activity._id, null, { session });
+            journeyInfo = await SiteVisitService.getJourneyLink(activityId, options.user || null, { session: options.session });
         } catch (linkErr) {
             console.error(`[SiteVisitConfirmation][${traceId}] Error generating journey link:`, linkErr.message);
         }
 
-        // Stable dispatch idempotency key (per confirmation event)
-        const dispatchIdempotencyKey = incomingMsgId
-            ? `sv_journey_${activity._id}_${incomingMsgId}`
-            : `sv_journey_${activity._id}`;
-
-        let dispatchResult = { success: false, status: 'SKIPPED', error: 'Journey token unavailable' };
-        if (journeyInfo && journeyInfo.safeToken) {
-            dispatchResult = await this.dispatchJourneyTemplate(activity._id, null, {
-                session,
-                safeToken: journeyInfo.safeToken,
-                journeyUrl: journeyInfo.journeyUrl,
-                idempotencyKey: dispatchIdempotencyKey
-            });
+        if (!journeyInfo || !journeyInfo.safeToken) {
+            console.warn(`[SiteVisitConfirmation][${traceId}] Safe journey token unavailable for Activity ${activityId}`);
+            if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+                await ActivityModel.findByIdAndUpdate(activityId, {
+                    $set: {
+                        'details.journeyDispatchStatus': 'FAILED',
+                        'details.confirmationStatus': 'CONFIRMED_JOURNEY_PENDING',
+                        'details.journeyDispatchError': 'Safe token generation failed',
+                        'details.dispatchLeaseToken': null,
+                        'details.dispatchLeaseExpiresAt': null
+                    }
+                }, sessionOpt);
+            }
+            return {
+                success: false,
+                dispatchStatus: 'FAILED',
+                confirmationStatus: 'CONFIRMED_JOURNEY_PENDING',
+                error: 'Safe token generation failed'
+            };
         }
 
-        // Post-dispatch update: reflect actual provider outcome while preserving customer confirmation
+        // ── 4. DISPATCH TO EXTERNAL PROVIDER ──
+        const dispatchResult = await this.dispatchJourneyTemplate(activityId, options.user || null, {
+            session: options.session,
+            safeToken: journeyInfo.safeToken,
+            journeyUrl: journeyInfo.journeyUrl,
+            idempotencyKey: stableIdempotencyKey
+        });
+
+        // ── 5. RECORD PROVIDER OUTCOME ──
         const postUpdate = {};
         if (dispatchResult.success) {
             postUpdate['details.confirmationStatus'] = 'CONFIRMED';
-            postUpdate['details.journeyDispatchStatus'] = 'ACCEPTED'; // Meta API accepted dispatch
+            postUpdate['details.journeyDispatchStatus'] = 'ACCEPTED';
             postUpdate['details.journeyMessageId'] = dispatchResult.messageId || null;
             postUpdate['details.journeyDispatchedAt'] = new Date();
-            postUpdate['details.journeyShared'] = true;
+            postUpdate['details.dispatchLeaseToken'] = null;
+            postUpdate['details.dispatchLeaseExpiresAt'] = null;
+            // NOTE: details.journeyShared is strictly NOT set here! Only verified DELIVERED callback sets journeyShared = true.
         } else {
             postUpdate['details.confirmationStatus'] = 'CONFIRMED_JOURNEY_PENDING';
             postUpdate['details.journeyDispatchStatus'] = 'FAILED';
-            postUpdate['details.journeyDispatchError'] = dispatchResult.error || 'Meta template delivery pending or failed';
+            postUpdate['details.journeyDispatchError'] = dispatchResult.error || 'Provider rejected template dispatch';
             postUpdate['details.journeyLastAttemptAt'] = new Date();
-            console.warn(`[SiteVisitConfirmation][${traceId}] Journey dispatch failed for Activity ${activity._id}. State set to CONFIRMED_JOURNEY_PENDING: ${dispatchResult.error}`);
+            postUpdate['details.dispatchLeaseToken'] = null;
+            postUpdate['details.dispatchLeaseExpiresAt'] = null;
+            console.warn(`[SiteVisitConfirmation][${traceId}] Journey dispatch failed for Activity ${activityId}: ${dispatchResult.error}`);
         }
 
         const auditAction = dispatchResult.success ? 'JOURNEY_TEMPLATE_ACCEPTED' : 'JOURNEY_TEMPLATE_FAILED';
@@ -510,28 +688,93 @@ export class SiteVisitConfirmationService {
             metadata: {
                 messageId: dispatchResult.messageId || null,
                 error: dispatchResult.error || null,
-                dispatchIdempotencyKey
+                idempotencyKey: stableIdempotencyKey,
+                traceId
             }
         };
 
         if (typeof ActivityModel.findByIdAndUpdate === 'function') {
             await ActivityModel.findByIdAndUpdate(
-                activity._id,
+                activityId,
                 {
                     $set: postUpdate,
                     $push: { 'details.auditHistory': finalAudit }
                 },
-                session ? { session } : {}
+                sessionOpt
             );
         }
 
         return {
-            matched: true,
-            success: true,
-            duplicate: false,
-            activity: claimedActivity || activity,
+            success: dispatchResult.success,
+            messageId: dispatchResult.messageId || null,
+            dispatchStatus: postUpdate['details.journeyDispatchStatus'],
             confirmationStatus: postUpdate['details.confirmationStatus'],
-            journeyDispatched: dispatchResult.success
+            error: dispatchResult.error || null
+        };
+    }
+
+    /**
+     * Recovers stranded journey dispatches (expired PROCESSING leases or unstarted PENDING intents).
+     * Guarantees process crashes never leave a confirmed customer without their journey template.
+     */
+    static async recoverStrandedDispatches(options = {}) {
+        const ActivityModel = mongoose.models.Activity || Activity;
+        const tenantId = options.tenantId || null;
+        const maxRetries = options.maxRetries || 3;
+        const now = new Date();
+        const pendingThreshold = new Date(now.getTime() - (options.pendingAgeMs || 5000));
+
+        const query = {
+            type: 'Site Visit',
+            'details.customerConfirmed': true,
+            $and: [
+                {
+                    $or: [
+                        {
+                            'details.journeyDispatchStatus': 'PENDING',
+                            'details.customerConfirmedAt': { $lt: pendingThreshold }
+                        },
+                        {
+                            'details.journeyDispatchStatus': 'PROCESSING',
+                            'details.dispatchLeaseExpiresAt': { $lt: now }
+                        }
+                    ]
+                },
+                {
+                    $or: [
+                        { 'details.dispatchAttempts': { $exists: false } },
+                        { 'details.dispatchAttempts': { $lt: maxRetries } }
+                    ]
+                }
+            ]
+        };
+        if (tenantId) query.tenantId = tenantId;
+
+        let stranded = [];
+        if (typeof ActivityModel.find === 'function') {
+            stranded = await ActivityModel.find(query).limit(options.limit || 50);
+        }
+
+        const results = [];
+        for (const act of stranded) {
+            try {
+                console.log(`[SiteVisitConfirmation] Recovering stranded dispatch for Activity ${act._id} (Status: ${act.details?.journeyDispatchStatus})`);
+                const res = await this.processDurableDispatch(act._id, {
+                    tenantId: act.tenantId,
+                    maxRetries,
+                    traceId: `recover_${act._id}`
+                });
+                results.push({ activityId: act._id, result: res });
+            } catch (recErr) {
+                console.error(`[SiteVisitConfirmation] Recovery error for Activity ${act._id}:`, recErr.message);
+                results.push({ activityId: act._id, error: recErr.message });
+            }
+        }
+
+        return {
+            recoveredCount: results.filter(r => r.result?.success).length,
+            totalScanned: stranded.length,
+            results
         };
     }
 
@@ -696,7 +939,7 @@ export class SiteVisitConfirmationService {
             updates['details.journeyDispatchStatus'] = 'ACCEPTED';
             updates['details.journeyMessageId'] = dispatchResult.messageId;
             updates['details.journeyDispatchedAt'] = new Date();
-            updates['details.journeyShared'] = true;
+            // Provider ACCEPTED does not set journeyShared = true; only verified delivery does
         } else {
             // Keep customer confirmation intact; record retry failure
             updates['details.confirmationStatus'] = 'CONFIRMED_JOURNEY_PENDING';
@@ -734,7 +977,7 @@ export class SiteVisitConfirmationService {
     }
 
     /**
-     * Handles customer request to reschedule with strict tenant scope and state validation.
+     * Handles customer request to reschedule with strict tenant scope, verified intent, and stale checks.
      */
     static async handleRescheduleCallback({ mobile, message = {}, text = '', tenantId = null, session = null }) {
         if (!tenantId) {
@@ -743,6 +986,16 @@ export class SiteVisitConfirmationService {
                 matched: false,
                 success: false,
                 reason: 'TENANT_SCOPE_REQUIRED'
+            };
+        }
+
+        // Verify that the inbound message represents a verified reschedule intent
+        if (!this.isRescheduleReply(text, message)) {
+            console.warn('[SiteVisitConfirmation] Reschedule callback rejected: Unverified reschedule intent or conversational text.');
+            return {
+                matched: false,
+                success: false,
+                reason: 'UNVERIFIED_INTENT'
             };
         }
 
@@ -765,6 +1018,20 @@ export class SiteVisitConfirmationService {
                 reason: 'VISIT_INACTIVE',
                 status: activity.status
             };
+        }
+
+        // Reject stale messages targeting visits in the past (>24 hours past dueDate)
+        if (activity.dueDate) {
+            const dueTime = new Date(activity.dueDate).getTime();
+            if (!Number.isNaN(dueTime) && dueTime < Date.now() - 24 * 3600 * 1000) {
+                console.warn(`[SiteVisitConfirmation] Reschedule callback rejected: Visit ${activity._id} is STALE (dueDate: ${activity.dueDate})`);
+                return {
+                    matched: true,
+                    success: false,
+                    reason: 'VISIT_STALE',
+                    status: 'STALE'
+                };
+            }
         }
 
         const now = new Date();
