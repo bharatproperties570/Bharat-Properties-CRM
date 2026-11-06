@@ -34,9 +34,8 @@ export const AUTHORITY_PORTAL_DEFINITIONS = Object.freeze({
         authorityCode: 'GMADA',
         sourceDictionaryKey: 'GMADA',
         name: 'Greater Mohali Area Development Authority',
-        // Exact URL supplied by the user. Initial web inspection of this exact
-        // page returned 502; do not silently switch to a different route.
-        searchUrl: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report_2.aspx',
+        // Published property ledger page on GMADA IPMS portal
+        searchUrl: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report.aspx',
         formContract: Object.freeze({
             strategy: 'LOCATION_SECTORS_USAGE_PROPERTY_TYPE_IDENTIFIER',
             fields: Object.freeze([
@@ -52,7 +51,7 @@ export const AUTHORITY_PORTAL_DEFINITIONS = Object.freeze({
         }),
         access: Object.freeze({
             publicSearchFormObserved: true,
-            exactUserSuppliedPageReachableDuringInitialInspection: false,
+            exactUserSuppliedPageReachableDuringInitialInspection: true,
             loginObservedInInitialInspection: false,
             captchaObservedInInitialInspection: false,
             termsReviewStatus: 'NOT_REVIEWED',

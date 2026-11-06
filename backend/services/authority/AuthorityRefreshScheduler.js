@@ -106,6 +106,16 @@ export class AuthorityRefreshScheduler {
             }
 
             // 2. NON-NEGOTIABLE CHECK: Source must be effectively active
+            if (settings.isPaused && !isSimulation) {
+                results.push({
+                    tenantId: tId,
+                    authorityCode: authCode,
+                    status: 'SKIPPED_SOURCE_PAUSED',
+                    reason: 'Source is temporarily paused by circuit breaker.'
+                });
+                continue;
+            }
+
             const activationCheck = settings.checkActivationEligibility();
             if (!settings.isEffectivelyActive() && !isSimulation) {
                 results.push({

@@ -39,7 +39,9 @@ const NO_RECORD_PATTERNS = [
     /no\s+data\s+found/i,
     /record\s+not\s+found/i,
     /no\s+property\s+found/i,
-    /no\s+matching\s+record/i
+    /no\s+matching\s+record/i,
+    /no\s+match\s+found/i,
+    /please\s+enter\s+valid\s+details\s+to\s+open\s+property\s+ledger/i
 ];
 
 function normalizeKey(label) {

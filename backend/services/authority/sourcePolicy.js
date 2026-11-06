@@ -79,6 +79,13 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         permissionDate: null,
         permissionExpiry: null,
         permissionContact: null,
+        userReportedEvidence: {
+            reportedBy: 'Bharat Properties Owner',
+            reportedAt: '2026-11-06',
+            claimedRole: 'Chief Administrator',
+            status: 'PENDING_WRITTEN_REFERENCE',
+            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
+        },
 
         // ── Access method ──────────────────────────────────────────────────
         approvedAccessMethod: ACCESS_METHOD.NONE,
@@ -139,13 +146,20 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
     ESTATE_OFFICE_CHD: {
         authorityId: 'ESTATE_OFFICE_CHD',
         fullName: 'Estate Office, Chandigarh Administration',
-        portalUrl: 'https://chdestateoffice.gov.in',
+        portalUrl: 'https://estateoffice.chd.gov.in',
 
         permissionStatus: PERMISSION_STATUS.NOT_OBTAINED,
         permissionEvidence: null,
         permissionDate: null,
         permissionExpiry: null,
         permissionContact: null,
+        userReportedEvidence: {
+            reportedBy: 'Bharat Properties Owner',
+            reportedAt: '2026-11-06',
+            claimedRole: 'Estate Officer',
+            status: 'PENDING_WRITTEN_REFERENCE',
+            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
+        },
 
         approvedAccessMethod: ACCESS_METHOD.NONE,
         approvedAccessNotes: 'No access method approved. Portal existence known but programmatic access not authorized.',
@@ -198,13 +212,20 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
     GMADA: {
         authorityId: 'GMADA',
         fullName: 'Greater Mohali Area Development Authority',
-        portalUrl: 'https://gmada.gov.in',
+        portalUrl: 'https://gmadaipms.in',
 
         permissionStatus: PERMISSION_STATUS.NOT_OBTAINED,
         permissionEvidence: null,
         permissionDate: null,
         permissionExpiry: null,
         permissionContact: null,
+        userReportedEvidence: {
+            reportedBy: 'Bharat Properties Owner',
+            reportedAt: '2026-11-06',
+            claimedRole: 'Chief Administrator',
+            status: 'PENDING_WRITTEN_REFERENCE',
+            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
+        },
 
         approvedAccessMethod: ACCESS_METHOD.NONE,
         approvedAccessNotes: 'No access method approved. Portal existence known but programmatic access not authorized.',

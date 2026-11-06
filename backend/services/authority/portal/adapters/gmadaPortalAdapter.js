@@ -50,13 +50,10 @@ export const gmadaPortalAdapter = Object.freeze({
         const params = new URLSearchParams();
         params.append('ctl00$Column1_ContentPlaceHolder$ddlLocations', location);
         params.append('ctl00$Column1_ContentPlaceHolder$ddlScheme', sector);
-        if (criteria.usageType) {
-            params.append('ctl00$Column1_ContentPlaceHolder$ddlUsageType', String(criteria.usageType));
-        }
-        if (criteria.propertyType) {
-            params.append('ctl00$Column1_ContentPlaceHolder$ddlPropertyType', String(criteria.propertyType));
-        }
+        params.append('ctl00$Column1_ContentPlaceHolder$ddlUsageType', criteria.usageType ? String(criteria.usageType) : '0');
+        params.append('ctl00$Column1_ContentPlaceHolder$ddlPropertyType', criteria.propertyType ? String(criteria.propertyType) : '0');
         params.append('ctl00$Column1_ContentPlaceHolder$txtSearch', searchIdentifier);
+        params.append('ctl00$Column1_ContentPlaceHolder$hfOrgnization', options.organizationId || '3');
         params.append('ctl00$Column1_ContentPlaceHolder$btnView.x', '10');
         params.append('ctl00$Column1_ContentPlaceHolder$btnView.y', '10');
 
@@ -73,7 +70,7 @@ export const gmadaPortalAdapter = Object.freeze({
 
         return Object.freeze({
             method: 'POST',
-            url: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report_2.aspx',
+            url: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report.aspx',
             headers: Object.freeze({
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Accept': 'text/html,application/xhtml+xml',

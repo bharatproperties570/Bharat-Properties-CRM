@@ -399,13 +399,39 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                     isEnabled: false,
                     isPaused: false,
                     schedulingEnabled: false,
-                    reviewStatus: 'NOT_REVIEWED'
+                    reviewStatus: 'NOT_REVIEWED',
+                    userReportedEvidence: {
+                        reportedBy: 'Bharat Properties Owner',
+                        reportedAt: new Date('2026-11-06T17:51:10+05:30'),
+                        claimedAuthorityRole: code === 'HSVP' ? 'Chief Administrator' : (code === 'GMADA' ? 'Chief Administrator' : 'Estate Officer'),
+                        notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
+                        verificationStatus: 'PENDING_WRITTEN_REFERENCE'
+                    }
                 }
             },
             upsert: true
         }
     }));
     return this.bulkWrite(ops);
+};
+
+/**
+ * Records or updates explicit owner confirmation in userReportedEvidence.
+ */
+AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (tenantId, authorityCode, details = {}) {
+    return this.findOneAndUpdate(
+        { tenantId, authorityCode },
+        {
+            $set: {
+                'userReportedEvidence.reportedBy': details.reportedBy || 'Bharat Properties Owner',
+                'userReportedEvidence.reportedAt': details.reportedAt || new Date('2026-11-06T17:51:10+05:30'),
+                'userReportedEvidence.claimedAuthorityRole': details.claimedAuthorityRole || (authorityCode === 'HSVP' ? 'Chief Administrator' : (authorityCode === 'GMADA' ? 'Chief Administrator' : 'Estate Officer')),
+                'userReportedEvidence.notes': details.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
+                'userReportedEvidence.verificationStatus': details.verificationStatus || 'PENDING_WRITTEN_REFERENCE'
+            }
+        },
+        { new: true, upsert: true }
+    );
 };
 
 export function checkActivationEligibility(doc = {}) {
