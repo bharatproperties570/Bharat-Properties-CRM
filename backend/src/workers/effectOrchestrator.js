@@ -6,12 +6,18 @@ const LEASE_DURATION = 60000;
 const MAX_ATTEMPTS = 5;
 const WORKER_ID = `${os.hostname()}-${process.pid}`;
 
-export const executeEffect = async (eventId, effectKey, aggregateType, aggregateId, fn) => {
+export const executeEffect = async (eventId, effectKey, aggregateType, aggregateId, fn, options = {}) => {
+    const stableKey = options?.stableKey || null;
+    const query = stableKey ? { stableKey } : { eventId, effectKey };
+
     // 1. Establish baseline record
     await EffectExecution.updateOne(
-        { eventId, effectKey },
+        query,
         { 
             $setOnInsert: { 
+                eventId, 
+                effectKey, 
+                ...(stableKey ? { stableKey } : {}),
                 aggregateType, 
                 aggregateId, 
                 status: 'PENDING',
@@ -28,8 +34,7 @@ export const executeEffect = async (eventId, effectKey, aggregateType, aggregate
 
     const claim = await EffectExecution.findOneAndUpdate(
         {
-            eventId,
-            effectKey,
+            ...query,
             $or: [
                 { status: 'PENDING' },
                 { status: 'FAILED', attempts: { $lt: MAX_ATTEMPTS } },
@@ -50,8 +55,8 @@ export const executeEffect = async (eventId, effectKey, aggregateType, aggregate
 
     // If we didn't get a claim, check why
     if (!claim) {
-        const existing = await EffectExecution.findOne({ eventId, effectKey });
-        if (!existing) throw new Error(`EffectExecution disappeared: ${eventId}:${effectKey}`);
+        const existing = await EffectExecution.findOne(query);
+        if (!existing) throw new Error(`EffectExecution disappeared: ${stableKey || `${eventId}:${effectKey}`}`);
         if (existing.status === 'COMPLETED') {
             console.log(`[EffectOrchestrator] Skipping ${effectKey}: Already COMPLETED.`);
             return { status: 'SKIPPED' };

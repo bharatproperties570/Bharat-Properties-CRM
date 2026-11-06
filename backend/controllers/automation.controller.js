@@ -377,12 +377,13 @@ export const retryAutomationLog = async (req, res) => {
     const rawTenantId = req.user?.tenantId || req.user?.tenant;
     const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
 
+    let session = null;
     try {
         const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
         const AuditLog = (await import('../models/AuditLog.js')).default;
         const { v4: uuidv4 } = await import('uuid');
 
-        const session = await mongoose.startSession();
+        session = await mongoose.startSession();
         let updatedLog = null;
         let conflictOrNotFound = false;
 
@@ -471,8 +472,6 @@ export const retryAutomationLog = async (req, res) => {
             }], { session });
         });
 
-        await session.endSession();
-
         if (!updatedLog) {
             if (conflictOrNotFound) {
                 return res.status(409).json({
@@ -495,5 +494,9 @@ export const retryAutomationLog = async (req, res) => {
     } catch (err) {
         console.error(`[AutomationController] retryAutomationLog error for ${id}:`, err.message);
         return res.status(500).json({ success: false, message: 'Internal server error during automation log retry' });
+    } finally {
+        if (session) {
+            await session.endSession();
+        }
     }
 };
