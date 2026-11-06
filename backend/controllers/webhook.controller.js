@@ -592,22 +592,36 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 // Phase 18.3: Site Visit Customer Confirmation & Reschedule Callback
                 try {
                     const { SiteVisitConfirmationService } = await import('../src/modules/siteVisit/siteVisitConfirmation.service.js');
-                    if (SiteVisitConfirmationService.isYesConfirmReply(text, message)) {
-                        console.log(`[WhatsApp Webhook] Detected Site Visit 'Yes, Confirm' callback from ${mobile}`);
-                        await SiteVisitConfirmationService.handleConfirmationCallback({
-                            mobile,
-                            message,
-                            originalMessageId: message.context?.id || null,
-                            value,
-                            text
+                    const isConfirm = SiteVisitConfirmationService.isYesConfirmReply(text, message);
+                    const isResched = !isConfirm && SiteVisitConfirmationService.isRescheduleReply(text, message);
+
+                    if (isConfirm || isResched) {
+                        const waba_id = req.body?.entry?.[0]?.id || null;
+                        const phoneNumberId = value?.metadata?.phone_number_id || null;
+                        const trustedTenantId = await SiteVisitConfirmationService.resolveTrustedWebhookTenant({
+                            phoneNumberId,
+                            wabaId: waba_id,
+                            req
                         });
-                    } else if (SiteVisitConfirmationService.isRescheduleReply(text, message)) {
-                        console.log(`[WhatsApp Webhook] Detected Site Visit 'Reschedule' callback from ${mobile}`);
-                        await SiteVisitConfirmationService.handleRescheduleCallback({
-                            mobile,
-                            message,
-                            text
-                        });
+
+                        if (isConfirm) {
+                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Yes, Confirm' callback from ${mobile} (Tenant: ${trustedTenantId || 'UNRESOLVED'})`);
+                            await SiteVisitConfirmationService.handleConfirmationCallback({
+                                mobile,
+                                message,
+                                originalMessageId: message.context?.id || null,
+                                tenantId: trustedTenantId,
+                                text
+                            });
+                        } else if (isResched) {
+                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Reschedule' callback from ${mobile} (Tenant: ${trustedTenantId || 'UNRESOLVED'})`);
+                            await SiteVisitConfirmationService.handleRescheduleCallback({
+                                mobile,
+                                message,
+                                text,
+                                tenantId: trustedTenantId
+                            });
+                        }
                     }
                 } catch (svErr) {
                     console.error('[WhatsApp Webhook] SiteVisitConfirmationService error:', svErr.message);

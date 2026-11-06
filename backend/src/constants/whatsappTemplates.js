@@ -1,6 +1,12 @@
 /**
  * Meta WhatsApp Business API Template Registry
- * Phase 18.3: Dedicated Site Visit Journey Confirmation Template Specification
+ * Phase 18.3.1: Dedicated Site Visit Journey Confirmation Template Specification
+ *
+ * NOTE ON BILLING & PRICING:
+ * Message charges are subject to current Meta WhatsApp Business API conversation-based
+ * pricing, message category (UTILITY), country rate cards (e.g. India IN rates), and
+ * live WABA billing account status. The CRM does not make unverified claims of zero cost.
+ * Status remains SUBMISSION_PREPARED until official Meta Business Manager approval is verified.
  */
 
 export const META_TEMPLATES = {
@@ -10,6 +16,11 @@ export const META_TEMPLATES = {
         category: 'UTILITY',
         language: 'en',
         status: 'SUBMISSION_PREPARED', // Never claim Meta approval without official provider approval evidence
+        billingPolicy: {
+            category: 'UTILITY',
+            billingModel: 'CONVERSATION_BASED_OR_PER_MESSAGE',
+            notes: 'Charges subject to current Meta rate cards, country of destination, and WABA billing account records. Submissions must not assume zero-cost delivery.'
+        },
         headerType: 'NONE',
         body: `Namaste {{1}} ji,\n\nAapki property site visit successfully confirm ho gayi hai.\n\nVisit Date: {{2}}\nVisit Time: {{3}}\n\nAapki personalized property itinerary, property photos aur Google Maps navigation details dekhne ke liye neeche diye gaye button par click karein.\n\nRegards,\nBharat Properties`,
         footer: 'Bharat Properties • Verified Itinerary',

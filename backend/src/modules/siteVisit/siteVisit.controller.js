@@ -173,11 +173,43 @@ export const revokeSiteVisitJourneyLink = async (req, res) => {
 export const resendSiteVisitJourney = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        // Authorize access and tenant scope using canonical SiteVisitService contract
+        const { SiteVisitService } = await import('./siteVisit.service.js');
+        const activity = await SiteVisitService.getById(id, req.user);
+        if (!activity) {
+            return res.status(404).json({
+                success: false,
+                message: 'Site visit not found'
+            });
+        }
+
+        if (activity.status === 'Cancelled') {
+            return res.status(410).json({
+                success: false,
+                message: 'Cannot resend journey template for cancelled visit'
+            });
+        }
+
+        if (activity.status === 'Completed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot resend journey template for completed visit'
+            });
+        }
+
         const { SiteVisitConfirmationService } = await import('./siteVisitConfirmation.service.js');
-        const result = await SiteVisitConfirmationService.resendJourneyTemplate(id, req.user, {
+        const result = await SiteVisitConfirmationService.resendJourneyTemplate(activity, req.user, {
             force: true,
             reason: req.body?.reason || 'Manual resend requested by CRM staff'
         });
+
         return res.status(200).json({
             success: result.success,
             data: result,
@@ -186,7 +218,11 @@ export const resendSiteVisitJourney = async (req, res) => {
                 : `Journey template dispatch failed: ${result.error || 'Pending Meta approval'}`
         });
     } catch (err) {
-        const status = err.statusCode || (err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400));
+        const status = err.statusCode || (
+            err.message.includes('Authorization failed') || err.message.includes('Access denied') ? 403 :
+            err.message.includes('not found') ? 404 :
+            err.message.includes('cancelled') ? 410 : 400
+        );
         return res.status(status).json({
             success: false,
             message: err.message

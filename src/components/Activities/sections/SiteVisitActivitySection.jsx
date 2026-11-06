@@ -48,7 +48,7 @@ const JourneyProgressTracker = ({ formData, isDark, onManage }) => {
         }
     };
 
-    // Calculate Confirmation & Journey Lifecycle Status
+    // Calculate Confirmation & Journey Lifecycle Status with Verified Delivery State Separation
     const getLifecycleStatus = () => {
         if (formData.status === 'Cancelled') {
             return { label: 'Cancelled', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', icon: 'fas fa-ban' };
@@ -56,13 +56,27 @@ const JourneyProgressTracker = ({ formData, isDark, onManage }) => {
         if (formData.details?.rescheduleRequested || formData.details?.confirmationStatus === 'RESCHEDULE_REQUESTED') {
             return { label: 'Reschedule Requested', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.35)', icon: 'fas fa-calendar-alt' };
         }
+        // Journey Opened remains distinct from delivery
         if (formData.details?.journeyOpened) {
-            return { label: 'Journey Opened', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)', border: 'rgba(5, 150, 105, 0.35)', icon: 'fas fa-eye' };
+            return { label: 'Journey Opened', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)', border: 'rgba(139, 92, 246, 0.35)', icon: 'fas fa-eye' };
         }
-        if (formData.details?.journeyShared || formData.details?.journeyDispatchStatus === 'ACCEPTED' || formData.details?.journeyDeliveryStatus === 'DELIVERED') {
-            return { label: 'Journey Shared', color: '#0284c7', bg: 'rgba(2, 132, 199, 0.1)', border: 'rgba(2, 132, 199, 0.3)', icon: 'fas fa-paper-plane' };
+
+        const deliveryStatus = String(formData.details?.journeyDeliveryStatus || '').toUpperCase();
+        const dispatchStatus = String(formData.details?.journeyDispatchStatus || '').toUpperCase();
+
+        if (deliveryStatus === 'READ') {
+            return { label: 'Journey Read', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)', border: 'rgba(5, 150, 105, 0.35)', icon: 'fas fa-check-double' };
         }
-        if (formData.details?.confirmationStatus === 'CONFIRMED_JOURNEY_PENDING' || (formData.details?.customerConfirmed && formData.details?.journeyDispatchStatus === 'FAILED')) {
+        if (deliveryStatus === 'DELIVERED') {
+            return { label: 'Journey Delivered', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.35)', icon: 'fas fa-check-double' };
+        }
+        if (deliveryStatus === 'SENT' || dispatchStatus === 'SENT') {
+            return { label: 'Journey Sent', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)', border: 'rgba(6, 182, 212, 0.35)', icon: 'fas fa-paper-plane' };
+        }
+        if (dispatchStatus === 'ACCEPTED' || formData.details?.journeyShared) {
+            return { label: 'Journey Accepted', color: '#0284c7', bg: 'rgba(2, 132, 199, 0.12)', border: 'rgba(2, 132, 199, 0.35)', icon: 'fas fa-clock' };
+        }
+        if (formData.details?.confirmationStatus === 'CONFIRMED_JOURNEY_PENDING' || (formData.details?.customerConfirmed && dispatchStatus === 'FAILED')) {
             return { label: 'Confirmed — Journey Pending', color: '#d97706', bg: 'rgba(217, 119, 6, 0.12)', border: 'rgba(217, 119, 6, 0.35)', icon: 'fas fa-exclamation-circle' };
         }
         if (formData.details?.customerConfirmed || formData.details?.confirmationStatus === 'CONFIRMED') {

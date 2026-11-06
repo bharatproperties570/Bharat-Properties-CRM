@@ -48,38 +48,44 @@ function formatVisitDate(dateObj) {
 /**
  * SiteVisitConfirmationService
  * 
- * Handles the complete lifecycle for:
- * 1. Customer confirmation via WhatsApp "Yes, Confirm" button callbacks.
- * 2. Correlation of inbound replies to pending Site Visit activities.
- * 3. Idempotent confirmation persistence and audit logging.
- * 4. Dispatch of the dedicated Meta-approved Site Visit Journey template.
- * 5. Safe error isolation and "CONFIRMED_JOURNEY_PENDING" state when template is pending approval.
- * 6. Rescheduling callbacks and journey open tracking.
+ * Production-hardened service for Phase 18.3.1:
+ * - Strict tenant isolation & trusted server-side tenant derivation.
+ * - Strict callback matching (rejects generic free text 'confirm' or unrelated text).
+ * - Atomic Compare-And-Set (CAS) claim preventing concurrent callback race conditions.
+ * - Decoupled customer confirmation state vs provider delivery status.
+ * - Provider delivery state separation: PENDING -> ACCEPTED -> SENT -> DELIVERED -> READ -> FAILED.
+ * - Safe retries and full audit history.
  */
 export class SiteVisitConfirmationService {
     /**
-     * Determines whether an incoming webhook message represents a "Yes, Confirm" response.
+     * Determines whether an incoming webhook message represents a valid "Yes, Confirm" response.
+     * Enforces strict validation:
+     * - Quick reply button click matching approved button title or payload.
+     * - Interactive button reply matching approved ID or title.
+     * - Exact plain text matches for "yes, confirm" or "yes confirm".
+     * Rejects generic conversational text like "confirm", "can you confirm?", etc.
      */
     static isYesConfirmReply(text = '', message = {}) {
         const cleanText = String(text || '').trim().toLowerCase();
         
-        // Direct text matches
-        if (cleanText === 'yes, confirm' || cleanText === 'yes confirm' || cleanText === 'confirm') {
+        // Exact text matches only — generic "confirm" is strictly rejected
+        if (cleanText === 'yes, confirm' || cleanText === 'yes confirm') {
             return true;
         }
 
-        // WhatsApp button reply matches
-        const btnText = String(message.button?.text || message.button?.payload || '').trim().toLowerCase();
-        if (btnText === 'yes, confirm' || btnText === 'yes confirm' || btnText === 'confirm' || btnText === 'confirm_visit') {
+        // WhatsApp Quick Reply button match (approved template uses button text: "Yes, Confirm")
+        const btnText = String(message.button?.text || '').trim().toLowerCase();
+        const btnPayload = String(message.button?.payload || '').trim().toLowerCase();
+        if (btnText === 'yes, confirm' || btnText === 'yes confirm' || btnPayload === 'confirm_visit' || btnPayload === 'yes_confirm') {
             return true;
         }
 
-        // WhatsApp interactive button_reply matches
+        // WhatsApp Interactive button_reply match
         const interactive = message.interactive || {};
         if (interactive.type === 'button_reply') {
             const title = String(interactive.button_reply?.title || '').trim().toLowerCase();
             const id = String(interactive.button_reply?.id || '').trim().toLowerCase();
-            if (title === 'yes, confirm' || title === 'yes confirm' || title === 'confirm' || id === 'yes_confirm' || id === 'confirm_visit') {
+            if (title === 'yes, confirm' || title === 'yes confirm' || id === 'yes_confirm' || id === 'confirm_visit') {
                 return true;
             }
         }
@@ -88,35 +94,132 @@ export class SiteVisitConfirmationService {
     }
 
     /**
-     * Determines whether an incoming webhook message represents a "Reschedule" request.
+     * Determines whether an incoming webhook message represents a valid "Reschedule" request.
+     * Enforces strict validation:
+     * - Button click or interactive reply explicitly matching reschedule intent.
+     * - Exact plain text matches for "reschedule", "reschedule visit", "reschedule site visit", or "change visit date".
+     * Rejects generic sentences containing the substring "reschedule".
      */
     static isRescheduleReply(text = '', message = {}) {
         const cleanText = String(text || '').trim().toLowerCase();
-        if (cleanText.includes('reschedule') || cleanText === 'change date' || cleanText === 'change time') {
+        
+        // Strict exact text phrases
+        const exactPhrases = ['reschedule', 'reschedule visit', 'reschedule site visit', 'change visit date', 'change visit time'];
+        if (exactPhrases.includes(cleanText)) {
             return true;
         }
 
-        const btnText = String(message.button?.text || message.button?.payload || '').trim().toLowerCase();
-        if (btnText.includes('reschedule')) return true;
+        const btnText = String(message.button?.text || '').trim().toLowerCase();
+        const btnPayload = String(message.button?.payload || '').trim().toLowerCase();
+        if (btnText === 'reschedule' || btnText === 'reschedule visit' || btnPayload === 'reschedule' || btnPayload === 'reschedule_visit') {
+            return true;
+        }
 
         const interactive = message.interactive || {};
         if (interactive.type === 'button_reply') {
             const title = String(interactive.button_reply?.title || '').trim().toLowerCase();
             const id = String(interactive.button_reply?.id || '').trim().toLowerCase();
-            if (title.includes('reschedule') || id.includes('reschedule')) return true;
+            if (title === 'reschedule' || title === 'reschedule visit' || id === 'reschedule' || id === 'reschedule_visit') {
+                return true;
+            }
         }
 
         return false;
     }
 
     /**
+     * Derives trusted tenant identity exclusively from verified server-side configuration.
+     * Never trusts customer text or unauthenticated client request headers.
+     * Fails closed (returns null) if tenant is missing or ambiguous.
+     */
+    static async resolveTrustedWebhookTenant({ phoneNumberId = null, wabaId = null, req = null } = {}) {
+        // 1. If upstream verified middleware (e.g. webhookAttribution.middleware) already validated HMAC & tenant
+        if (req?.resolvedTenantId) {
+            return String(req.resolvedTenantId);
+        }
+        if (req?.webhookAttribution?.tenantId) {
+            return String(req.webhookAttribution.tenantId);
+        }
+
+        // 2. Query TenantWebhookConfig by phoneNumberId / wabaId
+        const TenantWebhookConfigModel = mongoose.models.TenantWebhookConfig || (await import('../../../models/TenantWebhookConfig.js').then(m => m.default).catch(() => null));
+        if (TenantWebhookConfigModel && typeof TenantWebhookConfigModel.find === 'function') {
+            if (phoneNumberId) {
+                const configs = await TenantWebhookConfigModel.find({
+                    'providerConfig.phoneNumberId': String(phoneNumberId),
+                    isActive: true
+                }).lean();
+                if (configs.length === 1) return String(configs[0].tenantId);
+                if (configs.length > 1) {
+                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple TenantWebhookConfigs for phoneNumberId ${phoneNumberId}`);
+                    return null; // Fail closed!
+                }
+            }
+            if (wabaId) {
+                const configs = await TenantWebhookConfigModel.find({
+                    'providerConfig.wabaId': String(wabaId),
+                    isActive: true
+                }).lean();
+                if (configs.length === 1) return String(configs[0].tenantId);
+                if (configs.length > 1) {
+                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple TenantWebhookConfigs for wabaId ${wabaId}`);
+                    return null; // Fail closed!
+                }
+            }
+        }
+
+        // 3. Query WhatsAppIntegration by phoneNumberId / wabaId
+        const WhatsAppIntegrationModel = mongoose.models.WhatsAppIntegration || (await import('../../../models/WhatsAppIntegration.js').then(m => m.default).catch(() => null));
+        if (WhatsAppIntegrationModel && typeof WhatsAppIntegrationModel.find === 'function') {
+            if (phoneNumberId) {
+                const integrations = await WhatsAppIntegrationModel.find({
+                    phoneNumberId: String(phoneNumberId),
+                    status: { $ne: 'REVOKED' }
+                }).lean();
+                if (integrations.length === 1) {
+                    const tId = integrations[0].organizationId || integrations[0].tenantId;
+                    if (tId) return String(tId);
+                }
+                if (integrations.length > 1) {
+                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple WhatsAppIntegrations for phoneNumberId ${phoneNumberId}`);
+                    return null; // Fail closed!
+                }
+            }
+            if (wabaId) {
+                const integrations = await WhatsAppIntegrationModel.find({
+                    wabaId: String(wabaId),
+                    status: { $ne: 'REVOKED' }
+                }).lean();
+                if (integrations.length === 1) {
+                    const tId = integrations[0].organizationId || integrations[0].tenantId;
+                    if (tId) return String(tId);
+                }
+                if (integrations.length > 1) {
+                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple WhatsAppIntegrations for wabaId ${wabaId}`);
+                    return null; // Fail closed!
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Resolves the target Site Visit activity for an inbound customer reply.
-     * Correlation hierarchy:
-     * 1. Original outbound WhatsApp message ID (message.context.id) matching stored dispatch IDs.
-     * 2. Customer mobile number resolving active Lead and their upcoming Pending/Scheduled Site Visit.
-     * 3. Customer mobile number matching Activity participants.
+     * Enforces strict tenant scope and unambiguous matching:
+     * - Tenant scope is mandatory. If tenantId is not provided, fails closed.
+     * - Precedence 1: Outbound WAMID correlation (message.context.id) scoped to tenant.
+     * - Precedence 2: Customer phone number resolving active Lead and their upcoming Site Visit.
+     *   * If multiple upcoming visits exist, FAILS CLOSED to prevent misconfirmation.
+     * - Precedence 3: Participant phone number matching.
+     *   * If multiple upcoming visits exist, FAILS CLOSED.
      */
     static async resolveSiteVisitForCallback({ mobile, originalMessageId = null, tenantId = null, session = null }) {
+        if (!tenantId) {
+            console.warn('[SiteVisitConfirmation] Callback rejected: Tenant scope is required for all callback resolutions.');
+            return { activity: null, method: 'TENANT_SCOPE_REQUIRED', error: 'TENANT_SCOPE_REQUIRED' };
+        }
+
         const ActivityModel = mongoose.models.Activity || Activity;
         const LeadModel = mongoose.models.Lead || Lead;
         const sessionOpt = session ? { session } : undefined;
@@ -125,6 +228,7 @@ export class SiteVisitConfirmationService {
         if (originalMessageId && typeof ActivityModel.findOne === 'function') {
             const msgQuery = {
                 type: 'Site Visit',
+                tenantId,
                 status: { $in: ['Pending', 'Scheduled'] },
                 $or: [
                     { 'details.waScheduleMessageId': originalMessageId },
@@ -134,7 +238,6 @@ export class SiteVisitConfirmationService {
                     { 'details.journeyMessageId': originalMessageId }
                 ]
             };
-            if (tenantId) msgQuery.tenantId = tenantId;
 
             const matchedByMsg = await ActivityModel.findOne(msgQuery, null, sessionOpt);
             if (matchedByMsg) {
@@ -147,34 +250,41 @@ export class SiteVisitConfirmationService {
         }
 
         // ── Precedence 2: Customer phone number resolving Lead & Site Visit ──
+        // Only permitted when exactly one unambiguous upcoming visit exists in tenant
         if (mobile) {
             const phoneVariants = getPhoneVariants(mobile);
 
             let lead = null;
             if (typeof LeadModel.findOne === 'function') {
-                const leadQuery = { mobile: { $in: phoneVariants } };
-                if (tenantId) leadQuery.tenantId = tenantId;
-                lead = await LeadModel.findOne(leadQuery, null, sessionOpt).lean();
+                const leadQuery = { mobile: { $in: phoneVariants }, tenantId };
+                lead = await LeadModel.findOne(leadQuery, null, sessionOpt);
+                if (lead && typeof lead.toObject === 'function') lead = lead.toObject();
+                else if (lead && typeof lead.lean === 'function') lead = await lead.lean();
             }
 
-            if (lead && lead._id && typeof ActivityModel.findOne === 'function') {
-                // Find pending or scheduled site visit for this lead (within last 24h or in future)
+            if (lead && lead._id && typeof ActivityModel.find === 'function') {
                 const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
                 const leadVisitQuery = {
+                    tenantId,
                     type: 'Site Visit',
                     entityType: 'Lead',
                     entityId: lead._id,
                     status: { $in: ['Pending', 'Scheduled'] },
                     dueDate: { $gte: yesterday }
                 };
-                if (tenantId) leadVisitQuery.tenantId = tenantId;
 
-                const visit = await ActivityModel.findOne(leadVisitQuery, null, sessionOpt)
-                    .sort({ dueDate: 1 });
+                const matchingVisits = await ActivityModel.find(leadVisitQuery, null, sessionOpt)
+                    .sort({ dueDate: 1 })
+                    .limit(2);
 
-                if (visit) {
+                if (matchingVisits.length > 1) {
+                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Lead ${lead._id} has ${matchingVisits.length} upcoming Site Visits in tenant ${tenantId}. Failing closed.`);
+                    return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
+                }
+
+                if (matchingVisits.length === 1) {
                     return {
-                        activity: visit,
+                        activity: matchingVisits[0],
                         lead,
                         method: 'PHONE_LEAD_LOOKUP'
                     };
@@ -182,20 +292,26 @@ export class SiteVisitConfirmationService {
             }
 
             // ── Precedence 3: Participants phone matching ──
-            if (typeof ActivityModel.findOne === 'function') {
+            if (typeof ActivityModel.find === 'function') {
                 const partQuery = {
+                    tenantId,
                     type: 'Site Visit',
                     status: { $in: ['Pending', 'Scheduled'] },
                     'participants.mobile': { $in: phoneVariants }
                 };
-                if (tenantId) partQuery.tenantId = tenantId;
 
-                const visitByPart = await ActivityModel.findOne(partQuery, null, sessionOpt)
-                    .sort({ dueDate: 1 });
+                const partVisits = await ActivityModel.find(partQuery, null, sessionOpt)
+                    .sort({ dueDate: 1 })
+                    .limit(2);
 
-                if (visitByPart) {
+                if (partVisits.length > 1) {
+                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Multiple participant Site Visits found for ${mobile} in tenant ${tenantId}. Failing closed.`);
+                    return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
+                }
+
+                if (partVisits.length === 1) {
                     return {
-                        activity: visitByPart,
+                        activity: partVisits[0],
                         lead: lead || null,
                         method: 'PARTICIPANT_PHONE_LOOKUP'
                     };
@@ -207,80 +323,148 @@ export class SiteVisitConfirmationService {
     }
 
     /**
-     * Handles the customer confirmation callback when "Yes, Confirm" is clicked.
+     * Handles customer confirmation callback when "Yes, Confirm" is clicked.
+     * Enforces atomic CAS claim to prevent race conditions:
+     * 1. Resolves visit with mandatory tenant scope.
+     * 2. Checks active status (rejects Cancelled or Completed visits).
+     * 3. Atomically claims confirmation event in DB before dispatching template.
+     * 4. Persists customer confirmation independently from delivery.
+     * 5. Dispatches dedicated journey template with deterministic idempotency key.
+     * 6. Updates delivery state: ACCEPTED or CONFIRMED_JOURNEY_PENDING.
      */
-    static async handleConfirmationCallback({ mobile, message = {}, originalMessageId = null, value = null, text = '', session = null }) {
+    static async handleConfirmationCallback({ mobile, message = {}, originalMessageId = null, tenantId = null, text = '', session = null }) {
         const traceId = crypto.randomBytes(6).toString('hex');
+        
+        if (!tenantId) {
+            console.warn(`[SiteVisitConfirmation][${traceId}] Callback rejected: Tenant scope is required.`);
+            return {
+                matched: false,
+                success: false,
+                reason: 'TENANT_SCOPE_REQUIRED'
+            };
+        }
+
         const resolved = await this.resolveSiteVisitForCallback({
             mobile,
             originalMessageId: originalMessageId || message?.context?.id || null,
+            tenantId,
             session
         });
 
         const activity = resolved.activity;
         if (!activity) {
-            console.warn(`[SiteVisitConfirmation][${traceId}] No pending Site Visit activity found for customer ${mobile}`);
+            console.warn(`[SiteVisitConfirmation][${traceId}] No unique pending Site Visit activity found for customer ${mobile} in tenant ${tenantId} (Method: ${resolved.method})`);
             return {
                 matched: false,
-                reason: 'NO_ACTIVE_SITE_VISIT'
+                success: false,
+                reason: resolved.method || 'NO_ACTIVE_SITE_VISIT'
             };
         }
 
-        // Strict Cancellation Check: Cancelled site visits cannot be confirmed
-        if (activity.status === 'Cancelled') {
-            console.warn(`[SiteVisitConfirmation][${traceId}] Confirmation attempted on CANCELLED Site Visit ${activity._id}`);
+        // Strict Inactive Check: Cancelled or Completed visits cannot be confirmed
+        if (activity.status === 'Cancelled' || activity.status === 'Completed') {
+            console.warn(`[SiteVisitConfirmation][${traceId}] Confirmation attempted on INACTIVE (${activity.status}) Site Visit ${activity._id}`);
             return {
                 matched: true,
                 success: false,
-                reason: 'VISIT_CANCELLED',
+                reason: 'VISIT_INACTIVE',
+                status: activity.status,
                 activityId: activity._id
             };
         }
 
-        // Idempotency Contract: Prevent duplicate confirmations and redundant template dispatch
         const incomingMsgId = message?.id || null;
-        const alreadyConfirmed = activity.details?.customerConfirmed === true;
-        const isDuplicateCallback = alreadyConfirmed && (
-            (incomingMsgId && activity.details?.confirmationMessageId === incomingMsgId) ||
-            activity.details?.confirmationStatus === 'CONFIRMED'
-        );
+        const now = new Date();
+        const ActivityModel = mongoose.models.Activity || Activity;
 
-        if (isDuplicateCallback) {
-            console.log(`[SiteVisitConfirmation][${traceId}] Idempotent callback suppressed: Activity ${activity._id} is already CONFIRMED.`);
+        // Fast-path idempotency check if already confirmed
+        if (activity.details?.customerConfirmed === true) {
+            if (activity.details?.confirmationStatus === 'CONFIRMED') {
+                console.log(`[SiteVisitConfirmation][${traceId}] Idempotent callback suppressed: Activity ${activity._id} is already CONFIRMED.`);
+                return {
+                    matched: true,
+                    success: true,
+                    duplicate: true,
+                    activity,
+                    confirmationStatus: 'CONFIRMED'
+                };
+            }
+            if (activity.details?.journeyDispatchStatus === 'PENDING') {
+                console.log(`[SiteVisitConfirmation][${traceId}] In-flight confirmation suppressed for Activity ${activity._id}.`);
+                return {
+                    matched: true,
+                    success: true,
+                    duplicate: true,
+                    inFlight: true,
+                    confirmationStatus: activity.details?.confirmationStatus || 'CONFIRMED'
+                };
+            }
+        }
+
+        // ── ATOMIC CAS CLAIM BEFORE PROVIDER DISPATCH ──
+        // Only one concurrent worker can claim the confirmation intent
+        const claimToken = incomingMsgId || `claim_${activity._id}_${Date.now()}`;
+        const claimFilter = {
+            _id: activity._id,
+            tenantId,
+            status: { $in: ['Pending', 'Scheduled'] },
+            $or: [
+                { 'details.customerConfirmed': { $ne: true } },
+                { 'details.confirmationMessageId': incomingMsgId }
+            ]
+        };
+
+        const claimUpdate = {
+            $set: {
+                'details.customerConfirmed': true,
+                'details.customerConfirmedAt': activity.details?.customerConfirmedAt || now,
+                'details.confirmationMethod': 'WHATSAPP_BUTTON',
+                'details.confirmationMessageId': incomingMsgId,
+                'details.confirmationOpaqueId': originalMessageId || message?.context?.id || null,
+                'details.confirmationClaimToken': claimToken,
+                'details.confirmationClaimAt': now,
+                'details.confirmationStatus': activity.details?.confirmationStatus || 'CONFIRMED_JOURNEY_PENDING',
+                'details.journeyDispatchStatus': 'PENDING'
+            },
+            $push: {
+                'details.auditHistory': {
+                    action: 'CUSTOMER_CONFIRMED',
+                    source: 'WHATSAPP_QUICK_REPLY',
+                    timestamp: now,
+                    metadata: {
+                        mobile,
+                        messageId: incomingMsgId,
+                        originalMessageId: originalMessageId || message?.context?.id || null,
+                        traceId,
+                        tenantId
+                    }
+                }
+            }
+        };
+
+        let claimedActivity = null;
+        if (typeof ActivityModel.findOneAndUpdate === 'function') {
+            claimedActivity = await ActivityModel.findOneAndUpdate(
+                claimFilter,
+                claimUpdate,
+                { new: true, ...(session ? { session } : {}) }
+            );
+        }
+
+        if (!claimedActivity) {
+            // Concurrent request already claimed or completed confirmation
+            const latest = await ActivityModel.findById(activity._id);
+            console.log(`[SiteVisitConfirmation][${traceId}] Concurrent callback suppressed by CAS claim for Activity ${activity._id}.`);
             return {
                 matched: true,
                 success: true,
                 duplicate: true,
-                activity,
-                confirmationStatus: activity.details?.confirmationStatus || 'CONFIRMED'
+                activity: latest || activity,
+                confirmationStatus: latest?.details?.confirmationStatus || 'CONFIRMED'
             };
         }
 
-        // Persist Customer Confirmation State
-        if (!activity.details) activity.details = {};
-        activity.details.customerConfirmed = true;
-        activity.details.customerConfirmedAt = new Date();
-        activity.details.confirmationMethod = 'WHATSAPP_BUTTON';
-        activity.details.confirmationMessageId = incomingMsgId;
-        activity.details.confirmationOpaqueId = originalMessageId || message?.context?.id || null;
-
-        // Audit Trail Entry
-        if (!Array.isArray(activity.details.auditHistory)) {
-            activity.details.auditHistory = [];
-        }
-        activity.details.auditHistory.push({
-            action: 'CUSTOMER_CONFIRMED',
-            source: 'WHATSAPP_QUICK_REPLY',
-            timestamp: new Date(),
-            metadata: {
-                mobile,
-                messageId: incomingMsgId,
-                originalMessageId: originalMessageId || message?.context?.id || null,
-                traceId
-            }
-        });
-
-        // Generate / Retrieve Personal Journey Link upfront
+        // Generate / Retrieve Personal Journey Link
         let journeyInfo = null;
         try {
             journeyInfo = await SiteVisitService.getJourneyLink(activity._id, null, { session });
@@ -288,50 +472,65 @@ export class SiteVisitConfirmationService {
             console.error(`[SiteVisitConfirmation][${traceId}] Error generating journey link:`, linkErr.message);
         }
 
-        // Attempt Dedicated Journey Template Dispatch
+        // Stable dispatch idempotency key (per confirmation event)
+        const dispatchIdempotencyKey = incomingMsgId
+            ? `sv_journey_${activity._id}_${incomingMsgId}`
+            : `sv_journey_${activity._id}`;
+
         let dispatchResult = { success: false, status: 'SKIPPED', error: 'Journey token unavailable' };
         if (journeyInfo && journeyInfo.safeToken) {
             dispatchResult = await this.dispatchJourneyTemplate(activity._id, null, {
                 session,
                 safeToken: journeyInfo.safeToken,
-                journeyUrl: journeyInfo.journeyUrl
+                journeyUrl: journeyInfo.journeyUrl,
+                idempotencyKey: dispatchIdempotencyKey
             });
         }
 
-        // Set Confirmation Status based on dispatch outcome
+        // Post-dispatch update: reflect actual provider outcome while preserving customer confirmation
+        const postUpdate = {};
         if (dispatchResult.success) {
-            activity.details.confirmationStatus = 'CONFIRMED';
-            activity.details.journeyDispatchStatus = 'ACCEPTED';
-            activity.details.journeyMessageId = dispatchResult.messageId || null;
-            activity.details.journeyDispatchedAt = new Date();
-            activity.details.journeyShared = true;
+            postUpdate['details.confirmationStatus'] = 'CONFIRMED';
+            postUpdate['details.journeyDispatchStatus'] = 'ACCEPTED'; // Meta API accepted dispatch
+            postUpdate['details.journeyMessageId'] = dispatchResult.messageId || null;
+            postUpdate['details.journeyDispatchedAt'] = new Date();
+            postUpdate['details.journeyShared'] = true;
         } else {
-            // Business Decision Locked: Retain confirmation but flag journey pending
-            activity.details.confirmationStatus = 'CONFIRMED_JOURNEY_PENDING';
-            activity.details.journeyDispatchStatus = 'FAILED';
-            activity.details.journeyDispatchError = dispatchResult.error || 'Meta template delivery pending or failed';
-            activity.details.journeyLastAttemptAt = new Date();
+            postUpdate['details.confirmationStatus'] = 'CONFIRMED_JOURNEY_PENDING';
+            postUpdate['details.journeyDispatchStatus'] = 'FAILED';
+            postUpdate['details.journeyDispatchError'] = dispatchResult.error || 'Meta template delivery pending or failed';
+            postUpdate['details.journeyLastAttemptAt'] = new Date();
             console.warn(`[SiteVisitConfirmation][${traceId}] Journey dispatch failed for Activity ${activity._id}. State set to CONFIRMED_JOURNEY_PENDING: ${dispatchResult.error}`);
         }
 
-        // Save activity document
-        const ActivityModel = mongoose.models.Activity || Activity;
+        const auditAction = dispatchResult.success ? 'JOURNEY_TEMPLATE_ACCEPTED' : 'JOURNEY_TEMPLATE_FAILED';
+        const finalAudit = {
+            action: auditAction,
+            timestamp: new Date(),
+            metadata: {
+                messageId: dispatchResult.messageId || null,
+                error: dispatchResult.error || null,
+                dispatchIdempotencyKey
+            }
+        };
+
         if (typeof ActivityModel.findByIdAndUpdate === 'function') {
             await ActivityModel.findByIdAndUpdate(
                 activity._id,
-                { $set: { details: activity.details } },
+                {
+                    $set: postUpdate,
+                    $push: { 'details.auditHistory': finalAudit }
+                },
                 session ? { session } : {}
             );
-        } else if (typeof activity.save === 'function') {
-            await activity.save(session ? { session } : {});
         }
 
         return {
             matched: true,
             success: true,
             duplicate: false,
-            activity,
-            confirmationStatus: activity.details.confirmationStatus,
+            activity: claimedActivity || activity,
+            confirmationStatus: postUpdate['details.confirmationStatus'],
             journeyDispatched: dispatchResult.success
         };
     }
@@ -356,8 +555,8 @@ export class SiteVisitConfirmationService {
             return { success: false, error: 'Activity not found' };
         }
 
-        if (activity.status === 'Cancelled') {
-            return { success: false, error: 'Cannot dispatch journey template for cancelled visit' };
+        if (activity.status === 'Cancelled' || activity.status === 'Completed') {
+            return { success: false, error: `Cannot dispatch journey template for ${activity.status.toLowerCase()} visit` };
         }
 
         // Resolve recipient customer mobile and name
@@ -365,7 +564,7 @@ export class SiteVisitConfirmationService {
         let recipientName = 'Client';
 
         if (activity.entityType === 'Lead' && activity.entityId && typeof LeadModel.findById === 'function') {
-            const lead = await LeadModel.findById(activity.entityId, null, sessionOpt).lean();
+            const lead = await LeadModel.findById(activity.entityId, null, sessionOpt);
             if (lead) {
                 recipientMobile = lead.mobile;
                 recipientName = lead.firstName || lead.name || 'Client';
@@ -417,7 +616,7 @@ export class SiteVisitConfirmationService {
             }
         ];
 
-        const idempotencyKey = `sv_journey_tpl_${activity._id}_${Date.now()}`;
+        const idempotencyKey = options.idempotencyKey || `sv_journey_tpl_${activity._id}`;
 
         try {
             const sendResult = await WhatsAppService.sendTemplate(
@@ -430,7 +629,7 @@ export class SiteVisitConfirmationService {
 
             if (sendResult?.success || sendResult?.messages?.[0]?.id) {
                 const messageId = sendResult?.messageId || sendResult?.messages?.[0]?.id || `wamid.mock.${Date.now()}`;
-                console.log(`[SiteVisitConfirmation][${traceId}] Journey template dispatched successfully to ${recipientMobile}. MessageId: ${messageId}`);
+                console.log(`[SiteVisitConfirmation][${traceId}] Journey template accepted by provider for ${recipientMobile}. MessageId: ${messageId}`);
                 return {
                     success: true,
                     messageId,
@@ -456,12 +655,21 @@ export class SiteVisitConfirmationService {
     }
 
     /**
-     * Resends or retries the Site Visit Journey template (e.g. from CRM UI or retry queue)
-     * without resetting or changing the customer's verified confirmation status.
+     * Resends or retries the Site Visit Journey template with strict authorization:
+     * - Enforces user authorization, role visibility, and tenant scope via SiteVisitService.getById(id, user).
+     * - Rejects unauthorized or cross-tenant access with 403 / 404 before sending.
+     * - Rejects cancelled visits (410) and completed visits (400).
+     * - Does NOT reset or alter the customer's verified confirmation status.
      */
-    static async resendJourneyTemplate(activityId, user = null, options = {}) {
-        const ActivityModel = mongoose.models.Activity || Activity;
-        const activity = await ActivityModel.findById(activityId);
+    static async resendJourneyTemplate(activityOrId, user = null, options = {}) {
+        let activity = null;
+        if (typeof activityOrId === 'object' && activityOrId._id) {
+            activity = activityOrId;
+        } else {
+            // Strictly enforce authorization and tenant check
+            activity = await SiteVisitService.getById(activityOrId, user);
+        }
+
         if (!activity) {
             const err = new Error('Site visit not found');
             err.statusCode = 404;
@@ -474,77 +682,115 @@ export class SiteVisitConfirmationService {
             throw err;
         }
 
-        const dispatchResult = await this.dispatchJourneyTemplate(activityId, user, options);
-
-        if (!activity.details) activity.details = {};
-        if (dispatchResult.success) {
-            activity.details.confirmationStatus = 'CONFIRMED';
-            activity.details.journeyDispatchStatus = 'ACCEPTED';
-            activity.details.journeyMessageId = dispatchResult.messageId;
-            activity.details.journeyDispatchedAt = new Date();
-            activity.details.journeyShared = true;
-        } else {
-            // Keep customer confirmation intact; record retry failure
-            activity.details.confirmationStatus = 'CONFIRMED_JOURNEY_PENDING';
-            activity.details.journeyDispatchStatus = 'FAILED';
-            activity.details.journeyDispatchError = dispatchResult.error;
-            activity.details.journeyLastAttemptAt = new Date();
+        if (activity.status === 'Completed') {
+            const err = new Error('Cannot send journey template for completed visit');
+            err.statusCode = 400;
+            throw err;
         }
 
-        // Add audit history
-        if (!Array.isArray(activity.details.auditHistory)) activity.details.auditHistory = [];
-        activity.details.auditHistory.push({
+        const dispatchResult = await this.dispatchJourneyTemplate(activity._id, user, options);
+
+        const updates = {};
+        if (dispatchResult.success) {
+            updates['details.confirmationStatus'] = 'CONFIRMED';
+            updates['details.journeyDispatchStatus'] = 'ACCEPTED';
+            updates['details.journeyMessageId'] = dispatchResult.messageId;
+            updates['details.journeyDispatchedAt'] = new Date();
+            updates['details.journeyShared'] = true;
+        } else {
+            // Keep customer confirmation intact; record retry failure
+            updates['details.confirmationStatus'] = 'CONFIRMED_JOURNEY_PENDING';
+            updates['details.journeyDispatchStatus'] = 'FAILED';
+            updates['details.journeyDispatchError'] = dispatchResult.error;
+            updates['details.journeyLastAttemptAt'] = new Date();
+        }
+
+        const auditEntry = {
             action: 'JOURNEY_TEMPLATE_RESEND_ATTEMPT',
             user: user?._id || user?.id || 'SYSTEM',
             success: dispatchResult.success,
             messageId: dispatchResult.messageId || null,
             error: dispatchResult.error || null,
             timestamp: new Date()
-        });
+        };
 
-        await ActivityModel.findByIdAndUpdate(activity._id, { $set: { details: activity.details } });
+        const ActivityModel = mongoose.models.Activity || Activity;
+        if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+            await ActivityModel.findByIdAndUpdate(
+                activity._id,
+                {
+                    $set: updates,
+                    $push: { 'details.auditHistory': auditEntry }
+                }
+            );
+        }
 
         return {
             success: dispatchResult.success,
-            confirmationStatus: activity.details.confirmationStatus,
+            confirmationStatus: updates['details.confirmationStatus'],
             journeyMessageId: dispatchResult.messageId || null,
             error: dispatchResult.error || null
         };
     }
 
     /**
-     * Handles customer request to reschedule.
+     * Handles customer request to reschedule with strict tenant scope and state validation.
      */
-    static async handleRescheduleCallback({ mobile, message = {}, text = '', session = null }) {
+    static async handleRescheduleCallback({ mobile, message = {}, text = '', tenantId = null, session = null }) {
+        if (!tenantId) {
+            console.warn('[SiteVisitConfirmation] Reschedule callback rejected: Tenant scope is required.');
+            return {
+                matched: false,
+                success: false,
+                reason: 'TENANT_SCOPE_REQUIRED'
+            };
+        }
+
         const resolved = await this.resolveSiteVisitForCallback({
             mobile,
             originalMessageId: message?.context?.id || null,
+            tenantId,
             session
         });
 
         const activity = resolved.activity;
         if (!activity) {
-            return { matched: false, reason: 'NO_ACTIVE_SITE_VISIT' };
+            return { matched: false, reason: resolved.method || 'NO_ACTIVE_SITE_VISIT' };
         }
 
-        if (!activity.details) activity.details = {};
-        activity.details.rescheduleRequested = true;
-        activity.details.rescheduleRequestedAt = new Date();
-        activity.details.confirmationStatus = 'RESCHEDULE_REQUESTED';
+        if (activity.status === 'Cancelled' || activity.status === 'Completed') {
+            return {
+                matched: true,
+                success: false,
+                reason: 'VISIT_INACTIVE',
+                status: activity.status
+            };
+        }
 
-        if (!Array.isArray(activity.details.auditHistory)) activity.details.auditHistory = [];
-        activity.details.auditHistory.push({
+        const now = new Date();
+        const updatePayload = {
+            'details.rescheduleRequested': true,
+            'details.rescheduleRequestedAt': now,
+            'details.confirmationStatus': 'RESCHEDULE_REQUESTED'
+        };
+
+        const auditEntry = {
             action: 'CUSTOMER_RESCHEDULE_REQUESTED',
             source: 'WHATSAPP_MESSAGE',
-            timestamp: new Date(),
-            metadata: { mobile, messageId: message?.id }
-        });
+            timestamp: now,
+            metadata: { mobile, messageId: message?.id, tenantId }
+        };
 
         const ActivityModel = mongoose.models.Activity || Activity;
         if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-            await ActivityModel.findByIdAndUpdate(activity._id, { $set: { details: activity.details } });
-        } else if (typeof activity.save === 'function') {
-            await activity.save();
+            await ActivityModel.findByIdAndUpdate(
+                activity._id,
+                {
+                    $set: updatePayload,
+                    $push: { 'details.auditHistory': auditEntry }
+                },
+                session ? { session } : {}
+            );
         }
 
         return {
@@ -572,7 +818,6 @@ export class SiteVisitConfirmationService {
                     };
                     if (!wasOpened) {
                         update['details.journeyOpenCount'] = 1;
-                        if (!Array.isArray(activity.details.auditHistory)) activity.details.auditHistory = [];
                         update['$push'] = {
                             'details.auditHistory': {
                                 action: 'JOURNEY_OPENED',
