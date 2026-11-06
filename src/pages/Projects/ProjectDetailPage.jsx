@@ -7,7 +7,7 @@ import { useProject, useUpdateProjectMutation } from '../../utils/crmHooks';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
-import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
+import { fixDriveUrl, getYoutubeId, getReadableLocation } from '../../utils/helpers';
 import ProjectWebsiteModal from './components/ProjectWebsiteModal';
 import ProjectBroadcastModal from './components/ProjectBroadcastModal';
 import LiveBroadcastBoard from '../../components/Marketing/LiveBroadcastBoard';
@@ -408,7 +408,7 @@ const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNav
                             boxShadow: '0 2px 6px rgba(0, 0, 0, 0.05)',
                             transition: 'all 0.15s ease'
                         }}
-                        title="Promote on Social Media & Real Estate Portals (99acres, Magicbricks, Housing.com, BNA)"
+                        title="Promote on Social Media & Real Estate Portals (99acres, Magicbricks, Housing.com, etc.)"
                     >
                         <i className="fas fa-bullseye text-cyan-500" style={{ fontSize: '0.8rem' }}></i>
                         <span>Promote</span>
@@ -1090,7 +1090,8 @@ const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNav
                     id: project._id,
                     name: project.name,
                     title: project.name,
-                    location: project.address?.location || project.locationSearch || `${project.address?.city || ''}, ${project.address?.state || ''}`.replace(/^, /, ''),
+                    location: getReadableLocation(project),
+                    locationSearch: project.locationSearch,
                     price: project.priceRange || (project.pricing?.minPrice ? `₹${project.pricing.minPrice} - ₹${project.pricing.maxPrice}` : "Price on Request"),
                     description: project.description || "Explore this prime real estate opportunity!",
                     imageUrl: project.primaryImage || project.media?.[0]?.url,

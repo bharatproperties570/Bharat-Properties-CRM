@@ -3,7 +3,7 @@ import { useTeams } from '../../utils/crmHooks';
 import { useTheme } from '../../context/ThemeContext';
 import { useUserContext } from '../../context/UserContext';
 import { api } from '../../utils/api';
-// import { getInitials } from '../../utils/helpers';
+import { getReadableLocation } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
@@ -404,7 +404,7 @@ function ProjectsPage({ onNavigate }) {
                                         </div>
                                         <div>
                                             <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>{project.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{project.locationSearch || project.address?.location || 'No Location'}</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{getReadableLocation(project)}</div>
                                             <span style={{ fontSize: '0.65rem', background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5', color: isDark ? '#34d399' : '#059669', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, marginTop: '4px', display: 'inline-block' }}>Active</span>
                                         </div>
                                     </div>
@@ -659,7 +659,7 @@ function ProjectsPage({ onNavigate }) {
                                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px' }}></i>
                                                 <div className="address-clamp" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4', fontWeight: 500 }}>
-                                                    {project.locationSearch || project.address?.location || 'No Location Details'}
+                                                    {getReadableLocation(project)}
                                                 </div>
                                             </div>
 
@@ -902,7 +902,8 @@ function ProjectsPage({ onNavigate }) {
                         id: p._id,
                         name: p.name,
                         title: p.name,
-                        location: p.address?.location || p.locationSearch || `${p.address?.city || ''}, ${p.address?.state || ''}`.replace(/^, /, ''),
+                        location: getReadableLocation(p),
+                        locationSearch: p.locationSearch,
                         price: p.priceRange || (p.pricing?.minPrice ? `₹${p.pricing.minPrice} - ₹${p.pricing.maxPrice}` : "Price on Request"),
                         description: p.description || "Explore this prime real estate opportunity!",
                         imageUrl: p.primaryImage || p.media?.[0]?.url,

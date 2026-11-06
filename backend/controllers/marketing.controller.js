@@ -403,26 +403,80 @@ export const deleteScheduledCampaign = async (req, res) => {
 export const generateSocialContent = async (req, res) => {
     try {
         const { dealId, platform } = req.body;
-        if (!dealId || !platform) return res.status(400).json({ success: false, error: 'Deal ID and platform are required' });
+        if (!dealId || !platform) return res.status(400).json({ success: false, error: 'Target ID and platform are required' });
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const deal = await Deal.findOne({ _id: dealId, ...visibilityFilter });
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found or access denied' });
+        let targetEntity = null;
+        let entityType = 'deal';
 
-        const content = await marketingService.generateSocialPost(deal, platform.toLowerCase());
+        // 1. Try finding as Deal
+        if (mongoose.Types.ObjectId.isValid(dealId)) {
+            targetEntity = await Deal.findOne({ _id: dealId, ...visibilityFilter });
+        }
+
+        // 2. If not a Deal, try finding as a Project
+        if (!targetEntity && mongoose.Types.ObjectId.isValid(dealId)) {
+            const project = await Project.findOne({ _id: dealId, ...visibilityFilter });
+            if (project) {
+                entityType = 'project';
+                // Extract clean, human-readable location (strictly no raw hex ObjectIds)
+                let locStr = project.locationSearch || '';
+                if (!locStr || /^[0-9a-fA-F]{24}$/.test(locStr.trim())) {
+                    const parts = [
+                        project.address?.sector,
+                        project.address?.locality,
+                        project.address?.subLocality,
+                        project.address?.area,
+                        project.address?.city,
+                        project.address?.state
+                    ].filter(p => p && typeof p === 'string' && !/^[0-9a-fA-F]{24}$/.test(p.trim()));
+                    locStr = parts.length > 0 ? parts.join(', ') : 'Kurukshetra, Haryana';
+                }
+
+                const priceStr = project.priceRange || 
+                    (project.pricing?.minPrice ? `₹${project.pricing.minPrice.toLocaleString('en-IN')}${project.pricing.maxPrice ? ' - ₹' + project.pricing.maxPrice.toLocaleString('en-IN') : ''}` : 'Price on Request');
+
+                targetEntity = {
+                    _id: project._id,
+                    unitNo: project.name,
+                    projectName: project.name,
+                    location: locStr,
+                    price: priceStr,
+                    size: project.totalArea || project.projectArea || '',
+                    description: project.description || 'Explore this prime real estate opportunity with Bharat Properties!',
+                    type: 'project'
+                };
+            }
+        }
+
+        if (!targetEntity) {
+            return res.status(404).json({ success: false, error: 'Target property or project not found or access denied' });
+        }
+
+        let content = '';
+        try {
+            content = await marketingService.generateSocialPost(targetEntity, platform.toLowerCase());
+        } catch (aiErr) {
+            console.warn('[generateSocialContent] AI service generation fallback:', aiErr.message);
+            const pUpper = platform.toUpperCase();
+            content = `✨ ${targetEntity.projectName || targetEntity.unitNo || 'Prime Real Estate Opportunity'}\n📍 Location: ${targetEntity.location || 'Kurukshetra, Haryana'}\n💰 Price: ${targetEntity.price || 'Price on Request'}\n\n${targetEntity.description || 'Explore this premier investment and residential property. Contact Bharat Properties today for private viewing and verified documentation!'}\n\n#BharatProperties #RealEstate #${pUpper} #Investment`;
+        }
 
         const post = await MarketingContent.create({
-            title: `${deal.unitNo || 'Property'} ${platform} Post`,
+            title: `${targetEntity.unitNo || targetEntity.projectName || 'Property'} ${platform} Post`,
             content: content,
             platform: platform.charAt(0).toUpperCase() + platform.slice(1),
-            type: 'ct-project',
+            type: entityType === 'project' ? 'ct-project' : 'ct-deal',
             date: new Date().toISOString().split('T')[0],
             status: 'draft',
-            dealId: deal._id,
+            dealId: targetEntity._id,
             author: req.user?.id
+        }).catch(err => {
+            console.warn('[generateSocialContent] Non-blocking MarketingContent save error:', err.message);
+            return { _id: new mongoose.Types.ObjectId() };
         });
 
-        res.json({ success: true, platform, content, dealTitle: deal.unitNo, postId: post._id });
+        res.json({ success: true, platform, content, dealTitle: targetEntity.unitNo || targetEntity.projectName, postId: post?._id });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

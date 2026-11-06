@@ -28,7 +28,7 @@ vi.mock('react-hot-toast', () => ({
   }
 }));
 
-describe('SocialPostModal - Enterprise Share & Promote Studio', () => {
+describe('SocialPostModal - Enterprise Promote Studio', () => {
   const mockProjectData = {
     id: 'proj-12345',
     name: 'Godrej Palm Retreat 302',
@@ -58,7 +58,7 @@ describe('SocialPostModal - Enterprise Share & Promote Studio', () => {
       <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
     );
 
-    expect(screen.getByText('Share & Promote Studio')).toBeInTheDocument();
+    expect(screen.getByText('Promote Studio')).toBeInTheDocument();
     expect(screen.getByText('Social Media Studio')).toBeInTheDocument();
     expect(screen.getByText('Portals & Syndication')).toBeInTheDocument();
 

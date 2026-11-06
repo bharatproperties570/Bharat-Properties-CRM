@@ -38,3 +38,57 @@ export function getYoutubeId(url) {
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
 }
+
+/**
+ * Resolves a human-readable location string from an entity (Project, Deal, Inventory).
+ * Strictly filters out raw MongoDB ObjectIds (24-char hex strings) so user-facing UI
+ * always displays real sectors, cities, or addresses.
+ */
+export function getReadableLocation(entity) {
+    if (!entity) return 'Kurukshetra, Haryana';
+
+    // 1. Check if locationSearch is a clean human-readable string
+    if (entity.locationSearch && typeof entity.locationSearch === 'string') {
+        const trimmed = entity.locationSearch.trim();
+        if (trimmed && !/^[0-9a-fA-F]{24}$/.test(trimmed)) {
+            return trimmed;
+        }
+    }
+
+    // 2. Check if address?.location or location is populated object
+    const loc = entity.address?.location || entity.location;
+    if (loc && typeof loc === 'object') {
+        if (loc.lookup_value && typeof loc.lookup_value === 'string') return loc.lookup_value;
+        if (loc.name && typeof loc.name === 'string') return loc.name;
+    }
+
+    // 3. Check if location is string and NOT an ObjectId
+    if (typeof loc === 'string') {
+        const trimmed = loc.trim();
+        if (trimmed && !/^[0-9a-fA-F]{24}$/.test(trimmed)) {
+            return trimmed;
+        }
+    }
+
+    // 4. Assemble readable address parts (excluding hex ObjectIds)
+    const addr = entity.address;
+    if (addr && typeof addr === 'object') {
+        const parts = [
+            addr.sector,
+            addr.locality,
+            addr.subLocality,
+            addr.area,
+            addr.street,
+            addr.city,
+            addr.state
+        ].filter(p => typeof p === 'string' && p.trim() && !/^[0-9a-fA-F]{24}$/.test(p.trim()));
+
+        if (parts.length > 0) {
+            return parts.join(', ');
+        }
+    }
+
+    // 5. Default fallback
+    return 'Kurukshetra, Haryana';
+}
+
