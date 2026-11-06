@@ -22,6 +22,8 @@ export const InboundMessageService = {
 
         if (type === 'text') {
             text = message.text?.body || '';
+        } else if (type === 'button') {
+            text = message.button?.text || message.button?.payload || '';
         } else if (type === 'interactive') {
             const interactive = message.interactive || {};
             if (interactive.type === 'button_reply') text = interactive.button_reply?.title || '';

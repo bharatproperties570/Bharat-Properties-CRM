@@ -169,3 +169,27 @@ export const revokeSiteVisitJourneyLink = async (req, res) => {
         });
     }
 };
+
+export const resendSiteVisitJourney = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { SiteVisitConfirmationService } = await import('./siteVisitConfirmation.service.js');
+        const result = await SiteVisitConfirmationService.resendJourneyTemplate(id, req.user, {
+            force: true,
+            reason: req.body?.reason || 'Manual resend requested by CRM staff'
+        });
+        return res.status(200).json({
+            success: result.success,
+            data: result,
+            message: result.success
+                ? 'Site Visit Journey template dispatched successfully to customer WhatsApp.'
+                : `Journey template dispatch failed: ${result.error || 'Pending Meta approval'}`
+        });
+    } catch (err) {
+        const status = err.statusCode || (err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400));
+        return res.status(status).json({
+            success: false,
+            message: err.message
+        });
+    }
+};

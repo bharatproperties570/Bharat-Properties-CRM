@@ -614,7 +614,9 @@ export class SiteVisitAutomationService {
             $or: [
                 { 'details.remindersSent.h24MessageId': providerMessageId },
                 { 'details.remindersSent.h2MessageId': providerMessageId },
-                { 'details.feedbackDispatchMessageId': providerMessageId }
+                { 'details.feedbackDispatchMessageId': providerMessageId },
+                { 'details.journeyMessageId': providerMessageId },
+                { 'details.waScheduleMessageId': providerMessageId }
             ]
         };
 
@@ -691,6 +693,22 @@ export class SiteVisitAutomationService {
                 }
             } else {
                 console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for feedback dispatch on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
+            }
+        }
+
+        if (activity.details?.journeyMessageId === providerMessageId) {
+            const currentStatus = activity.details?.journeyDeliveryStatus;
+            if (canTransition(currentStatus)) {
+                updates['details.journeyDeliveryStatus'] = normalizedStatus;
+                if (isDelivered) {
+                    updates['details.journeyDeliveredAt'] = now;
+                    updates['details.journeyShared'] = true;
+                }
+                if (isFailed) {
+                    updates['details.journeyDeliveryError'] = error || 'Carrier reported journey message failure';
+                }
+            } else {
+                console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for journey dispatch on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
             }
         }
 

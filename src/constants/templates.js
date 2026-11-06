@@ -701,6 +701,23 @@ Bharat Properties
         tags: ['Activity', 'Confirmation']
     },
     {
+        id: 'site_visit_journey_confirmation',
+        name: 'Site Visit: Journey & Navigation Itinerary',
+        category: 'UTILITY',
+        language: 'en',
+        status: 'SUBMISSION_PREPARED',
+        content: `Namaste {{1}} ji,\n\nAapki property site visit successfully confirm ho gayi hai.\n\nVisit Date: {{2}}\nVisit Time: {{3}}\n\nAapki personalized property itinerary, property photos aur Google Maps navigation details dekhne ke liye neeche diye gaye button par click karein.\n\nRegards,\nBharat Properties`,
+        buttons: [
+            {
+                type: 'URL',
+                text: 'View Visit Journey',
+                url: 'https://crm.bharatproperties.co/journey/{{1}}',
+                url_type: 'DYNAMIC'
+            }
+        ],
+        tags: ['Activity', 'Journey', 'Utility']
+    },
+    {
         id: 'activity_reminder1_sitevisit_meeting',
         name: 'Activity: 1-Day Reminder',
         category: 'UTILITY',

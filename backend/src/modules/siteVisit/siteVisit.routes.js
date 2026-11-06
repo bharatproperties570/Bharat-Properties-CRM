@@ -8,7 +8,8 @@ import {
     listSiteVisits,
     getSiteVisitJourneyLink,
     rotateSiteVisitJourneyLink,
-    revokeSiteVisitJourneyLink
+    revokeSiteVisitJourneyLink,
+    resendSiteVisitJourney
 } from './siteVisit.controller.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 
@@ -23,6 +24,8 @@ router.get('/:id/journey-link', getSiteVisitJourneyLink);
 router.post('/:id/journey-link', getSiteVisitJourneyLink);
 router.post('/:id/journey-link/rotate', rotateSiteVisitJourneyLink);
 router.post('/:id/journey-link/revoke', revokeSiteVisitJourneyLink);
+router.post('/:id/journey-link/resend', resendSiteVisitJourney);
+router.post('/:id/resend-journey', resendSiteVisitJourney);
 router.post('/:id/reschedule', rescheduleSiteVisit);
 router.post('/:id/cancel', cancelSiteVisit);
 router.post('/:id/complete', completeSiteVisit);
