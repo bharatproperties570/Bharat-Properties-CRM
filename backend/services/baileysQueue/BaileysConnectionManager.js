@@ -324,6 +324,7 @@ export const BaileysConnectionManager = {
                         try {
                             const qrDataUrl = await qrcode.toDataURL(qr);
                             await WhatsAppIntegration.findByIdAndUpdate(integrationId, {
+                                status: 'PENDING_ONBOARDING',
                                 onboardingStatus: 'QR_PENDING',
                                 failureReason: qrDataUrl
                             });

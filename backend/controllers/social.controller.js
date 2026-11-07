@@ -1353,8 +1353,14 @@ export const getWhatsAppAccounts = async (req, res) => {
         const SystemSetting = mongoose.model('SystemSetting');
         const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
 
-        // Fetch all active integrations
-        const integrations = await WhatsAppIntegration.find({ status: 'ACTIVE' })
+        // Fetch all active integrations, plus Baileys integrations for the requesting user (even if currently onboarding/QR_PENDING)
+        const integrations = await WhatsAppIntegration.find({
+            $or: [
+                { status: 'ACTIVE' },
+                { provider: 'BAILEYS', connectedBy: req.user._id },
+                { connectionType: 'QR_SCANNER', connectedBy: req.user._id }
+            ]
+        })
             .sort({ isDefault: -1, createdAt: 1 })
             .lean();
 
@@ -1381,7 +1387,8 @@ export const getWhatsAppAccounts = async (req, res) => {
                 provider: i.provider || (i.connectionType === 'QR_SCANNER' ? 'BAILEYS' : 'META_CLOUD'),
                 onboardingStatus: i.onboardingStatus,
                 isDefault: !!i.isDefault,
-                status: i.status
+                status: i.status,
+                isReady: i.status === 'ACTIVE' && (i.provider !== 'BAILEYS' || i.onboardingStatus === 'CONNECTED')
             });
         });
 
@@ -1517,6 +1524,14 @@ export const startBaileysConnection = async (req, res) => {
             }
         }
 
+        // 🛡️ Enterprise Reset: Clear circuit breaker fail counters so user gets immediate fresh QR attempts
+        try {
+            const { default: WhatsAppCircuitBreaker } = await import('../services/WhatsAppCircuitBreaker.js');
+            await WhatsAppCircuitBreaker.reset(integration._id.toString(), req.user?.email || 'USER', 'Fresh QR connection initiated by user');
+        } catch (cbErr) {
+            console.warn('[SocialController] Circuit breaker reset notice:', cbErr.message);
+        }
+
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
         // This will asynchronously generate the QR and store it in failureReason
         BaileysConnectionManager.connect(integration._id.toString()).catch(cErr => {
@@ -1606,6 +1621,36 @@ export const getBaileysStatus = async (req, res) => {
                     failureReason: null
                 });
             }
+        } else {
+            // 🧠 SENIOR PROFESSIONAL: Socket is NOT authenticated.
+            // Check if durable credentials exist in BaileysAuth
+            const { default: BaileysAuth } = await import('../models/BaileysAuth.js');
+            const hasCreds = await BaileysAuth.exists({ sessionId: req.params.id, fileId: 'creds' });
+
+            if (qrDataUrl || onboardingStatus === 'QR_PENDING') {
+                status = 'PENDING_ONBOARDING';
+                onboardingStatus = 'QR_PENDING';
+            } else if (!hasCreds) {
+                status = 'PENDING_ONBOARDING';
+                onboardingStatus = 'DISCONNECTED';
+            }
+
+            // Sync database if it falsely reports ACTIVE
+            if (integration.status === 'ACTIVE' && !hasCreds) {
+                await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
+                    status: 'PENDING_ONBOARDING',
+                    onboardingStatus: qrDataUrl ? 'QR_PENDING' : 'DISCONNECTED'
+                });
+            }
+
+            // Auto-heal: If circuit breaker was tripped due to QR timeout, reset it so user can scan fresh QR
+            try {
+                const { default: WhatsAppCircuitBreaker } = await import('../services/WhatsAppCircuitBreaker.js');
+                const isTripped = await WhatsAppCircuitBreaker.isTripped(req.params.id).catch(() => false);
+                if (isTripped) {
+                    await WhatsAppCircuitBreaker.reset(req.params.id, req.user?.email || 'SYSTEM', 'Auto-recovery on status poll');
+                }
+            } catch (cbErr) {}
         }
 
         res.json({ 

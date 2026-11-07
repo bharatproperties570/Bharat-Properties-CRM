@@ -798,12 +798,28 @@ const SendMessageModal = ({
                                 value={selectedWhatsAppAccount}
                                 onChange={(e) => setSelectedWhatsAppAccount(e.target.value)}
                             >
-                                {whatsappAccounts.map(acc => (
-                                    <option key={acc.id} value={acc.id}>
-                                        {acc.accountLabel || acc.displayPhoneNumber} {acc.isDefault ? '★ (Default API)' : acc.connectionType === 'COEXISTENCE' ? '📱 (WhatsApp App)' : (acc.connectionType === 'QR_SCANNER' || acc.provider === 'BAILEYS') ? '⚡ (WhatsApp Web)' : ''}
-                                    </option>
-                                ))}
+                                {whatsappAccounts.map(acc => {
+                                    const isOffline = (acc.provider === 'BAILEYS' || acc.connectionType === 'QR_SCANNER') && acc.onboardingStatus !== 'CONNECTED';
+                                    return (
+                                        <option key={acc.id} value={acc.id}>
+                                            {acc.accountLabel || acc.displayPhoneNumber} {isOffline ? '⚠️ (Offline - QR Scan Required)' : acc.isDefault ? '★ (Default API)' : acc.connectionType === 'COEXISTENCE' ? '📱 (WhatsApp App)' : (acc.connectionType === 'QR_SCANNER' || acc.provider === 'BAILEYS') ? '⚡ (WhatsApp Web)' : ''}
+                                        </option>
+                                    );
+                                })}
                             </select>
+                            {(() => {
+                                const curAcc = whatsappAccounts.find(a => (a.id || a._id) === selectedWhatsAppAccount);
+                                const isCurOffline = (curAcc?.provider === 'BAILEYS' || curAcc?.connectionType === 'QR_SCANNER') && curAcc?.onboardingStatus !== 'CONNECTED';
+                                if (isCurOffline) {
+                                    return (
+                                        <div style={{ marginTop: '10px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', fontSize: '0.78rem', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-exclamation-triangle" style={{ color: '#ef4444' }}></i>
+                                            <span><strong>WhatsApp Web is disconnected:</strong> Please scan the QR code in your Profile page before sending messages.</span>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
                         </div>
                     )}
 

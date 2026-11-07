@@ -28,7 +28,10 @@ const WhatsAppQRConnect = ({ onComplete }) => {
             try {
                 const accRes = await whatsappService.getAccounts();
                 if (accRes && accRes.success && Array.isArray(accRes.data)) {
-                    const baileysAcc = accRes.data.find(a => a.provider === 'BAILEYS' && (a.status === 'ACTIVE' || a.onboardingStatus === 'CONNECTED'));
+                    const baileysAcc = accRes.data.find(a => 
+                        (a.provider === 'BAILEYS' || a.connectionType === 'QR_SCANNER') && 
+                        (a.status === 'ACTIVE' || a.onboardingStatus === 'CONNECTED' || a.onboardingStatus === 'QR_PENDING' || a.status === 'PENDING_ONBOARDING')
+                    );
                     if (baileysAcc && isMounted) {
                         integrationIdRef.current = baileysAcc.id || baileysAcc._id;
                         setDisplayPhone(baileysAcc.displayPhoneNumber || baileysAcc.phoneNumberId || user?.mobile || '');
@@ -39,19 +42,35 @@ const WhatsAppQRConnect = ({ onComplete }) => {
                             const statusRes = await socialAPI.getBaileysStatus(baileysAcc.id || baileysAcc._id);
                             if (statusRes && statusRes.success) {
                                 setIsSocketAlive(!!statusRes.isSocketAlive);
-                                if (statusRes.onboardingStatus === 'CONNECTED' || statusRes.status === 'ACTIVE') {
-                                    setStatus('CONNECTED');
-                                } else if (statusRes.qrDataUrl) {
+                                
+                                // 🧠 SENIOR PROFESSIONAL: Truthful State Machine Resolution
+                                // 1. If backend has an active QR waiting to be scanned, prioritize showing QR!
+                                if (statusRes.qrDataUrl) {
                                     setStatus('QR_PENDING');
                                     setQrDataUrl(statusRes.qrDataUrl);
-                                } else {
+                                    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                                    pollIntervalRef.current = setInterval(checkStatus, 2000);
+                                } 
+                                // 2. If socket is alive and fully authenticated, mark CONNECTED
+                                else if (statusRes.isSocketAlive && (statusRes.onboardingStatus === 'CONNECTED' || statusRes.status === 'ACTIVE')) {
                                     setStatus('CONNECTED');
+                                } 
+                                // 3. If in QR pending state without QR image yet, wait for QR poll
+                                else if (statusRes.onboardingStatus === 'QR_PENDING' || statusRes.onboardingStatus === 'WAITING_FOR_QR' || statusRes.onboardingStatus === 'INITIATED') {
+                                    setStatus('WAITING_FOR_QR');
+                                    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                                    pollIntervalRef.current = setInterval(checkStatus, 2000);
+                                } 
+                                // 4. If socket is dead/not alive, do not mislead with CONNECTED; show IDLE / ready to connect
+                                else {
+                                    setStatus('IDLE');
                                 }
                             } else {
-                                setStatus('CONNECTED');
+                                setStatus('IDLE');
                             }
                         } catch (sErr) {
-                            setStatus('CONNECTED');
+                            console.warn('[WhatsApp QR] Error checking Baileys status:', sErr.message);
+                            setStatus('IDLE');
                         }
                         setIsChecking(false);
                         return;
@@ -109,7 +128,11 @@ const WhatsAppQRConnect = ({ onComplete }) => {
         try {
             const res = await socialAPI.getBaileysStatus(integrationIdRef.current);
             if (res && res.success) {
-                if (res.onboardingStatus === 'CONNECTED' || res.status === 'ACTIVE') {
+                // If QR code is present and waiting, show it!
+                if (res.qrDataUrl) {
+                    setStatus('QR_PENDING');
+                    setQrDataUrl(res.qrDataUrl);
+                } else if (res.isSocketAlive && (res.onboardingStatus === 'CONNECTED' || res.status === 'ACTIVE')) {
                     setStatus('CONNECTED');
                     setIsSocketAlive(true);
                     if (res.phoneNumber) setDisplayPhone(res.phoneNumber);
@@ -117,9 +140,6 @@ const WhatsAppQRConnect = ({ onComplete }) => {
                     clearInterval(pollIntervalRef.current);
                     toast.success('WhatsApp connected successfully!');
                     if (onComplete) onComplete();
-                } else if (res.qrDataUrl) {
-                    setStatus('QR_PENDING');
-                    setQrDataUrl(res.qrDataUrl);
                 } else if (res.onboardingStatus === 'REVOKED') {
                     setStatus('ERROR');
                     setErrorMsg('Connection session expired or revoked.');
