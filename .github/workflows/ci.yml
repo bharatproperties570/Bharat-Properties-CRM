@@ -172,6 +172,7 @@ jobs:
           npm run test:phase4.5-authority
           npm run test:phase4.5d-correction
           npm run test:phase4.5d-final-safety-correction
+          npm run test:phase4.5d-final-boundary-remediation
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |

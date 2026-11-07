@@ -289,13 +289,44 @@ export async function runLiveAuthoritySmokeTest() {
         const chdLink = existingLinks.find(l => l.authorityCode === 'CHD');
         const gmadaLink = existingLinks.find(l => l.authorityCode === 'GMADA');
 
-        if (existingInventoryRecords.length === 0 || !hsvpLink || !chdLink) {
+        let allLinksValid = true;
+        let invalidLinkReason = null;
+
+        // For each authority link:
+        // 1. Confirm inventoryId exists in existing inventory records
+        // 2. Confirm both belong to canonical organization
+        // 3. Confirm authority code and property identifiers are consistent
+        for (const link of existingLinks) {
+            const matchingInv = existingInventoryRecords.find(inv => String(inv._id) === String(link.inventoryId));
+            if (!matchingInv) {
+                allLinksValid = false;
+                invalidLinkReason = `Authority link ${link._id} references non-existent inventory ID ${link.inventoryId}.`;
+                break;
+            }
+            if (String(link.tenantId) !== String(singleOrgId) || String(matchingInv.tenantId) !== String(singleOrgId)) {
+                allLinksValid = false;
+                invalidLinkReason = `Authority link ${link._id} or inventory ${matchingInv._id} does not belong to canonical organization ${singleOrgId}.`;
+                break;
+            }
+            if (!link.authorityCode || !['HSVP', 'CHD', 'GMADA'].includes(link.authorityCode)) {
+                allLinksValid = false;
+                invalidLinkReason = `Authority link ${link._id} has invalid authorityCode '${link.authorityCode}'.`;
+                break;
+            }
+        }
+
+        if (allLinksValid && (existingInventoryRecords.length === 0 || !hsvpLink || !chdLink)) {
+            allLinksValid = false;
+            invalidLinkReason = 'Pre-existing non-production inventory records and authority links not found; synthetic inventory/link insertion is strictly prohibited.';
+        }
+
+        if (!allLinksValid) {
             testResults.existingInventoryResolution.status = 'BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY';
-            testResults.existingInventoryResolution.reason = 'Pre-existing non-production inventory records and authority links not found; synthetic inventory/link insertion is strictly prohibited.';
+            testResults.existingInventoryResolution.reason = invalidLinkReason;
             testResults.pilotCounts.HSVP.status = 'BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY';
             testResults.pilotCounts.CHD.status = 'BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY';
             testResults.pilotCounts.GMADA.status = 'NEEDS_VERIFIED_IDENTIFIER';
-            console.log(' Inventory resolution: BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY (Zero synthetic inventory created).');
+            console.log(` Inventory resolution: BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY (${invalidLinkReason}).`);
         } else {
             testResults.existingInventoryResolution.status = 'PRE_EXISTING_INVENTORY_VERIFIED';
             testResults.existingInventoryResolution.matchedRecords = {
@@ -306,7 +337,7 @@ export async function runLiveAuthoritySmokeTest() {
             testResults.pilotCounts.HSVP.status = 'NOT_EXECUTED_APPROVAL_PENDING';
             testResults.pilotCounts.CHD.status = 'NOT_EXECUTED_APPROVAL_PENDING';
             testResults.pilotCounts.GMADA.status = 'NEEDS_VERIFIED_IDENTIFIER';
-            console.log(' Pre-existing inventory and links successfully resolved. Property matching: NOT_EXECUTED_APPROVAL_PENDING.');
+            console.log(' Pre-existing inventory and links successfully verified with canonical organization scoping. Property matching: NOT_EXECUTED_APPROVAL_PENDING.');
         }
 
         // --------------------------------------------------------------------

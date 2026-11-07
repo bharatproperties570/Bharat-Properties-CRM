@@ -363,22 +363,38 @@ test('P0 Maker-Checker: Authentic maker-checker with genuine users and roles suc
 
     await AuthoritySourceSettings.ensureDefaults(testTenantId);
 
+    const auditEntry = await AuditLog.create({
+        eventType: 'authority_source_approval_reviewed',
+        targetType: 'authority_settings',
+        targetName: 'HSVP',
+        actorId: reviewer._id,
+        userId: approver._id,
+        description: 'Authentic maker-checker approval reviewed by independent compliance reviewer',
+        metadata: {
+            tenantId: testTenantId,
+            authorityCode: 'HSVP',
+            approverId: approver._id,
+            reviewerId: reviewer._id
+        }
+    });
+
     const updated = await AuthoritySourceSettings.recordMakerCheckerApproval({
         tenantId: testTenantId,
         authorityCode: 'HSVP',
         submitterId: submitter._id,
         approverId: approver._id,
         reviewerId: reviewer._id,
-        approvalReference: 'AUTHENTIC_AUDIT_LOG_ENTRY_2026_11_07_01'
+        approvalReference: auditEntry._id
     });
 
     assert.strictEqual(updated.reviewStatus, 'APPROVED');
-    assert.strictEqual(updated.approvalReference, 'AUTHENTIC_AUDIT_LOG_ENTRY_2026_11_07_01');
+    assert.strictEqual(String(updated.approvalReference), String(auditEntry._id));
     assert.strictEqual(String(updated.approvedBy), String(approver._id));
     assert.strictEqual(String(updated.reviewedBy), String(reviewer._id));
 
     // Cleanup
     await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
+    await AuditLog.deleteOne({ _id: auditEntry._id });
     await User.deleteMany({ _id: { $in: [submitter._id, approver._id, reviewer._id] } });
     await Role.deleteMany({ _id: { $in: [submitterRole._id, approverRole._id, reviewerRole._id] } });
 });

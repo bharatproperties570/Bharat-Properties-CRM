@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 /**
  * AuthoritySourceSettings
@@ -291,49 +292,75 @@ AuthoritySourceSettingsSchema.index(
 // ========== Server-Side Activation Lock & Gate (Phase 4.4.4 Lifecycle) ==========
 // Sources remain strictly offline and fixture-only until complete, independently verified Phase 4.4.4 approval records exist.
 AuthoritySourceSettingsSchema.pre('save', async function (next) {
-    if (this.isEnabled || this.schedulingEnabled || this.reviewStatus === 'APPROVED') {
+    if (this.isEnabled || this.schedulingEnabled) {
         const check = this.checkActivationEligibility();
         if (!check.canActivate) {
             this.reviewStatus = 'UNDER_REVIEW';
             this.isEnabled = false;
             this.schedulingEnabled = false;
-            const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation, approvals, and scheduling are prohibited without complete, independently verified Phase 4.4.4 approval record. Blockers: ${check.blockers.join('; ')}`);
+            const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation and scheduling are prohibited without complete, independently verified Phase 4.4.4 approval record. Blockers: ${check.blockers.join('; ')}`);
             err.code = 'ACTIVATION_LOCKED_PHASE3';
             err.blockers = check.blockers;
             if (next && typeof next === 'function') return next(err);
             throw err;
         }
+    }
 
-        // Authenticated user verification when database is connected and reviewStatus is APPROVED
-        const isThreeParty = Boolean(
-            this.submittedBy && this.approvedBy && this.reviewedBy &&
-            String(this.submittedBy) !== String(this.approvedBy) &&
-            String(this.approvedBy) !== String(this.reviewedBy) &&
-            String(this.submittedBy) !== String(this.reviewedBy)
-        );
+    // Authenticated user and audit verification when reviewStatus is APPROVED for owner-attested portal automation
+    const isOwnerAttestedPortal = this.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' &&
+        this.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
 
-        if (this.reviewStatus === 'APPROVED' && mongoose.connection.readyState === 1 && this.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION') {
-            if (isThreeParty || (this.approvalReference && String(this.approvalReference).startsWith('AUDIT_'))) {
+    if (this.reviewStatus === 'APPROVED' && isOwnerAttestedPortal) {
+        const userCheck = await AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers({
+            submitterId: this.submittedBy,
+            approverId: this.approvedBy,
+            reviewerId: this.reviewedBy,
+            approvalReference: this.approvalReference,
+            authorityCode: this.authorityCode,
+            tenantId: this.tenantId,
+            settingsId: this._id
+        });
+        if (!userCheck.valid) {
+            this.reviewStatus = 'UNDER_REVIEW';
+            this.isEnabled = false;
+            this.schedulingEnabled = false;
+            const err = new Error(`SOURCE_ACTIVATION_LOCKED: Maker-checker user/RBAC verification failed: ${userCheck.reason}`);
+            err.code = 'ACTIVATION_LOCKED_PHASE3';
+            err.blockers = [userCheck.reason];
+            if (next && typeof next === 'function') return next(err);
+            throw err;
+        }
+    }
+    if (next && typeof next === 'function') next();
+});
+
+// Guard against updateOne / findOneAndUpdate circumvention
+AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate'], async function (next) {
+    const update = this.getUpdate();
+    if (!update) return next();
+    const set = update.$set || update;
+    if (set.reviewStatus === 'APPROVED' || set.isEnabled === true || set.schedulingEnabled === true) {
+        const doc = await this.model.findOne(this.getQuery());
+        if (doc) {
+            const merged = Object.assign(doc.toObject(), set);
+            if (set.reviewStatus === 'APPROVED' && merged.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION') {
                 const userCheck = await AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers({
-                    submitterId: this.submittedBy,
-                    approverId: this.approvedBy,
-                    reviewerId: this.reviewedBy,
-                    approvalReference: this.approvalReference
+                    submitterId: merged.submittedBy,
+                    approverId: merged.approvedBy,
+                    reviewerId: merged.reviewedBy,
+                    approvalReference: merged.approvalReference,
+                    authorityCode: merged.authorityCode,
+                    tenantId: merged.tenantId
                 });
                 if (!userCheck.valid) {
-                    this.reviewStatus = 'UNDER_REVIEW';
-                    this.isEnabled = false;
-                    this.schedulingEnabled = false;
-                    const err = new Error(`SOURCE_ACTIVATION_LOCKED: Maker-checker user/RBAC verification failed: ${userCheck.reason}`);
-                    err.code = 'ACTIVATION_LOCKED_PHASE3';
-                    err.blockers = [userCheck.reason];
-                    if (next && typeof next === 'function') return next(err);
-                    throw err;
+                    const err = new Error(`MAKER_CHECKER_APPROVAL_REJECTED: ${userCheck.reason}`);
+                    err.code = 'MAKER_CHECKER_APPROVAL_REJECTED';
+                    return next(err);
                 }
             }
         }
     }
-    if (next && typeof next === 'function') next();
+    next();
 });
 
 // ========== Activation Gate ==========
@@ -493,9 +520,35 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
             }
         }
     };
+    const isCanonical = !tenantId || String(tenantId) === String(CANONICAL_ORGANIZATION_ID);
+
     const ops = AUTHORITY_CODES.map(code => {
         const cfg = sourceConfigs[code];
         const throttleRef = `INTERNAL_SAFETY_THROTTLE_${code}_1_REQ_PER_MIN`;
+
+        if (!isCanonical) {
+            return {
+                updateOne: {
+                    filter: { tenantId, authorityCode: code },
+                    update: {
+                        $setOnInsert: {
+                            tenantId,
+                            authorityCode: code,
+                            permissionStatus: 'NOT_OBTAINED',
+                            evidenceBasis: 'NOT_APPLICABLE',
+                            approvedAccessMethod: 'NONE',
+                            permittedFields: commonFields,
+                            isEnabled: false,
+                            isPaused: false,
+                            schedulingEnabled: false,
+                            reviewStatus: 'NOT_REVIEWED'
+                        }
+                    },
+                    upsert: true
+                }
+            };
+        }
+
         return {
             updateOne: {
                 filter: { tenantId, authorityCode: code },
@@ -574,14 +627,25 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
 };
 
 /**
- * Rigorously verifies maker-checker users and roles against actual User documents.
+ * Rigorously verifies maker-checker users, RBAC roles, and genuine AuditLog events
+ * against actual database records within the canonical organization.
  */
 AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers = async function ({
     submitterId,
     approverId,
     reviewerId,
-    approvalReference
+    approvalReference,
+    authorityCode,
+    tenantId
 } = {}) {
+    // 1. Require connected and verified database — fail closed if disconnected
+    if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+        return {
+            valid: false,
+            reason: 'Database is disconnected; maker-checker user and audit verification requires an active database connection.'
+        };
+    }
+
     if (!submitterId || !approverId || !reviewerId) {
         return { valid: false, reason: 'Missing one or more required maker-checker user IDs (submitter, approver, reviewer).' };
     }
@@ -602,61 +666,115 @@ AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers = async function (
         return { valid: false, reason: 'Authentic approval reference or audit event record is required.' };
     }
 
-    // When MongoDB is connected, query actual User records
-    if (mongoose.connection && mongoose.connection.readyState === 1) {
-        const User = mongoose.model('User');
-        const users = await User.find({ _id: { $in: [submitterId, approverId, reviewerId] } }).populate('role');
-        if (users.length < 3) {
-            return { valid: false, reason: `Found only ${users.length}/3 registered users in database for maker-checker roles.` };
-        }
+    // 2. Validate User documents
+    const User = mongoose.model('User');
+    const users = await User.find({ _id: { $in: [submitterId, approverId, reviewerId] } }).populate('role');
+    if (users.length < 3) {
+        return { valid: false, reason: `Found only ${users.length}/3 registered users in database for maker-checker roles.` };
+    }
 
-        const submitter = users.find(u => String(u._id) === sStr);
-        const approver = users.find(u => String(u._id) === aStr);
-        const reviewer = users.find(u => String(u._id) === rStr);
+    const submitter = users.find(u => String(u._id) === sStr);
+    const approver = users.find(u => String(u._id) === aStr);
+    const reviewer = users.find(u => String(u._id) === rStr);
 
-        if (!submitter || submitter.isActive === false) {
-            return { valid: false, reason: 'Submitter user does not exist or is inactive.' };
-        }
-        if (!approver || approver.isActive === false) {
-            return { valid: false, reason: 'Approver user does not exist or is inactive.' };
-        }
-        if (!reviewer || reviewer.isActive === false) {
-            return { valid: false, reason: 'Reviewer user does not exist or is inactive.' };
-        }
+    if (!submitter || submitter.isActive === false || submitter.status === 'inactive' || submitter.status === 'suspended') {
+        return { valid: false, reason: 'Submitter user does not exist or is inactive.' };
+    }
+    if (!approver || approver.isActive === false || approver.status === 'inactive' || approver.status === 'suspended') {
+        return { valid: false, reason: 'Approver user does not exist or is inactive.' };
+    }
+    if (!reviewer || reviewer.isActive === false || reviewer.status === 'inactive' || reviewer.status === 'suspended') {
+        return { valid: false, reason: 'Reviewer user does not exist or is inactive.' };
+    }
 
-        // Approver RBAC authorization
-        const approverRole = approver.role;
-        const isApproverAuthorized = Boolean(
-            approverRole?.approvalRights?.manageAuthoritySettings === true ||
-            approverRole?.name === 'Super Admin' ||
-            approver.isSuperAdmin === true ||
-            (approverRole?.permissions && (approverRole.permissions.includes('authorityVerification.admin') || approverRole.permissions.includes('*')))
-        );
-        if (!isApproverAuthorized) {
-            return { valid: false, reason: 'Approver user does not possess required manageAuthoritySettings approval right or admin permission.' };
+    // 3. Organization check: all users must belong to canonical Bharat Properties organization
+    const { CANONICAL_ORGANIZATION_ID } = await import('../config/canonicalOrganization.js');
+    const canonStr = String(CANONICAL_ORGANIZATION_ID);
+    for (const u of [submitter, approver, reviewer]) {
+        if (u.tenantId && String(u.tenantId) !== canonStr) {
+            return {
+                valid: false,
+                reason: `User '${u.email}' belongs to a different organization (${u.tenantId}) and cannot participate in maker-checker approval.`
+            };
         }
+    }
 
-        // Reviewer RBAC authorization
-        const reviewerRole = reviewer.role;
-        const isReviewerAuthorized = Boolean(
-            reviewerRole?.approvalRights?.approveAuthorityChanges === true ||
-            reviewerRole?.name === 'Super Admin' ||
-            reviewer.isSuperAdmin === true ||
-            (reviewerRole?.permissions && (reviewerRole.permissions.includes('authorityVerification.approve') || reviewerRole.permissions.includes('*')))
-        );
-        if (!isReviewerAuthorized) {
-            return { valid: false, reason: 'Reviewer user does not possess required approveAuthorityChanges approval right.' };
-        }
+    // 4. Approver RBAC authorization: must have manageAuthoritySettings
+    const approverRole = approver.role;
+    const isApproverAuthorized = Boolean(
+        approverRole?.approvalRights?.manageAuthoritySettings === true ||
+        approverRole?.name === 'Super Admin' ||
+        approver.isSuperAdmin === true ||
+        (Array.isArray(approverRole?.permissions) && (approverRole.permissions.includes('authorityVerification.admin') || approverRole.permissions.includes('*')))
+    );
+    if (!isApproverAuthorized) {
+        return { valid: false, reason: 'Approver user does not possess required manageAuthoritySettings approval right or admin permission.' };
+    }
 
+    // 5. Reviewer RBAC authorization: must have approveAuthorityChanges
+    const reviewerRole = reviewer.role;
+    const isReviewerAuthorized = Boolean(
+        reviewerRole?.approvalRights?.approveAuthorityChanges === true ||
+        reviewerRole?.name === 'Super Admin' ||
+        reviewer.isSuperAdmin === true ||
+        (Array.isArray(reviewerRole?.permissions) && (reviewerRole.permissions.includes('authorityVerification.approve') || reviewerRole.permissions.includes('*')))
+    );
+    if (!isReviewerAuthorized) {
+        return { valid: false, reason: 'Reviewer user does not possess required approveAuthorityChanges approval right.' };
+    }
+
+    // 6. Verify actual AuditLog record
+    // A non-empty string such as 'AUDIT_REF_001' is not an audit event.
+    if (!mongoose.isValidObjectId(approvalReference)) {
         return {
-            valid: true,
-            submitter: { id: sStr, email: submitter.email },
-            approver: { id: aStr, email: approver.email },
-            reviewer: { id: rStr, email: reviewer.email }
+            valid: false,
+            reason: `Approval reference '${approvalReference}' is an arbitrary string, not a valid AuditLog ObjectId reference.`
         };
     }
 
-    return { valid: true };
+    const AuditLog = mongoose.model('AuditLog');
+    const auditRecord = await AuditLog.findById(approvalReference);
+    if (!auditRecord) {
+        return {
+            valid: false,
+            reason: `Referenced AuditLog record '${approvalReference}' does not exist in database.`
+        };
+    }
+
+    // Validate authority code consistency
+    const expectedAuthCode = authorityCode || null;
+    const auditAuthCode = auditRecord.targetName || auditRecord.metadata?.authorityCode || null;
+    if (expectedAuthCode && auditAuthCode && auditAuthCode !== expectedAuthCode) {
+        return {
+            valid: false,
+            reason: `AuditLog record belongs to authority '${auditAuthCode}', not '${expectedAuthCode}'.`
+        };
+    }
+
+    // Validate organization consistency
+    const auditOrgId = auditRecord.metadata?.tenantId || auditRecord.metadata?.organizationId || null;
+    if (auditOrgId && String(auditOrgId) !== canonStr) {
+        return {
+            valid: false,
+            reason: `AuditLog record belongs to another organization (${auditOrgId}).`
+        };
+    }
+
+    // Validate event timestamp
+    if (auditRecord.timestamp && new Date(auditRecord.timestamp) > new Date(Date.now() + 60000)) {
+        return {
+            valid: false,
+            reason: `AuditLog record '${approvalReference}' has an invalid future timestamp.`
+        };
+    }
+
+    return {
+        valid: true,
+        submitter: { id: sStr, email: submitter.email },
+        approver: { id: aStr, email: approver.email },
+        reviewer: { id: rStr, email: reviewer.email },
+        auditLog: { id: String(auditRecord._id), eventType: auditRecord.eventType }
+    };
 };
 
 /**
@@ -670,22 +788,24 @@ AuthoritySourceSettingsSchema.statics.recordMakerCheckerApproval = async functio
     reviewerId,
     approvalReference
 }) {
+    let setting = await this.findOne({ tenantId, authorityCode });
+    if (!setting) {
+        throw new Error(`SETTINGS_NOT_FOUND: Authority source settings not found for ${authorityCode}`);
+    }
+
     const userCheck = await this.verifyMakerCheckerUsers({
         submitterId,
         approverId,
         reviewerId,
-        approvalReference
+        approvalReference,
+        authorityCode,
+        tenantId
     });
 
     if (!userCheck.valid) {
         const err = new Error(`MAKER_CHECKER_APPROVAL_REJECTED: ${userCheck.reason}`);
         err.code = 'MAKER_CHECKER_APPROVAL_REJECTED';
         throw err;
-    }
-
-    let setting = await this.findOne({ tenantId, authorityCode });
-    if (!setting) {
-        throw new Error(`SETTINGS_NOT_FOUND: Authority source settings not found for ${authorityCode}`);
     }
 
     setting.reviewStatus = 'APPROVED';
@@ -697,16 +817,11 @@ AuthoritySourceSettingsSchema.statics.recordMakerCheckerApproval = async functio
     setting.reviewedAt = new Date();
     setting.approvalDate = new Date();
     setting.approvalExpiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    setting.approvalReference = approvalReference;
-    setting.contractVerificationStatus = 'VERIFIED_CONTRACT';
-    setting.contractEvidenceReference = approvalReference;
-    setting.commercialUseAuthorized = true;
-    setting.termsReviewed = true;
-    if (!setting.identityRequirements) {
-        setting.identityRequirements = { verified: true, required: ['propertyId'] };
-    } else {
-        setting.identityRequirements.verified = true;
-    }
+    setting.approvalReference = String(approvalReference);
+
+    // CRITICAL: Internal maker-checker approval MUST NEVER be converted into
+    // external contract evidence or commercial-use authorization.
+    // Preserve separate unverified states until actual external evidence is provided.
 
     await setting.save();
     return setting;
