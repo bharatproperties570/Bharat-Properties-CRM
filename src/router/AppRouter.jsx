@@ -34,6 +34,7 @@ const ProjectDetailPage = lazy(() => import('../pages/Projects/ProjectDetailPage
 const ProjectMasterPlanPage = lazy(() => import('../pages/Projects/ProjectMasterPlanPage'));
 const CompanyDetailPage = lazy(() => import('../pages/Company/CompanyDetailPage'));
 const GoogleCallback = lazy(() => import('../pages/Settings/GoogleCallback'));
+const FacebookCallback = lazy(() => import('../pages/Settings/FacebookCallback'));
 
 // Settings Sub-Pages
 const EmailSettingsPage = lazy(() => import('../pages/Settings/views/EmailSettingsPage'));
@@ -185,6 +186,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 return <AiAgentsSettingsPage onBack={() => onNavigate('settings')} />;
             case 'google-callback':
                 return <GoogleCallback onNavigate={onNavigate} />;
+            case 'facebook-callback':
+                return <FacebookCallback onNavigate={onNavigate} />;
 
             default:
                 return <DashboardPage />;

@@ -303,6 +303,194 @@ class FacebookService {
             };
         }
     }
+
+    /**
+     * Generate Meta OAuth Authorization URL for 1-Click Connect
+     */
+    async getOAuthUrl(redirectUri) {
+        const config = await this._getConfig();
+        const appId = process.env.FB_CLIENT_ID || process.env.FB_APP_ID || config.appId;
+        
+        if (!appId) {
+            throw new Error('Meta App ID is missing. Please configure your Meta App ID in CRM Settings > Integrations.');
+        }
+
+        const scopes = [
+            'pages_show_list',
+            'pages_read_engagement',
+            'pages_manage_posts',
+            'instagram_basic',
+            'instagram_content_publish',
+            'public_profile'
+        ].join(',');
+
+        const state = Math.random().toString(36).substring(7);
+        const url = `https://www.facebook.com/${this.graphVersion}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code&state=${state}`;
+
+        return { url, appId, redirectUri };
+    }
+
+    /**
+     * Handle OAuth Callback:
+     * 1. Exchange code for user access token
+     * 2. Exchange for 60-day long-lived user token
+     * 3. Fetch user's managed Facebook Pages and linked Instagram accounts
+     * 4. Persist never-expiring Page Access Token & Instagram User ID to social_graph_config
+     */
+    async handleOAuthCallback(code, redirectUri, userContext = null) {
+        const config = await this._getConfig();
+        const appId = process.env.FB_CLIENT_ID || process.env.FB_APP_ID || config.appId;
+        const appSecret = process.env.FB_CLIENT_SECRET || process.env.FB_APP_SECRET || config.appSecret;
+
+        if (!appId || !appSecret) {
+            throw new Error('Meta App ID or App Secret is missing. Please configure them in Settings > Integrations.');
+        }
+
+        try {
+            console.log(`[FacebookService] Exchanging code for user token (App ID: ${appId})...`);
+            
+            // 1. Code -> Short-lived User Token
+            const tokenRes = await axios.get(`${this.graphBase}/${this.graphVersion}/oauth/access_token`, {
+                params: {
+                    client_id: appId,
+                    client_secret: appSecret,
+                    redirect_uri: redirectUri,
+                    code: code
+                }
+            });
+            const shortLivedToken = tokenRes.data.access_token;
+
+            // 2. Short-lived User Token -> Long-lived User Token (60 days)
+            let longLivedToken = shortLivedToken;
+            try {
+                const exchangeRes = await axios.get(`${this.graphBase}/${this.graphVersion}/oauth/access_token`, {
+                    params: {
+                        grant_type: 'fb_exchange_token',
+                        client_id: appId,
+                        client_secret: appSecret,
+                        fb_exchange_token: shortLivedToken
+                    }
+                });
+                if (exchangeRes.data?.access_token) {
+                    longLivedToken = exchangeRes.data.access_token;
+                    console.log('[FacebookService] Successfully exchanged for long-lived Meta user token');
+                }
+            } catch (exErr) {
+                console.warn('[FacebookService] Long-lived exchange warning, proceeding with primary token:', exErr.message);
+            }
+
+            // 3. Fetch all managed Facebook Pages with their linked Instagram Business accounts
+            const pagesRes = await axios.get(`${this.graphBase}/${this.graphVersion}/me/accounts`, {
+                params: {
+                    fields: 'id,name,access_token,category,instagram_business_account{id,username,name,profile_picture_url}',
+                    access_token: longLivedToken
+                }
+            });
+
+            const pages = pagesRes.data.data || [];
+            if (pages.length === 0) {
+                throw new Error('No Facebook Pages found under this Facebook account. Please ensure you are an Admin of a Facebook Page.');
+            }
+
+            // Prefer a page named "Bharat Properties" or select the first available page
+            let selectedPage = pages.find(p => p.name?.toLowerCase().includes('bharat')) || pages[0];
+
+            const pageAccessToken = selectedPage.access_token;
+            const pageId = selectedPage.id;
+            const pageName = selectedPage.name;
+            const igAccount = selectedPage.instagram_business_account;
+
+            const updateData = {
+                appId,
+                appSecret,
+                pageId,
+                pageName,
+                pageAccessToken,
+                igUserId: igAccount?.id || null,
+                igUsername: igAccount?.username || null,
+                connectedAt: new Date().toISOString(),
+                connectedBy: userContext?.name || userContext?.email || 'Admin',
+                availablePages: pages.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    hasInstagram: !!p.instagram_business_account,
+                    igUsername: p.instagram_business_account?.username || null
+                }))
+            };
+
+            await SystemSetting.findOneAndUpdate(
+                { key: 'social_graph_config' },
+                { $set: { value: updateData, active: true, category: 'integration' } },
+                { upsert: true }
+            );
+
+            console.log(`[FacebookService] Successfully connected Page: "${pageName}" (${pageId}), Instagram: "${igAccount?.username || 'N/A'}"`);
+
+            return {
+                success: true,
+                message: `Successfully connected Facebook Page "${pageName}"${igAccount ? ` and Instagram (@${igAccount.username})` : ''}!`,
+                data: {
+                    pageId,
+                    pageName,
+                    instagram: igAccount ? { id: igAccount.id, username: igAccount.username } : null,
+                    totalPages: pages.length
+                }
+            };
+        } catch (err) {
+            console.error('[FacebookService] OAuth Callback Error:', err.response?.data || err.message);
+            const msg = err.response?.data?.error?.message || err.message;
+            throw new Error(msg);
+        }
+    }
+
+    /**
+     * Disconnect Facebook & Instagram
+     */
+    async disconnect() {
+        await SystemSetting.findOneAndUpdate(
+            { key: 'social_graph_config' },
+            { 
+                $set: { 
+                    'value.pageAccessToken': null,
+                    'value.pageId': null,
+                    'value.pageName': null,
+                    'value.igUserId': null,
+                    'value.igUsername': null,
+                    'value.connectedAt': null
+                } 
+            }
+        );
+        return { success: true, message: 'Disconnected Facebook and Instagram successfully' };
+    }
+
+    /**
+     * Get OAuth Status
+     */
+    async getOAuthStatus() {
+        const config = await this._getConfig();
+        const hasAppId = !!(process.env.FB_CLIENT_ID || process.env.FB_APP_ID || config.appId);
+        const hasAppSecret = !!(process.env.FB_CLIENT_SECRET || process.env.FB_APP_SECRET || config.appSecret);
+        const isFacebookConnected = !!(config.pageAccessToken && config.pageId);
+        const isInstagramConnected = !!(config.pageAccessToken && config.igUserId);
+
+        return {
+            hasAppCredentials: hasAppId && hasAppSecret,
+            appId: config.appId || process.env.FB_CLIENT_ID || process.env.FB_APP_ID || null,
+            facebook: {
+                connected: isFacebookConnected,
+                pageId: config.pageId || null,
+                pageName: config.pageName || null,
+            },
+            instagram: {
+                connected: isInstagramConnected,
+                igUserId: config.igUserId || null,
+                igUsername: config.igUsername || null,
+            },
+            connectedAt: config.connectedAt || null,
+            connectedBy: config.connectedBy || null,
+            availablePages: config.availablePages || []
+        };
+    }
 }
 
 export default new FacebookService();

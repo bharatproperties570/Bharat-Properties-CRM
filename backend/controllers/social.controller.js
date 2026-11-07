@@ -1024,12 +1024,20 @@ export const getSocialStatus = async (req, res) => {
         res.json({
             success: true,
             configured: hasPageToken && hasIgUserId,
-            instagram: hasIgUserId,
-            facebook: hasPageToken,
+            instagram: {
+                connected: hasIgUserId && hasPageToken,
+                userId: setting?.value?.igUserId || null,
+                username: setting?.value?.igUsername || null
+            },
+            facebook: {
+                connected: hasPageToken,
+                pageId: setting?.value?.pageId || null,
+                pageName: setting?.value?.pageName || null
+            },
             mode: hasPageToken ? 'live' : 'mock',
             message: hasPageToken
                 ? '✅ Facebook/Instagram Graph API configured. Live data active.'
-                : '⚠️ No credentials found — mock data is being returned. Add FB_PAGE_ACCESS_TOKEN and IG_USER_ID to .env or Settings > Integrations.',
+                : '⚠️ No credentials found. Connect via 1-Click Meta Connect in Settings > Integrations.',
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -1337,6 +1345,75 @@ export const testSocialConnection = async (req, res) => {
 };
 
 /**
+ * GET /api/social/facebook/auth-url
+ * Generate Meta OAuth 2.0 Authorization URL for 1-Click Connect
+ */
+export const getFacebookAuthUrl = async (req, res) => {
+    try {
+        const passedOrigin = req.query.origin || req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
+        const origin = passedOrigin || process.env.FRONTEND_URL || 'https://crm.bharatproperties.co';
+        const redirectUri = `${origin}/facebook-callback`;
+
+        const { url, appId } = await facebookService.getOAuthUrl(redirectUri);
+        res.json({ success: true, url, appId, redirectUri });
+    } catch (err) {
+        console.error('[SocialController] getFacebookAuthUrl error:', err.message);
+        res.status(400).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * POST /api/social/facebook/callback
+ * Exchange authorization code for permanent Page token and link Instagram
+ */
+export const handleFacebookCallback = async (req, res) => {
+    try {
+        const { code, origin: reqOrigin } = req.body;
+        if (!code) {
+            return res.status(400).json({ success: false, error: 'Authorization code is required' });
+        }
+
+        const passedOrigin = reqOrigin || req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
+        const origin = passedOrigin || process.env.FRONTEND_URL || 'https://crm.bharatproperties.co';
+        const redirectUri = `${origin}/facebook-callback`;
+
+        const result = await facebookService.handleOAuthCallback(code, redirectUri, req.user);
+        res.json(result);
+    } catch (err) {
+        console.error('[SocialController] handleFacebookCallback error:', err.message);
+        res.status(400).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * GET /api/social/facebook/status
+ * Get Facebook & Instagram OAuth Connection Status
+ */
+export const getFacebookOAuthStatus = async (req, res) => {
+    try {
+        const status = await facebookService.getOAuthStatus();
+        res.json({ success: true, ...status });
+    } catch (err) {
+        console.error('[SocialController] getFacebookOAuthStatus error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * POST /api/social/facebook/disconnect
+ * Disconnect Facebook & Instagram
+ */
+export const disconnectFacebook = async (req, res) => {
+    try {
+        const result = await facebookService.disconnect();
+        res.json(result);
+    } catch (err) {
+        console.error('[SocialController] disconnectFacebook error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
  * POST /api/whatsapp-config/preview
  * Preview a compiled template from the backend
  */
@@ -1364,8 +1441,14 @@ export const getWhatsAppAccounts = async (req, res) => {
         const SystemSetting = mongoose.model('SystemSetting');
         const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
 
-        // Fetch all active integrations
-        const integrations = await WhatsAppIntegration.find({ status: 'ACTIVE' })
+        // Fetch all active integrations, plus Baileys integrations for the requesting user (even if currently onboarding/QR_PENDING)
+        const integrations = await WhatsAppIntegration.find({
+            $or: [
+                { status: 'ACTIVE' },
+                { provider: 'BAILEYS', connectedBy: req.user._id },
+                { connectionType: 'QR_SCANNER', connectedBy: req.user._id }
+            ]
+        })
             .sort({ isDefault: -1, createdAt: 1 })
             .lean();
 
@@ -1392,7 +1475,8 @@ export const getWhatsAppAccounts = async (req, res) => {
                 provider: i.provider || (i.connectionType === 'QR_SCANNER' ? 'BAILEYS' : 'META_CLOUD'),
                 onboardingStatus: i.onboardingStatus,
                 isDefault: !!i.isDefault,
-                status: i.status
+                status: i.status,
+                isReady: i.status === 'ACTIVE' && (i.provider !== 'BAILEYS' || i.onboardingStatus === 'CONNECTED')
             });
         });
 
@@ -1528,6 +1612,14 @@ export const startBaileysConnection = async (req, res) => {
             }
         }
 
+        // 🛡️ Enterprise Reset: Clear circuit breaker fail counters so user gets immediate fresh QR attempts
+        try {
+            const { default: WhatsAppCircuitBreaker } = await import('../services/WhatsAppCircuitBreaker.js');
+            await WhatsAppCircuitBreaker.reset(integration._id.toString(), req.user?.email || 'USER', 'Fresh QR connection initiated by user');
+        } catch (cbErr) {
+            console.warn('[SocialController] Circuit breaker reset notice:', cbErr.message);
+        }
+
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
         // This will asynchronously generate the QR and store it in failureReason
         BaileysConnectionManager.connect(integration._id.toString()).catch(cErr => {
@@ -1617,6 +1709,36 @@ export const getBaileysStatus = async (req, res) => {
                     failureReason: null
                 });
             }
+        } else {
+            // 🧠 SENIOR PROFESSIONAL: Socket is NOT authenticated.
+            // Check if durable credentials exist in BaileysAuth
+            const { default: BaileysAuth } = await import('../models/BaileysAuth.js');
+            const hasCreds = await BaileysAuth.exists({ sessionId: req.params.id, fileId: 'creds' });
+
+            if (qrDataUrl || onboardingStatus === 'QR_PENDING') {
+                status = 'PENDING_ONBOARDING';
+                onboardingStatus = 'QR_PENDING';
+            } else if (!hasCreds) {
+                status = 'PENDING_ONBOARDING';
+                onboardingStatus = 'DISCONNECTED';
+            }
+
+            // Sync database if it falsely reports ACTIVE
+            if (integration.status === 'ACTIVE' && !hasCreds) {
+                await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
+                    status: 'PENDING_ONBOARDING',
+                    onboardingStatus: qrDataUrl ? 'QR_PENDING' : 'DISCONNECTED'
+                });
+            }
+
+            // Auto-heal: If circuit breaker was tripped due to QR timeout, reset it so user can scan fresh QR
+            try {
+                const { default: WhatsAppCircuitBreaker } = await import('../services/WhatsAppCircuitBreaker.js');
+                const isTripped = await WhatsAppCircuitBreaker.isTripped(req.params.id).catch(() => false);
+                if (isTripped) {
+                    await WhatsAppCircuitBreaker.reset(req.params.id, req.user?.email || 'SYSTEM', 'Auto-recovery on status poll');
+                }
+            } catch (cbErr) {}
         }
 
         res.json({ 

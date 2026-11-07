@@ -40,6 +40,43 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     const [testResult, setTestResult] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [lastKnownStatus, setLastKnownStatus] = useState('Not Connected');
+    const [isConnectingMeta, setIsConnectingMeta] = useState(false);
+
+    const handleFacebookOneClickConnect = async () => {
+        try {
+            setIsConnectingMeta(true);
+            const res = await socialAPI.getFacebookAuthUrl(window.location.origin);
+            if (res?.success && res.url) {
+                window.location.href = res.url;
+            } else {
+                toast.error(res?.error || 'Could not initiate Meta login');
+            }
+        } catch (err) {
+            const errDetail = err.response?.data?.error || err.message;
+            toast.error(errDetail || 'Failed to initiate Meta OAuth');
+        } finally {
+            setIsConnectingMeta(false);
+        }
+    };
+
+    const handleDisconnectMeta = async () => {
+        try {
+            const res = await socialAPI.disconnectFacebookOAuth();
+            if (res?.success) {
+                toast.success('Meta account disconnected successfully');
+                setConfig(prev => ({
+                    ...prev,
+                    pageAccessToken: '',
+                    pageId: '',
+                    pageName: '',
+                    igUserId: '',
+                    igUsername: ''
+                }));
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.error || err.message || 'Disconnect failed');
+        }
+    };
 
     const loadWaAccounts = async () => {
         try {
@@ -797,34 +834,108 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             </>
                         )}
 
-                        {type === 'facebook' && (
-                            <div style={{ marginBottom: '24px', padding: '16px', background: '#fff9eb', border: '1px solid #fce8ac', borderRadius: '14px', position: 'relative', overflow: 'hidden' }}>
-                                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: '#f59e0b' }}></div>
-                                <div style={{ display: 'flex', gap: '12px' }}>
-                                    <AlertCircle style={{ color: '#d97706', flexShrink: 0 }} size={20} />
-                                    <div>
-                                        <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#92400e' }}>Meta Permission Migration Required</h4>
-                                        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#b45309', lineHeight: '1.4' }}>
-                                            The <b>publish_actions</b> permission is deprecated by Meta. Please ensure your token has <b>pages_manage_posts</b> enabled to post to your page.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {type === 'facebook' && (
+                        {(type === 'facebook' || type === 'instagram') && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                {/* 🌟 1-Click Meta Connect Hero Card */}
+                                <div style={{
+                                    background: 'linear-gradient(135deg, rgba(24, 119, 242, 0.08) 0%, rgba(228, 64, 95, 0.08) 100%)',
+                                    border: '1.5px solid rgba(24, 119, 242, 0.25)',
+                                    borderRadius: '16px', padding: '20px',
+                                    display: 'flex', flexDirection: 'column', gap: '16px'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{
+                                                width: '46px', height: '46px', borderRadius: '12px',
+                                                background: 'linear-gradient(135deg, #1877F2 0%, #E4405F 100%)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                color: '#fff', fontSize: '22px', boxShadow: '0 4px 14px rgba(24, 119, 242, 0.3)'
+                                            }}>
+                                                <i className="fab fa-facebook-f"></i>
+                                            </div>
+                                            <div>
+                                                <h4 style={{ margin: 0, fontSize: '0.96rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                                    Enterprise 1-Click Meta Connect
+                                                </h4>
+                                                <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                    Instantly links Facebook Page and Instagram Business Account with zero manual tokens.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleFacebookOneClickConnect}
+                                            disabled={isConnectingMeta}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #1877F2 0%, #165ec9 100%)',
+                                                color: '#fff', border: 'none', padding: '10px 18px',
+                                                borderRadius: '10px', fontWeight: 800, fontSize: '0.84rem',
+                                                cursor: isConnectingMeta ? 'not-allowed' : 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                boxShadow: '0 4px 12px rgba(24, 119, 242, 0.3)'
+                                            }}
+                                        >
+                                            <i className="fab fa-facebook"></i>
+                                            {isConnectingMeta ? 'Opening Meta...' : (config.pageAccessToken ? '🔄 Reconnect Meta' : 'Connect with Facebook & Instagram')}
+                                        </button>
+                                    </div>
+
+                                    {/* Connection status display */}
+                                    {config.pageAccessToken ? (
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '10px',
+                                            border: '1px solid #bbf7d0', flexWrap: 'wrap', gap: '10px'
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <i className="fas fa-check-circle" style={{ color: '#22c55e', fontSize: '18px' }}></i>
+                                                <div style={{ fontSize: '0.8rem', color: '#166534' }}>
+                                                    <div><strong>Facebook Page:</strong> {config.pageName || config.pageId || 'Connected'}</div>
+                                                    <div><strong>Instagram:</strong> {config.igUsername ? `@${config.igUsername}` : (config.igUserId ? `ID: ${config.igUserId}` : 'Linked via Page')}</div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleDisconnectMeta}
+                                                style={{
+                                                    background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
+                                                    padding: '5px 12px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                Disconnect
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                            💡 <strong>How it works:</strong> Click the button above to log into Facebook. Select your Page and Instagram account, and Bharat CRM will automatically configure all permanent publishing tokens.
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div style={{ margin: '15px 0 5px', borderTop: '1px dashed var(--border-color)', position: 'relative' }}>
+                                    <span style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-card)', padding: '0 12px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 800 }}>
+                                        OR CONFIGURE META APP ID & ADVANCED TOKENS
+                                    </span>
+                                </div>
+
+                                {/* Meta App ID & Secret */}
                                 <div className="card-input-group">
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-fingerprint" style={{ color: '#1877F2' }}></i>
-                                        Facebook App ID
+                                        Meta App ID (from developers.facebook.com)
                                     </label>
-                                    <input type="text" placeholder="123456789..." value={config.appId || ''} onChange={e => setConfig({ ...config, appId: e.target.value })} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. 123456789012345" 
+                                        value={config.appId || ''} 
+                                        onChange={e => setConfig({ ...config, appId: e.target.value })} 
+                                    />
                                 </div>
                                 <div className="card-input-group">
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-key" style={{ color: '#1877F2' }}></i>
-                                        App Secret
+                                        Meta App Secret
                                     </label>
                                     <div style={{ position: 'relative' }}>
                                         <input 
@@ -841,81 +952,36 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                         </button>
                                     </div>
                                 </div>
-                                <div className="card-input-group">
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-id-badge" style={{ color: '#1877F2' }}></i>
-                                        Facebook Page ID
-                                    </label>
-                                    <input type="text" placeholder="102345..." value={config.pageId || ''} onChange={e => setConfig({ ...config, pageId: e.target.value })} />
+
+                                {/* Page ID & Token (Optional override) */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                    <div className="card-input-group">
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-id-badge" style={{ color: '#1877F2' }}></i>
+                                            Facebook Page ID
+                                        </label>
+                                        <input type="text" placeholder="Auto-detected or custom" value={config.pageId || ''} onChange={e => setConfig({ ...config, pageId: e.target.value })} />
+                                    </div>
+                                    <div className="card-input-group">
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-instagram" style={{ color: '#E4405F' }}></i>
+                                            Instagram Business ID
+                                        </label>
+                                        <input type="text" placeholder="Auto-detected or custom" value={config.igUserId || ''} onChange={e => setConfig({ ...config, igUserId: e.target.value })} />
+                                    </div>
                                 </div>
+
                                 <div className="card-input-group">
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-user-shield" style={{ color: '#1877F2' }}></i>
-                                        Page Access Token (Long-lived)
+                                        Page Access Token (Permanent)
                                     </label>
                                     <textarea 
-                                        placeholder="EAA..." 
+                                        placeholder="Auto-saved via 1-Click Connect above, or paste manually..." 
                                         value={config.pageAccessToken || ''} 
                                         onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} 
-                                        style={{ height: '80px', fontSize: '0.8rem', paddingTop: '12px' }}
+                                        style={{ height: '70px', fontSize: '0.78rem', paddingTop: '10px' }}
                                     />
-                                </div>
-                                <div className="card-input-group">
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-shield-alt" style={{ color: '#1877F2' }}></i>
-                                        Webhook Verify Token
-                                    </label>
-                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} style={{ fontWeight: 600, color: 'var(--text-main)' }} />
-                                </div>
-                            </div>
-                        )}
-
-                        {type === 'instagram' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                <div style={{ background: 'linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)', padding: '1.5px', borderRadius: '14px', boxShadow: '0 4px 15px rgba(228, 64, 95, 0.15)' }}>
-                                    <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '13px' }}>
-                                        <div className="card-input-group">
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#bc1888' }}>
-                                                <i className="fab fa-instagram" style={{ fontSize: '1.1rem' }}></i>
-                                                Instagram Business User ID
-                                            </label>
-                                            <input type="text" placeholder="1784..." value={config.igUserId || ''} onChange={e => setConfig({ ...config, igUserId: e.target.value })} style={{ border: '1px solid #bc188840' }} />
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="card-input-group">
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-fingerprint" style={{ color: '#E4405F' }}></i>
-                                        Meta App ID (Optional)
-                                    </label>
-                                    <input type="text" placeholder="123456..." value={config.appId || ''} onChange={e => setConfig({ ...config, appId: e.target.value })} />
-                                </div>
-                                <div className="card-input-group">
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-lock" style={{ color: '#E4405F' }}></i>
-                                        Linked Page Access Token
-                                    </label>
-                                    <div style={{ position: 'relative' }}>
-                                        <textarea 
-                                            placeholder="EAA..." 
-                                            value={config.pageAccessToken || ''} 
-                                            onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} 
-                                            style={{ height: '80px', fontSize: '0.8rem', paddingTop: '12px', paddingRight: '40px', fontFamily: config.showIgToken ? 'monospace' : 'password', WebkitTextSecurity: config.showIgToken ? 'none' : 'disc' }}
-                                        />
-                                        <button 
-                                            onClick={() => setConfig({ ...config, showIgToken: !config.showIgToken })}
-                                            style={{ position: 'absolute', right: '12px', top: '12px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                        >
-                                            <i className={`far ${config.showIgToken ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="card-input-group">
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-shield-alt" style={{ color: '#E4405F' }}></i>
-                                        Webhook Verify Token
-                                    </label>
-                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} style={{ fontWeight: 600, color: 'var(--text-main)' }} />
                                 </div>
                             </div>
                         )}

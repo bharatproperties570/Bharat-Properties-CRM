@@ -50,6 +50,7 @@ const ProjectDetailPage = lazy(() => import('../pages/Projects/ProjectDetailPage
 const ProjectMasterPlanPage = lazy(() => import('../pages/Projects/ProjectMasterPlanPage'));
 const CompanyDetailPage = lazy(() => import('../pages/Company/CompanyDetailPage'));
 const GoogleCallback = lazy(() => import('../pages/Settings/GoogleCallback'));
+const FacebookCallback = lazy(() => import('../pages/Settings/FacebookCallback'));
 const EmailSettingsPage = lazy(() => import('../pages/Settings/views/EmailSettingsPage'));
 const IntegrationsSettingsPage = lazy(() => import('../pages/Settings/views/IntegrationsSettingsPage'));
 const MessagingSettingsPage = lazy(() => import('../pages/Settings/views/MessagingSettingsPage'));
@@ -238,6 +239,7 @@ export const router = createBrowserRouter([
                             { path: '/settings/ai-agents', element: <WithNav Component={AiAgentsSettingsPage} /> },
                             
                             { path: '/google-callback', element: <WithNav Component={GoogleCallback} /> },
+                            { path: '/facebook-callback', element: <WithNav Component={FacebookCallback} /> },
                             
                             // Fallback
                             { path: '*', element: <div style={{ padding: '50px', textAlign: 'center' }}><h1>404 - Not Found</h1></div> }

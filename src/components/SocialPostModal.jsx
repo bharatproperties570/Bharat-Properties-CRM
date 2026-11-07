@@ -1202,6 +1202,89 @@ const SocialPostModal = ({
                                         </button>
                                     </div>
                                 )}
+
+                                {platform === 'facebook' && (
+                                    <div style={{
+                                        padding: '10px 14px', borderRadius: '10px',
+                                        background: isDark ? 'rgba(24, 119, 242, 0.1)' : '#eff6ff',
+                                        border: '1px solid rgba(24, 119, 242, 0.25)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
+                                        color: isDark ? '#93c5fd' : '#1d4ed8'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-facebook text-blue-600" style={{ fontSize: '18px' }}></i>
+                                            <div>
+                                                <div>
+                                                    <strong>Facebook Page Hub:</strong> Publishes property updates directly to your Facebook Page feed or story.
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                                                    Connect or manage your Page via 1-Click Meta Connect in Settings &gt; Integrations.
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await socialAPI.getFacebookAuthUrl(window.location.origin);
+                                                    if (res?.success && res.url) window.location.href = res.url;
+                                                } catch (e) {
+                                                    toast.error('Could not initiate Meta login');
+                                                }
+                                            }}
+                                            style={{
+                                                background: '#1877F2', color: '#ffffff', border: 'none', padding: '4px 10px',
+                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
+                                                whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                            title="Click to connect or refresh your Facebook connection"
+                                        >
+                                            <i className="fab fa-facebook-f"></i> Connect Meta
+                                        </button>
+                                    </div>
+                                )}
+
+                                {platform === 'instagram' && (
+                                    <div style={{
+                                        padding: '10px 14px', borderRadius: '10px',
+                                        background: isDark ? 'rgba(228, 64, 95, 0.1)' : '#fdf2f8',
+                                        border: '1px solid rgba(228, 64, 95, 0.25)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
+                                        color: isDark ? '#f472b6' : '#be185d'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-instagram text-pink-600" style={{ fontSize: '18px' }}></i>
+                                            <div>
+                                                <div>
+                                                    <strong>Instagram Business Hub:</strong> Publishes property posts, stories, and reels via your connected Facebook Page.
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                                                    Connect or manage your Instagram Business profile in Settings &gt; Integrations.
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await socialAPI.getFacebookAuthUrl(window.location.origin);
+                                                    if (res?.success && res.url) window.location.href = res.url;
+                                                } catch (e) {
+                                                    toast.error('Could not initiate Meta login');
+                                                }
+                                            }}
+                                            style={{
+                                                background: 'linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)',
+                                                color: '#ffffff', border: 'none', padding: '4px 10px',
+                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
+                                                whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                            title="Click to connect or refresh your Instagram connection"
+                                        >
+                                            <i className="fab fa-instagram"></i> Connect Meta
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Visual Media & Scheduling Row */}
