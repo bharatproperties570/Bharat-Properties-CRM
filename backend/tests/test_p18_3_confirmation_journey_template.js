@@ -235,6 +235,49 @@ async function runTests() {
             assert.strictEqual(res.method, 'AMBIGUOUS_MULTIPLE_VISITS');
         });
 
+        await recordAsync('1.4 Duplicate Leads with duplicate mobile numbers fail closed when both have upcoming visits', async () => {
+            const lead1 = { _id: new mongoose.Types.ObjectId(), mobile: '+919876543210', firstName: 'Lead 1' };
+            const lead2 = { _id: new mongoose.Types.ObjectId(), mobile: '+919876543210', firstName: 'Lead 2' };
+
+            const visit1 = { _id: new mongoose.Types.ObjectId(), entityId: lead1._id, type: 'Site Visit', status: 'Scheduled', dueDate: new Date() };
+            const visit2 = { _id: new mongoose.Types.ObjectId(), entityId: lead2._id, type: 'Site Visit', status: 'Scheduled', dueDate: new Date() };
+
+            Activity.findOne = () => createChainableQuery(null);
+            Lead.find = () => createChainableQuery([lead1, lead2]);
+            Lead.findOne = () => createChainableQuery(lead1);
+            Activity.find = () => createChainableQuery([visit1, visit2]);
+
+            const res = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
+                mobile: '+919876543210'
+            });
+
+            assert.strictEqual(res.activity, null);
+            assert.strictEqual(res.method, 'AMBIGUOUS_MULTIPLE_VISITS');
+        });
+
+        await recordAsync('1.5 Zero matching visits returns NO_ACTIVE_SITE_VISIT and avoids provider send', async () => {
+            Activity.findOne = () => createChainableQuery(null);
+            Lead.find = () => createChainableQuery([]);
+            Lead.findOne = () => createChainableQuery(null);
+            Activity.find = () => createChainableQuery([]);
+
+            let providerInvoked = false;
+            WhatsAppService.sendTemplate = async () => {
+                providerInvoked = true;
+                return { success: true };
+            };
+
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile: '+919870000000',
+                message: { text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(res.matched, false);
+            assert.strictEqual(res.success, false);
+            assert.strictEqual(res.reason, 'NO_ACTIVE_SITE_VISIT');
+            assert.strictEqual(providerInvoked, false, 'Provider must not be invoked on zero visits');
+        });
+
         // =========================================================================
         // Finding 2: Resend API Authorization Tests (P0)
         // =========================================================================

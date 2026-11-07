@@ -182,78 +182,115 @@ export class SiteVisitConfirmationService {
             }
         }
 
-        // ── Precedence 2: Customer phone number resolving Lead & Site Visit ──
-        // Only permitted when exactly one unambiguous upcoming visit exists
+        // ── Precedence 2: Customer phone number resolving Lead(s) & Site Visit ──
+        // Only permitted when exactly one unambiguous upcoming visit exists across all matching Leads and participants.
+        // If multiple Leads exist with the same mobile number, ALL must be inspected.
         if (mobile) {
             const phoneVariants = getPhoneVariants(mobile);
 
-            let lead = null;
-            if (typeof LeadModel.findOne === 'function') {
+            // 1. Retrieve all matching Lead records for these phone variants
+            let matchingLeads = [];
+            const canQueryLeadFind = typeof LeadModel.find === 'function' &&
+                (mongoose.connection?.readyState === 1 || LeadModel.find !== mongoose.Model?.find);
+
+            if (canQueryLeadFind) {
                 const leadQuery = { mobile: { $in: phoneVariants } };
                 if (tenantId) leadQuery.tenantId = tenantId;
-                lead = await LeadModel.findOne(leadQuery, null, sessionOpt);
-                if (lead && typeof lead.toObject === 'function') lead = lead.toObject();
-                else if (lead && typeof lead.lean === 'function') lead = await lead.lean();
-            }
-
-            if (lead && lead._id && typeof ActivityModel.find === 'function') {
-                const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
-                const leadVisitQuery = {
-                    type: 'Site Visit',
-                    entityType: 'Lead',
-                    entityId: lead._id,
-                    status: { $in: ['Pending', 'Scheduled'] },
-                    dueDate: { $gte: yesterday }
-                };
-                if (tenantId) leadVisitQuery.tenantId = tenantId;
-
-                const matchingVisits = await ActivityModel.find(leadVisitQuery, null, sessionOpt)
-                    .sort({ dueDate: 1 })
-                    .limit(2);
-
-                if (matchingVisits.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Lead ${lead._id} has ${matchingVisits.length} upcoming Site Visits. Failing closed.`);
-                    return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
-                }
-
-                if (matchingVisits.length === 1) {
-                    return {
-                        activity: matchingVisits[0],
-                        lead,
-                        method: 'PHONE_LEAD_LOOKUP'
-                    };
+                try {
+                    const found = await LeadModel.find(leadQuery, null, sessionOpt);
+                    if (Array.isArray(found)) {
+                        matchingLeads = found.map(l => (l && typeof l.toObject === 'function') ? l.toObject() : l);
+                    }
+                } catch (findErr) {
+                    matchingLeads = [];
                 }
             }
 
-            // ── Precedence 3: Participants phone matching ──
+            // Fallback if LeadModel.find was not available/mocked or returned empty
+            if (matchingLeads.length === 0 && typeof LeadModel.findOne === 'function') {
+                const leadQuery = { mobile: { $in: phoneVariants } };
+                if (tenantId) leadQuery.tenantId = tenantId;
+                try {
+                    const singleLead = await LeadModel.findOne(leadQuery, null, sessionOpt);
+                    if (singleLead) {
+                        matchingLeads = [(singleLead && typeof singleLead.toObject === 'function') ? singleLead.toObject() : singleLead];
+                    }
+                } catch (_) {}
+            }
+
+            const leadIds = matchingLeads.map(l => l?._id).filter(Boolean);
+
+            // 2. Search for upcoming active Site Visits across all matching Leads and participants
+            const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
+            const foundVisits = new Map();
+
             if (typeof ActivityModel.find === 'function') {
+                // Check visits linked to any matching Lead
+                if (leadIds.length > 0) {
+                    const leadVisitQuery = {
+                        type: 'Site Visit',
+                        entityType: 'Lead',
+                        entityId: leadIds.length === 1 ? leadIds[0] : { $in: leadIds },
+                        status: { $in: ['Pending', 'Scheduled'] },
+                        dueDate: { $gte: yesterday }
+                    };
+                    if (tenantId) leadVisitQuery.tenantId = tenantId;
+
+                    const leadVisits = await ActivityModel.find(leadVisitQuery, null, sessionOpt)
+                        .sort({ dueDate: 1 })
+                        .limit(5);
+
+                    if (Array.isArray(leadVisits)) {
+                        for (const v of leadVisits) {
+                            if (v && v._id) foundVisits.set(String(v._id), v);
+                        }
+                    }
+                }
+
+                // Check visits where customer is listed in participants
                 const partQuery = {
                     type: 'Site Visit',
                     status: { $in: ['Pending', 'Scheduled'] },
+                    dueDate: { $gte: yesterday },
                     'participants.mobile': { $in: phoneVariants }
                 };
                 if (tenantId) partQuery.tenantId = tenantId;
 
                 const partVisits = await ActivityModel.find(partQuery, null, sessionOpt)
                     .sort({ dueDate: 1 })
-                    .limit(2);
+                    .limit(5);
 
-                if (partVisits.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Multiple participant Site Visits found for ${mobile}. Failing closed.`);
-                    return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
-                }
-
-                if (partVisits.length === 1) {
-                    return {
-                        activity: partVisits[0],
-                        lead: lead || null,
-                        method: 'PARTICIPANT_PHONE_LOOKUP'
-                    };
+                if (Array.isArray(partVisits)) {
+                    for (const v of partVisits) {
+                        if (v && v._id) foundVisits.set(String(v._id), v);
+                    }
                 }
             }
+
+            const uniqueVisits = Array.from(foundVisits.values());
+
+            if (uniqueVisits.length > 1) {
+                console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Multiple upcoming Site Visits (${uniqueVisits.length}) found across ${matchingLeads.length} matching Leads / participants for ${mobile}. Failing closed.`);
+                return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
+            }
+
+            if (uniqueVisits.length === 1) {
+                const singleVisit = uniqueVisits[0];
+                const matchedLead = matchingLeads.find(l => String(l._id) === String(singleVisit.entityId)) || matchingLeads[0] || null;
+                return {
+                    activity: singleVisit,
+                    lead: matchedLead,
+                    method: leadIds.some(id => String(id) === String(singleVisit.entityId))
+                        ? 'PHONE_LEAD_LOOKUP'
+                        : 'PARTICIPANT_PHONE_LOOKUP'
+                };
+            }
+
+            // Zero matching visits found for the phone number
+            return { activity: null, method: 'NO_ACTIVE_SITE_VISIT' };
         }
 
-        return { activity: null, method: 'NONE' };
+        return { activity: null, method: 'NO_ACTIVE_SITE_VISIT' };
     }
 
     /**

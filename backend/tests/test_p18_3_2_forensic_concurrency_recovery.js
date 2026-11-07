@@ -898,6 +898,312 @@ async function main() {
             }
         });
 
+        // =========================================================================
+        // Section 6: P0 Ambiguous Lead & Duplicate Mobile Resolution (Real Replica Set)
+        // =========================================================================
+        console.log('\n--- Section 6: P0 Ambiguous Lead & Duplicate Mobile Resolution (Real Replica Set) ---');
+
+        await runTest('6.1 Two Lead records with same mobile number and one upcoming visit each -> AMBIGUOUS_MULTIPLE_VISITS (Fails Closed)', async () => {
+            const mobile = '+919875551111';
+            const lead1 = await Lead.create({
+                firstName: 'DuplicateA',
+                lastName: 'Customer',
+                mobile,
+                status: 'New'
+            });
+            const lead2 = await Lead.create({
+                firstName: 'DuplicateB',
+                lastName: 'Customer',
+                mobile,
+                status: 'New'
+            });
+
+            const visit1 = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Site Visit Lead 1',
+                entityType: 'Lead',
+                entityId: lead1._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: { confirmationStatus: 'PENDING' }
+            });
+
+            const visit2 = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Site Visit Lead 2',
+                entityType: 'Lead',
+                entityId: lead2._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 48 * 3600 * 1000),
+                details: { confirmationStatus: 'PENDING' }
+            });
+
+            const initialProviderCalls = providerSendCalls.length;
+
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile,
+                message: { id: 'wamid.inbound.duplead', text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(res.matched, false, 'Must not match when ambiguous');
+            assert.strictEqual(res.success, false, 'Must fail closed');
+            assert.strictEqual(res.reason, 'AMBIGUOUS_MULTIPLE_VISITS');
+
+            // Neither visit may be marked confirmed
+            const freshVisit1 = await Activity.findById(visit1._id);
+            const freshVisit2 = await Activity.findById(visit2._id);
+            assert.strictEqual(freshVisit1.details?.customerConfirmed || false, false, 'Visit 1 must not be confirmed');
+            assert.strictEqual(freshVisit2.details?.customerConfirmed || false, false, 'Visit 2 must not be confirmed');
+
+            // Provider must NOT have been called
+            assert.strictEqual(providerSendCalls.length, initialProviderCalls, 'Provider dispatch must not be invoked');
+        });
+
+        await runTest('6.2 Two Lead records where only one has an upcoming visit -> Resolves unambiguously to valid visit', async () => {
+            const mobile = '+919875552222';
+            const leadOld = await Lead.create({
+                firstName: 'OldLead',
+                lastName: 'Customer',
+                mobile,
+                status: 'Closed'
+            });
+            const leadActive = await Lead.create({
+                firstName: 'ActiveLead',
+                lastName: 'Customer',
+                mobile,
+                status: 'Working'
+            });
+
+            // leadOld has a completed visit in the past
+            await Activity.create({
+                type: 'Site Visit',
+                subject: 'Past Visit',
+                entityType: 'Lead',
+                entityId: leadOld._id,
+                status: 'Completed',
+                dueDate: new Date(Date.now() - 48 * 3600 * 1000)
+            });
+
+            // leadActive has an upcoming scheduled visit
+            const activeVisit = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Upcoming Active Visit',
+                entityType: 'Lead',
+                entityId: leadActive._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    confirmationStatus: 'PENDING',
+                    journeyDispatchStatus: 'PENDING'
+                }
+            });
+
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile,
+                message: { id: 'wamid.inbound.singleactive', text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(res.matched, true);
+            assert.strictEqual(res.success, true);
+            assert.strictEqual(String(res.activity._id), String(activeVisit._id), 'Must resolve to the only upcoming visit');
+            assert.strictEqual(res.confirmationStatus, 'CONFIRMED');
+
+            const saved = await Activity.findById(activeVisit._id);
+            assert.strictEqual(saved.details.customerConfirmed, true);
+        });
+
+        await runTest('6.3 Duplicate Leads where only one unique Site Visit is valid -> Resolves unambiguously', async () => {
+            const mobile = '+919875553333';
+            const lead1 = await Lead.create({
+                firstName: 'Dup1',
+                lastName: 'Customer',
+                mobile,
+                status: 'New'
+            });
+            const lead2 = await Lead.create({
+                firstName: 'Dup2',
+                lastName: 'Customer',
+                mobile,
+                status: 'New'
+            });
+
+            // Single shared visit linking lead1 as entityId and lead2 in participants
+            const sharedVisit = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Shared Site Visit',
+                entityType: 'Lead',
+                entityId: lead1._id,
+                participants: [{ mobile, name: 'Dup2 Customer' }],
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    confirmationStatus: 'PENDING'
+                }
+            });
+
+            const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({ mobile });
+            assert.ok(resolved.activity, 'Must resolve when visit is unique');
+            assert.strictEqual(String(resolved.activity._id), String(sharedVisit._id));
+            assert.strictEqual(resolved.method, 'PHONE_LEAD_LOOKUP');
+        });
+
+        await runTest('6.4 Exact WAMID correlation with duplicate customer mobile numbers -> Resolves exact visit (Precedence 1)', async () => {
+            const mobile = '+919875554444';
+            const targetWamid = 'wamid.exact.target.4444';
+            const otherWamid = 'wamid.other.target.4444';
+
+            const leadA = await Lead.create({ firstName: 'LeadA', lastName: 'SamePhone', mobile, status: 'New' });
+            const leadB = await Lead.create({ firstName: 'LeadB', lastName: 'SamePhone', mobile, status: 'New' });
+
+            const visitA = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Visit Target A',
+                entityType: 'Lead',
+                entityId: leadA._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    waScheduleMessageId: targetWamid,
+                    confirmationStatus: 'PENDING',
+                    journeyDispatchStatus: 'PENDING'
+                }
+            });
+
+            const visitB = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Visit Other B',
+                entityType: 'Lead',
+                entityId: leadB._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 48 * 3600 * 1000),
+                details: {
+                    waScheduleMessageId: otherWamid,
+                    confirmationStatus: 'PENDING'
+                }
+            });
+
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile,
+                originalMessageId: targetWamid,
+                message: { context: { id: targetWamid }, text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(res.matched, true);
+            assert.strictEqual(res.success, true);
+            assert.strictEqual(String(res.activity._id), String(visitA._id), 'Precedence 1 must resolve exact target visit');
+
+            const freshVisitA = await Activity.findById(visitA._id);
+            const freshVisitB = await Activity.findById(visitB._id);
+            assert.strictEqual(freshVisitA.details.customerConfirmed, true);
+            assert.strictEqual(freshVisitB.details.customerConfirmed || false, false, 'Visit B must remain unconfirmed');
+        });
+
+        await runTest('6.5 Multiple participant matches -> AMBIGUOUS_MULTIPLE_VISITS (Fails Closed)', async () => {
+            const mobile = '+919875555555';
+            await Activity.create({
+                type: 'Site Visit',
+                subject: 'Participant Visit 1',
+                entityType: 'Lead',
+                entityId: new mongoose.Types.ObjectId(),
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                participants: [{ mobile, name: 'Part User 1' }]
+            });
+            await Activity.create({
+                type: 'Site Visit',
+                subject: 'Participant Visit 2',
+                entityType: 'Lead',
+                entityId: new mongoose.Types.ObjectId(),
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 48 * 3600 * 1000),
+                participants: [{ mobile, name: 'Part User 2' }]
+            });
+
+            const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({ mobile });
+            assert.strictEqual(resolved.activity, null);
+            assert.strictEqual(resolved.method, 'AMBIGUOUS_MULTIPLE_VISITS');
+        });
+
+        await runTest('6.6 No matching Lead or Site Visit -> NO_ACTIVE_SITE_VISIT', async () => {
+            const mobile = '+919870000000';
+            const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({ mobile });
+            assert.strictEqual(resolved.activity, null);
+            assert.strictEqual(resolved.method, 'NO_ACTIVE_SITE_VISIT');
+
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile,
+                message: { text: 'Yes, Confirm' }
+            });
+            assert.strictEqual(res.matched, false);
+            assert.strictEqual(res.success, false);
+            assert.strictEqual(res.reason, 'NO_ACTIVE_SITE_VISIT');
+        });
+
+        await runTest('6.7 Concurrent identical callback requests -> Exactly ONE atomic claim, duplicates suppressed', async () => {
+            const mobile = '+919875557777';
+            const lead = await Lead.create({ firstName: 'Concurrent', lastName: 'Customer', mobile, status: 'New' });
+            const activity = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Concurrent Test Visit',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    confirmationStatus: 'PENDING',
+                    journeyDispatchStatus: 'PENDING'
+                }
+            });
+
+            const concurrency = 15;
+            const promises = Array.from({ length: concurrency }).map(() =>
+                SiteVisitConfirmationService.handleConfirmationCallback({
+                    mobile,
+                    message: { id: 'wamid.concurrent.batch', text: 'Yes, Confirm' }
+                })
+            );
+
+            const results = await Promise.all(promises);
+            const claims = results.filter(r => r.matched && r.success && !r.duplicate);
+            const duplicates = results.filter(r => r.matched && r.success && r.duplicate);
+
+            assert.strictEqual(claims.length, 1, 'Exactly ONE winner must claim confirmation');
+            assert.strictEqual(duplicates.length, concurrency - 1, 'All other concurrent requests must be suppressed as duplicates');
+        });
+
+        await runTest('6.8 No provider dispatch on ambiguous resolution', async () => {
+            const mobile = '+919875558888';
+            const lead1 = await Lead.create({ firstName: 'Amb1', lastName: 'Customer', mobile, status: 'New' });
+            const lead2 = await Lead.create({ firstName: 'Amb2', lastName: 'Customer', mobile, status: 'New' });
+
+            await Activity.create({
+                type: 'Site Visit',
+                subject: 'Amb Visit 1',
+                entityType: 'Lead',
+                entityId: lead1._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000)
+            });
+            await Activity.create({
+                type: 'Site Visit',
+                subject: 'Amb Visit 2',
+                entityType: 'Lead',
+                entityId: lead2._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 48 * 3600 * 1000)
+            });
+
+            const callsBefore = providerSendCalls.length;
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile,
+                message: { text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(res.matched, false);
+            assert.strictEqual(res.reason, 'AMBIGUOUS_MULTIPLE_VISITS');
+            assert.strictEqual(providerSendCalls.length, callsBefore, 'Provider MUST NOT be dispatched when resolution is ambiguous');
+        });
+
         console.log('\n============================================================');
         console.log(`Phase 18.3.2/18.3.3 Forensic Suite Results:`);
         console.log(`Passed: ${passedCount}, Failed: ${failedCount}`);
