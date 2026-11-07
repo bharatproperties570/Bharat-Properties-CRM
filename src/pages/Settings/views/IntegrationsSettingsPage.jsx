@@ -1673,10 +1673,28 @@ const IntegrationsSettingsPage = () => {
 
                                                 {googleStatus.connected ? (
                                                     <div style={{ marginTop: '20px' }}>
-                                                        <div style={{ background: 'var(--bg-light)', padding: '12px', borderRadius: '10px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
-                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>Connected Account</div>
-                                                            <div style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 700 }}>{googleStatus.email}</div>
+                                                        <div style={{ background: 'var(--bg-light)', padding: '12px', borderRadius: '10px', marginBottom: '16px', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <div>
+                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>Connected Account</div>
+                                                                <div style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 700 }}>{googleStatus.email}</div>
+                                                            </div>
+                                                            {googleStatus.needsReauth ? (
+                                                                <span style={{ fontSize: '0.72rem', background: '#fef3c7', color: '#b45309', padding: '4px 8px', borderRadius: '6px', fontWeight: 800, border: '1px solid #fde68a' }}>
+                                                                    ⚠️ Session Expired
+                                                                </span>
+                                                            ) : (
+                                                                <span style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#059669', padding: '4px 8px', borderRadius: '6px', fontWeight: 800, border: '1px solid #a7f3d0' }}>
+                                                                    ✓ Active
+                                                                </span>
+                                                            )}
                                                         </div>
+
+                                                        {googleStatus.needsReauth && (
+                                                            <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px 14px', marginBottom: '16px', fontSize: '0.8rem', color: '#92400e', lineHeight: '1.5' }}>
+                                                                <strong>Action Required:</strong> Google security tokens have expired. Click <strong>"Reconnect Google"</strong> below to refresh access for YouTube and Google Business Profile.
+                                                            </div>
+                                                        )}
+
                                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginBottom: '20px' }}>
                                                             <div style={{ background: googleStatus.services?.gmail ? 'var(--stat-property-bg)' : 'var(--bg-light)', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: googleStatus.services?.gmail ? '#166534' : 'var(--text-muted)', border: '1px solid currentColor' }}>
                                                                 <i className={googleStatus.services?.gmail ? "fas fa-check-circle" : "fas fa-circle-notch"}></i> Gmail
@@ -1689,8 +1707,20 @@ const IntegrationsSettingsPage = () => {
                                                             </div>
                                                         </div>
                                                         <div style={{ display: 'flex', gap: '12px' }}>
-                                                            <button onClick={handleConnectGoogle} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontWeight: 700, cursor: 'pointer' }}>Manage Services</button>
-                                                            <button onClick={handleDisconnectGoogle} style={{ padding: '12px', borderRadius: '10px', background: 'var(--danger-bg)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect</button>
+                                                            <button 
+                                                                onClick={handleConnectGoogle} 
+                                                                style={{ 
+                                                                    flex: 1, padding: '12px', borderRadius: '10px', 
+                                                                    background: googleStatus.needsReauth ? '#4285F4' : 'var(--bg-card)', 
+                                                                    border: googleStatus.needsReauth ? 'none' : '1px solid var(--border-color)', 
+                                                                    color: googleStatus.needsReauth ? '#ffffff' : 'var(--text-main)', 
+                                                                    fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                                                    boxShadow: googleStatus.needsReauth ? '0 2px 8px rgba(66, 133, 244, 0.3)' : 'none'
+                                                                }}
+                                                            >
+                                                                <i className="fas fa-sync-alt"></i> Reconnect Google
+                                                            </button>
+                                                            <button onClick={handleDisconnectGoogle} style={{ padding: '12px 18px', borderRadius: '10px', background: 'var(--danger-bg)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect</button>
                                                         </div>
                                                     </div>
                                                 ) : (

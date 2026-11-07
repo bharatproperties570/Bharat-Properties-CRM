@@ -117,6 +117,9 @@ export const getGoogleStatus = async (req, res) => {
         }
 
         const scopes = config.value.scopes || '';
+        const expiryDate = config.value.tokens?.expiry_date;
+        const hasRefreshToken = !!config.value.tokens?.refresh_token;
+        const isAccessExpired = expiryDate ? (Date.now() > expiryDate) : false;
         
         res.json({ 
             success: true, 
@@ -125,6 +128,9 @@ export const getGoogleStatus = async (req, res) => {
             name: config.value.name,
             picture: config.value.picture,
             connectedAt: config.value.connectedAt,
+            isAccessExpired,
+            hasRefreshToken,
+            needsReauth: !hasRefreshToken || isAccessExpired,
             services: {
                 gmail: scopes.includes('mail.google.com'),
                 calendar: scopes.includes('calendar'),

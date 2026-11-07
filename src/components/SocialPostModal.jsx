@@ -34,7 +34,7 @@ import {
   Calendar,
   Clock
 } from 'lucide-react';
-import { socialAPI, marketingAPI, api } from '../utils/api';
+import { socialAPI, marketingAPI, googleSettingsAPI, api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 /**
@@ -1121,31 +1121,73 @@ const SocialPostModal = ({
 
                                 {platform === 'youtube' && (
                                     <div style={{
-                                        padding: '8px 12px', borderRadius: '8px',
+                                        padding: '10px 12px', borderRadius: '10px',
                                         background: isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2',
                                         border: '1px solid rgba(239, 68, 68, 0.25)',
-                                        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
                                         color: isDark ? '#fca5a5' : '#b91c1c'
                                     }}>
-                                        <i className="fab fa-youtube text-red-500" style={{ fontSize: '15px' }}></i>
-                                        <span>
-                                            <strong>YouTube Dispatch:</strong> First line will be used as video Title and remainder as Description. Video URL / file (.mp4) required.
-                                        </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-youtube text-red-500" style={{ fontSize: '15px' }}></i>
+                                            <span>
+                                                <strong>YouTube Dispatch:</strong> First line is video Title and remainder is Description. Video (.mp4) required.
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await googleSettingsAPI.getAuthUrl(window.location.origin);
+                                                    if (res?.success && res.url) window.location.href = res.url;
+                                                } catch (e) {
+                                                    toast.error('Could not initiate Google login');
+                                                }
+                                            }}
+                                            style={{
+                                                background: '#ef4444', color: '#ffffff', border: 'none', padding: '4px 10px',
+                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
+                                                whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                            title="Click to refresh your Google connection"
+                                        >
+                                            <i className="fas fa-sync-alt"></i> Reconnect Google
+                                        </button>
                                     </div>
                                 )}
 
                                 {platform === 'google_business' && (
                                     <div style={{
-                                        padding: '8px 12px', borderRadius: '8px',
+                                        padding: '10px 12px', borderRadius: '10px',
                                         background: isDark ? 'rgba(66, 133, 244, 0.1)' : '#eff6ff',
                                         border: '1px solid rgba(66, 133, 244, 0.25)',
-                                        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
                                         color: isDark ? '#93c5fd' : '#1d4ed8'
                                     }}>
-                                        <i className="fab fa-google text-blue-500" style={{ fontSize: '15px' }}></i>
-                                        <span>
-                                            <strong>Google Business Profile:</strong> Posts an interactive "Call" / "Learn More" update directly onto Google Search & Maps.
-                                        </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-google text-blue-500" style={{ fontSize: '15px' }}></i>
+                                            <span>
+                                                <strong>Google Business Profile:</strong> Posts an interactive "Learn More" update directly onto Google Search & Maps.
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await googleSettingsAPI.getAuthUrl(window.location.origin);
+                                                    if (res?.success && res.url) window.location.href = res.url;
+                                                } catch (e) {
+                                                    toast.error('Could not initiate Google login');
+                                                }
+                                            }}
+                                            style={{
+                                                background: '#4285F4', color: '#ffffff', border: 'none', padding: '4px 10px',
+                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
+                                                whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                            title="Click to refresh your Google connection"
+                                        >
+                                            <i className="fas fa-sync-alt"></i> Reconnect Google
+                                        </button>
                                     </div>
                                 )}
                             </div>

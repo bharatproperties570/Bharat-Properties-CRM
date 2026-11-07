@@ -79,6 +79,10 @@ class GoogleBusinessService {
                 throw new Error('Google account session expired. Please go to CRM Settings > Integrations and click "Reconnect Google" to refresh access.');
             }
             if (error.response?.data?.error?.status === 'PERMISSION_DENIED') {
+                const activationUrl = error.response?.data?.error?.details?.find(d => d.metadata?.activationUrl)?.metadata?.activationUrl;
+                if (activationUrl) {
+                    throw new Error(`My Business API is disabled in your Google Cloud Project. Please enable it by visiting: ${activationUrl}`);
+                }
                 throw new Error('Google Business Profile permission denied. Ensure My Business API is enabled in your Google Cloud Console project.');
             }
             throw error;

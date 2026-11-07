@@ -90,6 +90,12 @@ class YouTubeService {
             if (errDetail.includes('invalid_grant')) {
                 throw new Error('Google account session expired. Please go to CRM Settings > Integrations and click "Reconnect Google" to refresh access.');
             }
+            if (error.response?.data?.error?.status === 'PERMISSION_DENIED') {
+                const activationUrl = error.response?.data?.error?.details?.find(d => d.metadata?.activationUrl)?.metadata?.activationUrl;
+                if (activationUrl) {
+                    throw new Error(`YouTube Data API is disabled in your Google Cloud Project. Please enable it by visiting: ${activationUrl}`);
+                }
+            }
             if (errDetail.includes('quotaExceeded')) {
                 throw new Error('YouTube API daily upload quota reached. Please try again tomorrow or contact admin.');
             }
