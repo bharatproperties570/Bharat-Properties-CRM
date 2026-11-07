@@ -158,7 +158,7 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         const inventoryTabBtn = await screen.findByText('Inventory');
         fireEvent.click(inventoryTabBtn);
 
-        expect(await screen.findByText(/Units & Inventory Register|Project Units/i)).toBeInTheDocument();
+        expect(await screen.findByText('Block / Unit')).toBeInTheDocument();
 
         const headers = container.querySelectorAll('th');
         expect(headers).toHaveLength(7);
