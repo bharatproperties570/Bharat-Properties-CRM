@@ -21,7 +21,7 @@ import mongoose from 'mongoose';
 import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import Activity from '../models/Activity.js';
 import Contact from '../models/Contact.js';
-import { marketingQueue } from '../src/queues/marketingQueue.js';
+import OutboxEvent from '../models/OutboxEvent.js';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
 
 /**
@@ -1129,18 +1129,29 @@ export const postSocialMedia = async (req, res) => {
                 return res.status(400).json({ success: false, error: 'Scheduled time must be in the future' });
             }
 
-            console.log(`[SocialController] Queuing scheduled post for ${platform} in ${Math.round(delay/1000)} seconds...`);
+            console.log(`[SocialController] Queuing scheduled post for ${platform} via durable Outbox in ${Math.round(delay/1000)} seconds...`);
             
-            await marketingQueue.add('scheduled-social-dispatch', {
-                platform,
-                text,
-                imageUrl,
-                format,
-                entityId,
-                entityType
-            }, { 
-                delay,
-                jobId: `social_${platform}_${entityId}_${scheduledDate.getTime()}` // Prevent duplicates
+            await OutboxEvent.create({
+                eventType: 'MarketingDispatchRequested',
+                aggregateType: 'Social',
+                aggregateId: entityId && mongoose.Types.ObjectId.isValid(entityId) ? new mongoose.Types.ObjectId(entityId) : new mongoose.Types.ObjectId(),
+                payload: {
+                    jobType: 'scheduled-social-dispatch',
+                    jobData: {
+                        platform,
+                        text,
+                        imageUrl,
+                        format,
+                        entityId,
+                        entityType
+                    },
+                    opts: {
+                        delay,
+                        jobId: `social_${platform}_${entityId}_${scheduledDate.getTime()}` // Prevent duplicates
+                    }
+                },
+                tenantId: req.user?.tenantId || req.user?.tenant,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
             });
 
             return res.json({ 

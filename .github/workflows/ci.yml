@@ -97,6 +97,13 @@ jobs:
           npm run test:r20
           npm run test:phase6
 
+      - name: Run Phase 6 Enterprise Backend Refactoring Acceptance Tests
+        run: |
+          cd backend
+          npm run test:phase6:refactoring
+          npm run test:phase6:reliability
+          npm run test:phase6:p1
+
       - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
         run: |
           cd backend

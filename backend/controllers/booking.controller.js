@@ -6,6 +6,7 @@ import AuditLog from "../models/AuditLog.js";
 import Lookup from "../models/Lookup.js";
 import OutboxEvent from "../models/OutboxEvent.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 
 /**
  * @section Enterprise Booking Controller
@@ -49,19 +50,10 @@ export const createBooking = async (req, res) => {
         }
 
         let bookingId;
-        const hasDb = mongoose.connection && mongoose.connection.readyState === 1 && typeof mongoose.startSession === 'function';
-        let session = null;
-        if (hasDb) {
-            try {
-                session = await mongoose.startSession();
-            } catch (sErr) {
-                session = null;
-            }
-        }
+        let isIdempotentReturn = false;
         
         try {
-            let isIdempotentReturn = false;
-            const executeBookingLogic = async () => {
+            await withMongoTransaction(async (session) => {
                 const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
                 let idK = null;
                 const AutomationLog = mongoose.model('AutomationLog');
@@ -273,26 +265,13 @@ export const createBooking = async (req, res) => {
                     activityDoc.tenantId = effectiveTenantId;
                 }
                 await Activity.create([activityDoc], { session: session || undefined });
-            };
-
-            if (session && typeof session.withTransaction === 'function') {
-                await session.withTransaction(executeBookingLogic);
-            } else {
-                await executeBookingLogic();
-            }
+            });
         } catch (err) {
-            if (session && typeof session.endSession === 'function') {
-                session.endSession();
-            }
             // Map the transaction error to a 400 Bad Request if it's our inventory business rule
             if (err.message && err.message.includes('INVENTORY_UNAVAILABLE')) {
                 return res.status(400).json({ success: false, message: err.message });
             }
             throw err;
-        } finally {
-            if (session && typeof session.endSession === 'function') {
-                session.endSession();
-            }
         }
 
         let populated = null;
@@ -511,11 +490,10 @@ export const getBooking = async (req, res) => {
 };
 
 export const updateBooking = async (req, res) => {
-    const session = await mongoose.startSession();
     let updatedBooking = null;
 
     try {
-        await session.withTransaction(async () => {
+        await withMongoTransaction(async (session) => {
             const visibilityFilter = await getVisibilityFilter(req.user);
             const booking = await Booking.findOne({ _id: req.params.id, ...visibilityFilter }).session(session);
             
@@ -580,8 +558,6 @@ export const updateBooking = async (req, res) => {
         res.status(200).json({ success: true, data: updatedBooking });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
-    } finally {
-        await session.endSession();
     }
 };
 
@@ -597,14 +573,13 @@ export const deleteBooking = async (req, res) => {
 };
 
 export const closeBooking = async (req, res) => {
-    const session = await mongoose.startSession();
     let updatedBooking = null;
 
     try {
         const { id } = req.params;
         const { checklist, closingDate, remarks, newOwnerId } = req.body;
 
-        await session.withTransaction(async () => {
+        await withMongoTransaction(async (session) => {
             // [SECURITY] Validate Visibility and Team Isolation
             const visibilityFilter = await getVisibilityFilter(req.user);
             const booking = await Booking.findOne({ _id: id, ...visibilityFilter }).populate('property lead seller').session(session);
@@ -690,8 +665,6 @@ export const closeBooking = async (req, res) => {
             return res.status(400).json({ success: false, message: msg });
         }
         res.status(500).json({ success: false, message: msg });
-    } finally {
-        await session.endSession();
     }
 };
 

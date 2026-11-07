@@ -13,6 +13,7 @@ import { calculateUserPermissions } from '../services/permission.service.js';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import OutboxEvent from '../models/OutboxEvent.js';
+import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -140,9 +141,6 @@ export const getUserById = async (req, res) => {
  * Create new user
  */
 export const createUser = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const {
             fullName,
@@ -161,7 +159,6 @@ export const createUser = async (req, res) => {
         // Validate password
         const passwordValidation = validatePassword(password);
         if (!passwordValidation.valid) {
-            await session.abortTransaction();
             return res.status(400).json({
                 success: false,
                 message: 'Password does not meet policy requirements',
@@ -169,91 +166,85 @@ export const createUser = async (req, res) => {
             });
         }
 
-        // Check if email already exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            await session.abortTransaction();
-            return res.status(400).json({
-                success: false,
-                message: 'User with this email already exists'
-            });
-        }
+        const newUser = await withMongoTransaction(async (session) => {
+            // Check if email already exists
+            const existingUser = await User.findOne({ email }).session(session);
+            if (existingUser) {
+                const err = new Error('User with this email already exists');
+                err.statusCode = 400;
+                throw err;
+            }
 
-        // Verify role exists and belongs to department
-        const roleDoc = await Role.findById(role);
-        if (!roleDoc) {
-            await session.abortTransaction();
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid role'
-            });
-        }
+            // Verify role exists and belongs to department
+            const roleDoc = await Role.findById(role).session(session);
+            if (!roleDoc) {
+                const err = new Error('Invalid role');
+                err.statusCode = 400;
+                throw err;
+            }
 
-        if (roleDoc.department !== department) {
-            await session.abortTransaction();
-            return res.status(400).json({
-                success: false,
-                message: `Role ${roleDoc.name} does not belong to ${department} department`
-            });
-        }
-        
-        // Privilege escalation check: Only Super Admins can assign the Super Admin role
-        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
-        const targetRoleName = roleDoc.name.toLowerCase();
-        
-        if (targetRoleName === 'super admin' && currentUserRole !== 'super admin') {
-            await session.abortTransaction();
-            return res.status(403).json({
-                success: false,
-                message: 'Only Super Admins can assign the Super Admin role'
-            });
-        }
+            if (roleDoc.department !== department) {
+                const err = new Error(`Role ${roleDoc.name} does not belong to ${department} department`);
+                err.statusCode = 400;
+                throw err;
+            }
+            
+            // Privilege escalation check: Only Super Admins can assign the Super Admin role
+            const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+            const targetRoleName = roleDoc.name.toLowerCase();
+            
+            if (targetRoleName === 'super admin' && currentUserRole !== 'super admin') {
+                const err = new Error('Only Super Admins can assign the Super Admin role');
+                err.statusCode = 403;
+                throw err;
+            }
 
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
+            // Hash password
+            const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Create user
-        const user = new User({
-            fullName,
-            email,
-            mobile,
-            username,
-            password: hashedPassword,
-            department,
-            role,
-            reportingTo,
-            dataScope,
-            locationScope,
-            financialPermissions,
-            passwordExpiresAt: calculatePasswordExpiry(),
-            passwordHistory: [{ hash: hashedPassword, changedAt: new Date() }]
+            // Create user
+            const user = new User({
+                fullName,
+                email,
+                mobile,
+                username,
+                password: hashedPassword,
+                department,
+                role,
+                reportingTo,
+                dataScope,
+                locationScope,
+                financialPermissions,
+                passwordExpiresAt: calculatePasswordExpiry(),
+                passwordHistory: [{ hash: hashedPassword, changedAt: new Date() }]
+            });
+
+            await user.save({ session });
+
+            // Log audit event
+            await AuditLog.create([{
+                eventType: 'user_created',
+                userId: user._id,
+                userName: user.fullName,
+                userEmail: user.email,
+                actorId: req.user?._id,
+                actorName: req.user?.fullName,
+                actorEmail: req.user?.email,
+                description: `User ${user.fullName} created`,
+                metadata: {
+                    department,
+                    role: roleDoc.name,
+                    dataScope
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent')
+            }], { session });
+
+            return user;
         });
 
-        await user.save({ session });
-
-        // Log audit event
-        await AuditLog.create([{
-            eventType: 'user_created',
-            userId: user._id,
-            userName: user.fullName,
-            userEmail: user.email,
-            actorId: req.user?._id,
-            actorName: req.user?.fullName,
-            actorEmail: req.user?.email,
-            description: `User ${user.fullName} created`,
-            metadata: {
-                department,
-                role: roleDoc.name,
-                dataScope
-            },
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent')
-        }], { session });
-
-        await session.commitTransaction();
-
         // Return user without sensitive data
-        const userResponse = await User.findById(user._id)
+        const userResponse = await User.findById(newUser._id)
             .populate('role', 'name department')
             .populate('reportingTo', 'fullName email')
             .select('-password -passwordHistory');
@@ -264,15 +255,12 @@ export const createUser = async (req, res) => {
             data: userResponse
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Create user error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to create user',
+            message: error.message || 'Failed to create user',
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
@@ -280,137 +268,124 @@ export const createUser = async (req, res) => {
  * Update user
  */
 export const updateUser = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { id } = req.params;
         const updates = req.body;
 
-        const user = await User.findById(id);
-        if (!user) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
+        await withMongoTransaction(async (session) => {
+            const user = await User.findById(id).session(session);
+            if (!user) {
+                const err = new Error('User not found');
+                err.statusCode = 404;
+                throw err;
+            }
 
-        // Defensive: Force correct types for known ObjectId fields if they are strings
-        const idFields = ['role', 'reportingTo', 'team'];
-        idFields.forEach(field => {
-            if (updates[field]) {
-                if (mongoose.Types.ObjectId.isValid(updates[field])) {
-                    updates[field] = new mongoose.Types.ObjectId(updates[field].toString());
-                } else {
-                    delete updates[field]; // Ignore invalid IDs instead of crashing
+            // Defensive: Force correct types for known ObjectId fields if they are strings
+            const idFields = ['role', 'reportingTo', 'team'];
+            idFields.forEach(field => {
+                if (updates[field]) {
+                    if (mongoose.Types.ObjectId.isValid(updates[field])) {
+                        updates[field] = new mongoose.Types.ObjectId(updates[field].toString());
+                    } else {
+                        delete updates[field]; // Ignore invalid IDs instead of crashing
+                    }
+                }
+            });
+
+            if (Array.isArray(updates.teams)) {
+                updates.teams = updates.teams
+                    .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
+                    .map(t => new mongoose.Types.ObjectId(t.toString()));
+            }
+
+            // Handle password update
+            if (updates.password) {
+                const passwordValidation = validatePassword(updates.password);
+                if (!passwordValidation.valid) {
+                    const err = new Error('Password does not meet policy requirements');
+                    err.statusCode = 400;
+                    err.errors = passwordValidation.errors;
+                    throw err;
+                }
+                updates.password = await bcrypt.hash(updates.password, 10);
+                updates.passwordHistory = [...user.passwordHistory, { hash: updates.password, changedAt: new Date() }];
+            } else {
+                // Prevent clearing password if sent as empty string/null
+                delete updates.password;
+            }
+
+            // Store original values for audit
+            const originalValues = {
+                department: user.department,
+                role: user.role,
+                dataScope: user.dataScope,
+                financialPermissions: user.financialPermissions,
+                reportingTo: user.reportingTo
+            };
+
+            // If role is being changed, verify it belongs to department
+            if (updates.role && updates.role !== user.role.toString()) {
+                const roleDoc = await Role.findById(updates.role).session(session);
+                if (!roleDoc) {
+                    const err = new Error('Invalid role');
+                    err.statusCode = 400;
+                    throw err;
+                }
+
+                const targetDept = updates.department || user.department;
+                if (roleDoc.department !== targetDept) {
+                    const err = new Error(`Role ${roleDoc.name} does not belong to ${targetDept} department`);
+                    err.statusCode = 400;
+                    throw err;
                 }
             }
+            
+            // Privilege escalation check
+            const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+            let targetExistingRole = '';
+            if (user.role) {
+                const existingRoleDoc = await Role.findById(user.role).session(session);
+                if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
+            }
+            const targetNewRole = updates.role ? (await Role.findById(updates.role).session(session))?.name?.toLowerCase() || '' : targetExistingRole;
+            
+            if ((targetExistingRole === 'super admin' || targetNewRole === 'super admin') && currentUserRole !== 'super admin') {
+                const err = new Error('Only Super Admins can modify a Super Admin or assign the Super Admin role');
+                err.statusCode = 403;
+                throw err;
+            }
+
+            // Update user
+            Object.assign(user, updates);
+            await user.save({ session });
+
+            // Invalidate caches
+            await invalidateAllUserCaches(user._id, user.department, user.reportingTo);
+
+            // Log audit event
+            await AuditLog.create([{
+                eventType: 'user_updated',
+                userId: user._id,
+                userName: user.fullName,
+                userEmail: user.email,
+                actorId: req.user?._id,
+                actorName: req.user?.fullName,
+                actorEmail: req.user?.email,
+                description: `User ${user.fullName} updated`,
+                changes: {
+                    before: originalValues,
+                    after: {
+                        department: user.department,
+                        role: user.role,
+                        dataScope: user.dataScope,
+                        financialPermissions: user.financialPermissions,
+                        reportingTo: user.reportingTo
+                    }
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent')
+            }], { session });
         });
-
-        if (Array.isArray(updates.teams)) {
-            updates.teams = updates.teams
-                .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
-                .map(t => new mongoose.Types.ObjectId(t.toString()));
-        }
-
-        // Handle password update
-        if (updates.password) {
-            const passwordValidation = validatePassword(updates.password);
-            if (!passwordValidation.valid) {
-                await session.abortTransaction();
-                return res.status(400).json({
-                    success: false,
-                    message: 'Password does not meet policy requirements',
-                    errors: passwordValidation.errors
-                });
-            }
-            updates.password = await bcrypt.hash(updates.password, 10);
-            updates.passwordHistory = [...user.passwordHistory, { hash: updates.password, changedAt: new Date() }];
-        } else {
-            // Prevent clearing password if sent as empty string/null
-            delete updates.password;
-        }
-
-        // Store original values for audit
-        const originalValues = {
-            department: user.department,
-            role: user.role,
-            dataScope: user.dataScope,
-            financialPermissions: user.financialPermissions,
-            reportingTo: user.reportingTo
-        };
-
-        // If role is being changed, verify it belongs to department
-        if (updates.role && updates.role !== user.role.toString()) {
-            const roleDoc = await Role.findById(updates.role);
-            if (!roleDoc) {
-                await session.abortTransaction();
-                return res.status(400).json({
-                    success: false,
-                    message: 'Invalid role'
-                });
-            }
-
-            const targetDept = updates.department || user.department;
-            if (roleDoc.department !== targetDept) {
-                await session.abortTransaction();
-                return res.status(400).json({
-                    success: false,
-                    message: `Role ${roleDoc.name} does not belong to ${targetDept} department`
-                });
-            }
-        }
-        
-        // Privilege escalation check
-        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
-        let targetExistingRole = '';
-        if (user.role) {
-            const existingRoleDoc = await Role.findById(user.role);
-            if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
-        }
-        const targetNewRole = updates.role ? (await Role.findById(updates.role))?.name?.toLowerCase() || '' : targetExistingRole;
-        
-        if ((targetExistingRole === 'super admin' || targetNewRole === 'super admin') && currentUserRole !== 'super admin') {
-            await session.abortTransaction();
-            return res.status(403).json({
-                success: false,
-                message: 'Only Super Admins can modify a Super Admin or assign the Super Admin role'
-            });
-        }
-
-        // Update user
-        Object.assign(user, updates);
-        await user.save({ session });
-
-        // Invalidate caches
-        await invalidateAllUserCaches(user._id, user.department, user.reportingTo);
-
-        // Log audit event
-        await AuditLog.create([{
-            eventType: 'user_updated',
-            userId: user._id,
-            userName: user.fullName,
-            userEmail: user.email,
-            actorId: req.user?._id,
-            actorName: req.user?.fullName,
-            actorEmail: req.user?.email,
-            description: `User ${user.fullName} updated`,
-            changes: {
-                before: originalValues,
-                after: {
-                    department: user.department,
-                    role: user.role,
-                    dataScope: user.dataScope,
-                    financialPermissions: user.financialPermissions,
-                    reportingTo: user.reportingTo
-                }
-            },
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent')
-        }], { session });
-
-        await session.commitTransaction();
 
         const updatedUser = await User.findById(id)
             .populate('role', 'name department')
@@ -423,15 +398,13 @@ export const updateUser = async (req, res) => {
             data: updatedUser
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Update user error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to update user',
+            message: error.message || 'Failed to update user',
+            ...(error.errors ? { errors: error.errors } : {}),
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
@@ -567,26 +540,22 @@ export const toggleUserStatus = async (req, res) => {
                     } else {
                         // If no manager, queue them back to the distribution engine via R56 Outbox
                         for (const lead of openLeads) {
-                            const session = await mongoose.startSession();
-                            session.startTransaction();
                             try {
-                                lead.owner = null;
-                                await lead.save({ session });
-                                await OutboxEvent.create([{
-                                    eventId: uuidv4(),
-                                    eventType: 'LeadReassignmentRequested',
-                                    aggregateType: 'Lead',
-                                    aggregateId: lead._id,
-                                    payload: {
-                                        triggerEvent: 'onLeadReassignment'
-                                    }
-                                }], { session });
-                                await session.commitTransaction();
+                                await withMongoTransaction(async (session) => {
+                                    lead.owner = null;
+                                    await lead.save({ session });
+                                    await OutboxEvent.create([{
+                                        eventId: uuidv4(),
+                                        eventType: 'LeadReassignmentRequested',
+                                        aggregateType: 'Lead',
+                                        aggregateId: lead._id,
+                                        payload: {
+                                            triggerEvent: 'onLeadReassignment'
+                                        }
+                                    }], { session });
+                                });
                             } catch (err) {
-                                await session.abortTransaction();
                                 console.error(`[User Management] Failed to transfer lead ${lead._id} to Outbox: ${err.message}`);
-                            } finally {
-                                session.endSession();
                             }
                         }
                         console.log(`[User Management] Queued ${openLeads.length} active leads from deactivated user ${user._id} for redistribution (No manager).`);
@@ -622,52 +591,14 @@ export const toggleUserStatus = async (req, res) => {
  * Deactivate user with data transfer
  */
 export const deactivateUser = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { id } = req.params;
         const { transferToUserId, reason } = req.body;
 
         if (!transferToUserId) {
-            await session.abortTransaction();
             return res.status(400).json({
                 success: false,
                 message: 'Transfer target user is required'
-            });
-        }
-
-        const user = await User.findById(id);
-        if (!user) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-        
-        // Privilege escalation check
-        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
-        let targetExistingRole = '';
-        if (user.role) {
-            const existingRoleDoc = await Role.findById(user.role);
-            if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
-        }
-        
-        if (targetExistingRole === 'super admin' && currentUserRole !== 'super admin') {
-            await session.abortTransaction();
-            return res.status(403).json({
-                success: false,
-                message: 'Only Super Admins can deactivate a Super Admin'
-            });
-        }
-
-        const transferToUser = await User.findById(transferToUserId);
-        if (!transferToUser) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'Transfer target user not found'
             });
         }
 
@@ -675,85 +606,129 @@ export const deactivateUser = async (req, res) => {
         const Lead = (await import('../models/Lead.js')).default;
         const Deal = (await import('../models/Deal.js')).default;
 
-        // Transfer data
-        const [leadResult, dealResult] = await Promise.all([
-            Lead.updateMany(
-                { assignedTo: id },
-                { $set: { assignedTo: transferToUserId } },
+        let transferResults = { leads: 0, deals: 0 };
+        let deactivatedUserMeta = null;
+
+        await withMongoTransaction(async (session) => {
+            const user = await User.findById(id).session(session);
+            if (!user) {
+                const err = new Error('User not found');
+                err.statusCode = 404;
+                throw err;
+            }
+            
+            // Privilege escalation check
+            const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+            let targetExistingRole = '';
+            if (user.role) {
+                const existingRoleDoc = await Role.findById(user.role).session(session);
+                if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
+            }
+            
+            if (targetExistingRole === 'super admin' && currentUserRole !== 'super admin') {
+                const err = new Error('Only Super Admins can deactivate a Super Admin');
+                err.statusCode = 403;
+                throw err;
+            }
+
+            const transferToUser = await User.findById(transferToUserId).session(session);
+            if (!transferToUser) {
+                const err = new Error('Transfer target user not found');
+                err.statusCode = 404;
+                throw err;
+            }
+
+            // Transfer data
+            const [leadResult, dealResult] = await Promise.all([
+                Lead.updateMany(
+                    { assignedTo: id },
+                    { $set: { assignedTo: transferToUserId } },
+                    { session }
+                ),
+                Deal.updateMany(
+                    { assignedTo: id },
+                    { $set: { assignedTo: transferToUserId } },
+                    { session }
+                )
+            ]);
+
+            transferResults = {
+                leads: leadResult.modifiedCount,
+                deals: dealResult.modifiedCount
+            };
+
+            // Update reporting structure
+            await User.updateMany(
+                { reportingTo: id },
+                { $set: { reportingTo: transferToUserId } },
                 { session }
-            ),
-            Deal.updateMany(
-                { assignedTo: id },
-                { $set: { assignedTo: transferToUserId } },
-                { session }
-            )
-        ]);
+            );
 
-        // Update reporting structure
-        await User.updateMany(
-            { reportingTo: id },
-            { $set: { reportingTo: transferToUserId } },
-            { session }
-        );
+            // Deactivate user
+            user.isActive = false;
+            user.status = 'inactive';
+            await user.save({ session });
 
-        // Deactivate user
-        user.isActive = false;
-        user.status = 'inactive';
-        await user.save({ session });
+            deactivatedUserMeta = {
+                id: user._id,
+                department: user.department,
+                reportingTo: user.reportingTo
+            };
 
-        // Force logout all sessions
-        await Session.forceLogoutUser(id, req.user?._id, 'user_deactivated');
-
-        // Invalidate caches
-        await invalidateAllUserCaches(id, user.department, user.reportingTo);
-
-        // Log audit event
-        await AuditLog.create([{
-            eventType: 'user_deactivated',
-            userId: id,
-            userName: user.fullName,
-            userEmail: user.email,
-            actorId: req.user?._id,
-            actorName: req.user?.fullName,
-            actorEmail: req.user?.email,
-            description: `User ${user.fullName} deactivated and data transferred to ${transferToUser.fullName}`,
-            metadata: {
-                reason,
-                transferred: {
-                    leads: leadResult.modifiedCount,
-                    deals: dealResult.modifiedCount
+            // Log audit event
+            await AuditLog.create([{
+                eventType: 'user_deactivated',
+                userId: id,
+                userName: user.fullName,
+                userEmail: user.email,
+                actorId: req.user?._id,
+                actorName: req.user?.fullName,
+                actorEmail: req.user?.email,
+                description: `User ${user.fullName} deactivated and data transferred to ${transferToUser.fullName}`,
+                metadata: {
+                    reason,
+                    transferred: {
+                        leads: leadResult.modifiedCount,
+                        deals: dealResult.modifiedCount
+                    },
+                    transferredTo: {
+                        id: transferToUserId,
+                        name: transferToUser.fullName
+                    }
                 },
-                transferredTo: {
-                    id: transferToUserId,
-                    name: transferToUser.fullName
-                }
-            },
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent')
-        }], { session });
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent')
+            }], { session });
+        });
 
-        await session.commitTransaction();
+        // 🚀 POST-COMMIT SIDE EFFECTS: Execute only AFTER DB transaction successfully commits
+        if (deactivatedUserMeta) {
+            try {
+                await Session.forceLogoutUser(id, req.user?._id, 'user_deactivated');
+            } catch (sessionErr) {
+                console.error('[User Management] Post-commit forceLogoutUser failed:', sessionErr.message);
+            }
+            try {
+                await invalidateAllUserCaches(id, deactivatedUserMeta.department, deactivatedUserMeta.reportingTo);
+            } catch (cacheErr) {
+                console.error('[User Management] Post-commit cache invalidation failed:', cacheErr.message);
+            }
+        }
 
         res.status(200).json({
             success: true,
             message: 'User deactivated and data transferred successfully',
             data: {
-                transferred: {
-                    leads: leadResult.modifiedCount,
-                    deals: dealResult.modifiedCount
-                }
+                transferred: transferResults
             }
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Deactivate user error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to deactivate user',
+            message: error.message || 'Failed to deactivate user',
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
