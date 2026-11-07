@@ -43,6 +43,7 @@ import {
 import { PORTAL_PARSERS } from '../services/authority/portal/parsers/portalParserRegistry.js';
 import { DurablePortalCircuitBreaker } from '../services/authority/portal/infrastructure/durablePortalCircuitBreaker.js';
 import { PortalAuditSink } from '../services/authority/portal/infrastructure/portalAuditSink.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 let mongod = null;
 let tenantId = null;
@@ -55,7 +56,7 @@ test.before(async () => {
     const uri = mongod.getUri();
     await mongoose.connect(uri);
 
-    tenantId = new mongoose.Types.ObjectId();
+    tenantId = CANONICAL_ORGANIZATION_ID;
 
     // Create authenticated users
     submitterUser = await User.create({
