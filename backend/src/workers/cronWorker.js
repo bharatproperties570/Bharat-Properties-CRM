@@ -537,6 +537,17 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         return { enqueuedCount };
     }
 
+    if (job.name === 'recoverSiteVisitDispatches') {
+        console.log('[Cron Worker] Executing recoverSiteVisitDispatches...');
+        const { SiteVisitConfirmationService } = await import('../modules/siteVisit/siteVisitConfirmation.service.js');
+        const recoveryResult = await SiteVisitConfirmationService.recoverStrandedDispatches({
+            pendingAgeMs: 30000,
+            maxRetries: 3
+        });
+        console.log(`[Cron Worker] Site Visit stranded dispatches recovery: ${recoveryResult.recoveredCount}/${recoveryResult.totalScanned}`);
+        return recoveryResult;
+    }
+
 }, workerOptions);
 
 cronWorker.on('failed', async (job, err) => {

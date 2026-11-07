@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
 import toast from 'react-hot-toast';
 
-const JourneyProgressTracker = ({ formData, isDark }) => {
+const JourneyProgressTracker = ({ formData, isDark, onManage }) => {
+    const [isResending, setIsResending] = useState(false);
     const journeyUrl = formData.details?.journeyUrl || (formData.details?.journeyToken ? `${window.location.origin}/journey/${formData.details.journeyToken}` : null);
     const visited = Array.isArray(formData.visitedProperties) ? formData.visitedProperties : [];
 
@@ -18,7 +20,74 @@ const JourneyProgressTracker = ({ formData, isDark }) => {
         window.open(`https://wa.me/?text=${msg}`, '_blank');
     };
 
+    const handlePreview = () => {
+        if (!journeyUrl) return;
+        window.open(journeyUrl, '_blank');
+    };
+
+    const handleResendJourney = async () => {
+        const activityId = formData._id || formData.id;
+        if (!activityId) {
+            toast.error('Activity ID not found');
+            return;
+        }
+
+        try {
+            setIsResending(true);
+            const { api } = await import('../../../utils/api');
+            const res = await api.post(`/site-visits/${activityId}/resend-journey`);
+            if (res.data?.success) {
+                toast.success(res.data?.message || 'Journey template dispatched to WhatsApp!');
+            } else {
+                toast.error(res.data?.message || 'Journey template dispatch pending Meta approval');
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.message || err.message || 'Failed to resend journey message');
+        } finally {
+            setIsResending(false);
+        }
+    };
+
+    // Calculate Confirmation & Journey Lifecycle Status with Verified Delivery State Separation
+    const getLifecycleStatus = () => {
+        if (formData.status === 'Cancelled') {
+            return { label: 'Cancelled', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', icon: 'fas fa-ban' };
+        }
+        if (formData.details?.rescheduleRequested || formData.details?.confirmationStatus === 'RESCHEDULE_REQUESTED') {
+            return { label: 'Reschedule Requested', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.35)', icon: 'fas fa-calendar-alt' };
+        }
+        // Journey Opened remains distinct from delivery
+        if (formData.details?.journeyOpened) {
+            return { label: 'Journey Opened', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)', border: 'rgba(139, 92, 246, 0.35)', icon: 'fas fa-eye' };
+        }
+
+        const deliveryStatus = String(formData.details?.journeyDeliveryStatus || '').toUpperCase();
+        const dispatchStatus = String(formData.details?.journeyDispatchStatus || '').toUpperCase();
+
+        if (deliveryStatus === 'READ') {
+            return { label: 'Journey Read', color: '#059669', bg: 'rgba(5, 150, 105, 0.12)', border: 'rgba(5, 150, 105, 0.35)', icon: 'fas fa-check-double' };
+        }
+        if (deliveryStatus === 'DELIVERED' || (!deliveryStatus && formData.details?.journeyShared)) {
+            return { label: 'Journey Delivered', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.35)', icon: 'fas fa-check-double' };
+        }
+        if (deliveryStatus === 'SENT' || dispatchStatus === 'SENT') {
+            return { label: 'Journey Sent', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)', border: 'rgba(6, 182, 212, 0.35)', icon: 'fas fa-paper-plane' };
+        }
+        if (dispatchStatus === 'ACCEPTED') {
+            return { label: 'Journey Accepted', color: '#0284c7', bg: 'rgba(2, 132, 199, 0.12)', border: 'rgba(2, 132, 199, 0.35)', icon: 'fas fa-clock' };
+        }
+        if (formData.details?.confirmationStatus === 'CONFIRMED_JOURNEY_PENDING' || (formData.details?.customerConfirmed && dispatchStatus === 'FAILED')) {
+            return { label: 'Confirmed — Journey Pending', color: '#d97706', bg: 'rgba(217, 119, 6, 0.12)', border: 'rgba(217, 119, 6, 0.35)', icon: 'fas fa-exclamation-circle' };
+        }
+        if (formData.details?.customerConfirmed || formData.details?.confirmationStatus === 'CONFIRMED') {
+            return { label: 'Confirmed', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', border: 'rgba(16, 185, 129, 0.3)', icon: 'fas fa-check-circle' };
+        }
+        return { label: 'Awaiting Confirmation', color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)', border: 'rgba(100, 116, 139, 0.25)', icon: 'fas fa-hourglass-half' };
+    };
+
     if (!journeyUrl && visited.length === 0) return null;
+
+    const lifecycle = getLifecycleStatus();
 
     return (
         <div style={{
@@ -29,26 +98,42 @@ const JourneyProgressTracker = ({ formData, isDark }) => {
             border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
             borderRadius: '12px'
         }}>
-            {/* Header & Link Share Actions */}
+            {/* Header & Status Badge Strip */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className="fas fa-route" style={{ color: '#0284c7', fontSize: '1rem' }}></i>
                     <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b' }}>
                         Client Mobile Journey Tracker
                     </span>
+                    <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '3px 9px',
+                        borderRadius: '12px',
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        color: lifecycle.color,
+                        background: lifecycle.bg,
+                        border: `1px solid ${lifecycle.border}`
+                    }}>
+                        <i className={lifecycle.icon} style={{ fontSize: '0.65rem' }}></i>
+                        {lifecycle.label}
+                    </span>
                 </div>
 
-                {journeyUrl && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                {/* Actions Toolbar */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {onManage && (
                         <button
                             type="button"
-                            onClick={handleCopy}
+                            onClick={onManage}
                             style={{
                                 padding: '6px 10px',
                                 borderRadius: '8px',
-                                border: '1px solid rgba(2, 132, 199, 0.3)',
-                                background: 'rgba(2, 132, 199, 0.1)',
-                                color: '#0284c7',
+                                border: '1px solid rgba(100, 116, 139, 0.3)',
+                                background: 'rgba(100, 116, 139, 0.1)',
+                                color: isDark ? '#cbd5e1' : '#475569',
                                 fontSize: '0.75rem',
                                 fontWeight: 600,
                                 cursor: 'pointer',
@@ -57,29 +142,94 @@ const JourneyProgressTracker = ({ formData, isDark }) => {
                                 gap: '5px'
                             }}
                         >
-                            <i className="far fa-copy"></i> Copy Link
+                            <i className="fas fa-sliders-h"></i> Manage Site Visit
                         </button>
-                        <button
-                            type="button"
-                            onClick={handleWhatsApp}
-                            style={{
-                                padding: '6px 10px',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(37, 211, 102, 0.4)',
-                                background: 'rgba(37, 211, 102, 0.12)',
-                                color: '#16a34a',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '5px'
-                            }}
-                        >
-                            <i className="fab fa-whatsapp"></i> WhatsApp
-                        </button>
-                    </div>
-                )}
+                    )}
+
+                    {journeyUrl && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={handleCopy}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(2, 132, 199, 0.3)',
+                                    background: 'rgba(2, 132, 199, 0.1)',
+                                    color: '#0284c7',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <i className="far fa-copy"></i> Copy Link
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handlePreview}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                                    background: 'rgba(99, 102, 241, 0.1)',
+                                    color: '#6366f1',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <i className="fas fa-external-link-alt"></i> Preview Journey
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleWhatsApp}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(37, 211, 102, 0.4)',
+                                    background: 'rgba(37, 211, 102, 0.12)',
+                                    color: '#16a34a',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <i className="fab fa-whatsapp"></i> WhatsApp
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleResendJourney}
+                                disabled={isResending}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(217, 119, 6, 0.3)',
+                                    background: 'rgba(217, 119, 6, 0.1)',
+                                    color: '#d97706',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    cursor: isResending ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    opacity: isResending ? 0.7 : 1
+                                }}
+                            >
+                                <i className={`fas ${isResending ? 'fa-spinner fa-spin' : 'fa-redo'}`}></i>
+                                {isResending ? 'Sending...' : 'Resend Journey Message'}
+                            </button>
+                        </>
+                    )}
+                </div>
             </div>
 
             {/* Property Status Stepper */}

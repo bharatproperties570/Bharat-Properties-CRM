@@ -600,13 +600,15 @@ export class SiteVisitAutomationService {
     /**
      * Process carrier delivery receipts and status webhooks (Meta WhatsApp / Twilio / SMS).
      */
-    static async handleDeliveryStatusCallback({ providerMessageId, status, timestamp = new Date(), error = null, channel = 'whatsapp' }) {
+    static async handleDeliveryStatusCallback({ providerMessageId, status, timestamp = new Date(), error = null, channel = 'whatsapp', tenantId = null }) {
         if (!providerMessageId) {
             return { success: false, matched: false, error: 'providerMessageId is required' };
         }
         const ActivityModel = mongoose.models.Activity || Activity;
         const normalizedStatus = String(status || '').toUpperCase(); // 'DELIVERED', 'READ', 'FAILED', 'UNDELIVERED', 'SENT'
-        const isDelivered = normalizedStatus === 'DELIVERED' || normalizedStatus === 'READ';
+        const isDelivered = normalizedStatus === 'DELIVERED';
+        const isRead = normalizedStatus === 'READ';
+        const isSent = normalizedStatus === 'SENT';
         const isFailed = normalizedStatus === 'FAILED' || normalizedStatus === 'UNDELIVERED';
 
         const query = {
@@ -614,9 +616,14 @@ export class SiteVisitAutomationService {
             $or: [
                 { 'details.remindersSent.h24MessageId': providerMessageId },
                 { 'details.remindersSent.h2MessageId': providerMessageId },
-                { 'details.feedbackDispatchMessageId': providerMessageId }
+                { 'details.feedbackDispatchMessageId': providerMessageId },
+                { 'details.journeyMessageId': providerMessageId },
+                { 'details.waScheduleMessageId': providerMessageId }
             ]
         };
+        if (tenantId) {
+            query.tenantId = tenantId;
+        }
 
         let activity = null;
         if (typeof ActivityModel.findOne === 'function') {
@@ -633,7 +640,6 @@ export class SiteVisitAutomationService {
             if (curr === 'READ') return false; // Terminal read state cannot be downgraded
             if (curr === 'DELIVERED') return normalizedStatus === 'READ'; // Delivered can only advance to Read
             if (curr === 'FAILED' || curr === 'UNDELIVERED') {
-                // If previously flagged failed, allow positive confirmed delivery/read from carrier
                 return normalizedStatus === 'DELIVERED' || normalizedStatus === 'READ';
             }
             if (curr === 'SENT') {
@@ -649,7 +655,7 @@ export class SiteVisitAutomationService {
             const currentStatus = activity.details?.remindersSent?.h24Status;
             if (canTransition(currentStatus)) {
                 updates['details.remindersSent.h24Status'] = normalizedStatus;
-                if (isDelivered) {
+                if (isDelivered || isRead) {
                     updates['details.remindersSent.h24'] = true;
                     updates['details.remindersSent.h24DeliveredAt'] = now;
                 }
@@ -666,7 +672,7 @@ export class SiteVisitAutomationService {
             const currentStatus = activity.details?.remindersSent?.h2Status;
             if (canTransition(currentStatus)) {
                 updates['details.remindersSent.h2Status'] = normalizedStatus;
-                if (isDelivered) {
+                if (isDelivered || isRead) {
                     updates['details.remindersSent.h2'] = true;
                     updates['details.remindersSent.h2DeliveredAt'] = now;
                 }
@@ -683,7 +689,7 @@ export class SiteVisitAutomationService {
             const currentStatus = activity.details?.feedbackDispatchStatus;
             if (canTransition(currentStatus)) {
                 updates['details.feedbackDispatchStatus'] = normalizedStatus;
-                if (isDelivered) {
+                if (isDelivered || isRead) {
                     updates['details.feedbackDeliveredAt'] = now;
                 }
                 if (isFailed) {
@@ -691,6 +697,29 @@ export class SiteVisitAutomationService {
                 }
             } else {
                 console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for feedback dispatch on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
+            }
+        }
+
+        if (activity.details?.journeyMessageId === providerMessageId) {
+            const currentStatus = activity.details?.journeyDeliveryStatus;
+            if (canTransition(currentStatus)) {
+                updates['details.journeyDeliveryStatus'] = normalizedStatus;
+                if (isSent) {
+                    updates['details.journeySentAt'] = now;
+                }
+                if (isDelivered) {
+                    updates['details.journeyDeliveredAt'] = now;
+                    updates['details.journeyShared'] = true;
+                }
+                if (isRead) {
+                    updates['details.journeyReadAt'] = now;
+                    updates['details.journeyShared'] = true;
+                }
+                if (isFailed) {
+                    updates['details.journeyDeliveryError'] = error || 'Carrier reported journey message failure';
+                }
+            } else {
+                console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for journey dispatch on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
             }
         }
 

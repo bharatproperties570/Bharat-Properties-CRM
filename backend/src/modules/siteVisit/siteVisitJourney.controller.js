@@ -1,4 +1,5 @@
 import { SiteVisitJourneyService } from './siteVisitJourney.service.js';
+import { SiteVisitConfirmationService } from './siteVisitConfirmation.service.js';
 
 export const getJourney = async (req, res) => {
     try {
@@ -9,6 +10,11 @@ export const getJourney = async (req, res) => {
 
         const { activity } = await SiteVisitJourneyService.verifyJourneyToken(rawToken);
         const itinerary = await SiteVisitJourneyService.getSanitizedItinerary(activity);
+
+        // Asynchronously track that the customer opened their personalized journey
+        SiteVisitConfirmationService.trackJourneyOpened(activity._id).catch(err => {
+            console.warn('[SiteVisitJourneyController] trackJourneyOpened error:', err.message);
+        });
 
         return res.status(200).json({
             success: true,

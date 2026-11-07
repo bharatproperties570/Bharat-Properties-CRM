@@ -589,6 +589,34 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     await applyFlowFeedback(mobile, flowResponse, text);
                 }
 
+                // Phase 18.3: Site Visit Customer Confirmation & Reschedule Callback
+                try {
+                    const { SiteVisitConfirmationService } = await import('../src/modules/siteVisit/siteVisitConfirmation.service.js');
+                    const isConfirm = SiteVisitConfirmationService.isYesConfirmReply(text, message);
+                    const isResched = !isConfirm && SiteVisitConfirmationService.isRescheduleReply(text, message);
+
+                    if (isConfirm || isResched) {
+                        if (isConfirm) {
+                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Yes, Confirm' callback from ${mobile}`);
+                            await SiteVisitConfirmationService.handleConfirmationCallback({
+                                mobile,
+                                message,
+                                originalMessageId: message.context?.id || null,
+                                text
+                            });
+                        } else if (isResched) {
+                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Reschedule' callback from ${mobile}`);
+                            await SiteVisitConfirmationService.handleRescheduleCallback({
+                                mobile,
+                                message,
+                                text
+                            });
+                        }
+                    }
+                } catch (svErr) {
+                    console.error('[WhatsApp Webhook] SiteVisitConfirmationService error:', svErr.message);
+                }
+
                 // R56: Deal Verification Intercept (Runs independently of generic C3 AI)
                 const DealVerificationService = (await import('../services/DealVerificationService.js')).default;
                 if (await DealVerificationService.processVerificationReply(mobile, text, { message, value })) {
