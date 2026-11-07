@@ -350,7 +350,7 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
     if (this.approvedAccessMethod === 'NONE') {
         blockers.push('No approved access method configured');
     }
-    const isOwnerAttested = this.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION';
+    const isOwnerAttested = this.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' && this.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
     const hasEvidence = isOwnerAttested
         ? Boolean(this.ownerAttestation?.attestingParty && this.ownerAttestation?.attestedAt && this.ownerAttestation?.scope)
         : Boolean(
@@ -844,7 +844,7 @@ export function checkActivationEligibility(doc = {}) {
     if (doc.reviewStatus !== 'APPROVED') {
         blockers.push({ code: 'REVIEW_NOT_APPROVED', message: `Review status is ${doc.reviewStatus}` });
     }
-    const isOwnerAttested = doc.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION';
+    const isOwnerAttested = doc.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' && doc.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
     const hasEvidence = isOwnerAttested
         ? Boolean(doc.ownerAttestation?.attestingParty && doc.ownerAttestation?.attestedAt && doc.ownerAttestation?.scope)
         : Boolean(
