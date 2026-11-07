@@ -2,6 +2,7 @@ import LeadForm from "../models/LeadForm.js";
 import DynamicForm from "../models/DynamicForm.js";
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
+import OutboxEvent from "../models/OutboxEvent.js";
 import mongoose from "mongoose";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
 import jwt from "jsonwebtoken";
@@ -240,9 +241,15 @@ export const submitForm = async (req, res) => {
                 console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
             }
 
-            // 4. Trigger Engines -> Moved to Background Event Queue
-            enrichmentQueue.add('enrichLead', { leadId: lead._id })
-                .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
+            // 4. Trigger Engines -> Durable Background Outbox Event
+            OutboxEvent.create({
+                eventType: 'LeadEnrichmentRequested',
+                aggregateType: 'Lead',
+                aggregateId: lead._id,
+                payload: { leadId: lead._id },
+                tenantId: lead.tenantId,
+                provenance: { source: 'PUBLIC_FORM', actorType: 'EXTERNAL' }
+            }).catch(err => console.error("[ENRICHMENT OUTBOX ERROR] Form Submit:", err));
         }
 
         // 3. Update Analytics

@@ -22,6 +22,7 @@ import CampaignRun from '../models/CampaignRun.js';
 import MarketingDelivery from '../models/MarketingDelivery.js';
 import Activity from '../models/Activity.js';
 import DispatchJob from '../models/DispatchJob.js';
+import OutboxEvent from '../models/OutboxEvent.js';
 import NurtureBot from '../services/NurtureBot.js';
 import marketingAudienceService from '../services/MarketingAudienceService.js';
 import { normalizePhone } from '../utils/normalization.js';
@@ -805,7 +806,7 @@ export const sendCampaign = async (req, res) => {
             }
         }
 
-        const job = await queue.add('blast', {
+        const blastPayload = {
             channel,
             name:    name || 'Campaign',
             subject: subject || 'Update',
@@ -823,7 +824,22 @@ export const sendCampaign = async (req, res) => {
             scheduledAt,
             repeatMode,
             repeatFreq
-        }, jobOptions);
+        };
+
+        await OutboxEvent.create({
+            eventType: 'MarketingDispatchRequested',
+            aggregateType: 'Marketing',
+            aggregateId: new mongoose.Types.ObjectId(),
+            payload: {
+                jobType: 'blast',
+                jobData: blastPayload,
+                opts: jobOptions
+            },
+            tenantId: req.user?.tenantId || req.user?.tenant,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        }).catch(err => console.error('[MarketingController] Failed to record OutboxEvent for blast:', err.message));
+
+        const job = await queue.add('blast', blastPayload, jobOptions);
 
         res.json({ 
             success: true, 
@@ -842,6 +858,18 @@ export const sendCampaign = async (req, res) => {
 export const activateDrip = async (req, res) => {
     try {
         const { leadId, sequenceId, delayMs = 0 } = req.body;
+        await OutboxEvent.create({
+            eventType: 'MarketingDispatchRequested',
+            aggregateType: 'Marketing',
+            aggregateId: leadId && mongoose.Types.ObjectId.isValid(leadId) ? new mongoose.Types.ObjectId(leadId) : new mongoose.Types.ObjectId(),
+            payload: {
+                jobType: 'drip',
+                jobData: { leadId, sequenceId, step: 1 },
+                opts: { delay: parseInt(delayMs) }
+            },
+            tenantId: req.user?.tenantId || req.user?.tenant,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        }).catch(err => console.error('[MarketingController] Failed to record OutboxEvent for drip:', err.message));
         const queue = await getMarketingQueue();
         const job = await queue.add('drip', { leadId, sequenceId, step: 1 }, { delay: parseInt(delayMs) });
         res.json({ success: true, jobId: job.id });
@@ -1187,7 +1215,20 @@ export const broadcastToBrokerGroup = async (req, res) => {
             console.error('[broadcastToBrokerGroup] BroadcastLiveTracker init warning:', trackerInitErr.message);
         }
 
-        // ─── ENTERPRISE BROADCAST SCHEDULING ──────────────────────────────────
+        // ─── ENTERPRISE BROADCAST SCHEDULING (DURABLE OUTBOX) ──────────────────────────────────
+        await OutboxEvent.create({
+            eventType: 'MarketingDispatchRequested',
+            aggregateType: 'Marketing',
+            aggregateId: campaignId && mongoose.Types.ObjectId.isValid(campaignId) ? new mongoose.Types.ObjectId(campaignId) : new mongoose.Types.ObjectId(),
+            payload: {
+                jobType: 'bna-broadcast',
+                jobData,
+                opts: scheduledTime ? { delay: Math.max(0, new Date(scheduledTime).getTime() - Date.now()), removeOnComplete: true } : { removeOnComplete: true }
+            },
+            tenantId: req.user?.tenantId || req.user?.tenant,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        }).catch(err => console.error('[MarketingController] Failed to record OutboxEvent for bna-broadcast:', err.message));
+
         if (scheduledTime) {
             const scheduledDate = new Date(scheduledTime);
             const delay = scheduledDate.getTime() - Date.now();

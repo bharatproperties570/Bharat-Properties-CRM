@@ -19,7 +19,6 @@ import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { googleSyncQueue } from "../src/queues/queueManager.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
 import AddressParsingService from '../services/AddressParsingService.js';
@@ -948,31 +947,26 @@ export const updateContact = async (req, res, next) => {
         const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
-        const session = await mongoose.startSession();
-        try {
-            await session.withTransaction(async () => {
-                contact.set(cleanData);
-                await contact.save({ session });
+        await withMongoTransaction(async (session) => {
+            contact.set(cleanData);
+            await contact.save({ session });
 
-                const stageChanged = cleanData.stage !== undefined && String(existingContact?.stage) !== String(cleanData.stage);
-                const OutboxEvent = mongoose.model('OutboxEvent');
+            const stageChanged = cleanData.stage !== undefined && String(existingContact?.stage) !== String(cleanData.stage);
+            const OutboxEvent = mongoose.model('OutboxEvent');
 
-                await OutboxEvent.create([{
-                    eventType: 'ContactUpdated',
-                    aggregateType: 'Contact',
-                    aggregateId: contact._id,
-                    payload: {
-                        documents: cleanData.documents,
-                        stageChanged,
-                        previousStage: existingContact?.stage,
-                        newStage: cleanData.stage,
-                        triggeredBy: req.user?._id || req.user?.id
-                    }
-                }], { session });
-            });
-        } finally {
-            await session.endSession();
-        }
+            await OutboxEvent.create([{
+                eventType: 'ContactUpdated',
+                aggregateType: 'Contact',
+                aggregateId: contact._id,
+                payload: {
+                    documents: cleanData.documents,
+                    stageChanged,
+                    previousStage: existingContact?.stage,
+                    newStage: cleanData.stage,
+                    triggeredBy: req.user?._id || req.user?.id
+                }
+            }], { session });
+        });
 
         res.json({ success: true, data: contact });
     } catch (error) {
@@ -1063,9 +1057,19 @@ export const syncAllContacts = async (req, res) => {
             return res.json({ success: true, message: "All contacts are already synced with Google." });
         }
 
-        // Add to queue
-        contacts.forEach(contact => {
-            googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+        // Add to durable Outbox for asynchronous Google Sync
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantId = rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined;
+        const events = contacts.map(contact => ({
+            eventType: 'GoogleSyncRequested',
+            aggregateType: 'Contact',
+            aggregateId: contact._id,
+            payload: { action: 'syncContact', contactId: contact._id },
+            tenantId,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        }));
+        await OutboxEvent.insertMany(events, { ordered: false }).catch((err) => {
+            console.error('[ContactController] Failed to insert OutboxEvents for syncAllContacts:', err.message);
         });
 
         res.json({
@@ -1106,9 +1110,20 @@ export const deleteContact = async (req, res, next) => {
         await Contact.softDeleteOne({ _id: id, ...visibilityFilter }, { userId: req.user?._id });
 
 
-        // Sync to Google
+        // Sync to Google via Outbox
         if (contact.googleContactId) {
-            googleSyncQueue.add('deleteContact', { googleContactId: contact.googleContactId }).catch(() => { });
+            const rawTenantId = req.user?.tenantId || req.user?.tenant;
+            const tenantId = rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined;
+            await OutboxEvent.create({
+                eventType: 'GoogleSyncRequested',
+                aggregateType: 'Contact',
+                aggregateId: contact._id,
+                payload: { action: 'deleteContact', googleContactId: contact.googleContactId },
+                tenantId,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+            }).catch((err) => {
+                console.error('[ContactController] Failed to queue Google delete via Outbox:', err.message);
+            });
         }
 
         res.json({ success: true, message: "Contact and all associated records deleted successfully" });
@@ -1147,12 +1162,23 @@ export const bulkDeleteContacts = async (req, res, next) => {
 
         await Contact.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
 
-        // Sync to Google
-        contacts.forEach(contact => {
-            if (contact.googleContactId) {
-                googleSyncQueue.add('deleteContact', { googleContactId: contact.googleContactId }).catch(() => { });
-            }
-        });
+        // Sync to Google via Outbox
+        const deleteSyncEvents = contacts
+            .filter(c => Boolean(c.googleContactId))
+            .map(contact => ({
+                eventType: 'GoogleSyncRequested',
+                aggregateType: 'Contact',
+                aggregateId: contact._id,
+                payload: { action: 'deleteContact', googleContactId: contact.googleContactId },
+                tenantId: rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+            }));
+
+        if (deleteSyncEvents.length > 0) {
+            await OutboxEvent.insertMany(deleteSyncEvents, { ordered: false }).catch((err) => {
+                console.error('[ContactController] Failed to insert OutboxEvents for bulkDeleteContacts:', err.message);
+            });
+        }
 
         res.json({ success: true, message: `${allowedIds.length} contacts and associations deleted successfully` });
     } catch (error) {
@@ -1619,10 +1645,20 @@ export const importContacts = async (req, res, next) => {
                 const insertResult = await Contact.insertMany(dataToInsert, { ordered: false });
                 newCount += insertResult.length;
 
-                // Sync to Google
-                insertResult.forEach(contact => {
-                    googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
-                });
+                // Sync to Google via Outbox
+                const importSyncEvents = insertResult.map(contact => ({
+                    eventType: 'GoogleSyncRequested',
+                    aggregateType: 'Contact',
+                    aggregateId: contact._id,
+                    payload: { action: 'syncContact', contactId: contact._id },
+                    tenantId: rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined,
+                    provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                }));
+                if (importSyncEvents.length > 0) {
+                    await OutboxEvent.insertMany(importSyncEvents, { ordered: false }).catch((err) => {
+                        console.error('[ContactController] Failed to insert OutboxEvents for importContacts:', err.message);
+                    });
+                }
             }
         }
 

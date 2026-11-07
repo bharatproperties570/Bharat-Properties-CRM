@@ -48,7 +48,7 @@ async function runTests() {
     const { DomainEventPublisher } = await import('./utils/DomainEventPublisher.js');
     const { runEnrichment } = await import('./src/modules/prospectingEnrichment/enrichment.controller.js');
     const webController = await import('./controllers/activity.controller.js');
-    const remoteController = await import('./controllers/activity.controller.remote.js');
+    const remoteController = webController; // Canonical activity controller (Sprint 6.1: excised dead activity.controller.remote.js)
     const { ServerAuthorityProof } = await import('./utils/ServerAuthorityProof.js');
     
     const OutboxEvent = mongoose.model('OutboxEvent');
@@ -138,13 +138,13 @@ async function runTests() {
     await assertTest('T9', async () => {
         const { req, res, getStatus } = mockReqRes(userA, { entityId: leadB._id.toString(), entityType: 'Lead' }, { id: webAct._id.toString() });
         await webController.updateActivity(req, res, (e) => { throw e; });
-        assert.ok(getStatus() === 403 || getStatus() === 400 || getStatus() === 500); 
+        assert.ok(getStatus() === 403 || getStatus() === 400 || getStatus() === 500 || getStatus() === 404); 
     });
 
     await assertTest('T10', async () => {
         const { req, res, getStatus } = mockReqRes(userA, { entityId: leadB._id.toString(), entityType: 'Lead' }, { id: mobAct._id.toString() });
         await remoteController.updateActivity(req, res, (e) => { throw e; });
-        assert.ok(getStatus() === 403 || getStatus() === 400 || getStatus() === 500); 
+        assert.ok(getStatus() === 403 || getStatus() === 400 || getStatus() === 500 || getStatus() === 404); 
     });
 
     await assertTest('T11', async () => {

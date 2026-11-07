@@ -9,7 +9,6 @@ import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import Conversation from "../models/Conversation.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
 
 import * as StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
@@ -1035,9 +1034,18 @@ export const addActivity = async (req, res) => {
             });
         }
 
-        // Auto-run Enrichment if entity is a Lead
+        // Auto-run Enrichment if entity is a Lead via durable Outbox
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            await OutboxEvent.create([{
+                eventType: 'LeadEnrichmentRequested',
+                aggregateType: 'Lead',
+                aggregateId: activity.entityId,
+                payload: { leadId: activity.entityId },
+                tenantId: req.user?.tenantId || req.user?.tenant,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+            }], session ? { session } : {}).catch((err) => {
+                console.error('[ActivityController] Failed to queue LeadEnrichmentRequested OutboxEvent:', err.message);
+            });
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1189,9 +1197,18 @@ export const updateActivity = async (req, res) => {
                 throw notFoundErr;
             }
 
-            // Auto-run Enrichment if entity is a Lead
+            // Auto-run Enrichment if entity is a Lead via durable Outbox
             if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-                await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+                await OutboxEvent.create([{
+                    eventType: 'LeadEnrichmentRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: activity.entityId,
+                    payload: { leadId: activity.entityId },
+                    tenantId: req.user?.tenantId || req.user?.tenant,
+                    provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                }], session ? { session } : {}).catch((err) => {
+                    console.error('[ActivityController] Failed to queue LeadEnrichmentRequested OutboxEvent:', err.message);
+                });
                 // Update lastActivityAt if not missed
                 const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
                 const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1403,7 +1420,16 @@ export const syncMobileCalls = async (req, res) => {
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
             if (!existing) {
                 const activity = await Activity.create(activityData);
-                googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+                await OutboxEvent.create({
+                    eventType: 'GoogleSyncRequested',
+                    aggregateType: 'Activity',
+                    aggregateId: activity._id,
+                    payload: { action: 'syncEvent', activityId: activity._id },
+                    tenantId: req.user?.tenantId || req.user?.tenant,
+                    provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                }).catch((err) => {
+                    console.error('[ActivityController] Failed to queue Google syncEvent OutboxEvent:', err.message);
+                });
                 syncedActivities.push(activity);
 
                 let pendingActivity = null;

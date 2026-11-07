@@ -1036,6 +1036,51 @@ export const processDomainEventJob = async (job) => {
             if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
         }
+
+        case 'GoogleSyncRequested':
+        case 'GOOGLE_SYNC_REQUESTED': {
+            const QueueManager = await import('../queues/queueManager.js');
+            const action = payload.action || 'syncContact';
+            await executeEffect(eventId, `google_${action}`, aggregateType, aggregateId, async () => {
+                if (action === 'syncContact') {
+                    await QueueManager.googleSyncQueue.add('syncContact', { contactId: payload.contactId || aggregateId });
+                } else if (action === 'deleteContact') {
+                    await QueueManager.googleSyncQueue.add('deleteContact', { googleContactId: payload.googleContactId });
+                } else if (action === 'syncEvent') {
+                    await QueueManager.googleSyncQueue.add('syncEvent', { activityId: payload.activityId || aggregateId });
+                } else if (action === 'deleteEvent') {
+                    await QueueManager.googleSyncQueue.add('deleteEvent', { googleEventId: payload.googleEventId });
+                }
+            });
+            break;
+        }
+
+        case 'LeadEnrichmentRequested':
+        case 'LEAD_ENRICHMENT_REQUESTED': {
+            const QueueManager = await import('../queues/queueManager.js');
+            await executeEffect(eventId, 'lead_enrichment_dispatch', aggregateType, aggregateId, async () => {
+                await QueueManager.enrichmentQueue.add('enrichLead', { leadId: payload.leadId || aggregateId });
+            });
+            break;
+        }
+
+        case 'MarketingDispatchRequested':
+        case 'MARKETING_DISPATCH_REQUESTED': {
+            const QueueManager = await import('../queues/queueManager.js');
+            const action = payload.action || 'blast';
+            await executeEffect(eventId, `marketing_${action}_dispatch`, aggregateType, aggregateId, async () => {
+                if (action === 'blast') {
+                    await QueueManager.marketingQueue.add('blast', payload.jobData);
+                } else if (action === 'drip') {
+                    await QueueManager.marketingQueue.add('drip', payload.jobData, { delay: payload.delay });
+                } else if (action === 'bna-broadcast') {
+                    await QueueManager.marketingQueue.add('bna-broadcast', payload.jobData, { delay: payload.delay, removeOnComplete: true });
+                } else if (action === 'scheduled-social-dispatch') {
+                    await QueueManager.marketingQueue.add('scheduled-social-dispatch', payload.jobData, { delay: payload.delay });
+                }
+            });
+            break;
+        }
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }
