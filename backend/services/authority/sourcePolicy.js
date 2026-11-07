@@ -119,9 +119,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         dataUsageRestrictions: 'Internal CRM preview and staging only. No automated mutations or public re-distribution.',
 
         // ── Rate & concurrency policy (Internal safety throttle) ───────────
-        maxRequestsPerMinute: null,
-        maxRequestsPerDay: null,
-        maxConcurrentRequests: null,
+        maxRequestsPerMinute: 1,
+        maxRequestsPerDay: 1440,
+        maxConcurrentRequests: 1,
         requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
         ratePolicy: {
             maxRequestsPerMinute: 1,
@@ -217,9 +217,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         permittedUse: 'Read-only internal CRM property status verification and staging',
         dataUsageRestrictions: 'Internal CRM preview and staging only. Official provisional-record disclaimer must be preserved.',
 
-        maxRequestsPerMinute: null,
-        maxRequestsPerDay: null,
-        maxConcurrentRequests: null,
+        maxRequestsPerMinute: 1,
+        maxRequestsPerDay: 1440,
+        maxConcurrentRequests: 1,
         requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
         ratePolicy: {
             maxRequestsPerMinute: 1,
@@ -310,9 +310,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         permittedUse: 'Read-only internal CRM property status verification and staging',
         dataUsageRestrictions: 'Internal CRM preview and staging only. No automated mutations or public re-distribution.',
 
-        maxRequestsPerMinute: null,
-        maxRequestsPerDay: null,
-        maxConcurrentRequests: null,
+        maxRequestsPerMinute: 1,
+        maxRequestsPerDay: 1440,
+        maxConcurrentRequests: 1,
         requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
         ratePolicy: {
             maxRequestsPerMinute: 1,
@@ -347,7 +347,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         ],
 
         activationChecklist: [
-            { item: 'Written permission from Estate Office Chandigarh', status: 'MISSING' },
+            { item: 'Written permission from GMADA', status: 'MISSING' },
             { item: 'Approved access method documented', status: 'MISSING' },
             { item: 'Rate limit / concurrency configuration approved', status: 'MISSING' },
             { item: 'Permitted fields confirmed', status: 'MISSING' },
@@ -374,8 +374,11 @@ export const isSourceActivated = (authorityId) => {
     if (!policy.isEnabled) {
         return { allowed: false, reason: `Source ${authorityId} is disabled` };
     }
-    if (policy.permissionStatus !== PERMISSION_STATUS.APPROVED) {
-        return { allowed: false, reason: `Permission status is ${policy.permissionStatus}, not APPROVED` };
+    if (policy.permissionStatus !== PERMISSION_STATUS.GRANTED && policy.permissionStatus !== PERMISSION_STATUS.APPROVED) {
+        return { allowed: false, reason: `Permission status is ${policy.permissionStatus}, must be GRANTED` };
+    }
+    if (policy.reviewStatus !== 'APPROVED') {
+        return { allowed: false, reason: `Review status is ${policy.reviewStatus || 'UNDER_REVIEW'}, must be APPROVED by independent maker-checker` };
     }
     if (policy.approvedAccessMethod === ACCESS_METHOD.NONE) {
         return { allowed: false, reason: 'No access method approved' };

@@ -184,19 +184,32 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
             const sourcePaused = await circuitBreakerStore.isPaused(code, tenantId);
 
             // Both gates execute before lock/quota/transport; public visibility is not enough.
-            assertAuthorityPortalAutomationAllowed({
-                policy: { enabled: gateConfig.enabled === true, readOnly: gateConfig.readOnly === true },
-                termsReviewed: approval?.termsReviewed === true,
-                sourcePaused
-            });
-            validateApprovalMatchesAuthority(approval, code);
-            assertAuthorityPortalApproval({
-                authorityCode: code,
-                approval,
-                now: clock(),
-                gate: gateConfig,
-                sourcePaused
-            });
+            try {
+                assertAuthorityPortalAutomationAllowed({
+                    policy: { enabled: gateConfig.enabled === true, readOnly: gateConfig.readOnly === true },
+                    termsReviewed: approval?.termsReviewed === true,
+                    sourcePaused
+                });
+                validateApprovalMatchesAuthority(approval, code);
+                assertAuthorityPortalApproval({
+                    authorityCode: code,
+                    approval,
+                    now: clock(),
+                    gate: gateConfig,
+                    sourcePaused
+                });
+            } catch (gateErr) {
+                try {
+                    await writeAudit('AUTHORITY_PORTAL_SEARCH_REJECTED', code, searchKey, {
+                        reason: gateErr.message,
+                        code: gateErr.code || 'AUTHORITY_PORTAL_APPROVAL_BLOCKED',
+                        blockers: gateErr.blockers || []
+                    }, correlation);
+                } catch {
+                    // Ignore audit persistence failure on rejection
+                }
+                throw gateErr;
+            }
 
             if (approval.readOnlySearchAuthorized !== true) {
                 throw makeError('PORTAL_READ_ONLY_ONLY', 'Only authority-approved read-only search is supported.');
