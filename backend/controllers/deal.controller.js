@@ -2852,7 +2852,7 @@ export const bulkDeleteDeals = async (req, res) => {
             }
         }
 
-        await Deal.deleteMany({ _id: { $in: allowedIds }, ...tenantFilter });
+        await Deal.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
         res.json({ success: true, message: `${allowedIds.length} deals deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

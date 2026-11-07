@@ -196,6 +196,10 @@ export const executeEffect = async (eventId, effectKey, aggregateType, aggregate
             throw new Error(`Stale worker exception during execution of ${effectKey}: lease was lost`);
         }
 
+        if (options._simulateCompletionCheckpointFailure) {
+            throw new Error('Simulated DB failure during completion checkpoint');
+        }
+
         const result = await EffectExecution.updateOne(
             { _id: claim._id, executionId: newExecutionId, status: 'PROCESSING' },
             { $set: { status: 'COMPLETED', lockedUntil: null, lastError: null } }

@@ -135,10 +135,13 @@ class DealService {
                 throw err;
             }
 
-            if (typeof Deal.softDeleteOne === 'function') {
-                await Deal.softDeleteOne({ _id: dealId, ...visibilityFilter }, { userId: user?._id, session: txnSession });
+            if (typeof deal.softDelete === 'function') {
+                await deal.softDelete(user?._id, { session: txnSession, reason: options.reason || 'Deal deleted' });
             } else {
-                await Deal.findOneAndDelete({ _id: dealId, ...visibilityFilter }).session(txnSession);
+                await Deal.softDeleteOne(
+                    { _id: dealId, ...visibilityFilter },
+                    { userId: user?._id, session: txnSession, reason: options.reason || 'Deal deleted' }
+                );
             }
 
             // Reset inventory status if the deal was deleted and no other active deals remain

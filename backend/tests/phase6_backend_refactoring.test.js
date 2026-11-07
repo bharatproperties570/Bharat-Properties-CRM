@@ -42,9 +42,15 @@ describe('Phase 6 — Enterprise Backend Refactoring Acceptance Suite', () => {
     };
 
     before(async () => {
-        replset = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        replset = await MongoMemoryReplSet.create({
+            replSet: {
+                count: 1,
+                args: ['--setParameter', 'maxTransactionLockRequestTimeoutMillis=5000']
+            }
+        });
+        await replset.waitUntilRunning();
         const uri = replset.getUri();
-        await mongoose.connect(uri);
+        await mongoose.connect(uri, { autoIndex: false });
 
         await Deal.createCollection();
         await Lead.createCollection();
@@ -207,7 +213,7 @@ describe('Phase 6 — Enterprise Backend Refactoring Acceptance Suite', () => {
             assert.equal(outbox.payload.newStage, 'Negotiation');
         });
 
-        it('hard deletes a deal document and protects against non-existent IDs', async () => {
+        it('soft deletes a deal document and protects against non-existent IDs', async () => {
             const deal = await Deal.create({
                 title: 'Deletable Deal',
                 stage: 'Open'
@@ -218,6 +224,17 @@ describe('Phase 6 — Enterprise Backend Refactoring Acceptance Suite', () => {
 
             const fresh = await Deal.findById(deal._id);
             assert.equal(fresh, null);
+
+            // Raw collection verifies physical document preservation
+            const rawDeal = await mongoose.connection.collection('deals').findOne({ _id: deal._id });
+            assert.ok(rawDeal, 'Deal must remain physically in MongoDB collection');
+            assert.equal(rawDeal.isDeleted, true);
+            assert.ok(rawDeal.deletedAt instanceof Date);
+
+            // IncludeDeleted query retrieves it
+            const withDeleted = await Deal.findOne({ _id: deal._id }, null, { includeDeleted: true });
+            assert.ok(withDeleted);
+            assert.equal(withDeleted.isDeleted, true);
 
             // Non-existent ID throws 404
             await assert.rejects(

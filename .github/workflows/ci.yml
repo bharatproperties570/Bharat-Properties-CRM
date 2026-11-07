@@ -101,6 +101,7 @@ jobs:
         run: |
           cd backend
           npm run test:phase6:refactoring
+          npm run test:phase6:reliability
 
       - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
         run: |

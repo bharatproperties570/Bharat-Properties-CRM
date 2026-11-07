@@ -3,6 +3,7 @@ import eventBus from "../services/EventBus.js";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 import Lookup from "./Lookup.js";
 import { calcRatePerUnit, calcOrientationPremium, getAreaUnit } from "../utils/pricingUtils.js";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -559,5 +560,7 @@ DealSchema.pre('insertMany', function(next, docs) {
     }
     next();
 });
+
+DealSchema.plugin(softDeletePlugin);
 
 export default mongoose.model("Deal", DealSchema);

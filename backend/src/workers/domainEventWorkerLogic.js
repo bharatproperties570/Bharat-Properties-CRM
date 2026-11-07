@@ -1041,15 +1041,22 @@ export const processDomainEventJob = async (job) => {
         case 'GOOGLE_SYNC_REQUESTED': {
             const QueueManager = await import('../queues/queueManager.js');
             const action = payload.action || 'syncContact';
+            const supportedActions = ['syncContact', 'deleteContact', 'syncEvent', 'deleteEvent'];
+            if (!supportedActions.includes(action)) {
+                throw new Error(`Unsupported GoogleSync action: ${action}`);
+            }
+            const deterministicJobId = payload.opts?.jobId || `google_sync_${eventId}_${action}`;
+            const opts = { ...(payload.opts || {}), jobId: deterministicJobId };
+
             await executeEffect(eventId, `google_${action}`, aggregateType, aggregateId, async () => {
                 if (action === 'syncContact') {
-                    await QueueManager.googleSyncQueue.add('syncContact', { contactId: payload.contactId || aggregateId });
+                    await QueueManager.googleSyncQueue.add('syncContact', { contactId: payload.contactId || aggregateId }, opts);
                 } else if (action === 'deleteContact') {
-                    await QueueManager.googleSyncQueue.add('deleteContact', { googleContactId: payload.googleContactId });
+                    await QueueManager.googleSyncQueue.add('deleteContact', { googleContactId: payload.googleContactId }, opts);
                 } else if (action === 'syncEvent') {
-                    await QueueManager.googleSyncQueue.add('syncEvent', { activityId: payload.activityId || aggregateId });
+                    await QueueManager.googleSyncQueue.add('syncEvent', { activityId: payload.activityId || aggregateId }, opts);
                 } else if (action === 'deleteEvent') {
-                    await QueueManager.googleSyncQueue.add('deleteEvent', { googleEventId: payload.googleEventId });
+                    await QueueManager.googleSyncQueue.add('deleteEvent', { googleEventId: payload.googleEventId }, opts);
                 }
             });
             break;
@@ -1058,8 +1065,11 @@ export const processDomainEventJob = async (job) => {
         case 'LeadEnrichmentRequested':
         case 'LEAD_ENRICHMENT_REQUESTED': {
             const QueueManager = await import('../queues/queueManager.js');
+            const deterministicJobId = payload.opts?.jobId || `enrich_${eventId}_lead`;
+            const opts = { ...(payload.opts || {}), jobId: deterministicJobId };
+
             await executeEffect(eventId, 'lead_enrichment_dispatch', aggregateType, aggregateId, async () => {
-                await QueueManager.enrichmentQueue.add('enrichLead', { leadId: payload.leadId || aggregateId });
+                await QueueManager.enrichmentQueue.add('enrichLead', { leadId: payload.leadId || aggregateId }, opts);
             });
             break;
         }
@@ -1068,17 +1078,27 @@ export const processDomainEventJob = async (job) => {
         case 'MARKETING_DISPATCH_REQUESTED': {
             const QueueManager = await import('../queues/queueManager.js');
             const action = payload.action || payload.jobType || 'blast';
+            const supportedActions = ['blast', 'drip', 'bna-broadcast', 'scheduled-social-dispatch'];
+            if (!supportedActions.includes(action)) {
+                throw new Error(`Unsupported marketing dispatch action: ${action}`);
+            }
+
             const jobData = payload.jobData || payload;
-            const opts = payload.opts || (payload.delay ? { delay: payload.delay } : undefined);
+            const deterministicJobId = payload.opts?.jobId || `mkt_${eventId}_${action}`;
+            const opts = {
+                ...(payload.opts || (payload.delay ? { delay: payload.delay } : {})),
+                jobId: deterministicJobId
+            };
+
             await executeEffect(eventId, `marketing_${action}_dispatch`, aggregateType, aggregateId, async () => {
                 if (action === 'blast') {
                     await QueueManager.marketingQueue.add('blast', jobData, opts);
                 } else if (action === 'drip') {
-                    await QueueManager.marketingQueue.add('drip', jobData, opts || { delay: payload.delay });
+                    await QueueManager.marketingQueue.add('drip', jobData, opts);
                 } else if (action === 'bna-broadcast') {
-                    await QueueManager.marketingQueue.add('bna-broadcast', jobData, opts || { delay: payload.delay, removeOnComplete: true });
+                    await QueueManager.marketingQueue.add('bna-broadcast', jobData, { ...opts, removeOnComplete: true });
                 } else if (action === 'scheduled-social-dispatch') {
-                    await QueueManager.marketingQueue.add('scheduled-social-dispatch', jobData, opts || { delay: payload.delay });
+                    await QueueManager.marketingQueue.add('scheduled-social-dispatch', jobData, opts);
                 }
             });
             break;
