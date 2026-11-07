@@ -1121,17 +1121,24 @@ const SocialPostModal = ({
 
                                 {platform === 'youtube' && (
                                     <div style={{
-                                        padding: '10px 12px', borderRadius: '10px',
-                                        background: isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2',
-                                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                                        padding: '10px 14px', borderRadius: '10px',
+                                        background: isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4',
+                                        border: '1px solid rgba(34, 197, 94, 0.3)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
-                                        color: isDark ? '#fca5a5' : '#b91c1c'
+                                        color: isDark ? '#86efac' : '#15803d'
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <i className="fab fa-youtube text-red-500" style={{ fontSize: '15px' }}></i>
-                                            <span>
-                                                <strong>YouTube Dispatch:</strong> First line is video Title and remainder is Description. Video (.mp4) required.
-                                            </span>
+                                            <i className="fab fa-youtube text-red-500" style={{ fontSize: '18px' }}></i>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <span style={{ fontWeight: 800 }}>YouTube Channel:</span>
+                                                    <span style={{ background: '#22c55e', color: '#fff', fontSize: '0.62rem', fontWeight: 800, padding: '1px 6px', borderRadius: '4px' }}>CONNECTED</span>
+                                                    <span style={{ fontWeight: 700, color: isDark ? '#fff' : '#0f172a' }}>Bharat Properties (@bharatproperties7451)</span>
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: isDark ? '#cbd5e1' : '#64748b', marginTop: '2px' }}>
+                                                    Title is taken from line 1; remainder is video Description. Video (.mp4) file required below.
+                                                </div>
+                                            </div>
                                         </div>
                                         <button
                                             type="button"
@@ -1144,30 +1151,35 @@ const SocialPostModal = ({
                                                 }
                                             }}
                                             style={{
-                                                background: '#ef4444', color: '#ffffff', border: 'none', padding: '4px 10px',
-                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
+                                                background: isDark ? '#334155' : '#e2e8f0', color: isDark ? '#e2e8f0' : '#475569', border: 'none', padding: '4px 10px',
+                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer',
                                                 whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
                                             }}
                                             title="Click to refresh your Google connection"
                                         >
-                                            <i className="fas fa-sync-alt"></i> Reconnect Google
+                                            <i className="fas fa-sync-alt"></i> Refresh
                                         </button>
                                     </div>
                                 )}
 
                                 {platform === 'google_business' && (
                                     <div style={{
-                                        padding: '10px 12px', borderRadius: '10px',
+                                        padding: '10px 14px', borderRadius: '10px',
                                         background: isDark ? 'rgba(66, 133, 244, 0.1)' : '#eff6ff',
                                         border: '1px solid rgba(66, 133, 244, 0.25)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
                                         color: isDark ? '#93c5fd' : '#1d4ed8'
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <i className="fab fa-google text-blue-500" style={{ fontSize: '15px' }}></i>
-                                            <span>
-                                                <strong>Google Business Profile:</strong> Posts an interactive "Learn More" update directly onto Google Search & Maps.
-                                            </span>
+                                            <i className="fab fa-google text-blue-500" style={{ fontSize: '18px' }}></i>
+                                            <div>
+                                                <div>
+                                                    <strong>Google Business Profile:</strong> Posts an interactive "Learn More" update on Search & Maps.
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: isDark ? '#93c5fd' : '#3b82f6', marginTop: '2px' }}>
+                                                    If quota is 0, submit <a href="https://developers.google.com/my-business/content/prereqs#request-access" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 800 }}>Google's GBP Access Request Form</a> for project 322921031715.
+                                                </div>
+                                            </div>
                                         </div>
                                         <button
                                             type="button"

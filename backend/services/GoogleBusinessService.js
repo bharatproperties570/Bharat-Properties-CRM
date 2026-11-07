@@ -85,6 +85,9 @@ class GoogleBusinessService {
                 }
                 throw new Error('Google Business Profile permission denied. Ensure My Business API is enabled in your Google Cloud Console project.');
             }
+            if (error.response?.data?.error?.status === 'RESOURCE_EXHAUSTED' || error.response?.data?.error?.errors?.some(e => e.reason === 'rateLimitExceeded')) {
+                throw new Error('Google Business Profile API access request pending: Google provides a default quota of 0 for new projects. Please request GBP API access for project 322921031715 at https://developers.google.com/my-business/content/prereqs#request-access to enable listing creation on Google Maps & Search.');
+            }
             throw error;
         }
     }
@@ -147,6 +150,9 @@ class GoogleBusinessService {
             const errDetail = error.response?.data?.error?.message || error.message;
             if (errDetail.includes('invalid_grant')) {
                 throw new Error('Google account session expired. Please go to CRM Settings > Integrations and click "Reconnect Google" to refresh access.');
+            }
+            if (error.response?.data?.error?.status === 'RESOURCE_EXHAUSTED' || error.response?.data?.error?.errors?.some(e => e.reason === 'rateLimitExceeded')) {
+                throw new Error('Google Business Profile API access request pending: Google provides a default quota of 0 for new projects. Please request GBP API access for project 322921031715 at https://developers.google.com/my-business/content/prereqs#request-access to enable listing creation on Google Maps & Search.');
             }
             throw new Error(errDetail);
         }
