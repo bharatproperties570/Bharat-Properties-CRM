@@ -518,6 +518,9 @@ export class SiteVisitConfirmationService {
                     'details.dispatchLeaseExpiresAt': { $lt: now } // Expired lease recovery
                 },
                 {
+                    'details.journeyDispatchStatus': 'RECONCILIATION_REQUIRED' // Re-check reconciliation
+                },
+                {
                     'details.journeyDispatchStatus': 'FAILED',
                     'details.dispatchAttempts': { $lt: maxRetries } // Retryable failure
                 }
@@ -557,20 +560,34 @@ export class SiteVisitConfirmationService {
         }
 
         const stableIdempotencyKey = `sv_journey_${activityId}`;
+        const fenceFilter = {
+            _id: activityId,
+            'details.dispatchLeaseToken': leaseToken,
+            'details.journeyDispatchStatus': 'PROCESSING'
+        };
+        if (tenantId) fenceFilter.tenantId = tenantId;
 
         // ── 2. PREFLIGHT PROVIDER ACCEPTANCE CHECK ──
         // Check if provider acceptance is already known (prevents duplicate dispatch across crashes)
         if (leasedActivity.details?.journeyMessageId) {
             console.log(`[SiteVisitConfirmation][${traceId}] Provider acceptance already recorded on Activity ${activityId}: ${leasedActivity.details.journeyMessageId}`);
-            if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-                await ActivityModel.findByIdAndUpdate(activityId, {
-                    $set: {
-                        'details.journeyDispatchStatus': 'ACCEPTED',
-                        'details.confirmationStatus': 'CONFIRMED',
-                        'details.dispatchLeaseToken': null,
-                        'details.dispatchLeaseExpiresAt': null
-                    }
-                }, sessionOpt);
+            if (typeof ActivityModel.findOneAndUpdate === 'function') {
+                const fenced = await ActivityModel.findOneAndUpdate(
+                    fenceFilter,
+                    {
+                        $set: {
+                            'details.journeyDispatchStatus': 'ACCEPTED',
+                            'details.confirmationStatus': 'CONFIRMED',
+                            'details.dispatchLeaseToken': null,
+                            'details.dispatchLeaseExpiresAt': null
+                        }
+                    },
+                    { new: true, ...sessionOpt }
+                );
+                if (!fenced) {
+                    console.warn(`[SiteVisitConfirmation][${traceId}] Lease fencing prevented preflight write on Activity ${activityId} (leaseToken: ${leaseToken})`);
+                    return { success: true, duplicate: true, stale: true, dispatchStatus: 'FENCED_OUT' };
+                }
             }
             return {
                 success: true,
@@ -592,24 +609,32 @@ export class SiteVisitConfirmationService {
                 if (existingDispatch && (existingDispatch.providerMessageId || existingDispatch.status)) {
                     const recoveredMsgId = existingDispatch.providerMessageId || `wamid.recovered.${activityId}`;
                     console.log(`[SiteVisitConfirmation][${traceId}] Recovered existing dispatch record for Activity ${activityId}: ${recoveredMsgId}`);
-                    if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-                        await ActivityModel.findByIdAndUpdate(activityId, {
-                            $set: {
-                                'details.journeyDispatchStatus': 'ACCEPTED',
-                                'details.confirmationStatus': 'CONFIRMED',
-                                'details.journeyMessageId': recoveredMsgId,
-                                'details.journeyDispatchedAt': existingDispatch.createdAt || now,
-                                'details.dispatchLeaseToken': null,
-                                'details.dispatchLeaseExpiresAt': null
-                            },
-                            $push: {
-                                'details.auditHistory': {
-                                    action: 'JOURNEY_TEMPLATE_ACCEPTED_RECOVERED',
-                                    timestamp: now,
-                                    metadata: { messageId: recoveredMsgId, idempotencyKey: stableIdempotencyKey }
+                    if (typeof ActivityModel.findOneAndUpdate === 'function') {
+                        const fenced = await ActivityModel.findOneAndUpdate(
+                            fenceFilter,
+                            {
+                                $set: {
+                                    'details.journeyDispatchStatus': 'ACCEPTED',
+                                    'details.confirmationStatus': 'CONFIRMED',
+                                    'details.journeyMessageId': recoveredMsgId,
+                                    'details.journeyDispatchedAt': existingDispatch.createdAt || now,
+                                    'details.dispatchLeaseToken': null,
+                                    'details.dispatchLeaseExpiresAt': null
+                                },
+                                $push: {
+                                    'details.auditHistory': {
+                                        action: 'JOURNEY_TEMPLATE_ACCEPTED_RECOVERED',
+                                        timestamp: now,
+                                        metadata: { messageId: recoveredMsgId, idempotencyKey: stableIdempotencyKey }
+                                    }
                                 }
-                            }
-                        }, sessionOpt);
+                            },
+                            { new: true, ...sessionOpt }
+                        );
+                        if (!fenced) {
+                            console.warn(`[SiteVisitConfirmation][${traceId}] Lease fencing prevented recovery write on Activity ${activityId} (leaseToken: ${leaseToken})`);
+                            return { success: true, recovered: true, stale: true, dispatchStatus: 'FENCED_OUT' };
+                        }
                     }
                     return {
                         success: true,
@@ -634,16 +659,24 @@ export class SiteVisitConfirmationService {
 
         if (!journeyInfo || !journeyInfo.safeToken) {
             console.warn(`[SiteVisitConfirmation][${traceId}] Safe journey token unavailable for Activity ${activityId}`);
-            if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-                await ActivityModel.findByIdAndUpdate(activityId, {
-                    $set: {
-                        'details.journeyDispatchStatus': 'FAILED',
-                        'details.confirmationStatus': 'CONFIRMED_JOURNEY_PENDING',
-                        'details.journeyDispatchError': 'Safe token generation failed',
-                        'details.dispatchLeaseToken': null,
-                        'details.dispatchLeaseExpiresAt': null
-                    }
-                }, sessionOpt);
+            if (typeof ActivityModel.findOneAndUpdate === 'function') {
+                const fenced = await ActivityModel.findOneAndUpdate(
+                    fenceFilter,
+                    {
+                        $set: {
+                            'details.journeyDispatchStatus': 'FAILED',
+                            'details.confirmationStatus': 'CONFIRMED_JOURNEY_PENDING',
+                            'details.journeyDispatchError': 'Safe token generation failed',
+                            'details.dispatchLeaseToken': null,
+                            'details.dispatchLeaseExpiresAt': null
+                        }
+                    },
+                    { new: true, ...sessionOpt }
+                );
+                if (!fenced) {
+                    console.warn(`[SiteVisitConfirmation][${traceId}] Lease fencing prevented token error write on Activity ${activityId} (leaseToken: ${leaseToken})`);
+                    return { success: false, stale: true, dispatchStatus: 'FENCED_OUT' };
+                }
             }
             return {
                 success: false,
@@ -661,7 +694,7 @@ export class SiteVisitConfirmationService {
             idempotencyKey: stableIdempotencyKey
         });
 
-        // ── 5. RECORD PROVIDER OUTCOME ──
+        // ── 5. RECORD PROVIDER OUTCOME WITH LEASE FENCING ──
         const postUpdate = {};
         if (dispatchResult.success) {
             postUpdate['details.confirmationStatus'] = 'CONFIRMED';
@@ -671,6 +704,14 @@ export class SiteVisitConfirmationService {
             postUpdate['details.dispatchLeaseToken'] = null;
             postUpdate['details.dispatchLeaseExpiresAt'] = null;
             // NOTE: details.journeyShared is strictly NOT set here! Only verified DELIVERED callback sets journeyShared = true.
+        } else if (dispatchResult.isAmbiguous || dispatchResult.status === 'RECONCILIATION_REQUIRED') {
+            postUpdate['details.confirmationStatus'] = 'CONFIRMED_JOURNEY_PENDING';
+            postUpdate['details.journeyDispatchStatus'] = 'RECONCILIATION_REQUIRED';
+            postUpdate['details.journeyDispatchError'] = dispatchResult.error || 'Ambiguous provider dispatch outcome';
+            postUpdate['details.journeyLastAttemptAt'] = new Date();
+            postUpdate['details.dispatchLeaseToken'] = null;
+            postUpdate['details.dispatchLeaseExpiresAt'] = null;
+            console.warn(`[SiteVisitConfirmation][${traceId}] Journey dispatch outcome ambiguous for Activity ${activityId}: ${dispatchResult.error}`);
         } else {
             postUpdate['details.confirmationStatus'] = 'CONFIRMED_JOURNEY_PENDING';
             postUpdate['details.journeyDispatchStatus'] = 'FAILED';
@@ -681,7 +722,11 @@ export class SiteVisitConfirmationService {
             console.warn(`[SiteVisitConfirmation][${traceId}] Journey dispatch failed for Activity ${activityId}: ${dispatchResult.error}`);
         }
 
-        const auditAction = dispatchResult.success ? 'JOURNEY_TEMPLATE_ACCEPTED' : 'JOURNEY_TEMPLATE_FAILED';
+        const auditAction = dispatchResult.success 
+            ? 'JOURNEY_TEMPLATE_ACCEPTED' 
+            : (dispatchResult.isAmbiguous || dispatchResult.status === 'RECONCILIATION_REQUIRED' 
+                ? 'JOURNEY_TEMPLATE_RECONCILIATION_REQUIRED' 
+                : 'JOURNEY_TEMPLATE_FAILED');
         const finalAudit = {
             action: auditAction,
             timestamp: new Date(),
@@ -689,19 +734,33 @@ export class SiteVisitConfirmationService {
                 messageId: dispatchResult.messageId || null,
                 error: dispatchResult.error || null,
                 idempotencyKey: stableIdempotencyKey,
-                traceId
+                traceId,
+                leaseToken
             }
         };
 
-        if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-            await ActivityModel.findByIdAndUpdate(
-                activityId,
+        let fencedActivity = null;
+        if (typeof ActivityModel.findOneAndUpdate === 'function') {
+            fencedActivity = await ActivityModel.findOneAndUpdate(
+                fenceFilter,
                 {
                     $set: postUpdate,
                     $push: { 'details.auditHistory': finalAudit }
                 },
-                sessionOpt
+                { new: true, ...sessionOpt }
             );
+        }
+
+        if (!fencedActivity) {
+            console.warn(`[SiteVisitConfirmation][${traceId}] Lease fencing prevented stale write on Activity ${activityId} (leaseToken: ${leaseToken}). Record was claimed or modified by another worker.`);
+            return {
+                success: dispatchResult.success,
+                messageId: dispatchResult.messageId || null,
+                dispatchStatus: 'FENCED_OUT',
+                stale: true,
+                fenced: true,
+                confirmationStatus: 'CONFIRMED'
+            };
         }
 
         return {
@@ -737,6 +796,10 @@ export class SiteVisitConfirmationService {
                         {
                             'details.journeyDispatchStatus': 'PROCESSING',
                             'details.dispatchLeaseExpiresAt': { $lt: now }
+                        },
+                        {
+                            'details.journeyDispatchStatus': 'RECONCILIATION_REQUIRED',
+                            'details.journeyLastAttemptAt': { $lt: pendingThreshold }
                         }
                     ]
                 },
@@ -880,6 +943,16 @@ export class SiteVisitConfirmationService {
                 };
             }
 
+            if (sendResult?.isAmbiguous || sendResult?.isAmbiguousBlocked) {
+                console.warn(`[SiteVisitConfirmation][${traceId}] Template dispatch outcome ambiguous for ${recipientMobile}: ${sendResult?.error}`);
+                return {
+                    success: false,
+                    isAmbiguous: true,
+                    error: sendResult?.error || 'Ambiguous provider dispatch outcome (reconciliation required)',
+                    status: 'RECONCILIATION_REQUIRED'
+                };
+            }
+
             const errorMsg = sendResult?.error || 'Provider rejected template dispatch';
             console.warn(`[SiteVisitConfirmation][${traceId}] Template dispatch rejected: ${errorMsg}`);
             return {
@@ -888,11 +961,14 @@ export class SiteVisitConfirmationService {
                 status: 'FAILED'
             };
         } catch (sendErr) {
+            const isAmbiguousErr = ['ECONNRESET', 'ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(sendErr.code) ||
+                String(sendErr.message || '').toLowerCase().includes('timeout');
             console.error(`[SiteVisitConfirmation][${traceId}] Exception during template dispatch:`, sendErr.message);
             return {
                 success: false,
+                isAmbiguous: isAmbiguousErr,
                 error: sendErr.message,
-                status: 'FAILED'
+                status: isAmbiguousErr ? 'RECONCILIATION_REQUIRED' : 'FAILED'
             };
         }
     }

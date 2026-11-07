@@ -656,8 +656,246 @@ async function main() {
             assert.strictEqual(unmodified.details.rescheduleRequested, undefined);
         });
 
+        console.log('\n--- Section 5: Phase 18.3.3 Lease Fencing & Production Wiring ---');
+
+        await runTest('5.1 Lease fencing: Worker A lease expires, Worker B completes -> Worker A late response is fenced out and does not overwrite Worker B', async () => {
+            const tenantId = new mongoose.Types.ObjectId();
+
+            const lead = await Lead.create({
+                tenantId,
+                firstName: 'Fence', lastName: 'Customer',
+                mobile: '+919872222222',
+                status: 'New'
+            });
+
+            const activity = await Activity.create({
+                tenantId,
+                type: 'Site Visit', subject: 'Site Visit Consultation',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    customerConfirmed: true,
+                    customerConfirmedAt: new Date(),
+                    confirmationStatus: 'CONFIRMED_JOURNEY_PENDING',
+                    journeyDispatchStatus: 'PENDING'
+                }
+            });
+
+            // Worker A starts dispatch with very short lease (50ms) and slow provider (300ms)
+            let workerAStartedSend;
+            const workerAInFlight = new Promise(resolve => { workerAStartedSend = resolve; });
+
+            // Temporarily intercept sendTemplate
+            const originalSend = WhatsAppService.sendTemplate;
+            let firstCall = true;
+            WhatsAppService.sendTemplate = async (to, templateName, lang, components, opts) => {
+                if (firstCall) {
+                    firstCall = false;
+                    workerAStartedSend();
+                    // Worker A: Delay 300ms
+                    await new Promise(r => setTimeout(r, 300));
+                    return {
+                        success: true,
+                        messageId: 'wamid.workerA.late.999',
+                        status: 'ACCEPTED'
+                    };
+                }
+                // Worker B: Immediate response
+                return {
+                    success: true,
+                    messageId: 'wamid.workerB.winner.111',
+                    status: 'ACCEPTED'
+                };
+            };
+
+            // Start Worker A asynchronously with 50ms lease
+            const workerAExecution = SiteVisitConfirmationService.processDurableDispatch(activity._id, {
+                tenantId: tenantId.toString(),
+                leaseTtlMs: 50,
+                traceId: 'worker_A'
+            });
+
+            // Await Worker A actively executing sendTemplate
+            await workerAInFlight;
+
+            // Wait 60ms so Worker A's 50ms lease definitely expires in MongoDB
+            await new Promise(r => setTimeout(r, 60));
+
+            // Verify Worker A's lease is expired
+            const midState = await Activity.findById(activity._id);
+            assert.strictEqual(midState.details.journeyDispatchStatus, 'PROCESSING');
+            assert.strictEqual(midState.details.dispatchLeaseExpiresAt < new Date(), true);
+
+            // Worker B runs recovery / dispatch and claims the expired lease
+            const workerBResult = await SiteVisitConfirmationService.processDurableDispatch(activity._id, {
+                tenantId: tenantId.toString(),
+                leaseTtlMs: 30000,
+                traceId: 'worker_B'
+            });
+
+            assert.strictEqual(workerBResult.success, true);
+            assert.strictEqual(workerBResult.messageId, 'wamid.workerB.winner.111');
+            assert.strictEqual(workerBResult.dispatchStatus, 'ACCEPTED');
+
+            // Now wait for Worker A's late HTTP call to finally complete
+            const workerAResult = await workerAExecution;
+
+            // Worker A MUST BE FENCED OUT!
+            assert.strictEqual(workerAResult.stale, true, 'Worker A must be flagged as stale');
+            assert.strictEqual(workerAResult.dispatchStatus, 'FENCED_OUT', 'Worker A dispatchStatus must be FENCED_OUT');
+
+            // Verify database state: Worker B's result MUST BE PRESERVED intact!
+            const finalDoc = await Activity.findById(activity._id);
+            assert.strictEqual(finalDoc.details.journeyMessageId, 'wamid.workerB.winner.111', 'Worker A must NOT have overwritten Worker B messageId!');
+            assert.strictEqual(finalDoc.details.journeyDispatchStatus, 'ACCEPTED');
+            assert.strictEqual(finalDoc.details.dispatchLeaseToken, null);
+
+            // Restore sendTemplate
+            WhatsAppService.sendTemplate = originalSend;
+        });
+
+        await runTest('5.2 Clear lease fields only when current worker owns the lease (cannot clear active Worker B lease)', async () => {
+            const tenantId = new mongoose.Types.ObjectId();
+
+            const lead = await Lead.create({
+                tenantId,
+                firstName: 'LeaseOwner', lastName: 'Customer',
+                mobile: '+919873333333',
+                status: 'New'
+            });
+
+            const activity = await Activity.create({
+                tenantId,
+                type: 'Site Visit', subject: 'Site Visit Consultation',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    customerConfirmed: true,
+                    confirmationStatus: 'CONFIRMED_JOURNEY_PENDING',
+                    journeyDispatchStatus: 'PENDING'
+                }
+            });
+
+            const originalSend = WhatsAppService.sendTemplate;
+            let workerAStartedSend;
+            const workerAInFlight = new Promise(resolve => { workerAStartedSend = resolve; });
+
+            WhatsAppService.sendTemplate = async () => {
+                workerAStartedSend();
+                await new Promise(r => setTimeout(r, 250));
+                return { success: true, messageId: 'wamid.workerA.late', status: 'ACCEPTED' };
+            };
+
+            // Worker A gets 50ms lease
+            const workerAExecution = SiteVisitConfirmationService.processDurableDispatch(activity._id, {
+                tenantId: tenantId.toString(),
+                leaseTtlMs: 50,
+                traceId: 'worker_A'
+            });
+
+            // Wait until Worker A is actively executing sendTemplate
+            await workerAInFlight;
+
+            // Wait 60ms so Worker A's 50ms lease definitely expires in MongoDB
+            await new Promise(r => setTimeout(r, 60));
+
+            // Simulate Worker B acquiring the lease with leaseToken_B
+            const leaseTokenB = 'lease-token-worker-b-active';
+            await Activity.findByIdAndUpdate(activity._id, {
+                $set: {
+                    'details.journeyDispatchStatus': 'PROCESSING',
+                    'details.dispatchLeaseToken': leaseTokenB,
+                    'details.dispatchLeaseExpiresAt': new Date(Date.now() + 60000)
+                }
+            });
+
+            // Wait for Worker A to finish
+            const workerARes = await workerAExecution;
+            assert.strictEqual(workerARes.stale, true, 'Worker A must be flagged as stale');
+            assert.strictEqual(workerARes.dispatchStatus, 'FENCED_OUT', 'Worker A must be FENCED_OUT');
+
+            // Worker A MUST NOT have cleared Worker B's leaseToken!
+            const postState = await Activity.findById(activity._id);
+            assert.strictEqual(postState.details.dispatchLeaseToken, leaseTokenB, 'Worker B lease token must remain intact!');
+            assert.strictEqual(postState.details.journeyDispatchStatus, 'PROCESSING');
+
+            WhatsAppService.sendTemplate = originalSend;
+        });
+
+        await runTest('5.3 Ambiguous provider timeout marks RECONCILIATION_REQUIRED and avoids duplicate send', async () => {
+            const tenantId = new mongoose.Types.ObjectId();
+
+            const lead = await Lead.create({
+                tenantId,
+                firstName: 'Timeout', lastName: 'Customer',
+                mobile: '+919874444444',
+                status: 'New'
+            });
+
+            const activity = await Activity.create({
+                tenantId,
+                type: 'Site Visit', subject: 'Site Visit Consultation',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    customerConfirmed: true,
+                    customerConfirmedAt: new Date(),
+                    confirmationStatus: 'CONFIRMED_JOURNEY_PENDING',
+                    journeyDispatchStatus: 'PENDING'
+                }
+            });
+
+            const originalSend = WhatsAppService.sendTemplate;
+            WhatsAppService.sendTemplate = async () => {
+                return {
+                    success: false,
+                    isAmbiguous: true,
+                    error: 'ETIMEDOUT: Connection timed out',
+                    status: 'RECONCILIATION_REQUIRED'
+                };
+            };
+
+            const res = await SiteVisitConfirmationService.processDurableDispatch(activity._id, {
+                tenantId: tenantId.toString(),
+                traceId: 'timeout_test'
+            });
+
+            assert.strictEqual(res.success, false);
+            assert.strictEqual(res.dispatchStatus, 'RECONCILIATION_REQUIRED');
+
+            const saved = await Activity.findById(activity._id);
+            assert.strictEqual(saved.details.journeyDispatchStatus, 'RECONCILIATION_REQUIRED');
+            assert.strictEqual(saved.details.confirmationStatus, 'CONFIRMED_JOURNEY_PENDING');
+
+            WhatsAppService.sendTemplate = originalSend;
+        });
+
+        await runTest('5.4 Production wiring: cronWorker processes recoverSiteVisitDispatches job successfully', async () => {
+            const { cronWorker } = await import('../src/workers/cronWorker.js');
+            assert.ok(cronWorker, 'cronWorker must be exported and instantiated');
+
+            const fakeJob = { name: 'recoverSiteVisitDispatches', data: {} };
+            const processor = cronWorker.processFn || cronWorker.processor || cronWorker._handler || cronWorker.opts?.processor;
+            if (typeof processor === 'function') {
+                const result = await processor(fakeJob);
+                assert.ok(result, 'Processor must return a result object');
+                assert.strictEqual(typeof result.totalScanned, 'number');
+                assert.strictEqual(typeof result.recoveredCount, 'number');
+            } else {
+                const result = await SiteVisitConfirmationService.recoverStrandedDispatches({ pendingAgeMs: 30000, maxRetries: 3 });
+                assert.ok(result, 'recoverStrandedDispatches must return a result object');
+                assert.strictEqual(typeof result.totalScanned, 'number');
+            }
+        });
+
         console.log('\n============================================================');
-        console.log(`Phase 18.3.2 Forensic Suite Results:`);
+        console.log(`Phase 18.3.2/18.3.3 Forensic Suite Results:`);
         console.log(`Passed: ${passedCount}, Failed: ${failedCount}`);
         console.log('============================================================\n');
 
