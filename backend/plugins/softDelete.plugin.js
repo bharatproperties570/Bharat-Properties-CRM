@@ -21,7 +21,7 @@ export default function softDeletePlugin(schema, options = {}) {
         });
     }
 
-    const createAuditRecord = async (modelName, docId, action, userId, reason, previousState, session) => {
+    const createAuditRecord = async (modelName, docId, action, userId, reason, previousState, session, requireAudit = false) => {
         try {
             // Option A - Transactional Audit Record using Native driver to bypass validations, ensuring atomicity
             const activityCollection = mongoose.connection.collection('activities');
@@ -39,6 +39,10 @@ export default function softDeletePlugin(schema, options = {}) {
                 updatedAt: new Date()
             }, session ? { session } : {});
         } catch (auditErr) {
+            if (session || requireAudit) {
+                // When running inside a transaction or requireAudit is specified, audit failure MUST abort the transaction
+                throw new Error(`SOFT_DELETE_AUDIT_FAILED: Could not record audit for ${modelName}:${docId}: ${auditErr.message}`);
+            }
             console.warn(`[SOFT_DELETE_AUDIT_WARN] Could not record audit for ${modelName}:${docId}:`, auditErr.message);
         }
     };
@@ -50,7 +54,7 @@ export default function softDeletePlugin(schema, options = {}) {
         if (userId) this.deletedBy = userId;
         const res = await this.save(sessionOpts);
         
-        await createAuditRecord(this.constructor.modelName, this._id, 'SOFT_DELETE', userId, sessionOpts.reason, null, sessionOpts.session);
+        await createAuditRecord(this.constructor.modelName, this._id, 'SOFT_DELETE', userId, sessionOpts.reason, null, sessionOpts.session, sessionOpts.requireAudit);
         softDeleteEventBus.emit('SOFT_DELETE', { modelName: this.constructor.modelName, id: this._id, userId });
         
         return res;
@@ -62,7 +66,7 @@ export default function softDeletePlugin(schema, options = {}) {
         this.deletedBy = null;
         const res = await this.save(sessionOpts);
         
-        await createAuditRecord(this.constructor.modelName, this._id, 'RESTORE', sessionOpts.userId, sessionOpts.reason, null, sessionOpts.session);
+        await createAuditRecord(this.constructor.modelName, this._id, 'RESTORE', sessionOpts.userId, sessionOpts.reason, null, sessionOpts.session, sessionOpts.requireAudit);
         softDeleteEventBus.emit('RESTORE', { modelName: this.constructor.modelName, id: this._id });
         
         return res;
@@ -78,7 +82,7 @@ export default function softDeletePlugin(schema, options = {}) {
         
         const res = await this.updateOne({ _id: doc._id }, update, options);
         if (res.modifiedCount > 0) {
-            await createAuditRecord(this.modelName, doc._id, 'SOFT_DELETE', options.userId, options.reason, doc.toObject ? doc.toObject() : doc, options.session);
+            await createAuditRecord(this.modelName, doc._id, 'SOFT_DELETE', options.userId, options.reason, doc.toObject ? doc.toObject() : doc, options.session, options.requireAudit);
             softDeleteEventBus.emit('SOFT_DELETE', { modelName: this.modelName, id: doc._id, userId: options.userId });
         }
         return Object.assign(doc, {
@@ -103,7 +107,7 @@ export default function softDeletePlugin(schema, options = {}) {
         res.deletedCount = res.modifiedCount;
         
         for (const doc of docs) {
-            await createAuditRecord(this.modelName, doc._id, 'SOFT_DELETE', options.userId, options.reason, doc.toObject ? doc.toObject() : doc, options.session);
+            await createAuditRecord(this.modelName, doc._id, 'SOFT_DELETE', options.userId, options.reason, doc.toObject ? doc.toObject() : doc, options.session, options.requireAudit);
             softDeleteEventBus.emit('SOFT_DELETE', { modelName: this.modelName, id: doc._id, userId: options.userId });
         }
         return res;
@@ -115,7 +119,7 @@ export default function softDeletePlugin(schema, options = {}) {
         
         const res = await this.updateOne({ _id: doc._id }, { $set: { isDeleted: false, deletedAt: null, deletedBy: null } }, { ...options, includeDeleted: true });
         if (res.modifiedCount > 0) {
-            await createAuditRecord(this.modelName, doc._id, 'RESTORE', options.userId, options.reason, doc.toObject ? doc.toObject() : doc, options.session);
+            await createAuditRecord(this.modelName, doc._id, 'RESTORE', options.userId, options.reason, doc.toObject ? doc.toObject() : doc, options.session, options.requireAudit);
             softDeleteEventBus.emit('RESTORE', { modelName: this.modelName, id: doc._id });
         }
         return Object.assign(doc, {

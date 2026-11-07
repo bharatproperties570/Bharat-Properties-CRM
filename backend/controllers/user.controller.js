@@ -607,6 +607,7 @@ export const deactivateUser = async (req, res) => {
         const Deal = (await import('../models/Deal.js')).default;
 
         let transferResults = { leads: 0, deals: 0 };
+        let deactivatedUserMeta = null;
 
         await withMongoTransaction(async (session) => {
             const user = await User.findById(id).session(session);
@@ -668,11 +669,11 @@ export const deactivateUser = async (req, res) => {
             user.status = 'inactive';
             await user.save({ session });
 
-            // Force logout all sessions
-            await Session.forceLogoutUser(id, req.user?._id, 'user_deactivated');
-
-            // Invalidate caches
-            await invalidateAllUserCaches(id, user.department, user.reportingTo);
+            deactivatedUserMeta = {
+                id: user._id,
+                department: user.department,
+                reportingTo: user.reportingTo
+            };
 
             // Log audit event
             await AuditLog.create([{
@@ -699,6 +700,20 @@ export const deactivateUser = async (req, res) => {
                 userAgent: req.get('user-agent')
             }], { session });
         });
+
+        // 🚀 POST-COMMIT SIDE EFFECTS: Execute only AFTER DB transaction successfully commits
+        if (deactivatedUserMeta) {
+            try {
+                await Session.forceLogoutUser(id, req.user?._id, 'user_deactivated');
+            } catch (sessionErr) {
+                console.error('[User Management] Post-commit forceLogoutUser failed:', sessionErr.message);
+            }
+            try {
+                await invalidateAllUserCaches(id, deactivatedUserMeta.department, deactivatedUserMeta.reportingTo);
+            } catch (cacheErr) {
+                console.error('[User Management] Post-commit cache invalidation failed:', cacheErr.message);
+            }
+        }
 
         res.status(200).json({
             success: true,

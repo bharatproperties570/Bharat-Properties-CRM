@@ -665,6 +665,43 @@ const processMarketingJob = async (job) => {
     const { name, data } = job;
     console.log(`[MarketingWorker] ▶ Processing job: ${name} (id=${job.id})`);
 
+    const dispatchKey = job.id ? String(job.id) : null;
+    let receiptModel = null;
+    if (dispatchKey) {
+        try {
+            const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
+            receiptModel = MarketingDispatchReceipt;
+            const existingReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey });
+            if (existingReceipt && existingReceipt.status === 'COMPLETED') {
+                console.log(`[MarketingWorker] Idempotency: Dispatch ${dispatchKey} was already COMPLETED. Skipping duplicate provider call.`);
+                if (typeof job.log === 'function') {
+                    await job.log(`Idempotency receipt: ${dispatchKey} already COMPLETED. Skipping.`);
+                }
+                return { status: 'SKIPPED_DUPLICATE', receiptId: existingReceipt._id };
+            }
+            await MarketingDispatchReceipt.updateOne(
+                { dispatchKey },
+                {
+                    $setOnInsert: {
+                        dispatchKey,
+                        jobName: name,
+                        tenantId: data?.tenantId,
+                        eventId: data?.eventId
+                    },
+                    $set: {
+                        status: 'DISPATCHING',
+                        dispatchedAt: new Date()
+                    }
+                },
+                { upsert: true }
+            );
+        } catch (receiptErr) {
+            console.warn(`[MarketingWorker] Receipt lookup/upsert warning for ${dispatchKey}:`, receiptErr.message);
+        }
+    }
+
+    try {
+        const result = await (async () => {
     // ─── BLAST: Campaign broadcast ─────────────────────────────────────────────
     if (name === 'blast') {
         const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html, smsData, leads = [] } = data;
@@ -1518,6 +1555,42 @@ if (name === 'bna-broadcast') {
     }
 
     throw new Error(`Unknown marketing job type: ${name}`);
+        })();
+
+        if (dispatchKey && receiptModel) {
+            try {
+                await receiptModel.updateOne(
+                    { dispatchKey },
+                    {
+                        $set: {
+                            status: 'COMPLETED',
+                            completedAt: new Date(),
+                            result: typeof result === 'object' ? result : { value: result }
+                        }
+                    }
+                );
+            } catch (compErr) {
+                console.warn(`[MarketingWorker] Receipt completion warning for ${dispatchKey}:`, compErr.message);
+            }
+        }
+
+        return result;
+    } catch (err) {
+        if (dispatchKey && receiptModel) {
+            try {
+                await receiptModel.updateOne(
+                    { dispatchKey },
+                    {
+                        $set: {
+                            status: 'FAILED',
+                            lastError: err.message
+                        }
+                    }
+                );
+            } catch (_) {}
+        }
+        throw err;
+    }
 };
 
 

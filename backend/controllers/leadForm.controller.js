@@ -242,14 +242,14 @@ export const submitForm = async (req, res) => {
             }
 
             // 4. Trigger Engines -> Durable Background Outbox Event
-            OutboxEvent.create({
+            await OutboxEvent.create({
                 eventType: 'LeadEnrichmentRequested',
                 aggregateType: 'Lead',
                 aggregateId: lead._id,
                 payload: { leadId: lead._id },
                 tenantId: lead.tenantId,
                 provenance: { source: 'PUBLIC_FORM', actorType: 'EXTERNAL' }
-            }).catch(err => console.error("[ENRICHMENT OUTBOX ERROR] Form Submit:", err));
+            });
         }
 
         // 3. Update Analytics

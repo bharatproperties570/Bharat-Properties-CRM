@@ -1043,14 +1043,12 @@ export const addActivity = async (req, res) => {
                 payload: { leadId: activity.entityId },
                 tenantId: req.user?.tenantId || req.user?.tenant,
                 provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
-            }], session ? { session } : {}).catch((err) => {
-                console.error('[ActivityController] Failed to queue LeadEnrichmentRequested OutboxEvent:', err.message);
-            });
+            }], { session });
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
             if (!isMissed) {
-                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session });
             }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
@@ -1206,14 +1204,12 @@ export const updateActivity = async (req, res) => {
                     payload: { leadId: activity.entityId },
                     tenantId: req.user?.tenantId || req.user?.tenant,
                     provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
-                }], session ? { session } : {}).catch((err) => {
-                    console.error('[ActivityController] Failed to queue LeadEnrichmentRequested OutboxEvent:', err.message);
-                });
+                }], { session });
                 // Update lastActivityAt if not missed
                 const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
                 const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
                 if (!isMissed) {
-                    await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
+                    await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session });
                 }
             } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
                 // Update lastActivityAt for Deal with session
@@ -1419,16 +1415,18 @@ export const syncMobileCalls = async (req, res) => {
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
             if (!existing) {
-                const activity = await Activity.create(activityData);
-                await OutboxEvent.create({
-                    eventType: 'GoogleSyncRequested',
-                    aggregateType: 'Activity',
-                    aggregateId: activity._id,
-                    payload: { action: 'syncEvent', activityId: activity._id },
-                    tenantId: req.user?.tenantId || req.user?.tenant,
-                    provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
-                }).catch((err) => {
-                    console.error('[ActivityController] Failed to queue Google syncEvent OutboxEvent:', err.message);
+                let activity;
+                await withMongoTransaction(async (session) => {
+                    const [createdAct] = await Activity.create([activityData], { session });
+                    activity = createdAct;
+                    await OutboxEvent.create([{
+                        eventType: 'GoogleSyncRequested',
+                        aggregateType: 'Activity',
+                        aggregateId: activity._id,
+                        payload: { action: 'syncEvent', activityId: activity._id },
+                        tenantId: req.user?.tenantId || req.user?.tenant,
+                        provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                    }], { session });
                 });
                 syncedActivities.push(activity);
 

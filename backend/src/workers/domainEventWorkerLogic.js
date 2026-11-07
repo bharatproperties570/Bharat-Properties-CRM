@@ -1090,7 +1090,31 @@ export const processDomainEventJob = async (job) => {
                 jobId: deterministicJobId
             };
 
+            // Check if durable dispatch receipt already marked this dispatch as COMPLETED
+            const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
+            const existingReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: deterministicJobId });
+            if (existingReceipt && existingReceipt.status === 'COMPLETED') {
+                console.log(`[DomainEventWorker] Skipping marketing dispatch ${deterministicJobId}: already COMPLETED in receipt.`);
+                break;
+            }
+
             await executeEffect(eventId, `marketing_${action}_dispatch`, aggregateType, aggregateId, async () => {
+                await MarketingDispatchReceipt.updateOne(
+                    { dispatchKey: deterministicJobId },
+                    {
+                        $setOnInsert: {
+                            dispatchKey: deterministicJobId,
+                            jobName: action,
+                            tenantId: payload.tenantId,
+                            eventId: eventId
+                        },
+                        $set: {
+                            status: 'QUEUED'
+                        }
+                    },
+                    { upsert: true }
+                );
+
                 if (action === 'blast') {
                     await QueueManager.marketingQueue.add('blast', jobData, opts);
                 } else if (action === 'drip') {

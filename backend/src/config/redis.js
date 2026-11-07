@@ -567,7 +567,7 @@ export class Queue {
         return new BullQueue(name, bullOpts);
     }
     async add(name, data, opts) {
-        const jobId = `mock-${Date.now()}`;
+        const jobId = opts?.jobId || `mock-${Date.now()}`;
         if (internalConnection && internalConnection.isMock) {
             const worker = mockWorkers.get(this.name);
             if (worker && worker.processor) {
