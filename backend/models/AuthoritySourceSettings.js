@@ -403,25 +403,24 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
     const approver = this.approvedBy ? String(this.approvedBy) : null;
     const reviewer = this.reviewedBy ? String(this.reviewedBy) : null;
 
-    if (this.reviewStatus === 'APPROVED' || this.isEnabled || this.schedulingEnabled) {
+    if (submitter && approver && submitter === approver) {
+        blockers.push('Independent maker-checker review required: submitter and approver must be distinct authenticated users');
+    }
+    if (submitter && reviewer && submitter === reviewer && this.reviewStatus === 'APPROVED') {
+        blockers.push('Independent maker-checker review required: submitter and reviewer must be distinct authenticated users');
+    }
+
+    if (isOwnerAttested && (this.reviewStatus === 'APPROVED' || this.isEnabled || this.schedulingEnabled)) {
         if (!submitter || !approver) {
             blockers.push('Independent maker-checker review required: submitter and approver must both be present.');
         }
-        if (submitter && approver && submitter === approver) {
-            blockers.push('Independent maker-checker review required: submitter and approver must be distinct authenticated users');
-        }
-        if (isOwnerAttested) {
-            if (!reviewer) {
-                blockers.push('Independent maker-checker review required: submitter, approver, and reviewer must all be present.');
-            }
-            if (submitter && reviewer && submitter === reviewer) {
-                blockers.push('Independent maker-checker review required: submitter and reviewer must be distinct authenticated users');
-            }
+        if (!reviewer) {
+            blockers.push('Independent maker-checker review required: submitter, approver, and reviewer must all be present.');
         }
         const hasApprovalOrAuditRef = Boolean(
             (this.approvalReference && String(this.approvalReference).trim()) ||
             (this.contractEvidenceReference && String(this.contractEvidenceReference).trim()) ||
-            (isOwnerAttested && this.ownerAttestation?.scope)
+            (this.ownerAttestation?.scope)
         );
         if (!hasApprovalOrAuditRef) {
             blockers.push('Authentic approval reference or audit event record is required.');
