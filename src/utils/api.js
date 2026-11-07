@@ -270,6 +270,12 @@ export const socialAPI = {
     replyToComment: (commentId, message) => api.post('/social/comment/reply', { commentId, message }).then(res => res.data),
     likeComment: (commentId) => api.post('/social/comment/like', { commentId }).then(res => res.data),
     testConnection: (data = {}) => api.post('/social/test-connection', data).then(res => res.data),
+
+    // 🚀 Meta (Facebook & Instagram) 1-Click OAuth
+    getFacebookAuthUrl: (origin) => api.get('/social/facebook/auth-url', { params: { origin } }).then(res => res.data),
+    handleFacebookCallback: (code, origin) => api.post('/social/facebook/callback', { code, origin }).then(res => res.data),
+    getFacebookOAuthStatus: () => api.get('/social/facebook/status').then(res => res.data),
+    disconnectFacebookOAuth: () => api.post('/social/facebook/disconnect').then(res => res.data),
     
     startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
     getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),

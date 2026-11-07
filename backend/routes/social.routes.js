@@ -22,6 +22,10 @@ import {
     postSocialMedia,
     getSocialAnalytics,
     testSocialConnection,
+    getFacebookAuthUrl,
+    handleFacebookCallback,
+    getFacebookOAuthStatus,
+    disconnectFacebook,
     startBaileysConnection,
     getBaileysStatus,
     getBaileysGroups,
@@ -68,5 +72,11 @@ router.post('/comment/like',  likeComment);
 router.post('/post',          postSocialMedia);
 router.get('/analytics',     getSocialAnalytics);
 router.post('/test-connection', testSocialConnection);
+
+// ── Meta (Facebook & Instagram) 1-Click OAuth ────────────────────────────────
+router.get('/facebook/auth-url',   getFacebookAuthUrl);
+router.post('/facebook/callback',  handleFacebookCallback);
+router.get('/facebook/status',     getFacebookOAuthStatus);
+router.post('/facebook/disconnect', disconnectFacebook);
 
 export default router;
