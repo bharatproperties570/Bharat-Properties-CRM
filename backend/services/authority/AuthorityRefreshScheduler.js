@@ -17,11 +17,13 @@
  */
 
 import cron from 'node-cron';
+import mongoose from 'mongoose';
 import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../../models/PropertyVerificationRun.js';
 import AuditLog from '../../models/AuditLog.js';
 import { AuthorityBulkProcessor } from './AuthorityBulkProcessor.js';
+import { CANONICAL_ORGANIZATION_ID } from '../../config/canonicalOrganization.js';
 
 export const DEFAULT_WEEKLY_CRON = '0 2 * * 0'; // Sunday 02:00 AM IST
 export const SCHEDULE_TIMEZONE = 'Asia/Kolkata';
@@ -32,19 +34,32 @@ export class AuthorityRefreshScheduler {
         this.isRunning = false;
         this.timezone = options.timezone || SCHEDULE_TIMEZONE;
         this.cronAdapter = options.cronAdapter || cron;
+
+        // Require canonical single-organization context
+        const rawOrgId = options.organizationId !== undefined
+            ? options.organizationId
+            : (options.tenantId !== undefined ? options.tenantId : (options.useCanonicalDefault !== false ? CANONICAL_ORGANIZATION_ID : null));
+        this.organizationId = rawOrgId ? (rawOrgId instanceof mongoose.Types.ObjectId ? rawOrgId : new mongoose.Types.ObjectId(rawOrgId)) : null;
     }
 
     /**
      * Start the scheduler.
-     * Evaluates configuration; remains inactive/noop if scheduling is disabled.
+     * Evaluates configuration; fails closed if organization context is missing.
      */
     start() {
         if (this.isRunning) return;
 
+        if (!this.organizationId) {
+            throw new Error('SCHEDULER_ORGANIZATION_REQUIRED: Scheduler startup rejected — canonical single-organization ID is required.');
+        }
+
         // Register default weekly cron in Asia/Kolkata timezone
         // The job itself evaluates source settings and fails closed if disabled
         const task = this.cronAdapter.schedule(DEFAULT_WEEKLY_CRON, async () => {
-            await this.executeWeeklyCycle({ isScheduledTrigger: true });
+            await this.executeWeeklyCycle({
+                isScheduledTrigger: true,
+                tenantId: this.organizationId
+            });
         }, {
             scheduled: true,
             timezone: this.timezone
@@ -70,24 +85,28 @@ export class AuthorityRefreshScheduler {
     }
 
     /**
-     * Execute the weekly refresh cycle across tenants.
+     * Execute the weekly refresh cycle strictly constrained to the single organization.
      * Evaluates fail-closed eligibility before scheduling or executing.
      * 
      * @param {object} options
-     * @param {string|mongoose.Types.ObjectId} [options.tenantId] Specific tenant to process
+     * @param {string|mongoose.Types.ObjectId} [options.tenantId] Specific tenant to process (must match bound org)
      * @param {string} [options.authorityCode] Specific authority ('HSVP' | 'CHD' | 'GMADA')
      * @param {boolean} [options.isSimulation=false] Whether this is a test simulation
      * @param {string|mongoose.Types.ObjectId} [options.triggeredBy] Initiator user ID
      * @returns {Promise<object>} Cycle outcome report
      */
     async executeWeeklyCycle(options = {}) {
-        const { tenantId, authorityCode, isSimulation = false, triggeredBy = null } = options;
+        const targetTenantId = options.tenantId || this.organizationId;
+        if (!targetTenantId) {
+            throw new Error('SCHEDULER_ORGANIZATION_REQUIRED: executeWeeklyCycle requires an explicit organizationId.');
+        }
+
+        const { authorityCode, isSimulation = false, triggeredBy = null } = options;
         const authorities = authorityCode ? [authorityCode] : ['HSVP', 'CHD', 'GMADA'];
         const results = [];
 
-        // Determine tenant query
-        const tenantQuery = tenantId ? { tenantId } : {};
-        const allSettings = await AuthoritySourceSettings.find(tenantQuery);
+        // Single-organization scoped query: strictly forbidden to scan unscoped
+        const allSettings = await AuthoritySourceSettings.find({ tenantId: targetTenantId });
 
         for (const settings of allSettings) {
             if (!authorities.includes(settings.authorityCode)) continue;

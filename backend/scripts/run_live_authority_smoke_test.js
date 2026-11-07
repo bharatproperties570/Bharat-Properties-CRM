@@ -43,6 +43,10 @@ import { registerOrRotateCanonicalPolicy, markCanonicalPolicyAudited } from '../
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
 import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
 
+import { verifyDatabaseEnvironmentSafety, redactMongoUri } from '../services/authority/databaseEnvironmentSafety.js';
+import { executePersistenceSurvivalTest } from '../services/authority/persistenceSurvivalVerifier.js';
+import { getCanonicalOrganizationContext } from '../config/canonicalOrganization.js';
+
 export async function runLiveAuthoritySmokeTest() {
     console.log('========================================================================');
     console.log('BHARAT PROPERTIES CRM — PHASE 4.5-D CORRECTIVE OPERATIONAL ACCEPTANCE');
@@ -70,7 +74,10 @@ export async function runLiveAuthoritySmokeTest() {
         },
         redisExecution: {
             status: null,
-            target: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+            reachabilityStatus: null,
+            lockStatus: null,
+            quotaStatus: null,
+            target: process.env.REDIS_URL ? redactMongoUri(process.env.REDIS_URL) : 'redis://127.0.0.1:6379',
             allowInMemoryFallback: false,
             connected: false,
             pingResponse: null,
@@ -86,11 +93,13 @@ export async function runLiveAuthoritySmokeTest() {
         },
         existingInventoryResolution: {
             status: null,
+            propertyMatchingStatus: null,
             existingInventoryCount: 0,
             activeLinksCount: 0,
             matchedRecords: {},
             reason: null
         },
+        propertyMatchingStatus: 'NOT_EXECUTED_APPROVAL_PENDING',
         sources: {},
         pilotCounts: {
             HSVP: { matched: 0, unmatched: 0, pilotTotal: 0, status: null },
@@ -114,14 +123,38 @@ export async function runLiveAuthoritySmokeTest() {
 
     try {
         // --------------------------------------------------------------------
-        // 1. Database Connection & Classification
+        // 1. Database Connection & Environment Safety Verification
         // --------------------------------------------------------------------
-        console.log('\n[1/7] Inspecting non-production database environment...');
+        console.log('\n[1/7] Inspecting non-production database environment & safety...');
         const stagingMongoUri = process.env.STAGING_MONGODB_URI || process.env.NONPROD_MONGODB_URI;
         const isAlreadyConnected = mongoose.connection.readyState === 1;
 
+        const safetyCheck = verifyDatabaseEnvironmentSafety({
+            uri: stagingMongoUri,
+            allowMemoryFallback: true
+        });
+
+        if (!safetyCheck.verified) {
+            console.error(`\n[CRITICAL SAFETY ABORT] Database environment safety check failed: ${safetyCheck.reason}`);
+            testResults.databaseClassification = {
+                environment: safetyCheck.environment || 'UNKNOWN_OR_UNSAFE',
+                isProduction: safetyCheck.code.includes('PRODUCTION'),
+                isPersistentNonProduction: false,
+                persistentStagingStatus: 'BLOCKED_DATABASE_ENVIRONMENT_NOT_VERIFIED',
+                storageEngine: null,
+                connectionUri: safetyCheck.redactedUri,
+                reason: safetyCheck.reason
+            };
+            testResults.persistenceSurvival = {
+                status: 'BLOCKED_DATABASE_ENVIRONMENT_NOT_VERIFIED',
+                stepsExecuted: 0,
+                reason: safetyCheck.reason
+            };
+            return testResults;
+        }
+
         if (stagingMongoUri) {
-            console.log(` Connecting to configured persistent non-production staging database: ${stagingMongoUri}`);
+            console.log(` Connecting to verified persistent non-production staging database: ${safetyCheck.redactedUri}`);
             if (!isAlreadyConnected) {
                 await mongoose.connect(stagingMongoUri);
                 createdOwnMongo = true;
@@ -132,7 +165,7 @@ export async function runLiveAuthoritySmokeTest() {
                 isPersistentNonProduction: true,
                 persistentStagingStatus: 'PERSISTENT_NON_PRODUCTION_STAGING_VERIFIED',
                 storageEngine: 'wiredTiger',
-                connectionUri: stagingMongoUri
+                connectionUri: safetyCheck.redactedUri
             };
             console.log(' Persistent non-production database connected and verified.');
         } else if (isAlreadyConnected) {
@@ -142,7 +175,7 @@ export async function runLiveAuthoritySmokeTest() {
                 isPersistentNonProduction: false,
                 persistentStagingStatus: 'BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE',
                 storageEngine: 'wiredTiger',
-                connectionUri: mongoose.connection.client?.s?.url || 'mongodb://connected-in-memory',
+                connectionUri: redactMongoUri(mongoose.connection.client?.s?.url || 'mongodb://connected-in-memory'),
                 note: 'No durable non-production database configured; running in existing temporary test database.'
             };
             console.log(' Existing temporary test database attached. Classification: TEMPORARY_TEST_DATABASE (BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE).');
@@ -167,7 +200,7 @@ export async function runLiveAuthoritySmokeTest() {
                 isPersistentNonProduction: false,
                 persistentStagingStatus: 'BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE',
                 storageEngine: 'wiredTiger',
-                connectionUri: mongoUri,
+                connectionUri: redactMongoUri(mongoUri),
                 note: 'No durable non-production database configured; running in temporary test database.'
             };
             console.log(' Temporary test database connected. Classification: TEMPORARY_TEST_DATABASE (BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE).');
@@ -177,17 +210,16 @@ export async function runLiveAuthoritySmokeTest() {
         // 2. Single-Organization Context
         // --------------------------------------------------------------------
         console.log('\n[2/7] Resolving single-organization CRM context...');
-        const sampleUser = await User.findOne({});
-        const sampleInventory = await Inventory.findOne({});
-        const singleOrgId = sampleUser?.tenantId || sampleInventory?.tenantId || (process.env.ORGANIZATION_ID ? new mongoose.Types.ObjectId(process.env.ORGANIZATION_ID) : new mongoose.Types.ObjectId('000000000000000000000001'));
+        const orgContext = getCanonicalOrganizationContext();
+        const singleOrgId = orgContext.organizationId;
         testResults.organizationContext.organizationId = singleOrgId ? singleOrgId.toString() : null;
-        console.log(` Single organization context established: ${testResults.organizationContext.organizationId} (Tenant development on HOLD)`);
+        console.log(` Single organization context established: ${testResults.organizationContext.organizationId} (${orgContext.organizationName}) — Tenant development strictly on HOLD`);
 
         // --------------------------------------------------------------------
         // 3. Authentic Maker-Checker & User Validation
         // --------------------------------------------------------------------
         console.log('\n[3/7] Validating authentic authenticated CRM users for maker-checker review...');
-        const existingUsers = await User.find(singleOrgId ? { tenantId: singleOrgId } : {}).populate('role');
+        const existingUsers = await User.find(singleOrgId ? { tenantId: singleOrgId, isActive: { $ne: false } } : { isActive: { $ne: false } }).populate('role');
         testResults.makerChecker.usersFound = existingUsers.length;
 
         // Prohibit synthetic users: inspect existing users for distinct submitter, approver, reviewer
@@ -197,12 +229,16 @@ export async function runLiveAuthoritySmokeTest() {
 
         if (existingUsers.length >= 3) {
             for (const u of existingUsers) {
-                const roleName = u.role?.name || '';
-                if (!submitterUser && (roleName.includes('Inventory') || roleName.includes('Executive') || roleName.includes('Operations'))) {
+                const role = u.role;
+                const roleName = role?.name || '';
+                const permissions = Array.isArray(role?.permissions) ? role.permissions : [];
+                const rights = role?.approvalRights || {};
+
+                if (!submitterUser && (roleName.includes('Inventory') || roleName.includes('Executive') || roleName.includes('Operations') || permissions.includes('inventory.create'))) {
                     submitterUser = u;
-                } else if (!approverUser && (roleName.includes('Manager') || roleName.includes('Compliance') || roleName.includes('Admin'))) {
+                } else if (!approverUser && (rights.manageAuthoritySettings === true || roleName === 'Super Admin' || u.isSuperAdmin === true || permissions.includes('authorityVerification.admin') || permissions.includes('*'))) {
                     approverUser = u;
-                } else if (!reviewerUser && (roleName.includes('Auditor') || roleName.includes('Reviewer') || roleName.includes('Accounts'))) {
+                } else if (!reviewerUser && (rights.approveAuthorityChanges === true || roleName.includes('Auditor') || roleName.includes('Reviewer') || permissions.includes('authorityVerification.approve') || permissions.includes('*'))) {
                     reviewerUser = u;
                 }
             }
@@ -232,7 +268,7 @@ export async function runLiveAuthoritySmokeTest() {
                 submitter: null,
                 approver: null,
                 reviewer: null,
-                reason: 'No pre-existing authenticated CRM users with maker-checker review roles found in non-production database. Synthetic user generation is strictly prohibited.'
+                reason: 'No pre-existing authenticated CRM users with distinct maker-checker review roles found in non-production database. Synthetic user generation is strictly prohibited.'
             };
             console.log(' Authentic maker-checker status: BLOCKED_AUTHENTIC_MAKER_CHECKER_UNAVAILABLE (Zero synthetic users created).');
         }
@@ -246,6 +282,8 @@ export async function runLiveAuthoritySmokeTest() {
 
         testResults.existingInventoryResolution.existingInventoryCount = existingInventoryRecords.length;
         testResults.existingInventoryResolution.activeLinksCount = existingLinks.length;
+        testResults.propertyMatchingStatus = 'NOT_EXECUTED_APPROVAL_PENDING';
+        testResults.existingInventoryResolution.propertyMatchingStatus = 'NOT_EXECUTED_APPROVAL_PENDING';
 
         const hsvpLink = existingLinks.find(l => l.authorityCode === 'HSVP');
         const chdLink = existingLinks.find(l => l.authorityCode === 'CHD');
@@ -265,7 +303,10 @@ export async function runLiveAuthoritySmokeTest() {
                 CHD: { linkId: chdLink._id.toString(), inventoryId: chdLink.inventoryId.toString() },
                 GMADA: gmadaLink ? { linkId: gmadaLink._id.toString(), inventoryId: gmadaLink.inventoryId.toString() } : null
             };
-            console.log(' Pre-existing inventory and links successfully resolved.');
+            testResults.pilotCounts.HSVP.status = 'NOT_EXECUTED_APPROVAL_PENDING';
+            testResults.pilotCounts.CHD.status = 'NOT_EXECUTED_APPROVAL_PENDING';
+            testResults.pilotCounts.GMADA.status = 'NEEDS_VERIFIED_IDENTIFIER';
+            console.log(' Pre-existing inventory and links successfully resolved. Property matching: NOT_EXECUTED_APPROVAL_PENDING.');
         }
 
         // --------------------------------------------------------------------
@@ -319,21 +360,28 @@ export async function runLiveAuthoritySmokeTest() {
             const pong = await candidateRedis.ping();
             if (pong === 'PONG') {
                 realRedisClient = candidateRedis;
-                testResults.redisExecution.status = 'REAL_REDIS_VERIFIED';
+                testResults.redisExecution.reachabilityStatus = 'REAL_REDIS_REACHABLE';
+                testResults.redisExecution.status = 'REAL_REDIS_REACHABLE';
                 testResults.redisExecution.connected = true;
                 testResults.redisExecution.pingResponse = 'PONG';
                 console.log(' Real Redis server connected and verified with PONG response.');
             } else {
                 candidateRedis.disconnect();
+                testResults.redisExecution.reachabilityStatus = 'BLOCKED_REAL_REDIS_UNAVAILABLE';
                 testResults.redisExecution.status = 'BLOCKED_REAL_REDIS_UNAVAILABLE';
                 testResults.redisExecution.error = `Unexpected ping response: ${pong}`;
                 console.log(` Redis ping failed: ${pong}. Classified as BLOCKED_REAL_REDIS_UNAVAILABLE.`);
             }
         } catch (redisErr) {
+            testResults.redisExecution.reachabilityStatus = 'BLOCKED_REAL_REDIS_UNAVAILABLE';
             testResults.redisExecution.status = 'BLOCKED_REAL_REDIS_UNAVAILABLE';
             testResults.redisExecution.error = redisErr.message;
             console.log(` Real Redis unavailable on ${redisTargetUrl} (${redisErr.message}). Status: BLOCKED_REAL_REDIS_UNAVAILABLE.`);
         }
+
+        // Lock and quota statuses: since maker-checker review is UNDER_REVIEW and gate is disabled, runtime quota/locks are pending approval
+        testResults.redisExecution.lockStatus = 'NOT_EXECUTED_APPROVAL_PENDING';
+        testResults.redisExecution.quotaStatus = 'NOT_EXECUTED_APPROVAL_PENDING';
 
         // Operational lock and quota providers configured with allowInMemoryFallback: false
         const lockProvider = new RedisPortalDistributedLock(realRedisClient, {
@@ -415,7 +463,7 @@ export async function runLiveAuthoritySmokeTest() {
         // --------------------------------------------------------------------
         // 8. Weekly Scheduler Verification
         // --------------------------------------------------------------------
-        console.log('\n[8/7] Verifying weekly scheduler lifecycle & callback execution...');
+        console.log('\n[8/7] Verifying weekly scheduler lifecycle & callback execution (scoped to single organization)...');
         let registeredCronExpr = null;
         let registeredCronCallback = null;
         let schedulerStopped = false;
@@ -431,6 +479,7 @@ export async function runLiveAuthoritySmokeTest() {
         };
 
         const scheduler = new AuthorityRefreshScheduler({
+            organizationId: singleOrgId,
             cronAdapter: mockCronAdapter,
             timezone: SCHEDULE_TIMEZONE
         });
@@ -478,12 +527,13 @@ export async function runLiveAuthoritySmokeTest() {
         // --------------------------------------------------------------------
         console.log('\n[9/7] Assessing persistent storage survival...');
         if (testResults.databaseClassification.isPersistentNonProduction) {
-            testResults.persistenceSurvival = {
-                status: 'VERIFIED',
-                stepsExecuted: 7,
-                storageEngine: 'wiredTiger',
-                notes: 'Persistent non-production staging database verified across process restart.'
-            };
+            console.log(' Executing genuine 7-step persistence survival verification on persistent staging database...');
+            const survivalResult = await executePersistenceSurvivalTest({
+                mongoUri: stagingMongoUri,
+                tenantId: singleOrgId
+            });
+            testResults.persistenceSurvival = survivalResult;
+            console.log(` Persistence survival result: ${survivalResult.status} (steps executed: ${survivalResult.stepsExecuted})`);
         } else {
             testResults.persistenceSurvival = {
                 status: 'BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE',
@@ -515,7 +565,7 @@ export async function runLiveAuthoritySmokeTest() {
                 mathematicalCapacityEstimate: '83.33 hours vs 168h weekly window (84.67h headroom)',
                 simulatedThroughputTest: 'Batch processing validated via bounded chunks of 50 in test suite',
                 nonProductionIntegrationTest: 'Fail-closed verification with genuine CRM context',
-                actualLivePortalThroughput: '1 request/min serial execution verified against HSVP, GMADA, CHD',
+                actualLivePortalThroughput: 'NOT_EXECUTED_APPROVAL_PENDING',
                 productionExecutionClaim: 'NOT_EXECUTED_IN_PRODUCTION'
             }
         };

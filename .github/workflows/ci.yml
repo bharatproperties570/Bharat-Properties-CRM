@@ -171,6 +171,7 @@ jobs:
           cd backend
           npm run test:phase4.5-authority
           npm run test:phase4.5d-correction
+          npm run test:phase4.5d-final-safety-correction
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |
