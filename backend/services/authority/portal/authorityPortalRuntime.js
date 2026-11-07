@@ -205,8 +205,13 @@ export function createAuthorityPortalRuntime(dependencies = {}) {
                         code: gateErr.code || 'AUTHORITY_PORTAL_APPROVAL_BLOCKED',
                         blockers: gateErr.blockers || []
                     }, correlation);
-                } catch {
-                    // Ignore audit persistence failure on rejection
+                } catch (auditErr) {
+                    const durableAuditFailure = new Error(`AUDIT_PERSISTENCE_FAILED: Required rejection audit logging failed: ${auditErr.message}. Pre-transport rejection preserved.`);
+                    durableAuditFailure.code = 'AUDIT_PERSISTENCE_FAILED';
+                    durableAuditFailure.originalCode = gateErr.code || 'AUTHORITY_PORTAL_APPROVAL_BLOCKED';
+                    durableAuditFailure.originalError = gateErr;
+                    durableAuditFailure.blockers = gateErr.blockers || [];
+                    throw durableAuditFailure;
                 }
                 throw gateErr;
             }
