@@ -135,7 +135,26 @@ class DealService {
                 throw err;
             }
 
-            await Deal.softDeleteOne({ _id: dealId, ...visibilityFilter }, { userId: user?._id, session: txnSession });
+            if (typeof Deal.softDeleteOne === 'function') {
+                await Deal.softDeleteOne({ _id: dealId, ...visibilityFilter }, { userId: user?._id, session: txnSession });
+            } else {
+                await Deal.findOneAndDelete({ _id: dealId, ...visibilityFilter }).session(txnSession);
+            }
+
+            // Reset inventory status if the deal was deleted and no other active deals remain
+            if (deal.inventoryId) {
+                const activeDeals = await Deal.countDocuments({
+                    inventoryId: deal.inventoryId,
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                }).session(txnSession);
+                if (activeDeals === 0) {
+                    const Lookup = mongoose.model('Lookup');
+                    const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+                    const availableId = availableLookup ? availableLookup._id : 'Available';
+                    const Inventory = mongoose.model('Inventory');
+                    await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId }, { session: txnSession });
+                }
+            }
             return { success: true, id: dealId };
         }, { session });
     }

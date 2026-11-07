@@ -2809,27 +2809,10 @@ export const updateDeal = async (req, res) => {
 
 export const deleteDeal = async (req, res) => {
     try {
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const deal = await Deal.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
-        if (!deal) return res.status(404).json({ success: false, error: "Deal not found or access denied" });
-
-        // Reset inventory status if the deal was deleted and no other active deals remain
-        if (deal.inventoryId) {
-            const activeDeals = await Deal.countDocuments({
-                inventoryId: deal.inventoryId,
-                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-            });
-            if (activeDeals === 0) {
-                const Lookup = mongoose.model('Lookup');
-                const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
-                const availableId = availableLookup ? availableLookup._id : 'Available';
-                await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId });
-            }
-        }
-
+        await DealService.deleteDeal(req.params.id, { user: req.user });
         res.json({ success: true, message: "Deal deleted successfully" });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        res.status(error.statusCode || 500).json({ success: false, error: error.message });
     }
 };
 

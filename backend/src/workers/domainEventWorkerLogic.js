@@ -1067,16 +1067,18 @@ export const processDomainEventJob = async (job) => {
         case 'MarketingDispatchRequested':
         case 'MARKETING_DISPATCH_REQUESTED': {
             const QueueManager = await import('../queues/queueManager.js');
-            const action = payload.action || 'blast';
+            const action = payload.action || payload.jobType || 'blast';
+            const jobData = payload.jobData || payload;
+            const opts = payload.opts || (payload.delay ? { delay: payload.delay } : undefined);
             await executeEffect(eventId, `marketing_${action}_dispatch`, aggregateType, aggregateId, async () => {
                 if (action === 'blast') {
-                    await QueueManager.marketingQueue.add('blast', payload.jobData);
+                    await QueueManager.marketingQueue.add('blast', jobData, opts);
                 } else if (action === 'drip') {
-                    await QueueManager.marketingQueue.add('drip', payload.jobData, { delay: payload.delay });
+                    await QueueManager.marketingQueue.add('drip', jobData, opts || { delay: payload.delay });
                 } else if (action === 'bna-broadcast') {
-                    await QueueManager.marketingQueue.add('bna-broadcast', payload.jobData, { delay: payload.delay, removeOnComplete: true });
+                    await QueueManager.marketingQueue.add('bna-broadcast', jobData, opts || { delay: payload.delay, removeOnComplete: true });
                 } else if (action === 'scheduled-social-dispatch') {
-                    await QueueManager.marketingQueue.add('scheduled-social-dispatch', payload.jobData, { delay: payload.delay });
+                    await QueueManager.marketingQueue.add('scheduled-social-dispatch', jobData, opts || { delay: payload.delay });
                 }
             });
             break;

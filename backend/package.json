@@ -18,6 +18,7 @@
         "test:r20": "node --experimental-test-module-mocks --test tests/test_r20_distribution.js",
         "test:phase5:all": "npm run test:phase5 && npm run test:phase5.2 && npm run test:phase5.3 && npm run test:phase5.4 && npm run test:phase5.5 && npm run test:r20",
         "test:phase6": "node --test --test-force-exit --test-concurrency=1 tests/phase6_sequences_nurture_reliability.test.js",
+        "test:phase6:refactoring": "node --test --test-force-exit --test-concurrency=1 tests/phase6_backend_refactoring.test.js",
         "test:regression": "node --test --test-force-exit --test-concurrency=1 tests/phase7_lead_distribution_concurrency.test.js tests/phase8_intake_activity_durability.test.js",
         "test:phase9.1": "node --test --test-force-exit tests/phase9_durable_dispatch.test.js",
         "test:phase9": "node --test --test-force-exit tests/phase9_whatsapp_automation_reliability.test.js",

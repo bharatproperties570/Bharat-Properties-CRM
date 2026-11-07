@@ -177,6 +177,14 @@ class LookupService {
     static clearCache() {
         LOOKUP_CACHE.clear();
     }
+
+    /**
+     * Checks if a lookup is currently cached in memory.
+     */
+    static hasCached(type, value, parentId = 'root') {
+        const key = `${type}:${parentId}:${String(value).trim().toLowerCase()}`;
+        return LOOKUP_CACHE.has(key);
+    }
 }
 
 export default LookupService;

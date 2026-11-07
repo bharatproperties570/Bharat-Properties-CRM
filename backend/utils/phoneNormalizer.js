@@ -114,7 +114,8 @@ export function getPhoneLookupVariants(phone) {
     return [
         last10,
         `+91${last10}`,
-        `91${last10}`
+        `91${last10}`,
+        `0${last10}`
     ];
 }
 
@@ -132,9 +133,29 @@ export function isValidIndianMobile(phone) {
     return /^[6-9]\d{9}$/.test(normalized);
 }
 
+/**
+ * Checks if a string is a WhatsApp user or group JID.
+ */
+export function isWhatsAppJid(val) {
+    if (!val) return false;
+    const str = String(val).trim();
+    return str.endsWith('@s.whatsapp.net') || str.endsWith('@g.us');
+}
+
+/**
+ * Checks if a string is a WhatsApp LID.
+ */
+export function isWhatsAppLid(val) {
+    if (!val) return false;
+    const str = String(val).trim();
+    return str.endsWith('@lid') || (/^\d{13,}$/.test(str) && !str.startsWith('91'));
+}
+
 export default {
     normalizePhone,
     normalizePhoneE164,
     getPhoneLookupVariants,
-    isValidIndianMobile
+    isValidIndianMobile,
+    isWhatsAppJid,
+    isWhatsAppLid
 };

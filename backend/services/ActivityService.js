@@ -35,6 +35,12 @@ class ActivityService {
         if (cleanData.phoneNumber) {
             cleanData.phoneNumber = normalizePhone(cleanData.phoneNumber);
         }
+        if (Array.isArray(cleanData.participants)) {
+            cleanData.participants = cleanData.participants.map(p => ({
+                ...p,
+                mobile: p.mobile ? normalizePhone(p.mobile) : p.mobile
+            }));
+        }
 
         return await withMongoTransaction(async (txnSession) => {
             const activity = new Activity(cleanData);
