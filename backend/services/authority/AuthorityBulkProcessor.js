@@ -930,6 +930,8 @@ export class AuthorityBulkProcessor {
                         isFixtureMode,
                         authorityCode: run.authorityCode,
                         workerId,
+                        portalRuntime: options.portalRuntime,
+                        portalOptions: options.portalOptions,
                         beforeSnapshotPersistence: options.beforeSnapshotPersistence,
                         beforeOrphanCleanup: options.beforeOrphanCleanup,
                         afterOrphanPurged: options.afterOrphanPurged,
@@ -3084,6 +3086,7 @@ export class AuthorityBulkProcessor {
                 termsReference: setting.termsReference,
                 approvedBy: setting.approvedBy ? String(setting.approvedBy) : null,
                 reviewedBy: setting.reviewedBy ? String(setting.reviewedBy) : null,
+                submittedBy: setting.submittedBy ? String(setting.submittedBy) : null,
                 expiresAt: setting.approvalExpiryDate,
                 permittedFields: setting.permittedFields,
                 ratePolicy: {

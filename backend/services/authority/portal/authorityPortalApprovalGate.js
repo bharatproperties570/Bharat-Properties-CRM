@@ -89,6 +89,12 @@ export function evaluateAuthorityPortalApproval({
         if (!String(approval.approvedBy || '').trim() || !String(approval.reviewedBy || '').trim()) {
             blockers.push(makeBlocker('MAKER_CHECKER_REVIEW_MISSING', 'Approval requires named approver and independent reviewer.'));
         }
+        if (String(approval.submittedBy || '').trim()) {
+            const submitter = String(approval.submittedBy).trim();
+            if (submitter === String(approval.approvedBy || '').trim() || submitter === String(approval.reviewedBy || '').trim()) {
+                blockers.push(makeBlocker('SELF_APPROVAL_PROHIBITED', 'Independent maker-checker review required: submitter cannot be approver or reviewer.'));
+            }
+        }
 
         const expiry = isValidDate(approval.expiresAt);
         if (!expiry || expiry <= currentTime) {

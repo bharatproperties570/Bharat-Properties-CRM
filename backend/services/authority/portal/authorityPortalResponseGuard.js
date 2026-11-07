@@ -107,7 +107,8 @@ export function guardAuthorityPortalResponse({
         });
     }
 
-    if (CAPTCHA_OR_POLICY_PATTERNS.some((pattern) => pattern.test(body))) {
+    const sanitizedBody = String(body || '').replace(/<input[^>]+(?:name|id)=["'][^"']*hfcaptcha[^"']*["'][^>]*>/gi, '');
+    if (CAPTCHA_OR_POLICY_PATTERNS.some((pattern) => pattern.test(sanitizedBody))) {
         throw makeError('PORTAL_CHALLENGE_OR_POLICY_BLOCK', 'Portal returned a challenge or policy-block response.', {
             authorityCode,
             status,

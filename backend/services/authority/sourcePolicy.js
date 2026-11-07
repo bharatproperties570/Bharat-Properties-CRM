@@ -89,7 +89,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         userReportedEvidence: {
             reportedBy: 'Bharat Properties Owner',
             reportedAt: '2026-11-06',
-            claimedRole: 'Chief Administrator',
+            claimedRole: 'Authorized Broker',
             status: 'PENDING_WRITTEN_REFERENCE',
             evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
@@ -164,7 +164,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         userReportedEvidence: {
             reportedBy: 'Bharat Properties Owner',
             reportedAt: '2026-11-06',
-            claimedRole: 'Estate Officer',
+            claimedRole: 'Authorized Broker',
             status: 'PENDING_WRITTEN_REFERENCE',
             evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
@@ -231,7 +231,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         userReportedEvidence: {
             reportedBy: 'Bharat Properties Owner',
             reportedAt: '2026-11-06',
-            claimedRole: 'Chief Administrator',
+            claimedRole: 'Authorized Broker',
             status: 'PENDING_WRITTEN_REFERENCE',
             evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
@@ -321,7 +321,7 @@ export const OWNER_ATTESTED_AUTHORITY_POLICIES = Object.freeze({
         evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
         attestingParty: 'Bharat Properties Owner',
         attestedAt: '2026-11-06T17:51:10+05:30',
-        claimedRole: 'Chief Administrator',
+        claimedRole: 'Authorized Broker',
         scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
         ratePolicy: Object.freeze({
             maxRequestsPerMinute: 1,
@@ -339,7 +339,7 @@ export const OWNER_ATTESTED_AUTHORITY_POLICIES = Object.freeze({
         evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
         attestingParty: 'Bharat Properties Owner',
         attestedAt: '2026-11-06T17:51:10+05:30',
-        claimedRole: null, // do not invent official designations
+        claimedRole: 'Authorized Broker',
         scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
         ratePolicy: Object.freeze({
             maxRequestsPerMinute: 1,
@@ -357,7 +357,7 @@ export const OWNER_ATTESTED_AUTHORITY_POLICIES = Object.freeze({
         evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
         attestingParty: 'Bharat Properties Owner',
         attestedAt: '2026-11-06T17:51:10+05:30',
-        claimedRole: null, // do not invent official designations
+        claimedRole: 'Authorized Broker',
         scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
         ratePolicy: Object.freeze({
             maxRequestsPerMinute: 1,
