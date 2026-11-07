@@ -396,4 +396,201 @@ describe('Phase 6 — P1 Marketing Worker Resumable Recovery & State Machine Sui
             Object.defineProperty(mongoose.connection, 'readyState', { value: 1, configurable: true, writable: true });
         }
     });
+
+    it('P1.9 BullMQ Queue + Worker recovery integration: 100-recipient job retries on termination, processes 21-100 without resending 1-20', async () => {
+        const { Queue, Worker } = await import('../src/config/redis.js');
+        const queueName = `testRecoveryQueue_${Date.now()}`;
+        const queue = new Queue(queueName);
+
+        const campaignId = `camp_bullmq_recovery_${Date.now()}`;
+        const recipients = Array.from({ length: 100 }, (_, i) => ({
+            id: `lead_bmq_${i + 1}`,
+            mobile: `98111222${String(i).padStart(2, '0')}`,
+            name: `Recipient ${i + 1}`
+        }));
+
+        const dispatchedMobiles = [];
+        let crashAfter20 = true;
+        let progressCalls = 0;
+
+        const originalSendMessage = whatsAppService.sendMessage;
+        whatsAppService.sendMessage = async (mobile, message, options) => {
+            dispatchedMobiles.push(mobile);
+            return { success: true, messageId: `msg_bmq_${mobile}` };
+        };
+
+        let workerInstance;
+        try {
+            const completedPromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => reject(new Error('BullMQ Recovery test timed out')), 20000);
+
+                workerInstance = new Worker(queueName, async (job) => {
+                    const originalUpdateProgress = job.updateProgress;
+                    job.updateProgress = async (val) => {
+                        progressCalls++;
+                        if (crashAfter20 && progressCalls === 20) {
+                            throw new Error('SIMULATED_WORKER_TERMINATION_RECIPIENT_20');
+                        }
+                        if (originalUpdateProgress) await originalUpdateProgress.call(job, val);
+                    };
+
+                    try {
+                        return await processMarketingJob(job);
+                    } catch (err) {
+                        if (err.message === 'SIMULATED_WORKER_TERMINATION_RECIPIENT_20') {
+                            crashAfter20 = false;
+                        }
+                        throw err;
+                    }
+                });
+
+                workerInstance.on('completed', (job, result) => {
+                    clearTimeout(timeout);
+                    resolve({ job, result });
+                });
+            });
+
+            await queue.add('blast', {
+                channel: 'whatsapp',
+                campaignId,
+                leads: recipients,
+                message: 'Recovery test message {{name}}'
+            }, {
+                attempts: 3,
+                backoff: { type: 'fixed', delay: 50 },
+                jobId: `job_${campaignId}`
+            });
+
+            const completion = await completedPromise;
+            assert.ok(completion, 'Job must emit completed event after recovery');
+
+            assert.equal(dispatchedMobiles.length, 100, 'Total provider dispatches must be exactly 100');
+            const counts = {};
+            dispatchedMobiles.forEach(m => counts[m] = (counts[m] || 0) + 1);
+            for (let i = 0; i < 100; i++) {
+                assert.equal(counts[recipients[i].mobile], 1, `Mobile ${recipients[i].mobile} must be dispatched exactly once`);
+            }
+
+            const sentReceipts = await MarketingDispatchReceipt.countDocuments({ campaignId, status: 'SENT' });
+            assert.equal(sentReceipts, 100, 'All 100 receipts must be recorded as SENT in MongoDB');
+
+            const jobReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: `job_${campaignId}` });
+            assert.ok(jobReceipt);
+            assert.equal(jobReceipt.status, 'COMPLETED');
+            assert.equal(jobReceipt.result?.sent, 100);
+        } finally {
+            whatsAppService.sendMessage = originalSendMessage;
+            if (workerInstance) await workerInstance.close();
+            await queue.close();
+        }
+    });
+
+    it('P1.10 Incomplete accounting throws error and prevents BullMQ job from falsely completing', async () => {
+        const campaignId = `camp_incomplete_acct_${Date.now()}`;
+        const recipients = Array.from({ length: 10 }, (_, i) => ({
+            id: `lead_inc_${i + 1}`,
+            mobile: `98222333${String(i).padStart(2, '0')}`,
+            name: `Recipient ${i + 1}`
+        }));
+
+        let calls = 0;
+        const originalSendMessage = whatsAppService.sendMessage;
+        whatsAppService.sendMessage = async () => {
+            calls++;
+            return { success: true };
+        };
+
+        const job = {
+            id: `job_${campaignId}`,
+            name: 'blast',
+            data: {
+                channel: 'whatsapp',
+                campaignId,
+                leads: recipients,
+                message: 'Hello'
+            },
+            log: async () => {},
+            updateProgress: async () => {
+                if (calls === 5) {
+                    throw new Error('INTERRUPTED_MID_LOOP');
+                }
+            }
+        };
+
+        try {
+            await assert.rejects(
+                processMarketingJob(job),
+                /INTERRUPTED_MID_LOOP/,
+                'Interrupted job must throw error and not return clean success'
+            );
+
+            const jobReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: job.id });
+            assert.ok(jobReceipt);
+            assert.notEqual(jobReceipt.status, 'COMPLETED', 'Job receipt must NOT be marked COMPLETED when accounting is incomplete');
+        } finally {
+            whatsAppService.sendMessage = originalSendMessage;
+        }
+    });
+
+    it('P1.11 Completion write failure remains recoverable and does not cause blind duplicate sends', async () => {
+        const campaignId = `camp_comp_write_fail_${Date.now()}`;
+        const recipients = [
+            { id: 'lead_cwf_1', mobile: '9844455501', name: 'Lead 1' },
+            { id: 'lead_cwf_2', mobile: '9844455502', name: 'Lead 2' }
+        ];
+
+        const dispatchedMobiles = [];
+        const originalSendMessage = whatsAppService.sendMessage;
+        whatsAppService.sendMessage = async (mobile) => {
+            dispatchedMobiles.push(mobile);
+            return { success: true, messageId: `msg_${mobile}` };
+        };
+
+        const originalRecordSuccess = MarketingDispatchReceipt.recordSuccess;
+        let failJobRecordSuccess = true;
+
+        MarketingDispatchReceipt.recordSuccess = async (dispatchKey, options) => {
+            if (failJobRecordSuccess && dispatchKey === `job_${campaignId}`) {
+                const compErr = new Error('RECEIPT_COMPLETION_FAILED: Cluster write timed out for job completion');
+                compErr.code = 'RECEIPT_COMPLETION_FAILED';
+                throw compErr;
+            }
+            return await originalRecordSuccess.call(MarketingDispatchReceipt, dispatchKey, options);
+        };
+
+        const job = {
+            id: `job_${campaignId}`,
+            name: 'blast',
+            data: {
+                channel: 'whatsapp',
+                campaignId,
+                leads: recipients,
+                message: 'Hello'
+            },
+            log: async () => {},
+            updateProgress: async () => {}
+        };
+
+        try {
+            await assert.rejects(
+                processMarketingJob(job),
+                /RECEIPT_COMPLETION_FAILED/,
+                'Attempt 1 must throw RECEIPT_COMPLETION_FAILED'
+            );
+
+            assert.equal(dispatchedMobiles.length, 2, 'Two recipients dispatched on attempt 1');
+
+            failJobRecordSuccess = false;
+            const retryResult = await processMarketingJob(job);
+
+            assert.equal(dispatchedMobiles.length, 2, 'Provider dispatches must NOT duplicate on retry');
+            assert.equal(retryResult.sent, 2);
+
+            const jobReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: job.id });
+            assert.equal(jobReceipt.status, 'COMPLETED');
+        } finally {
+            whatsAppService.sendMessage = originalSendMessage;
+            MarketingDispatchReceipt.recordSuccess = originalRecordSuccess;
+        }
+    });
 });

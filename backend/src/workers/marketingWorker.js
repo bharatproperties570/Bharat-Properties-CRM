@@ -1645,6 +1645,12 @@ if (name === 'bna-broadcast') {
                 if (totalAccounted < data.leads.length) {
                     shouldMarkComplete = false;
                     console.warn(`[MarketingWorker] Batch campaign ${dispatchKey} processed ${totalAccounted}/${data.leads.length} recipients; keeping job resumable`);
+                    const incompleteErr = new Error(`BATCH_DISPATCH_INCOMPLETE: Processed ${totalAccounted} of ${data.leads.length} recipients for ${dispatchKey}`);
+                    incompleteErr.code = 'BATCH_DISPATCH_INCOMPLETE';
+                    incompleteErr.isRetryable = true;
+                    incompleteErr.totalAccounted = totalAccounted;
+                    incompleteErr.totalExpected = data.leads.length;
+                    throw incompleteErr;
                 }
             }
 
@@ -1657,14 +1663,30 @@ if (name === 'bna-broadcast') {
     } catch (err) {
         if (dispatchKey && receiptModel && err.code !== 'RECEIPT_COMPLETION_FAILED') {
             try {
-                await receiptModel.recordFailure(dispatchKey, {
-                    error: err.message,
-                    isAmbiguous: /timeout|econnreset|etimedout|ambiguous/i.test(err.message),
-                    reconciliationNotes: /timeout|econnreset|etimedout|ambiguous/i.test(err.message)
-                        ? 'Job execution failed with ambiguous network/timeout error; requires operator reconciliation'
-                        : '',
-                    claimToken: jobClaimResult?.claimToken
-                });
+                if (err.code === 'BATCH_DISPATCH_INCOMPLETE') {
+                    // Update interim progress so BullMQ retry or operator inspects state
+                    await receiptModel.updateOne(
+                        { dispatchKey, claimToken: jobClaimResult?.claimToken },
+                        {
+                            $set: {
+                                lastInterruptedAt: new Date(),
+                                'metadata.interruptedProgress': {
+                                    totalAccounted: err.totalAccounted,
+                                    totalExpected: err.totalExpected
+                                }
+                            }
+                        }
+                    );
+                } else {
+                    await receiptModel.recordFailure(dispatchKey, {
+                        error: err.message,
+                        isAmbiguous: /timeout|econnreset|etimedout|ambiguous/i.test(err.message),
+                        reconciliationNotes: /timeout|econnreset|etimedout|ambiguous/i.test(err.message)
+                            ? 'Job execution failed with ambiguous network/timeout error; requires operator reconciliation'
+                            : '',
+                        claimToken: jobClaimResult?.claimToken
+                    });
+                }
             } catch (failRecErr) {
                 if (failRecErr.code === 'RECEIPT_DB_UNAVAILABLE' || failRecErr.code === 'RECEIPT_FAILURE_RECORD_FAILED') {
                     throw failRecErr;

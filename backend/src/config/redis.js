@@ -571,32 +571,42 @@ export class Queue {
         if (internalConnection && internalConnection.isMock) {
             const worker = mockWorkers.get(this.name);
             if (worker && worker.processor) {
-                setTimeout(async () => {
-                    const mockJob = {
-                        id: jobId,
-                        name: name,
-                        data: data,
-                        progress: 0,
-                        opts: opts || {},
-                        log: async (msg) => {
-                            console.log(`[MockJob:${jobId}] ${msg}`);
-                        },
-                        updateProgress: async (prog) => {
-                            mockJob.progress = prog;
-                        }
-                    };
-                    try {
-                        console.log(`[MockQueue] Processing job ${jobId} on queue ${this.name}`);
-                        await worker.processor(mockJob);
-                        worker.emit('completed', mockJob);
-                    } catch (err) {
-                        console.error(`[MockQueue] Job ${jobId} failed:`, err);
-                        worker.emit('failed', mockJob, err);
+                const maxAttempts = opts?.attempts || 1;
+                const mockJob = {
+                    id: jobId,
+                    name: name,
+                    data: data,
+                    progress: 0,
+                    attemptsMade: 0,
+                    opts: opts || {},
+                    log: async (msg) => {
+                        console.log(`[MockJob:${jobId}] ${msg}`);
+                    },
+                    updateProgress: async (prog) => {
+                        mockJob.progress = prog;
                     }
-                }, 50);
+                };
+
+                const executeMockAttempt = async () => {
+                    try {
+                        console.log(`[MockQueue] Processing job ${jobId} (attempt ${mockJob.attemptsMade + 1}/${maxAttempts}) on queue ${this.name}`);
+                        const result = await worker.processor(mockJob);
+                        worker.emit('completed', mockJob, result);
+                    } catch (err) {
+                        mockJob.attemptsMade++;
+                        console.error(`[MockQueue] Job ${jobId} failed attempt ${mockJob.attemptsMade}/${maxAttempts}:`, err.message);
+                        worker.emit('failed', mockJob, err);
+                        if (mockJob.attemptsMade < maxAttempts) {
+                            const delayMs = opts?.backoff?.delay || 50;
+                            setTimeout(executeMockAttempt, delayMs);
+                        }
+                    }
+                };
+
+                setTimeout(executeMockAttempt, 50);
             }
         }
-        return { id: jobId };
+        return { id: jobId, name, data, opts };
     }
     on(event, cb) {
         return this;

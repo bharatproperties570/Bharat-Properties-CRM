@@ -422,7 +422,11 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
             });
 
             const initialSubmissions = form.analytics?.submissions || 0;
-            const refToken = jwt.sign({ leadId: existingLead._id.toString() }, process.env.JWT_SECRET);
+            const refToken = jwt.sign(
+                { leadId: existingLead._id.toString() },
+                process.env.JWT_SECRET,
+                { expiresIn: '1h' }
+            );
 
             const originalCreate = OutboxEvent.create;
             try {
@@ -489,7 +493,11 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
 
             const initialSubmissions = form.analytics?.submissions || 0;
 
-            const refToken = jwt.sign({ leadId: existingLead._id.toString() }, process.env.JWT_SECRET);
+            const refToken = jwt.sign(
+                { leadId: existingLead._id.toString() },
+                process.env.JWT_SECRET,
+                { expiresIn: '1h' }
+            );
             const req = createMockReq(
                 {
                     formData: { f1: 'CommittedName', f2: '9876543212', f3: 'Committed Notes' },

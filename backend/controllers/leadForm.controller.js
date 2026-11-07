@@ -119,9 +119,9 @@ export const submitForm = async (req, res) => {
 
         if (idempotencyKey) {
             const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
-            const existingSubmission = await DynamicFormSubmission.findOne({ idempotencyKey });
+            const existingSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
             if (existingSubmission) {
-                console.log(`[FORM SUBMIT] Duplicate submission replayed for idempotencyKey: ${idempotencyKey}`);
+                console.log(`[FORM SUBMIT] Duplicate submission replayed for form ${form.slug}, idempotencyKey: ${idempotencyKey}`);
                 return res.status(200).json({
                     success: true,
                     message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
@@ -162,6 +162,60 @@ export const submitForm = async (req, res) => {
                 return res.status(400).json({
                     success: false,
                     message: "Invalid, expired, or tampered reference token"
+                });
+            }
+
+            // Mandatory numeric 'exp' claim validation
+            if (typeof decoded.exp !== 'number' || isNaN(decoded.exp) || decoded.exp <= 0) {
+                console.warn("[SUBMIT] Reference token rejected: Missing mandatory numeric expiration (exp) claim");
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid reference token: Missing mandatory expiration claim"
+                });
+            }
+
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (decoded.exp <= nowSec) {
+                console.warn(`[SUBMIT] Reference token rejected: Token expired at ${decoded.exp} (now: ${nowSec})`);
+                return res.status(400).json({
+                    success: false,
+                    message: "Reference token has expired"
+                });
+            }
+
+            // Token purpose binding validation (consistent with issuance contract)
+            const ALLOWED_LEAD_FORM_PURPOSES = new Set([
+                'lead_reference',
+                'public_form',
+                'site_visit_scheduler',
+                'form_prefill',
+                'form_submission',
+                'wa_match_centre',
+                'client_portal'
+            ]);
+
+            if (decoded.purpose && !ALLOWED_LEAD_FORM_PURPOSES.has(decoded.purpose)) {
+                console.warn(`[SUBMIT] Reference token rejected: Unauthorized purpose '${decoded.purpose}'`);
+                return res.status(403).json({
+                    success: false,
+                    message: `Forbidden: Token purpose '${decoded.purpose}' is not authorized for lead form submission`
+                });
+            }
+
+            // Intended form / workflow binding validation
+            if (decoded.formSlug && String(decoded.formSlug) !== String(slug)) {
+                console.warn(`[SUBMIT] Reference token rejected: Token bound to formSlug '${decoded.formSlug}' but submitted to '${slug}'`);
+                return res.status(403).json({
+                    success: false,
+                    message: "Forbidden: Reference token is not authorized for this form"
+                });
+            }
+
+            if (decoded.formId && String(decoded.formId) !== String(form._id)) {
+                console.warn(`[SUBMIT] Reference token rejected: Token bound to formId '${decoded.formId}' but submitted to '${form._id}'`);
+                return res.status(403).json({
+                    success: false,
+                    message: "Forbidden: Reference token is not authorized for this form"
                 });
             }
 
@@ -239,69 +293,94 @@ export const submitForm = async (req, res) => {
         
         if (leadId) {
             // Update path: execute Lead mutation, site-visit activity (if applicable), Outbox persistence, and submission record inside ONE MongoDB transaction
-            await withMongoTransaction(async (session) => {
-                lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true, session });
-                if (!lead) {
-                    const notFoundErr = new Error(`Lead ${leadId} not found`);
-                    notFoundErr.status = 404;
-                    throw notFoundErr;
-                }
-
-                // If Site Visit category, create Activity inside the same transaction
-                if (form.category === 'site_visit') {
-                    const Activity = mongoose.model('Activity');
-                    const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
-                    const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
-                    
-                    let activityType = 'Site Visit';
-                    if (sourceMeta && sourceMeta.search) {
-                        const searchParams = new URLSearchParams(sourceMeta.search);
-                        if (searchParams.get('type')) activityType = searchParams.get('type');
+            try {
+                await withMongoTransaction(async (session) => {
+                    lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true, session });
+                    if (!lead) {
+                        const notFoundErr = new Error(`Lead ${leadId} not found`);
+                        notFoundErr.status = 404;
+                        throw notFoundErr;
                     }
-                    
-                    await Activity.create([{
-                        entityType: 'Lead',
-                        entityId: lead._id,
-                        type: activityType,
-                        status: 'Pending',
-                        subject: `🌐 ${activityType} Scheduled: ${form.name}`,
-                        description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
-                                        Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
-                        dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
-                        assignedTo: lead.owner || form.settings?.autoAssignTo
+
+                    // If Site Visit category, create Activity inside the same transaction
+                    if (form.category === 'site_visit') {
+                        const Activity = mongoose.model('Activity');
+                        const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
+                        const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
+                        
+                        let activityType = 'Site Visit';
+                        if (sourceMeta && sourceMeta.search) {
+                            const searchParams = new URLSearchParams(sourceMeta.search);
+                            if (searchParams.get('type')) activityType = searchParams.get('type');
+                        }
+                        
+                        await Activity.create([{
+                            entityType: 'Lead',
+                            entityId: lead._id,
+                            type: activityType,
+                            status: 'Pending',
+                            subject: `🌐 ${activityType} Scheduled: ${form.name}`,
+                            description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
+                                            Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
+                            dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
+                            assignedTo: lead.owner || form.settings?.autoAssignTo
+                        }], { session });
+                    }
+
+                    // 4. Trigger Engines -> Durable Background Outbox Event
+                    await OutboxEvent.create([{
+                        eventType: 'LeadEnrichmentRequested',
+                        aggregateType: 'Lead',
+                        aggregateId: lead._id,
+                        payload: { leadId: lead._id },
+                        tenantId: lead.tenantId,
+                        provenance: { source: 'PUBLIC_FORM', actorType: 'EXTERNAL' }
                     }], { session });
-                }
 
-                // 4. Trigger Engines -> Durable Background Outbox Event
-                await OutboxEvent.create([{
-                    eventType: 'LeadEnrichmentRequested',
-                    aggregateType: 'Lead',
-                    aggregateId: lead._id,
-                    payload: { leadId: lead._id },
-                    tenantId: lead.tenantId,
-                    provenance: { source: 'PUBLIC_FORM', actorType: 'EXTERNAL' }
-                }], { session });
-
-                // P1: Record submission idempotency inside the same transaction
-                if (idempotencyKey) {
+                    // P1: Record submission idempotency inside the same transaction
+                    if (idempotencyKey) {
+                        const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
+                        await DynamicFormSubmission.create([{
+                            formId: form._id,
+                            lead: lead._id,
+                            idempotencyKey,
+                            data: formData,
+                            metadata: {
+                                ip: req.ip,
+                                userAgent: req.headers?.['user-agent'],
+                                referrer: req.headers?.referrer || sourceMeta?.referrer,
+                                utm_source: sourceMeta?.utm_source,
+                                utm_medium: sourceMeta?.utm_medium,
+                                utm_campaign: sourceMeta?.utm_campaign
+                            },
+                            status: 'processed'
+                        }], { session });
+                    }
+                });
+            } catch (updateErr) {
+                if (idempotencyKey && (updateErr.code === 11000 || updateErr.message?.includes('duplicate key') || updateErr.message?.includes('E11000'))) {
+                    console.log(`[FORM SUBMIT] Concurrent duplicate update caught for key ${idempotencyKey}; recovering from committed record`);
                     const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
-                    await DynamicFormSubmission.create([{
-                        formId: form._id,
-                        lead: lead._id,
-                        idempotencyKey,
-                        data: formData,
-                        metadata: {
-                            ip: req.ip,
-                            userAgent: req.headers?.['user-agent'],
-                            referrer: req.headers?.referrer || sourceMeta?.referrer,
-                            utm_source: sourceMeta?.utm_source,
-                            utm_medium: sourceMeta?.utm_medium,
-                            utm_campaign: sourceMeta?.utm_campaign
-                        },
-                        status: 'processed'
-                    }], { session });
+                    let winningSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
+                    if (!winningSubmission) {
+                        for (let waitAttempt = 0; waitAttempt < 10; waitAttempt++) {
+                            await new Promise(r => setTimeout(r, 50));
+                            winningSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
+                            if (winningSubmission) break;
+                        }
+                    }
+                    if (winningSubmission) {
+                        return res.status(200).json({
+                            success: true,
+                            message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
+                            redirectUrl: form.settings?.redirectUrl,
+                            leadId: winningSubmission.lead || null,
+                            idempotentReplay: true
+                        });
+                    }
                 }
-            });
+                throw updateErr;
+            }
             console.log(`[FORM SUBMIT] Linked and updated existing lead: ${leadId}`);
 
             // Non-transactional post-commit distribution and fallback assignment
@@ -320,67 +399,98 @@ export const submitForm = async (req, res) => {
                 console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
             }
         } else {
-            // New lead creation path via protected LeadCreationEngine
+            // New lead creation path via protected LeadCreationEngine inside withMongoTransaction
             const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
-            const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });
-            lead = result.lead;
-            isNewLead = true;
-            
-            // Standard engine handles initial distribution, but fallback to static setting if missing
-            if (!result.assignment && form.settings?.autoAssignTo) {
-                lead = await Lead.findByIdAndUpdate(lead._id, {
-                    owner: form.settings.autoAssignTo,
-                    'assignment.assignedTo': form.settings.autoAssignTo,
-                    'assignment.method': 'Manual/Form-Static'
-                }, { new: true });
-                staticFallbackUsed = true;
-            }
+            const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
 
-            // SMART ACTIVITY INTEGRATION: If Site Visit category, create Activity
-            if (form.category === 'site_visit') {
-                const Activity = mongoose.model('Activity');
-                const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
-                const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
-                
-                let activityType = 'Site Visit';
-                if (sourceMeta && sourceMeta.search) {
-                    const searchParams = new URLSearchParams(sourceMeta.search);
-                    if (searchParams.get('type')) activityType = searchParams.get('type');
+            try {
+                await withMongoTransaction(async (session) => {
+                    const result = await createStandardizedLead(leadData, {
+                        triggerEvent: 'onWebCapture',
+                        session,
+                        source: 'PUBLIC_FORM',
+                        actorType: 'EXTERNAL'
+                    });
+                    lead = result.lead;
+                    isNewLead = true;
+                    
+                    // Standard engine handles initial distribution, but fallback to static setting if missing
+                    if (!result.assignment && form.settings?.autoAssignTo) {
+                        lead = await Lead.findByIdAndUpdate(lead._id, {
+                            owner: form.settings.autoAssignTo,
+                            'assignment.assignedTo': form.settings.autoAssignTo,
+                            'assignment.method': 'Manual/Form-Static'
+                        }, { session, new: true });
+                        staticFallbackUsed = true;
+                    }
+
+                    // SMART ACTIVITY INTEGRATION: If Site Visit category, create Activity inside the same transaction
+                    if (form.category === 'site_visit') {
+                        const Activity = mongoose.model('Activity');
+                        const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
+                        const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
+                        
+                        let activityType = 'Site Visit';
+                        if (sourceMeta && sourceMeta.search) {
+                            const searchParams = new URLSearchParams(sourceMeta.search);
+                            if (searchParams.get('type')) activityType = searchParams.get('type');
+                        }
+                        
+                        await Activity.create([{
+                            entityType: 'Lead',
+                            entityId: lead._id,
+                            type: activityType,
+                            status: 'Pending',
+                            subject: `🌐 ${activityType} Scheduled: ${form.name}`,
+                            description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
+                                            Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
+                            dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
+                            assignedTo: lead.owner || form.settings?.autoAssignTo
+                        }], { session });
+                    }
+
+                    // Record submission idempotency inside the same transaction
+                    if (idempotencyKey) {
+                        await DynamicFormSubmission.create([{
+                            formId: form._id,
+                            lead: lead._id,
+                            idempotencyKey,
+                            data: formData,
+                            metadata: {
+                                ip: req.ip,
+                                userAgent: req.headers?.['user-agent'],
+                                referrer: req.headers?.referrer || sourceMeta?.referrer,
+                                utm_source: sourceMeta?.utm_source,
+                                utm_medium: sourceMeta?.utm_medium,
+                                utm_campaign: sourceMeta?.utm_campaign
+                            },
+                            status: 'processed'
+                        }], { session });
+                    }
+                });
+            } catch (createErr) {
+                // Safe concurrent duplicate-key recovery
+                if (idempotencyKey && (createErr.code === 11000 || createErr.message?.includes('duplicate key') || createErr.message?.includes('E11000'))) {
+                    console.log(`[FORM SUBMIT] Concurrent duplicate submission caught for key ${idempotencyKey}; recovering from committed record`);
+                    let winningSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
+                    if (!winningSubmission) {
+                        for (let waitAttempt = 0; waitAttempt < 10; waitAttempt++) {
+                            await new Promise(r => setTimeout(r, 50));
+                            winningSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
+                            if (winningSubmission) break;
+                        }
+                    }
+                    if (winningSubmission) {
+                        return res.status(200).json({
+                            success: true,
+                            message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
+                            redirectUrl: form.settings?.redirectUrl,
+                            leadId: winningSubmission.lead || null,
+                            idempotentReplay: true
+                        });
+                    }
                 }
-                
-                await Activity.create({
-                    entityType: 'Lead',
-                    entityId: lead._id,
-                    type: activityType,
-                    status: 'Pending',
-                    subject: `🌐 ${activityType} Scheduled: ${form.name}`,
-                    description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
-                                    Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
-                    dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
-                    assignedTo: lead.owner || form.settings?.autoAssignTo
-                });
-            }
-
-            // Record submission idempotency for new lead creation
-            if (idempotencyKey) {
-                const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
-                await DynamicFormSubmission.create({
-                    formId: form._id,
-                    lead: lead._id,
-                    idempotencyKey,
-                    data: formData,
-                    metadata: {
-                        ip: req.ip,
-                        userAgent: req.headers?.['user-agent'],
-                        referrer: req.headers?.referrer || sourceMeta?.referrer,
-                        utm_source: sourceMeta?.utm_source,
-                        utm_medium: sourceMeta?.utm_medium,
-                        utm_campaign: sourceMeta?.utm_campaign
-                    },
-                    status: 'processed'
-                }).catch(err => {
-                    if (err.code !== 11000) console.warn('[FORM SUBMIT] DynamicFormSubmission write warning:', err.message);
-                });
+                throw createErr;
             }
         }
 

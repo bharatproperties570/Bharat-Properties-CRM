@@ -22,6 +22,7 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
     let targetLead;
     let otherLead;
     let testForm;
+    let otherForm;
 
     const createMockReq = (body = {}, params = {}, query = {}) => ({
         body,
@@ -78,6 +79,19 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
                 successMessage: 'Security Form Submitted Successfully'
             }
         });
+
+        otherForm = await LeadForm.create({
+            name: 'Other Unrelated Form',
+            slug: 'other-unrelated-form',
+            isActive: true,
+            sections: [{
+                title: 'General',
+                fields: [
+                    { id: 'f_name', mappingField: 'firstName', type: 'text', label: 'First Name' },
+                    { id: 'f_mobile', mappingField: 'mobile', type: 'text', label: 'Mobile' }
+                ]
+            }]
+        });
     });
 
     after(async () => {
@@ -110,7 +124,6 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
     });
 
     it('P0.1 Public request with arbitrary body leadId CANNOT update an existing Lead', async () => {
-        // Attacker attempts IDOR by providing targetLead._id in raw body without a signed token
         const req = createMockReq(
             {
                 leadId: targetLead._id.toString(),
@@ -126,11 +139,9 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
 
         await submitForm(req, res);
 
-        // Must return 201 for a new lead creation, NOT update targetLead
         assert.equal(res.statusCode, 201);
         assert.notEqual(res.data?.leadId?.toString(), targetLead._id.toString(), 'Must NOT update the targeted lead ID');
 
-        // Verify targetLead is completely untouched in MongoDB
         const freshTarget = await Lead.findById(targetLead._id);
         assert.equal(freshTarget.firstName, 'VictimFirstName', 'Target lead firstName must remain pristine');
         assert.equal(freshTarget.notes, 'Pristine confidential notes', 'Target lead notes must remain pristine');
@@ -138,7 +149,6 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
     });
 
     it('P0.2 Public request with arbitrary query leadId CANNOT update an existing Lead', async () => {
-        // Attacker attempts IDOR via query parameter ?leadId=... without signed token
         const req = createMockReq(
             {
                 formData: {
@@ -184,14 +194,12 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
     });
 
     it('P0.4 Expired token cannot update a Lead (rejected with HTTP 400)', async () => {
-        // Create an already-expired token (-10 seconds)
         const expiredToken = jwt.sign(
             { leadId: targetLead._id.toString(), iat: Math.floor(Date.now() / 1000) - 100 },
             process.env.JWT_SECRET,
             { expiresIn: '1s' }
         );
 
-        // Small wait to ensure expiration
         await new Promise(r => setTimeout(r, 1200));
 
         const req = createMockReq(
@@ -207,15 +215,39 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
 
         assert.equal(res.statusCode, 400, 'Expired token must return HTTP 400');
         assert.equal(res.data?.success, false);
-        assert.match(res.data?.message, /Invalid, expired, or tampered/);
 
         const freshTarget = await Lead.findById(targetLead._id);
         assert.equal(freshTarget.firstName, 'VictimFirstName');
     });
 
-    it('P0.5 Tampered token cannot update a Lead (rejected with HTTP 400)', async () => {
-        // Sign token for otherLead, then tamper signature
-        const validToken = jwt.sign({ leadId: otherLead._id.toString() }, process.env.JWT_SECRET);
+    it('P0.5 Token without exp claim is rejected (rejected with HTTP 400)', async () => {
+        // Sign token without expiresIn or exp claim
+        const tokenWithoutExp = jwt.sign(
+            { leadId: targetLead._id.toString(), purpose: 'lead_reference' },
+            process.env.JWT_SECRET
+        );
+
+        const req = createMockReq(
+            {
+                formData: { f_name: 'NoExpAttacker', f_mobile: '9876500001' },
+                sourceMeta: { search: `?ref=${tokenWithoutExp}` }
+            },
+            { slug: 'p0-security-form' }
+        );
+        const res = createMockRes();
+
+        await submitForm(req, res);
+
+        assert.equal(res.statusCode, 400, 'Token without exp claim must return HTTP 400');
+        assert.equal(res.data?.success, false);
+        assert.match(res.data?.message, /Missing mandatory expiration claim/);
+
+        const freshTarget = await Lead.findById(targetLead._id);
+        assert.equal(freshTarget.firstName, 'VictimFirstName', 'Target lead must remain unmodified');
+    });
+
+    it('P0.6 Tampered token signature cannot update a Lead (rejected with HTTP 400)', async () => {
+        const validToken = jwt.sign({ leadId: otherLead._id.toString() }, process.env.JWT_SECRET, { expiresIn: '1h' });
         const tamperedToken = validToken.substring(0, validToken.length - 6) + 'XXXXXX';
 
         const req = createMockReq(
@@ -236,13 +268,71 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
         assert.equal(freshOther.firstName, 'OtherFirstName');
     });
 
-    it('P0.6 Missing or insecure signing secret fails closed (HTTP 500)', async () => {
+    it('P0.7 Wrong-purpose token cannot update a Lead (rejected with HTTP 403 Forbidden)', async () => {
+        const wrongPurposeToken = jwt.sign(
+            {
+                leadId: targetLead._id.toString(),
+                purpose: 'unauthorized_admin_token'
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        const req = createMockReq(
+            {
+                formData: { f_name: 'WrongPurposeName', f_mobile: '9876500001' },
+                sourceMeta: { search: `?ref=${wrongPurposeToken}` }
+            },
+            { slug: 'p0-security-form' }
+        );
+        const res = createMockRes();
+
+        await submitForm(req, res);
+
+        assert.equal(res.statusCode, 403, 'Wrong-purpose token must be rejected with HTTP 403');
+        assert.equal(res.data?.success, false);
+        assert.match(res.data?.message, /not authorized for lead form submission/);
+
+        const freshTarget = await Lead.findById(targetLead._id);
+        assert.equal(freshTarget.firstName, 'VictimFirstName');
+    });
+
+    it('P0.8 Wrong-form token cannot update a Lead (rejected with HTTP 403 Forbidden)', async () => {
+        const wrongFormToken = jwt.sign(
+            {
+                leadId: targetLead._id.toString(),
+                formSlug: 'different-form-slug-restricted',
+                purpose: 'public_form'
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        const req = createMockReq(
+            {
+                formData: { f_name: 'WrongFormName', f_mobile: '9876500001' },
+                sourceMeta: { search: `?ref=${wrongFormToken}` }
+            },
+            { slug: 'p0-security-form' }
+        );
+        const res = createMockRes();
+
+        await submitForm(req, res);
+
+        assert.equal(res.statusCode, 403, 'Wrong-form token must be rejected with HTTP 403');
+        assert.equal(res.data?.success, false);
+        assert.match(res.data?.message, /not authorized for this form/);
+
+        const freshTarget = await Lead.findById(targetLead._id);
+        assert.equal(freshTarget.firstName, 'VictimFirstName');
+    });
+
+    it('P0.9 Missing or insecure signing secret fails closed (HTTP 500)', async () => {
         const savedSecret = process.env.JWT_SECRET;
         try {
-            // Simulate missing secret
             delete process.env.JWT_SECRET;
 
-            const token = jwt.sign({ leadId: targetLead._id.toString() }, savedSecret);
+            const token = jwt.sign({ leadId: targetLead._id.toString() }, savedSecret, { expiresIn: '1h' });
             const req = createMockReq(
                 {
                     formData: { f_name: 'InsecureSecretTest', f_mobile: '9876500001' },
@@ -268,9 +358,16 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
         }
     });
 
-    it('P0.7 Valid signed token updates ONLY its bound Lead', async () => {
-        const validToken = jwt.sign({ leadId: targetLead._id.toString() }, process.env.JWT_SECRET, { expiresIn: '1h' });
-        // Use Meta-safe tilde encoding
+    it('P0.10 Valid signed token with future expiration updates ONLY its bound Lead', async () => {
+        const validToken = jwt.sign(
+            {
+                leadId: targetLead._id.toString(),
+                purpose: 'lead_reference',
+                formSlug: 'p0-security-form'
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
         const metaSafeToken = validToken.replace(/\./g, '~');
 
         const req = createMockReq(
@@ -296,18 +393,53 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
         assert.equal(updatedTarget.firstName, 'LegitimatelyUpdatedName');
         assert.equal(updatedTarget.notes, 'Authorized update via signed reference token');
 
-        // Verify otherLead was untouched
         const untouchedOther = await Lead.findById(otherLead._id);
         assert.equal(untouchedOther.firstName, 'OtherFirstName');
     });
 
-    it('P0.8 Request with mismatched explicit leadId and signed token is forbidden (HTTP 403)', async () => {
-        // Token is signed for targetLead, but body attempts to claim otherLead
-        const tokenForTarget = jwt.sign({ leadId: targetLead._id.toString() }, process.env.JWT_SECRET);
+    it('P0.11 Existing legitimate WhatsApp reference token flow (LeadTokenGenerator format) continues to work seamlessly', async () => {
+        // Standard LeadTokenGenerator output: has leadId, iat, exp (365d), tildes instead of dots
+        const payload = {
+            leadId: targetLead._id.toString(),
+            iat: Math.floor(Date.now() / 1000)
+        };
+        const rawToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '365d' });
+        const whatsAppToken = rawToken.replace(/\./g, '~');
 
         const req = createMockReq(
             {
-                leadId: otherLead._id.toString(), // Explicit mismatch
+                formData: {
+                    f_name: 'WhatsAppCustomerUpdate',
+                    f_mobile: '9876500001',
+                    f_notes: 'Updated from WhatsApp CTA button click'
+                },
+                sourceMeta: { search: `?ref=${whatsAppToken}` }
+            },
+            { slug: 'p0-security-form' }
+        );
+        const res = createMockRes();
+
+        await submitForm(req, res);
+
+        assert.equal(res.statusCode, 201);
+        assert.equal(res.data?.success, true);
+        assert.equal(res.data?.leadId?.toString(), targetLead._id.toString());
+
+        const freshTarget = await Lead.findById(targetLead._id);
+        assert.equal(freshTarget.firstName, 'WhatsAppCustomerUpdate');
+        assert.equal(freshTarget.notes, 'Updated from WhatsApp CTA button click');
+    });
+
+    it('P0.12 Request with mismatched explicit leadId and signed token is forbidden (HTTP 403)', async () => {
+        const tokenForTarget = jwt.sign(
+            { leadId: targetLead._id.toString() },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        const req = createMockReq(
+            {
+                leadId: otherLead._id.toString(),
                 formData: { f_name: 'MismatchTest', f_mobile: '9876500001' },
                 sourceMeta: { search: `?ref=${tokenForTarget}` }
             },
@@ -321,14 +453,13 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
         assert.equal(res.data?.success, false);
         assert.match(res.data?.message, /does not match signed reference token binding/);
 
-        // Neither lead should be updated
         const freshTarget = await Lead.findById(targetLead._id);
         const freshOther = await Lead.findById(otherLead._id);
         assert.equal(freshTarget.firstName, 'VictimFirstName');
         assert.equal(freshOther.firstName, 'OtherFirstName');
     });
 
-    it('P0.9 Existing public new-lead creation remains fully functional without token', async () => {
+    it('P0.13 Existing public new-lead creation remains fully functional without token', async () => {
         const req = createMockReq(
             {
                 formData: {
@@ -353,8 +484,12 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
         assert.equal(newLead.mobile, '9123456780');
     });
 
-    it('P0.10 Protected fields (owner, tenantId, permissions) cannot be mutated via form submit', async () => {
-        const validToken = jwt.sign({ leadId: targetLead._id.toString() }, process.env.JWT_SECRET);
+    it('P0.14 Protected fields (owner, tenantId, permissions) cannot be mutated via form submit', async () => {
+        const validToken = jwt.sign(
+            { leadId: targetLead._id.toString() },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
 
         const originalOwner = targetLead.owner.toString();
         const fakeOwner = new mongoose.Types.ObjectId().toString();

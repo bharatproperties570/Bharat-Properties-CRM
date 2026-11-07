@@ -17,11 +17,10 @@ const DynamicFormSubmissionSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 DynamicFormSubmissionSchema.index(
-    { idempotencyKey: 1 },
+    { formId: 1, idempotencyKey: 1 },
     {
         unique: true,
-        sparse: true,
-        partialFilterExpression: { idempotencyKey: { $type: "string" } }
+        partialFilterExpression: { idempotencyKey: { $type: "string", $gt: "" } }
     }
 );
 
