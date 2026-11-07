@@ -133,6 +133,7 @@ async function startServer() {
             cronQueue.add('followUpReminders', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
             cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
             cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
+            cronQueue.add('recoverSiteVisitDispatches', {}, { repeat: { pattern: '* * * * *' } }).catch(() => {});
             googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
         } catch (queueErr) {}
 

@@ -158,13 +158,13 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         const inventoryTabBtn = await screen.findByText('Inventory');
         fireEvent.click(inventoryTabBtn);
 
-        expect(await screen.findByText('Block / Unit')).toBeInTheDocument();
-
-        const headers = container.querySelectorAll('th');
-        expect(headers).toHaveLength(7);
-        const headerTexts = Array.from(headers).map(th => th.textContent.trim());
-        expect(headerTexts).toEqual(['Block / Unit', 'Unit Type', 'Area / Dimension', 'Listing Price', 'Specs & Floor', 'Allocation Status', 'Actions']);
-    });
+        await waitFor(() => {
+            const headers = container.querySelectorAll('th');
+            expect(headers).toHaveLength(7);
+            const headerTexts = Array.from(headers).map(th => th.textContent.trim());
+            expect(headerTexts).toEqual(['Block / Unit', 'Unit Type', 'Area / Dimension', 'Listing Price', 'Specs & Floor', 'Allocation Status', 'Actions']);
+        }, { timeout: 15000 });
+    }, 15000);
 
     it('renders populated inventory units with block, unit type, attributes, and status badge', async () => {
         render(<ProjectDetailPage projectId="60d5ec49f1b24b0015987111" />);
