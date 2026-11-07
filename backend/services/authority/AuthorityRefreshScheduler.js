@@ -95,24 +95,24 @@ export class AuthorityRefreshScheduler {
             const tId = settings.tenantId;
             const authCode = settings.authorityCode;
 
-            // 1. NON-NEGOTIABLE CHECK: schedulingEnabled must be true
-            if (!settings.schedulingEnabled && !isSimulation) {
-                results.push({
-                    tenantId: tId,
-                    authorityCode: authCode,
-                    status: 'SKIPPED_SCHEDULING_DISABLED',
-                    reason: 'schedulingEnabled is false. Weekly scheduled refresh is disabled by default.'
-                });
-                continue;
-            }
-
-            // 2. NON-NEGOTIABLE CHECK: Source must be effectively active
+            // 1. NON-NEGOTIABLE CHECK: Source must not be paused
             if (settings.isPaused && !isSimulation) {
                 results.push({
                     tenantId: tId,
                     authorityCode: authCode,
                     status: 'SKIPPED_SOURCE_PAUSED',
                     reason: 'Source is temporarily paused by circuit breaker.'
+                });
+                continue;
+            }
+
+            // 2. NON-NEGOTIABLE CHECK: schedulingEnabled must be true
+            if (!settings.schedulingEnabled && !isSimulation) {
+                results.push({
+                    tenantId: tId,
+                    authorityCode: authCode,
+                    status: 'SKIPPED_SCHEDULING_DISABLED',
+                    reason: 'schedulingEnabled is false. Weekly scheduled refresh is disabled by default.'
                 });
                 continue;
             }

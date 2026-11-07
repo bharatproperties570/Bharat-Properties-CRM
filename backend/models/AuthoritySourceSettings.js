@@ -456,7 +456,7 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                         evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
                         approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
                         permittedFields: commonFields,
-                        approvalReference: `OWNER_ATTESTATION_${code}_20261106`,
+                        approvalReference: null,
                         authorizationScope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
                         commercialUseAuthorized: false,
                         readOnlySearchAuthorized: true,
@@ -579,9 +579,9 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
         String(approverId) !== String(reviewerId) &&
         String(submitterId) !== String(reviewerId)
     );
-    const reviewStatus = options.reviewStatus || (hasMakerChecker ? 'APPROVED' : 'UNDER_REVIEW');
-    const isEnabled = options.isEnabled !== undefined ? (hasMakerChecker ? options.isEnabled : false) : hasMakerChecker;
-    const schedulingEnabled = options.schedulingEnabled !== undefined ? (hasMakerChecker ? options.schedulingEnabled : false) : hasMakerChecker;
+    const reviewStatus = (options.reviewStatus === 'APPROVED' && hasMakerChecker) ? 'APPROVED' : (options.reviewStatus || 'UNDER_REVIEW');
+    const isEnabled = Boolean(options.isEnabled && reviewStatus === 'APPROVED');
+    const schedulingEnabled = Boolean(options.schedulingEnabled && reviewStatus === 'APPROVED');
 
     const ops = AUTHORITY_CODES.map(code => {
         const cfg = sourceConfigs[code];
@@ -595,14 +595,14 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
                         evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
                         approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
                         permittedFields: commonFields,
-                        approvalReference: `OWNER_ATTESTATION_${code}_20261106`,
+                        approvalReference: options.approvalReference || null,
                         authorizationScope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
-                        commercialUseAuthorized: Boolean(options.commercialUseAuthorized ?? (hasMakerChecker ? true : false)),
+                        commercialUseAuthorized: Boolean(options.commercialUseAuthorized || false),
                         readOnlySearchAuthorized: Boolean(options.readOnlySearchAuthorized ?? true),
-                        termsReviewed: Boolean(options.termsReviewed ?? (hasMakerChecker ? true : false)),
+                        termsReviewed: Boolean(options.termsReviewed || false),
                         termsReference: cfg.termsReference,
-                        contractVerificationStatus: options.contractVerificationStatus || (hasMakerChecker ? 'LIVE_VERIFIED' : 'NOT_VERIFIED'),
-                        contractEvidenceReference: options.contractEvidenceReference || (hasMakerChecker ? `LIVE_PORTAL_CONTRACT_${code}_20261106` : null),
+                        contractVerificationStatus: options.contractVerificationStatus || 'NOT_VERIFIED',
+                        contractEvidenceReference: options.contractEvidenceReference || null,
                         ownerAttestation: {
                             attestingParty: options.attestingParty || 'Bharat Properties Owner',
                             attestedAt: defaultAttestedAt,
@@ -625,12 +625,12 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
                         reviewStatus: reviewStatus,
                         submittedBy: submitterId,
                         submittedAt: submitterId ? (options.submittedAt || defaultAttestedAt) : null,
-                        approvedBy: hasMakerChecker ? approverId : null,
-                        approvedAt: hasMakerChecker ? (options.approvedAt || defaultAttestedAt) : null,
-                        reviewedBy: hasMakerChecker ? reviewerId : null,
-                        reviewedAt: hasMakerChecker ? (options.reviewedAt || defaultAttestedAt) : null,
-                        approvalDate: hasMakerChecker ? (options.approvalDate || defaultAttestedAt) : null,
-                        approvalExpiryDate: hasMakerChecker ? defaultExpiry : null,
+                        approvedBy: (reviewStatus === 'APPROVED') ? approverId : null,
+                        approvedAt: (reviewStatus === 'APPROVED') ? (options.approvedAt || defaultAttestedAt) : null,
+                        reviewedBy: (reviewStatus === 'APPROVED') ? reviewerId : null,
+                        reviewedAt: (reviewStatus === 'APPROVED') ? (options.reviewedAt || defaultAttestedAt) : null,
+                        approvalDate: (reviewStatus === 'APPROVED') ? (options.approvalDate || defaultAttestedAt) : null,
+                        approvalExpiryDate: (reviewStatus === 'APPROVED') ? defaultExpiry : null,
                         isEnabled: isEnabled,
                         isPaused: false,
                         schedulingEnabled: schedulingEnabled,

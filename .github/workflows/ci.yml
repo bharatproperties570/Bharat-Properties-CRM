@@ -170,6 +170,7 @@ jobs:
         run: |
           cd backend
           npm run test:phase4.5-authority
+          npm run test:phase4.5d-correction
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |
@@ -224,6 +225,7 @@ jobs:
           npm run test:authority-portal-redis
           npm run test:authority-portal-acceptance
           npm run test:phase4.5d-authority
+          npm run test:phase4.5d-correction
 
   build-frontend:
     name: Frontend Build Check

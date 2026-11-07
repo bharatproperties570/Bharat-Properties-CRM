@@ -86,8 +86,14 @@ export function evaluateAuthorityPortalApproval({
         if (approval.termsReviewed !== true || !String(approval.termsReference || '').trim()) {
             blockers.push(makeBlocker('TERMS_REVIEW_MISSING', 'Current portal terms/access conditions must be reviewed and referenced.'));
         }
+        if (approval.reviewStatus !== undefined && approval.reviewStatus !== 'APPROVED') {
+            blockers.push(makeBlocker('MAKER_CHECKER_REVIEW_PENDING', `Maker-checker review status is ${approval.reviewStatus}, must be APPROVED.`));
+        }
         if (!String(approval.approvedBy || '').trim() || !String(approval.reviewedBy || '').trim()) {
             blockers.push(makeBlocker('MAKER_CHECKER_REVIEW_MISSING', 'Approval requires named approver and independent reviewer.'));
+        }
+        if (String(approval.approvedBy || '').trim() && String(approval.approvedBy).trim() === String(approval.reviewedBy || '').trim()) {
+            blockers.push(makeBlocker('SELF_APPROVAL_PROHIBITED', 'Independent maker-checker review required: approver and reviewer cannot be the same user.'));
         }
         if (String(approval.submittedBy || '').trim()) {
             const submitter = String(approval.submittedBy).trim();
