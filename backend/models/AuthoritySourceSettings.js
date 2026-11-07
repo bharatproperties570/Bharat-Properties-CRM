@@ -334,7 +334,7 @@ AuthoritySourceSettingsSchema.pre('save', async function (next) {
     if (next && typeof next === 'function') next();
 });
 
-// Guard against updateOne / findOneAndUpdate bypass
+// Guard against updateOne / findOneAndUpdate circumvention
 AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate'], async function (next) {
     const update = this.getUpdate();
     if (!update) return next();
