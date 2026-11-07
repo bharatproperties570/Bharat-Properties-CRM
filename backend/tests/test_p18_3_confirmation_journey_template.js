@@ -111,9 +111,12 @@ async function runTests() {
     const origActFindByIdAndUpdate = Activity.findByIdAndUpdate;
     const origActFindOneAndUpdate = Activity.findOneAndUpdate;
     const origActFindOne = Activity.findOne;
+    const origLeadFind = Lead.find;
     const origLeadFindById = Lead.findById;
     const origLeadFindOne = Lead.findOne;
     const origSendTemplate = WhatsAppService.sendTemplate;
+
+    Lead.find = () => createChainableQuery([]);
 
     function bindActivityMocks(actDoc) {
         if (!actDoc.details) actDoc.details = {};
@@ -224,6 +227,7 @@ async function runTests() {
             const visitB = { _id: new mongoose.Types.ObjectId(), type: 'Site Visit', status: 'Scheduled', dueDate: new Date() };
 
             Activity.findOne = () => createChainableQuery(null);
+            Lead.find = () => createChainableQuery([{ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' }]);
             Lead.findOne = () => createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' });
             Activity.find = () => createChainableQuery([visitA, visitB]); // Multiple upcoming visits!
 
@@ -328,6 +332,58 @@ async function runTests() {
             assert.strictEqual(res.activity, null);
             assert.strictEqual(res.method, 'NO_ACTIVE_SITE_VISIT');
             assert.strictEqual(findOneCalled, false, 'LeadModel.findOne must NEVER be invoked when LeadModel.find returns empty array');
+        });
+
+        await recordAsync('1.8 Test mock compatibility remains functional for mocks omitting Lead.find', async () => {
+            const mockLead = { _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' };
+            const visit = {
+                _id: new mongoose.Types.ObjectId(),
+                entityId: mockLead._id,
+                type: 'Site Visit',
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 86400000),
+                details: { confirmationStatus: 'PENDING' }
+            };
+
+            Activity.findOne = () => createChainableQuery(null);
+            Activity.find = () => createChainableQuery([visit]);
+
+            // Explicit test mock object without a find method
+            const savedFind = Lead.find;
+            Lead.find = null;
+            Lead._isMock = true;
+            Lead.findOne = () => createChainableQuery(mockLead);
+
+            try {
+                const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
+                    mobile: '+919876543210'
+                });
+                assert.ok(resolved.activity, 'Test mock fallback should resolve visit');
+                assert.strictEqual(String(resolved.activity._id), String(visit._id));
+                assert.strictEqual(resolved.method, 'PHONE_LEAD_LOOKUP');
+            } finally {
+                Lead.find = savedFind;
+                delete Lead._isMock;
+            }
+        });
+
+        await recordAsync('1.9 Reschedule callback fails closed on LeadModel.find database error', async () => {
+            Activity.findOne = () => createChainableQuery(null);
+            Lead.find = () => {
+                const q = createChainableQuery(null);
+                q.then = (_resolve, reject) => reject(new Error('Simulated Lead query timeout / DB connection loss'));
+                return q;
+            };
+
+            const res = await SiteVisitConfirmationService.handleRescheduleCallback({
+                mobile: '+919876543210',
+                message: { id: 'wamid.resched.err', text: 'reschedule' },
+                text: 'reschedule'
+            });
+
+            assert.strictEqual(res.matched, false, 'Must not match on DB query error');
+            assert.strictEqual(res.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+            assert.ok(res.error, 'Must include error detail');
         });
 
         // =========================================================================
@@ -494,6 +550,7 @@ async function runTests() {
                 return actDoc;
             };
 
+            Lead.find = () => createChainableQuery([{ _id: fakeLeadId, mobile: '+919876543210' }]);
             Lead.findOne = () => createChainableQuery({ _id: fakeLeadId, mobile: '+919876543210' });
             Lead.findById = () => createChainableQuery({ _id: fakeLeadId, mobile: '+919876543210', name: 'Rohan' });
 
@@ -541,6 +598,7 @@ async function runTests() {
             let confirmedStateAtDispatchTime = null;
             bindActivityMocks(actDoc);
 
+            Lead.find = () => createChainableQuery([{ _id: fakeLeadId, mobile: '+919876543210' }]);
             Lead.findOne = () => createChainableQuery({ _id: fakeLeadId, mobile: '+919876543210' });
             Lead.findById = () => createChainableQuery({ _id: fakeLeadId, mobile: '+919876543210', name: 'Rohan' });
 
@@ -577,6 +635,7 @@ async function runTests() {
             };
 
             bindActivityMocks(actDoc);
+            Lead.find = () => createChainableQuery([{ _id: fakeLeadId, mobile: '+919876543210' }]);
             Lead.findOne = () => createChainableQuery({ _id: fakeLeadId, mobile: '+919876543210' });
             Lead.findById = () => createChainableQuery({ _id: fakeLeadId, mobile: '+919876543210', name: 'Rohan' });
 
@@ -632,6 +691,7 @@ async function runTests() {
 
             Activity.findOne = () => createChainableQuery(null);
             Activity.find = () => createChainableQuery([visit1, visit2]); // Multiple!
+            Lead.find = () => createChainableQuery([{ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' }]);
             Lead.findOne = () => createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' });
 
             const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
@@ -660,6 +720,7 @@ async function runTests() {
             };
 
             bindActivityMocks(cancelledAct);
+            Lead.find = () => createChainableQuery([{ _id: new mongoose.Types.ObjectId() }]);
             Lead.findOne = () => createChainableQuery({ _id: new mongoose.Types.ObjectId() });
 
             const res1 = await SiteVisitConfirmationService.handleConfirmationCallback({
@@ -801,6 +862,7 @@ async function runTests() {
         Activity.findByIdAndUpdate = origActFindByIdAndUpdate;
         Activity.findOneAndUpdate = origActFindOneAndUpdate;
         Activity.findOne = origActFindOne;
+        Lead.find = origLeadFind;
         Lead.findById = origLeadFindById;
         Lead.findOne = origLeadFindOne;
         WhatsAppService.sendTemplate = origSendTemplate;

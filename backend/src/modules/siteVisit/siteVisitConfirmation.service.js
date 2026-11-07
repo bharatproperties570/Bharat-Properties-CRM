@@ -195,10 +195,10 @@ export class SiteVisitConfirmationService {
 
             // 1. Retrieve all matching Lead records for these phone variants
             let matchingLeads = [];
-            const canQueryLeadFind = typeof LeadModel.find === 'function' &&
-                (mongoose.connection?.readyState === 1 || LeadModel.find !== mongoose.Model?.find);
 
-            if (canQueryLeadFind) {
+            // A genuine Mongoose model always provides `find`. We use LeadModel.find whenever available,
+            // never checking connection readiness to avoid misclassifying a disconnected production DB as a test mock.
+            if (typeof LeadModel.find === 'function') {
                 const leadQuery = { mobile: { $in: phoneVariants } };
                 if (tenantId) leadQuery.tenantId = tenantId;
                 try {
@@ -210,8 +210,8 @@ export class SiteVisitConfirmationService {
                     console.error(`[SiteVisitConfirmation] LeadModel.find database error for mobile ${mobile}: ${findErr.message}`);
                     return { activity: null, method: 'QUERY_ERROR', error: findErr.message };
                 }
-            } else if (typeof LeadModel.findOne === 'function') {
-                // Compatibility fallback ONLY where LeadModel.find is genuinely unavailable (e.g. minimal unit test mocks)
+            } else if (typeof LeadModel.findOne === 'function' && (LeadModel._isMock || LeadModel.isTestMock || !LeadModel.schema)) {
+                // Compatibility fallback strictly restricted to test mocks that define findOne but omit find
                 const leadQuery = { mobile: { $in: phoneVariants } };
                 if (tenantId) leadQuery.tenantId = tenantId;
                 try {
@@ -220,7 +220,7 @@ export class SiteVisitConfirmationService {
                         matchingLeads = [(singleLead && typeof singleLead.toObject === 'function') ? singleLead.toObject() : singleLead];
                     }
                 } catch (findOneErr) {
-                    console.error(`[SiteVisitConfirmation] LeadModel.findOne fallback database error for mobile ${mobile}: ${findOneErr.message}`);
+                    console.error(`[SiteVisitConfirmation] LeadModel.findOne mock query error for mobile ${mobile}: ${findOneErr.message}`);
                     return { activity: null, method: 'QUERY_ERROR', error: findOneErr.message };
                 }
             }

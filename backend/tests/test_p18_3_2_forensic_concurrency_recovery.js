@@ -1301,6 +1301,101 @@ async function main() {
             assert.strictEqual(freshVisit.details.customerConfirmed || false, false, 'Visit must remain unconfirmed');
         });
 
+        await runTest('6.11 Disconnected MongoDB state: Lead.find fails and returns QUERY_ERROR without ever calling findOne or selecting arbitrary Lead', async () => {
+            const mobile = '+919875550001';
+            const lead1 = await Lead.create({ firstName: 'DisconA', lastName: 'Customer', mobile, status: 'New' });
+            const lead2 = await Lead.create({ firstName: 'DisconB', lastName: 'Customer', mobile, status: 'New' });
+
+            await Activity.create({
+                type: 'Site Visit',
+                subject: 'Discon Visit',
+                entityType: 'Lead',
+                entityId: lead1._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: { confirmationStatus: 'PENDING' }
+            });
+
+            const originalFind = Lead.find;
+            const originalFindOne = Lead.findOne;
+            let findOneInvoked = false;
+
+            // Simulate disconnected Mongoose Model.find (e.g. Topology is closed / connection closed)
+            Lead.find = function () {
+                return {
+                    then: function (_resolve, reject) {
+                        return Promise.reject(new Error('MongooseError: Topology is closed, please connect')).then(_resolve, reject);
+                    }
+                };
+            };
+
+            Lead.findOne = function (...args) {
+                findOneInvoked = true;
+                return originalFindOne.apply(this, args);
+            };
+
+            const callsBefore = providerSendCalls.length;
+            let res;
+            try {
+                res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                    mobile,
+                    message: { text: 'Yes, Confirm' }
+                });
+            } finally {
+                Lead.find = originalFind;
+                Lead.findOne = originalFindOne;
+            }
+
+            assert.strictEqual(res.matched, false, 'Must not match when DB is disconnected');
+            assert.strictEqual(res.success, false, 'Must fail closed');
+            assert.strictEqual(res.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+            assert.strictEqual(findOneInvoked, false, 'Lead.findOne must NEVER be called in disconnected state');
+            assert.strictEqual(providerSendCalls.length, callsBefore, 'Provider must NEVER be dispatched in disconnected state');
+        });
+
+        await runTest('6.12 Reschedule callback in query error state fails closed with QUERY_ERROR and zero database updates', async () => {
+            const mobile = '+919875550002';
+            const lead = await Lead.create({ firstName: 'ReschedErr', lastName: 'Customer', mobile, status: 'New' });
+            const visit = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Resched Err Visit',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    waScheduleMessageId: 'wamid.schedule.reschederr',
+                    rescheduleRequested: false
+                }
+            });
+
+            const originalFind = Lead.find;
+            Lead.find = function () {
+                return {
+                    then: function (_resolve, reject) {
+                        return Promise.reject(new Error('MongoNetworkTimeoutException: connection closed')).then(_resolve, reject);
+                    }
+                };
+            };
+
+            let res;
+            try {
+                res = await SiteVisitConfirmationService.handleRescheduleCallback({
+                    mobile,
+                    message: { id: 'wamid.inbound.resched', text: 'reschedule' },
+                    text: 'reschedule'
+                });
+            } finally {
+                Lead.find = originalFind;
+            }
+
+            assert.strictEqual(res.matched, false, 'Must fail closed');
+            assert.strictEqual(res.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+
+            const freshVisit = await Activity.findById(visit._id);
+            assert.strictEqual(freshVisit.details.rescheduleRequested, false, 'Visit must not be updated on query error');
+        });
+
         console.log('\n============================================================');
         console.log(`Phase 18.3.2/18.3.3 Forensic Suite Results:`);
         console.log(`Passed: ${passedCount}, Failed: ${failedCount}`);
