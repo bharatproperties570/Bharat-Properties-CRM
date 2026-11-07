@@ -1997,4 +1997,93 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
         }
     });
+
+    await t.test('17. Strict Authoritative Redis Malformed Records & Bounded Readiness Integration (Finding 2 & 3)', async (t17) => {
+        if (!isRedisAvailable) {
+            t17.skip('Redis service container not available; skipping real Redis malformed records test.');
+            return;
+        }
+
+        const authorityCode = 'HSVP';
+        const redisKey = `quota:canonical:${authorityCode}`;
+
+        await redisClient.del(redisKey);
+        const provider = new RedisPortalQuotaProvider(redisClient, { allowInMemoryFallback: false, testMode: false });
+
+        // 17.1: Genuinely absent key in real Redis returns null
+        const absentPolicy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+        assert.equal(absentPolicy, null, 'Real Redis absent key must return null');
+
+        // 17.2: Real Redis hash with missing version throws MALFORMED_REDIS_POLICY
+        await redisClient.del(redisKey);
+        await redisClient.hset(redisKey, 'contentHash', 'real-hash-abc12345', 'ref', 'HSVP/RATE/01');
+        await assert.rejects(
+            async () => {
+                await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            },
+            (err) => {
+                assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                assert.match(err.message, /missing or invalid version/i);
+                return true;
+            }
+        );
+
+        // 17.3: Real Redis hash with missing contentHash throws MALFORMED_REDIS_POLICY
+        await redisClient.del(redisKey);
+        await redisClient.hset(redisKey, 'version', '5', 'ref', 'HSVP/RATE/01');
+        await assert.rejects(
+            async () => {
+                await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            },
+            (err) => {
+                assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                assert.match(err.message, /missing or invalid.*contentHash/i);
+                return true;
+            }
+        );
+
+        // 17.4: Real Redis hash with invalid non-numeric version throws MALFORMED_REDIS_POLICY
+        await redisClient.del(redisKey);
+        await redisClient.hset(redisKey, 'version', 'not-a-number', 'contentHash', 'real-hash-abc12345');
+        await assert.rejects(
+            async () => {
+                await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            },
+            (err) => {
+                assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                return true;
+            }
+        );
+
+        // 17.5: Valid Real Redis hash parses properly
+        await redisClient.del(redisKey);
+        await redisClient.hset(
+            redisKey,
+            'version', '4',
+            'contentHash', 'valid-sha256-hash-value',
+            'ref', 'HSVP/RATE/01',
+            'minIntervalMs', '15000',
+            'maxPerMin', '10',
+            'maxPerHour', '100',
+            'maxPerDay', '500',
+            'approvedBy', 'admin-user-id',
+            'updatedAt', '1700000000'
+        );
+        const validPolicy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+        assert.ok(validPolicy);
+        assert.equal(validPolicy.authorityCode, authorityCode);
+        assert.equal(validPolicy.version, 4);
+        assert.equal(validPolicy.contentHash, 'valid-sha256-hash-value');
+        assert.equal(validPolicy.maxRequestsPerMinute, 10);
+
+        // 17.6: Bounded isRedisReady check on healthy real Redis client for both QuotaProvider and DistributedLock
+        const isQuotaReady = await provider.isRedisReady(1000);
+        assert.equal(isQuotaReady, true, 'Healthy real Redis client must report isRedisReady=true for QuotaProvider');
+
+        const lock = new RedisPortalDistributedLock(redisClient, { allowInMemoryFallback: false, testMode: false });
+        const isLockReady = await lock.isRedisReady(1000);
+        assert.equal(isLockReady, true, 'Healthy real Redis client must report isRedisReady=true for DistributedLock');
+
+        await redisClient.del(redisKey);
+    });
 });

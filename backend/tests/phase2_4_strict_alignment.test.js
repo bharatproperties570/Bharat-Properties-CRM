@@ -70,7 +70,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const mmsModule = await import('mongodb-memory-server');
             MongoMemoryServer = mmsModule.MongoMemoryServer;
         } catch (err) {
-            console.error('⚠️  mongodb-memory-server unavailable', err);
+            console.error('[WARN] mongodb-memory-server unavailable', err);
             return;
         }
 

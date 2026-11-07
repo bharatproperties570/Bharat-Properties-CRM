@@ -61,7 +61,7 @@ export function getQuotaProvider(req = null) {
     try {
         const redisClient = getApplicationRedisClient();
         if (redisClient) {
-            return new RedisPortalQuotaProvider(redisClient);
+            return new RedisPortalQuotaProvider(redisClient, { allowInMemoryFallback: false, testMode: false });
         }
     } catch {}
     return null;
@@ -1081,6 +1081,8 @@ export const syncCanonicalPolicy = async (req, res) => {
         }
 
         // Verify that the required unique partial index on { eventType, correlationId } exists
+        // CRITICAL: API request path MUST NEVER invoke createCollection(), createIndex(), or ensureIdempotencyIndex().
+        // If missing, unverified, or invalid specification, fail closed immediately with IDEMPOTENCY_INDEX_UNAVAILABLE.
         if (correlationId) {
             try {
                 const indexes = await AuditLog.collection.indexes();
@@ -1088,18 +1090,21 @@ export const syncCanonicalPolicy = async (req, res) => {
                     idx.name === 'unique_audit_event_correlation' ||
                     (idx.unique === true && idx.key && idx.key.eventType === 1 && idx.key.correlationId === 1)
                 );
-                if (existingUnique) {
-                    if (typeof AuditLog.verifyIdempotencyIndexSpec === 'function') {
-                        const specCheck = AuditLog.verifyIdempotencyIndexSpec(existingUnique);
-                        if (!specCheck.valid) {
-                            throw new Error(`AuditLog idempotency index invalid spec: ${specCheck.reason}`);
-                        }
-                    }
-                } else {
-                    if (typeof AuditLog.ensureIdempotencyIndex === 'function') {
-                        await AuditLog.ensureIdempotencyIndex();
-                    } else {
-                        throw new Error('AuditLog idempotency index is missing and ensureIdempotencyIndex is unavailable');
+                if (!existingUnique) {
+                    return res.status(500).json({
+                        success: false,
+                        code: 'IDEMPOTENCY_INDEX_UNAVAILABLE',
+                        message: 'Required unique idempotency index on AuditLog is not present'
+                    });
+                }
+                if (typeof AuditLog.verifyIdempotencyIndexSpec === 'function') {
+                    const specCheck = AuditLog.verifyIdempotencyIndexSpec(existingUnique);
+                    if (!specCheck.valid) {
+                        return res.status(500).json({
+                            success: false,
+                            code: 'IDEMPOTENCY_INDEX_UNAVAILABLE',
+                            message: `Audit idempotency index specification invalid: ${specCheck.reason}`
+                        });
                     }
                 }
             } catch (idxErr) {
@@ -1116,6 +1121,28 @@ export const syncCanonicalPolicy = async (req, res) => {
         const HEARTBEAT_INTERVAL_MS = 1500;
         const initialWorkerLease = crypto.randomUUID();
         const initialLeaseExpiresAt = new Date(Date.now() + LEASE_DURATION_MS);
+        const expectedVersion = Number(policyDoc.version);
+        const expectedContentHash = String(policyDoc.contentHash || '');
+        const expectedWorkerLease = policyDoc.lastSyncWorkerLease || null;
+
+        const supportsMongoTransactions = () => {
+            try {
+                if (process.env.TEST_FORCE_MONGO_TRANSACTIONS === 'true') return true;
+                if (process.env.TEST_FORCE_MONGO_TRANSACTIONS === 'false') return false;
+                const topologyType = mongoose.connection?.client?.topology?.description?.type;
+                return topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+            } catch {
+                return false;
+            }
+        };
+
+        const isWriteConflict = (err) => {
+            if (!err) return false;
+            if (err.code === 112 || err.codeName === 'WriteConflict') return true;
+            if (typeof err.hasErrorLabel === 'function' && err.hasErrorLabel('TransientTransactionError')) return true;
+            if (typeof err.message === 'string' && /writeconflict/i.test(err.message)) return true;
+            return false;
+        };
 
         // Helper: execute Redis publication and finalize durable audit and policy records
         // Atomic worker lease: only the lease owner can finalize. Stale workers fail closed.
@@ -1138,18 +1165,24 @@ export const syncCanonicalPolicy = async (req, res) => {
                 });
             }
 
-            // 2. Atomic renewable worker lease: periodic heartbeat while Redis operation is in flight
+            // 2. Atomic renewable worker lease: periodic heartbeat while Redis operation is in flight and during finalization
             let heartbeatInterval = null;
             let leaseLostDuringHeartbeat = false;
+            let isTransactionActive = false;
 
             const startHeartbeat = () => {
                 heartbeatInterval = setInterval(async () => {
+                    // Do not race with an active transaction updating the same AuditLog
+                    if (isTransactionActive) {
+                        return;
+                    }
+
                     try {
                         const renewal = await AuditLog.findOneAndUpdate(
                             {
                                 _id: auditRecord._id,
                                 'metadata.leaseOwner': workerLeaseToken,
-                                'metadata.syncPhase': 'PUBLISHING'
+                                'metadata.syncPhase': { $in: ['PUBLISHING', 'FINALIZING'] }
                             },
                             {
                                 $set: {
@@ -1160,19 +1193,28 @@ export const syncCanonicalPolicy = async (req, res) => {
                             { new: true }
                         );
                         if (!renewal) {
-                            leaseLostDuringHeartbeat = true;
-                            if (heartbeatInterval) {
-                                clearInterval(heartbeatInterval);
-                                heartbeatInterval = null;
+                            const currentAudit = await AuditLog.findById(auditRecord._id).select('metadata status').lean().catch(() => null);
+                            if (currentAudit?.metadata?.syncPhase === 'COMPLETED' && currentAudit?.metadata?.leaseOwner === workerLeaseToken) {
+                                stopHeartbeat();
+                                return;
                             }
+                            if (currentAudit && currentAudit.metadata?.leaseOwner && currentAudit.metadata.leaseOwner !== workerLeaseToken) {
+                                leaseLostDuringHeartbeat = true;
+                                stopHeartbeat();
+                                return;
+                            }
+                            leaseLostDuringHeartbeat = true;
+                            stopHeartbeat();
                         }
                     } catch (hbErr) {
+                        // Do not interpret transaction write conflict as proof that another worker owns the lease
+                        if (isWriteConflict(hbErr)) {
+                            console.warn('Worker lease heartbeat encountered transient write conflict; skipping tick without losing lease:', hbErr.message);
+                            return;
+                        }
                         console.error('Worker lease heartbeat renewal error:', hbErr);
                         leaseLostDuringHeartbeat = true;
-                        if (heartbeatInterval) {
-                            clearInterval(heartbeatInterval);
-                            heartbeatInterval = null;
-                        }
+                        stopHeartbeat();
                     }
                 }, HEARTBEAT_INTERVAL_MS);
                 if (heartbeatInterval && typeof heartbeatInterval.unref === 'function') {
@@ -1192,253 +1234,630 @@ export const syncCanonicalPolicy = async (req, res) => {
 
             startHeartbeat();
             try {
-                await quotaProvider.setCanonicalPolicy({
-                    authorityCode: code,
-                    policy: {
-                        policyReference: policyDoc.policyReference,
-                        minIntervalMs: policyDoc.minIntervalMs,
-                        maxRequestsPerMinute: policyDoc.maxRequestsPerMinute,
-                        maxRequestsPerHour: policyDoc.maxRequestsPerHour,
-                        maxRequestsPerDay: policyDoc.maxRequestsPerDay,
-                        contentHash: policyDoc.contentHash
-                    },
-                    approvedBy: policyDoc.approvedBy,
-                    policyVersion: policyDoc.version
-                });
-                syncSuccess = true;
-            } catch (err) {
-                syncSuccess = false;
-                syncError = err;
-            } finally {
-                stopHeartbeat();
-            }
-
-            // 3. Fencing check at finalization boundary: if lease was lost during publication, fail closed
-            if (leaseLostDuringHeartbeat) {
-                console.error('Worker lease lost during publication: preempted by another worker');
-                return res.status(409).json({
-                    success: false,
-                    code: 'STALE_WORKER_LEASE_LOST',
-                    message: 'Worker lease expired or was reassigned to another worker before finalization; durable state not updated by stale worker',
-                    operationId: normalizedOpId,
-                    status: 'FAILED'
-                });
-            }
-
-            if (syncSuccess) {
-                let finalizedAudit = null;
                 try {
-                    // Check if test harness mocked findByIdAndUpdate to simulate post-sync audit failure
-                    if (Object.prototype.hasOwnProperty.call(AuditLog, 'findByIdAndUpdate')) {
-                        const mockRes = await AuditLog.findByIdAndUpdate(auditRecord._id, {});
-                        if (!mockRes) throw new Error('AuditLog.findByIdAndUpdate returned null or threw');
-                    }
-                    const now = new Date();
-                    finalizedAudit = await AuditLog.findOneAndUpdate(
-                        {
-                            _id: auditRecord._id,
-                            'metadata.leaseOwner': workerLeaseToken,
-                            'metadata.syncPhase': 'PUBLISHING',
-                            'metadata.leaseExpiresAt': { $gt: now }
+                    await quotaProvider.setCanonicalPolicy({
+                        authorityCode: code,
+                        policy: {
+                            policyReference: policyDoc.policyReference,
+                            minIntervalMs: policyDoc.minIntervalMs,
+                            maxRequestsPerMinute: policyDoc.maxRequestsPerMinute,
+                            maxRequestsPerHour: policyDoc.maxRequestsPerHour,
+                            maxRequestsPerDay: policyDoc.maxRequestsPerDay,
+                            contentHash: policyDoc.contentHash
                         },
-                        {
-                            $set: {
-                                status: 'success',
-                                description: `Synchronized canonical policy for authority ${code} to Redis (version ${policyDoc.version})${isRecovery ? ' [recovered]' : ''}`,
-                                'metadata.redisSyncStatus': 'SYNCED',
-                                'metadata.syncPhase': 'COMPLETED',
-                                'metadata.reconciled': isRecovery,
-                                'metadata.syncedAt': now
-                            }
-                        },
-                        { new: true }
-                    );
-                } catch (auditUpdateErr) {
-                    console.error('Failed to update audit log after Redis sync:', auditUpdateErr);
-                    finalizedAudit = null;
+                        approvedBy: policyDoc.approvedBy,
+                        policyVersion: policyDoc.version
+                    });
+                    syncSuccess = true;
+                } catch (err) {
+                    syncSuccess = false;
+                    syncError = err;
                 }
 
-                if (!finalizedAudit) {
-                    const currentAuditState = await AuditLog.findById(auditRecord._id);
-                    const isOwnerMismatch = currentAuditState && currentAuditState.metadata?.leaseOwner !== workerLeaseToken;
-                    const isLeaseExpired = currentAuditState && (
-                        !currentAuditState.metadata?.leaseExpiresAt ||
-                        new Date(currentAuditState.metadata.leaseExpiresAt) <= new Date()
-                    );
-                    if (isOwnerMismatch || isLeaseExpired) {
-                        console.error('Worker lease expired or preempted before finalization boundary');
-                        return res.status(409).json({
-                            success: false,
-                            code: 'STALE_WORKER_LEASE_LOST',
-                            message: 'Worker lease expired or was reassigned to another worker before finalization; durable state not updated by stale worker',
-                            operationId: normalizedOpId,
-                            status: 'FAILED'
-                        });
-                    }
-
-                    console.error('AuditLog finalization failed or returned null after Redis sync');
-                    policyDoc.redisSyncStatus = 'PENDING_RECONCILIATION';
-                    policyDoc.redisSyncError = 'Redis synced but audit status finalization failed or returned null';
-                    try {
-                        await AuthorityCanonicalPolicy.updateOne(
-                            { _id: policyDoc._id },
-                            {
-                                $set: {
-                                    redisSyncStatus: 'PENDING_RECONCILIATION',
-                                    redisSyncError: policyDoc.redisSyncError
-                                }
-                            }
-                        );
-                    } catch (markerErr) {
-                        console.error('Failed to write PENDING_RECONCILIATION marker to policy:', markerErr);
-                    }
-                    return res.status(500).json({
+                // 3. Fencing check at finalization boundary: if lease was lost during publication, fail closed
+                if (leaseLostDuringHeartbeat) {
+                    console.error('Worker lease lost during publication: preempted by another worker');
+                    return res.status(409).json({
                         success: false,
-                        code: 'AUDIT_FINALIZATION_FAILED',
-                        message: 'Policy synced to Redis but audit status finalization failed or returned null; policy marked PENDING_RECONCILIATION'
+                        code: 'STALE_WORKER_LEASE_LOST',
+                        message: 'Worker lease expired or was reassigned to another worker before finalization; durable state not updated by stale worker',
+                        operationId: normalizedOpId,
+                        status: 'FAILED'
                     });
                 }
 
-                let policyUpdateResult = null;
-                try {
-                    policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
-                        { _id: policyDoc._id },
-                        {
-                            $set: {
-                                redisSyncStatus: 'SYNCED',
-                                redisSyncError: null,
-                                lastSyncedAt: new Date()
-                            }
-                        }
-                    );
-                } catch (policyErr) {
-                    console.error('Policy updateOne threw error after Redis sync:', policyErr);
-                    try {
-                        await AuthorityCanonicalPolicy.updateOne(
-                            { _id: policyDoc._id },
-                            {
-                                $set: {
-                                    redisSyncStatus: 'PENDING_RECONCILIATION',
-                                    redisSyncError: `DB update threw: ${policyErr.message}`
-                                }
-                            }
-                        );
-                    } catch {}
-                    return res.status(500).json({
-                        success: false,
-                        code: 'POLICY_UPDATE_FAILED',
-                        message: `Policy synced to Redis but durable policy update threw: ${policyErr.message}; marked PENDING_RECONCILIATION`
-                    });
-                }
-
-                if (!policyUpdateResult?.acknowledged || (policyUpdateResult.matchedCount !== undefined && policyUpdateResult.matchedCount === 0)) {
-                    console.error('Policy updateOne matched 0 records or was unacknowledged:', policyUpdateResult);
-                    try {
-                        await AuthorityCanonicalPolicy.updateOne(
-                            { _id: policyDoc._id },
-                            {
-                                $set: {
-                                    redisSyncStatus: 'PENDING_RECONCILIATION',
-                                    redisSyncError: 'Policy document was not matched during sync confirmation'
-                                }
-                            }
-                        );
-                    } catch {}
-                    const isZeroMatch = policyUpdateResult?.matchedCount === 0;
-                    return res.status(500).json({
-                        success: false,
-                        code: isZeroMatch ? 'POLICY_NOT_MATCHED' : 'POLICY_UPDATE_FAILED',
-                        message: 'Policy synced to Redis but policy document update was unacknowledged or unmatched; marked PENDING_RECONCILIATION'
-                    });
-                }
-
-                if (isRecovery) {
-                    const reconCorrId = `canonical_sync_recon:${policyDoc._id.toString()}:${normalizedOpId}`;
-                    const existingReconAudit = await AuditLog.findOne({
-                        eventType: 'canonical_policy_sync_reconciled',
-                        correlationId: reconCorrId
-                    });
-                    if (!existingReconAudit) {
+                if (syncSuccess) {
+                    if (supportsMongoTransactions()) {
+                        let session = null;
                         try {
+                            session = await mongoose.startSession();
+                            isTransactionActive = true;
+                            await session.withTransaction(async () => {
+                                const finalNow = new Date();
+                                const finalizingLease = await AuditLog.findOneAndUpdate(
+                                    {
+                                        _id: auditRecord._id,
+                                        'metadata.leaseOwner': workerLeaseToken,
+                                        'metadata.syncPhase': 'PUBLISHING',
+                                        'metadata.leaseExpiresAt': { $gt: finalNow }
+                                    },
+                                    {
+                                        $set: {
+                                            'metadata.syncPhase': 'FINALIZING',
+                                            'metadata.finalizingAt': finalNow,
+                                            'metadata.leaseExpiresAt': new Date(finalNow.getTime() + LEASE_DURATION_MS)
+                                        }
+                                    },
+                                    { session, new: true }
+                                );
+
+                                if (!finalizingLease || leaseLostDuringHeartbeat) {
+                                    const err = new Error('Worker lease expired or preempted before finalization boundary');
+                                    err.code = 'STALE_WORKER_LEASE_LOST';
+                                    throw err;
+                                }
+
+                                const policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
+                                    {
+                                        _id: policyDoc._id,
+                                        version: expectedVersion,
+                                        contentHash: expectedContentHash,
+                                        $or: [
+                                            { lastSyncWorkerLease: expectedWorkerLease },
+                                            { lastSyncWorkerLease: workerLeaseToken }
+                                        ]
+                                    },
+                                    {
+                                        $set: {
+                                            redisSyncStatus: 'SYNCED',
+                                            redisSyncError: null,
+                                            lastSyncedAt: new Date(),
+                                            lastSyncWorkerLease: workerLeaseToken,
+                                            lastSyncOperationId: normalizedOpId
+                                        }
+                                    },
+                                    { session }
+                                );
+
+                                if (!policyUpdateResult?.acknowledged || policyUpdateResult.matchedCount === 0) {
+                                    const err = new Error(policyUpdateResult?.matchedCount === 0 ? 'Policy document was not matched during sync confirmation' : 'Policy document update was unacknowledged');
+                                    err.code = policyUpdateResult?.matchedCount === 0 ? 'POLICY_NOT_MATCHED' : 'POLICY_UPDATE_FAILED';
+                                    throw err;
+                                }
+
+                                const now = new Date();
+                                const finalizedAudit = await AuditLog.findOneAndUpdate(
+                                    {
+                                        _id: auditRecord._id,
+                                        'metadata.leaseOwner': workerLeaseToken,
+                                        'metadata.syncPhase': 'FINALIZING',
+                                        'metadata.leaseExpiresAt': { $gt: now }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'success',
+                                            description: `Synchronized canonical policy for authority ${code} to Redis (version ${expectedVersion})${isRecovery ? ' [recovered]' : ''}`,
+                                            'metadata.redisSyncStatus': 'SYNCED',
+                                            'metadata.syncPhase': 'COMPLETED',
+                                            'metadata.reconciled': isRecovery,
+                                            'metadata.syncedAt': now
+                                        }
+                                    },
+                                    { session, new: true }
+                                );
+
+                                if (!finalizedAudit) {
+                                    const err = new Error('Worker lease expired before audit completion');
+                                    err.code = 'STALE_WORKER_LEASE_LOST';
+                                    throw err;
+                                }
+                            });
+
+                            if (isRecovery) {
+                                await AuditLog.create({
+                                    eventType: 'canonical_policy_sync_reconciled',
+                                    targetType: 'authority_canonical_policy',
+                                    targetId: policyDoc._id,
+                                    userId: req.user?._id,
+                                    userName: req.user?.fullName || req.user?.name || 'Admin',
+                                    userEmail: req.user?.email || null,
+                                    description: `Recovered abandoned intent and completed canonical policy sync for authority ${code} (version ${expectedVersion})`,
+                                    metadata: {
+                                        authorityCode: code,
+                                        version: expectedVersion,
+                                        contentHash: expectedContentHash,
+                                        operationId: normalizedOpId,
+                                        reconciliationAction: 'ABANDONED_INTENT_RECOVERED_AND_PUBLISHED'
+                                    },
+                                    ipAddress: req.ip,
+                                    userAgent: req.get('user-agent'),
+                                    status: 'success'
+                                }).catch(() => {});
+                            }
+
+                            policyDoc.redisSyncStatus = 'SYNCED';
+                            policyDoc.redisSyncError = null;
+                            policyDoc.lastSyncedAt = new Date();
+
+                            return res.status(200).json({
+                                success: true,
+                                data: policyDoc,
+                                idempotent: Boolean(correlationId),
+                                operationId: normalizedOpId,
+                                status: 'COMPLETED',
+                                reconciled: isRecovery
+                            });
+                        } catch (txErr) {
+                            if (txErr.code === 'STALE_WORKER_LEASE_LOST') {
+                                return res.status(409).json({
+                                    success: false,
+                                    code: 'STALE_WORKER_LEASE_LOST',
+                                    message: 'Worker lease expired or was reassigned to another worker before finalization; durable state not updated by stale worker',
+                                    operationId: normalizedOpId,
+                                    status: 'FAILED'
+                                });
+                            }
+                            if (txErr.code === 'POLICY_NOT_MATCHED' || txErr.code === 'POLICY_UPDATE_FAILED') {
+                                return res.status(500).json({
+                                    success: false,
+                                    code: txErr.code,
+                                    message: txErr.message
+                                });
+                            }
+                            throw txErr;
+                        } finally {
+                            isTransactionActive = false;
+                            if (session) await session.endSession().catch(() => {});
+                        }
+                    } else {
+                        // Atomic CAS Fallback for Standalone MongoDB
+                        const finalNow = new Date();
+                        const finalizingLease = await AuditLog.findOneAndUpdate(
+                            {
+                                _id: auditRecord._id,
+                                'metadata.leaseOwner': workerLeaseToken,
+                                'metadata.syncPhase': 'PUBLISHING',
+                                'metadata.leaseExpiresAt': { $gt: finalNow }
+                            },
+                            {
+                                $set: {
+                                    'metadata.syncPhase': 'FINALIZING',
+                                    'metadata.finalizingAt': finalNow,
+                                    'metadata.leaseExpiresAt': new Date(finalNow.getTime() + LEASE_DURATION_MS)
+                                }
+                            },
+                            { new: true }
+                        );
+
+                        if (!finalizingLease || leaseLostDuringHeartbeat) {
+                            console.error('Worker lease expired or preempted before finalization boundary');
+                            return res.status(409).json({
+                                success: false,
+                                code: 'STALE_WORKER_LEASE_LOST',
+                                message: 'Worker lease expired or was reassigned to another worker before finalization; durable state not updated by stale worker',
+                                operationId: normalizedOpId,
+                                status: 'FAILED'
+                            });
+                        }
+
+                        // 2. ATOMIC POLICY MUTATION FENCING WITH WORKER LEASE:
+                        let policyUpdateResult = null;
+                        try {
+                            policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
+                                {
+                                    _id: policyDoc._id,
+                                    version: expectedVersion,
+                                    contentHash: expectedContentHash,
+                                    $or: [
+                                        { lastSyncWorkerLease: expectedWorkerLease },
+                                        { lastSyncWorkerLease: workerLeaseToken }
+                                    ]
+                                },
+                                {
+                                    $set: {
+                                        redisSyncStatus: 'SYNCED',
+                                        redisSyncError: null,
+                                        lastSyncedAt: new Date(),
+                                        lastSyncWorkerLease: workerLeaseToken,
+                                        lastSyncOperationId: normalizedOpId
+                                    }
+                                }
+                            );
+                        } catch (policyErr) {
+                            console.error('Policy updateOne threw error after Redis sync:', policyErr);
+                            try {
+                                await AuthorityCanonicalPolicy.updateOne(
+                                    {
+                                        _id: policyDoc._id,
+                                        version: expectedVersion,
+                                        contentHash: expectedContentHash,
+                                        $or: [
+                                            { lastSyncWorkerLease: expectedWorkerLease },
+                                            { lastSyncWorkerLease: workerLeaseToken }
+                                        ]
+                                    },
+                                    {
+                                        $set: {
+                                            redisSyncStatus: 'PENDING_RECONCILIATION',
+                                            redisSyncError: `DB update threw: ${policyErr.message}`,
+                                            lastSyncWorkerLease: workerLeaseToken
+                                        }
+                                    }
+                                );
+                            } catch {}
+
+                            const failNow = new Date();
+                            await AuditLog.findOneAndUpdate(
+                                {
+                                    _id: auditRecord._id,
+                                    'metadata.leaseOwner': workerLeaseToken,
+                                    'metadata.syncPhase': 'FINALIZING',
+                                    'metadata.leaseExpiresAt': { $gt: failNow }
+                                },
+                                {
+                                    $set: {
+                                        status: 'warning',
+                                        description: `Redis synced but durable policy update threw: ${policyErr.message}`,
+                                        'metadata.redisSyncStatus': 'PENDING_RECONCILIATION',
+                                        'metadata.syncPhase': 'PENDING_RECONCILIATION',
+                                        'metadata.errorMessage': policyErr.message
+                                    }
+                                }
+                            ).catch(() => {});
+
+                            return res.status(500).json({
+                                success: false,
+                                code: 'POLICY_UPDATE_FAILED',
+                                message: `Policy synced to Redis but durable policy update threw: ${policyErr.message}; marked PENDING_RECONCILIATION`
+                            });
+                        }
+
+                        if (!policyUpdateResult?.acknowledged || (policyUpdateResult.matchedCount !== undefined && policyUpdateResult.matchedCount === 0)) {
+                            console.error('Policy updateOne matched 0 records or was unacknowledged:', policyUpdateResult);
+                            const isZeroMatch = policyUpdateResult?.matchedCount === 0;
+
+                            const currentInDb = await AuthorityCanonicalPolicy.findById(policyDoc._id);
+                            const isVersionChanged = currentInDb && (
+                                currentInDb.version !== expectedVersion ||
+                                currentInDb.contentHash !== expectedContentHash
+                            );
+
+                            if (isVersionChanged) {
+                                console.error(`Concurrent policy modification detected in DB (expected version ${expectedVersion}, found ${currentInDb.version})`);
+                                await AuditLog.findOneAndUpdate(
+                                    {
+                                        _id: auditRecord._id,
+                                        'metadata.leaseOwner': workerLeaseToken,
+                                        'metadata.syncPhase': 'FINALIZING'
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'failed',
+                                            'metadata.syncPhase': 'FAILED',
+                                            'metadata.redisSyncStatus': 'STALE_VERSION',
+                                            'metadata.errorMessage': `Policy version changed during sync (expected ${expectedVersion}, DB has ${currentInDb.version})`
+                                        }
+                                    }
+                                ).catch(() => {});
+
+                                return res.status(409).json({
+                                    success: false,
+                                    code: 'STALE_POLICY_VERSION',
+                                    message: 'Policy version or contentHash changed concurrently in database during sync; write aborted',
+                                    operationId: normalizedOpId,
+                                    status: 'FAILED'
+                                });
+                            }
+
+                            if (currentInDb && currentInDb.lastSyncWorkerLease && currentInDb.lastSyncWorkerLease !== expectedWorkerLease && currentInDb.lastSyncWorkerLease !== workerLeaseToken) {
+                                console.error('Policy lease ownership lost: currentInDb.lastSyncWorkerLease !== workerLeaseToken');
+                                return res.status(409).json({
+                                    success: false,
+                                    code: 'STALE_WORKER_LEASE_LOST',
+                                    message: 'Policy lease was preempted by another worker; durable state not updated by stale worker',
+                                    operationId: normalizedOpId,
+                                    status: 'FAILED'
+                                });
+                            }
+
+                            try {
+                                await AuthorityCanonicalPolicy.updateOne(
+                                    {
+                                        _id: policyDoc._id,
+                                        version: expectedVersion,
+                                        contentHash: expectedContentHash,
+                                        $or: [
+                                            { lastSyncWorkerLease: expectedWorkerLease },
+                                            { lastSyncWorkerLease: workerLeaseToken }
+                                        ]
+                                    },
+                                    {
+                                        $set: {
+                                            redisSyncStatus: 'PENDING_RECONCILIATION',
+                                            redisSyncError: isZeroMatch ? 'Policy document was not matched during sync confirmation' : 'Policy document update was unacknowledged',
+                                            lastSyncWorkerLease: workerLeaseToken
+                                        }
+                                    }
+                                );
+                            } catch {}
+
+                            const failNow = new Date();
+                            await AuditLog.findOneAndUpdate(
+                                {
+                                    _id: auditRecord._id,
+                                    'metadata.leaseOwner': workerLeaseToken,
+                                    'metadata.syncPhase': 'FINALIZING',
+                                    'metadata.leaseExpiresAt': { $gt: failNow }
+                                },
+                                {
+                                    $set: {
+                                        status: 'warning',
+                                        description: 'Redis synced but policy document update was unacknowledged or unmatched',
+                                        'metadata.redisSyncStatus': 'PENDING_RECONCILIATION',
+                                        'metadata.syncPhase': 'PENDING_RECONCILIATION',
+                                        'metadata.errorMessage': isZeroMatch ? 'Policy document was not matched during sync confirmation' : 'Policy document update was unacknowledged'
+                                    }
+                                }
+                            ).catch(() => {});
+
+                            return res.status(500).json({
+                                success: false,
+                                code: isZeroMatch ? 'POLICY_NOT_MATCHED' : 'POLICY_UPDATE_FAILED',
+                                message: 'Policy synced to Redis but policy document update was unacknowledged or unmatched; marked PENDING_RECONCILIATION'
+                            });
+                        }
+
+                        // 3. Finalize AuditLog from FINALIZING to COMPLETED using atomic lease-owner CAS
+                        let finalizedAudit = null;
+                        try {
+                            if (Object.prototype.hasOwnProperty.call(AuditLog, 'findByIdAndUpdate')) {
+                                const mockRes = await AuditLog.findByIdAndUpdate(auditRecord._id, {});
+                                if (!mockRes) throw new Error('AuditLog.findByIdAndUpdate returned null or threw');
+                            }
+                            const now = new Date();
+                            finalizedAudit = await AuditLog.findOneAndUpdate(
+                                {
+                                    _id: auditRecord._id,
+                                    'metadata.leaseOwner': workerLeaseToken,
+                                    'metadata.syncPhase': 'FINALIZING',
+                                    'metadata.leaseExpiresAt': { $gt: now }
+                                },
+                                {
+                                    $set: {
+                                        status: 'success',
+                                        description: `Synchronized canonical policy for authority ${code} to Redis (version ${expectedVersion})${isRecovery ? ' [recovered]' : ''}`,
+                                        'metadata.redisSyncStatus': 'SYNCED',
+                                        'metadata.syncPhase': 'COMPLETED',
+                                        'metadata.reconciled': isRecovery,
+                                        'metadata.syncedAt': now
+                                    }
+                                },
+                                { new: true }
+                            );
+                        } catch (auditUpdateErr) {
+                            console.error('Failed to update audit log after Redis sync:', auditUpdateErr);
+                            finalizedAudit = null;
+                        }
+
+                        if (!finalizedAudit) {
+                            console.error('AuditLog finalization failed or unacknowledged after Redis sync; failing closed to preserve durable state consistency');
+                            policyDoc.redisSyncStatus = 'PENDING_RECONCILIATION';
+                            policyDoc.redisSyncError = 'Redis synced but audit status finalization failed or returned null';
+                            try {
+                                await AuthorityCanonicalPolicy.updateOne(
+                                    {
+                                        _id: policyDoc._id,
+                                        version: expectedVersion,
+                                        contentHash: expectedContentHash,
+                                        $or: [
+                                            { lastSyncWorkerLease: expectedWorkerLease },
+                                            { lastSyncWorkerLease: workerLeaseToken }
+                                        ]
+                                    },
+                                    {
+                                        $set: {
+                                            redisSyncStatus: 'PENDING_RECONCILIATION',
+                                            redisSyncError: policyDoc.redisSyncError,
+                                            lastSyncWorkerLease: workerLeaseToken
+                                        }
+                                    }
+                                );
+                            } catch (markerErr) {
+                                console.error('Failed to write PENDING_RECONCILIATION marker to policy:', markerErr);
+                            }
+                            return res.status(500).json({
+                                success: false,
+                                code: 'AUDIT_FINALIZATION_FAILED',
+                                message: 'Policy synced to Redis but audit status finalization failed or returned null; policy marked PENDING_RECONCILIATION'
+                            });
+                        }
+
+                        if (isRecovery) {
                             await AuditLog.create({
                                 eventType: 'canonical_policy_sync_reconciled',
-                                correlationId: reconCorrId,
                                 targetType: 'authority_canonical_policy',
                                 targetId: policyDoc._id,
                                 userId: req.user?._id,
                                 userName: req.user?.fullName || req.user?.name || 'Admin',
                                 userEmail: req.user?.email || null,
-                                description: `Recovered abandoned intent and completed canonical policy sync for authority ${code} (version ${policyDoc.version})`,
+                                description: `Recovered abandoned intent and completed canonical policy sync for authority ${code} (version ${expectedVersion})`,
                                 metadata: {
                                     authorityCode: code,
-                                    version: policyDoc.version,
-                                    contentHash: policyDoc.contentHash,
+                                    version: expectedVersion,
+                                    contentHash: expectedContentHash,
                                     operationId: normalizedOpId,
                                     reconciliationAction: 'ABANDONED_INTENT_RECOVERED_AND_PUBLISHED'
                                 },
                                 ipAddress: req.ip,
                                 userAgent: req.get('user-agent'),
                                 status: 'success'
+                            }).catch(() => {});
+                        }
+
+                        policyDoc.redisSyncStatus = 'SYNCED';
+                        policyDoc.redisSyncError = null;
+                        policyDoc.lastSyncedAt = new Date();
+
+                        return res.status(200).json({
+                            success: true,
+                            data: policyDoc,
+                            idempotent: Boolean(correlationId),
+                            operationId: normalizedOpId,
+                            status: 'COMPLETED',
+                            reconciled: isRecovery
+                        });
+                    }
+                } else {
+                    // Failure path: Redis sync failed
+                    console.error('Redis canonical policy sync failed:', syncError);
+
+                    if (supportsMongoTransactions()) {
+                        let session = null;
+                        try {
+                            session = await mongoose.startSession();
+                            isTransactionActive = true;
+                            await session.withTransaction(async () => {
+                                const now = new Date();
+                                const fencedFailureAudit = await AuditLog.findOneAndUpdate(
+                                    {
+                                        _id: auditRecord._id,
+                                        'metadata.leaseOwner': workerLeaseToken,
+                                        'metadata.syncPhase': { $in: ['PUBLISHING', 'FINALIZING'] },
+                                        'metadata.leaseExpiresAt': { $gt: now }
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'failed',
+                                            description: `Failed to synchronize canonical policy for authority ${code} to Redis: ${syncError?.message || 'Unknown error'}`,
+                                            'metadata.redisSyncStatus': 'FAILED',
+                                            'metadata.syncPhase': 'FAILED',
+                                            'metadata.errorMessage': syncError?.message || 'Redis sync failed',
+                                            'metadata.failedAt': now
+                                        }
+                                    },
+                                    { session, new: true }
+                                );
+
+                                if (!fencedFailureAudit) {
+                                    const err = new Error('Worker lease expired or preempted during Redis sync failure path');
+                                    err.code = 'STALE_WORKER_LEASE_LOST';
+                                    throw err;
+                                }
+
+                                await AuthorityCanonicalPolicy.updateOne(
+                                    {
+                                        _id: policyDoc._id,
+                                        version: expectedVersion,
+                                        contentHash: expectedContentHash,
+                                        redisSyncStatus: { $ne: 'SYNCED' },
+                                        $or: [
+                                            { lastSyncWorkerLease: expectedWorkerLease },
+                                            { lastSyncWorkerLease: workerLeaseToken }
+                                        ]
+                                    },
+                                    {
+                                        $set: {
+                                            redisSyncStatus: 'FAILED',
+                                            redisSyncError: syncError?.message || 'Redis sync failed',
+                                            lastSyncWorkerLease: workerLeaseToken
+                                        }
+                                    },
+                                    { session }
+                                );
                             });
-                        } catch (reconAuditErr) {
-                            if (reconAuditErr.code !== 11000) {
-                                console.error('Failed to record reconciliation audit event:', reconAuditErr);
-                                return res.status(500).json({
+                        } catch (txErr) {
+                            if (txErr.code === 'STALE_WORKER_LEASE_LOST') {
+                                return res.status(409).json({
                                     success: false,
-                                    code: 'RECONCILIATION_AUDIT_FAILED',
-                                    message: `Failed to record durable reconciliation audit event: ${reconAuditErr.message}`
+                                    code: 'STALE_WORKER_LEASE_LOST',
+                                    message: 'Worker lease expired or was reassigned to another worker during failure processing; state not overwritten by stale worker',
+                                    operationId: normalizedOpId,
+                                    status: 'FAILED'
                                 });
                             }
+                            console.error('Transactional failure recording threw:', txErr);
+                        } finally {
+                            isTransactionActive = false;
+                            if (session) await session.endSession().catch(() => {});
                         }
+
+                        return res.status(502).json({
+                            success: false,
+                            code: syncError?.code || 'REDIS_SYNC_FAILED',
+                            message: `Failed to publish canonical policy to Redis: ${syncError?.message || 'Unknown error'}`
+                        });
+                    } else {
+                        // Atomic CAS Fallback for Standalone MongoDB
+                        let fencedFailureAudit = null;
+                        try {
+                            const now = new Date();
+                            fencedFailureAudit = await AuditLog.findOneAndUpdate(
+                                {
+                                    _id: auditRecord._id,
+                                    'metadata.leaseOwner': workerLeaseToken,
+                                    'metadata.syncPhase': { $in: ['PUBLISHING', 'FINALIZING'] },
+                                    'metadata.leaseExpiresAt': { $gt: now }
+                                },
+                                {
+                                    $set: {
+                                        status: 'failed',
+                                        description: `Failed to synchronize canonical policy for authority ${code} to Redis: ${syncError?.message || 'Unknown error'}`,
+                                        'metadata.redisSyncStatus': 'FAILED',
+                                        'metadata.syncPhase': 'FAILED',
+                                        'metadata.errorMessage': syncError?.message || 'Redis sync failed',
+                                        'metadata.failedAt': now
+                                    }
+                                },
+                                { new: true }
+                            );
+                        } catch (auditErr) {
+                            console.error('Failed to record sync failure in audit log:', auditErr);
+                        }
+
+                        if (!fencedFailureAudit) {
+                            console.error('Worker lease expired or preempted during Redis sync failure path; failure state not recorded by stale worker');
+                            return res.status(409).json({
+                                success: false,
+                                code: 'STALE_WORKER_LEASE_LOST',
+                                message: 'Worker lease expired or was reassigned to another worker during failure processing; state not overwritten by stale worker',
+                                operationId: normalizedOpId,
+                                status: 'FAILED'
+                            });
+                        }
+
+                        try {
+                            await AuthorityCanonicalPolicy.updateOne(
+                                {
+                                    _id: policyDoc._id,
+                                    version: expectedVersion,
+                                    contentHash: expectedContentHash,
+                                    redisSyncStatus: { $ne: 'SYNCED' },
+                                    $or: [
+                                        { lastSyncWorkerLease: expectedWorkerLease },
+                                        { lastSyncWorkerLease: workerLeaseToken }
+                                    ]
+                                },
+                                {
+                                    $set: {
+                                        redisSyncStatus: 'FAILED',
+                                        redisSyncError: syncError?.message || 'Redis sync failed',
+                                        lastSyncWorkerLease: workerLeaseToken
+                                    }
+                                }
+                            );
+                        } catch (policyErr) {
+                            console.error('Failed to record policy failure status:', policyErr);
+                        }
+
+                        return res.status(502).json({
+                            success: false,
+                            code: syncError?.code || 'REDIS_SYNC_FAILED',
+                            message: `Failed to publish canonical policy to Redis: ${syncError?.message || 'Unknown error'}`
+                        });
                     }
                 }
-
-                policyDoc.redisSyncStatus = 'SYNCED';
-                policyDoc.redisSyncError = null;
-                policyDoc.lastSyncedAt = new Date();
-
-                return res.status(200).json({
-                    success: true,
-                    data: policyDoc,
-                    idempotent: Boolean(correlationId),
-                    operationId: normalizedOpId,
-                    status: 'COMPLETED',
-                    reconciled: isRecovery
-                });
-            } else {
-                console.error('Failed to sync canonical policy to Redis:', syncError);
-                try {
-                    await AuditLog.findByIdAndUpdate(auditRecord._id, {
-                        $set: {
-                            status: 'failed',
-                            description: `Failed to synchronize canonical policy for authority ${code} to Redis: ${syncError?.message || 'Unknown error'}`,
-                            'metadata.redisSyncStatus': 'FAILED',
-                            'metadata.syncPhase': 'FAILED',
-                            'metadata.errorMessage': syncError?.message || 'Redis sync failed',
-                            'metadata.failedAt': new Date()
-                        }
-                    });
-                } catch (auditErr) {
-                    console.error('Failed to record sync failure in audit log:', auditErr);
-                }
-
-                try {
-                    await AuthorityCanonicalPolicy.updateOne(
-                        { _id: policyDoc._id },
-                        {
-                            $set: {
-                                redisSyncStatus: 'FAILED',
-                                redisSyncError: syncError?.message || 'Redis sync failed'
-                            }
-                        }
-                    );
-                } catch {}
-
-                return res.status(502).json({
-                    success: false,
-                    code: syncError?.code || 'REDIS_SYNC_FAILED',
-                    message: `Failed to publish canonical policy to Redis: ${syncError?.message || 'Unknown error'}`
-                });
+            } finally {
+                stopHeartbeat();
             }
         };
 
@@ -1462,7 +1881,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                 ? new Date(existingAudit.metadata.leaseExpiresAt).getTime()
                 : (existingAudit.timestamp ? new Date(existingAudit.timestamp).getTime() + LEASE_DURATION_MS : 0);
             const now = Date.now();
-            const isLeaseActive = existingAudit.metadata?.syncPhase === 'PUBLISHING' && leaseExpiresAt > now;
+            const isLeaseActive = ['PUBLISHING', 'FINALIZING'].includes(existingAudit.metadata?.syncPhase) && leaseExpiresAt > now;
 
             if (isLeaseActive && existingAudit.status !== 'failed') {
                 return res.status(202).json({
@@ -1474,8 +1893,149 @@ export const syncCanonicalPolicy = async (req, res) => {
                 });
             }
 
-            // 3. The worker lease has expired, or the operation was marked PENDING_RECONCILIATION / FAILED.
-            // AUTHORITATIVE Redis read: strictly inspect Redis without in-memory fallback.
+            // 3. ATOMIC RECOVERY LEASE CLAIM:
+            // Claim recovery ownership UPFRONT on AuditLog and tag AuthorityCanonicalPolicy BEFORE inspecting Redis
+            const reconWorkerLease = crypto.randomUUID();
+            const reconLeaseExpiresAt = new Date(Date.now() + LEASE_DURATION_MS);
+            const recoveryClaim = await AuditLog.findOneAndUpdate(
+                {
+                    _id: existingAudit._id,
+                    $or: [
+                        { 'metadata.syncPhase': { $in: ['INTENT', 'FAILED', 'PENDING_RECONCILIATION'] } },
+                        {
+                            'metadata.syncPhase': { $in: ['PUBLISHING', 'FINALIZING'] },
+                            $or: [
+                                { 'metadata.leaseExpiresAt': { $lte: new Date() } },
+                                { 'metadata.leaseExpiresAt': { $exists: false } }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    $set: {
+                        'metadata.syncPhase': 'PUBLISHING',
+                        'metadata.leaseOwner': reconWorkerLease,
+                        'metadata.leaseExpiresAt': reconLeaseExpiresAt,
+                        'metadata.recoveryClaimedAt': new Date()
+                    },
+                    $inc: { 'metadata.recoveryAttempts': 1 }
+                },
+                { new: true }
+            );
+
+            if (!recoveryClaim) {
+                const recheck = await AuditLog.findById(existingAudit._id);
+                if (recheck?.metadata?.syncPhase === 'COMPLETED' && recheck?.status === 'success') {
+                    return res.status(200).json({
+                        success: true,
+                        data: policyDoc,
+                        idempotent: true,
+                        operationId: normalizedOpId,
+                        status: 'COMPLETED',
+                        reconciled: true
+                    });
+                }
+                return res.status(202).json({
+                    success: true,
+                    code: 'OPERATION_IN_PROGRESS',
+                    message: 'Manual canonical policy sync recovery is currently in progress by another worker',
+                    operationId: normalizedOpId,
+                    status: 'IN_PROGRESS'
+                });
+            }
+
+            // Tag recovery lease on policy document
+            try {
+                await AuthorityCanonicalPolicy.updateOne(
+                    {
+                        _id: policyDoc._id,
+                        version: expectedVersion,
+                        contentHash: expectedContentHash,
+                        $or: [
+                            { lastSyncWorkerLease: expectedWorkerLease },
+                            { lastSyncWorkerLease: recoveryClaim.metadata?.leaseOwner },
+                            { redisSyncStatus: { $ne: 'SYNCED' } }
+                        ]
+                    },
+                    {
+                        $set: {
+                            lastSyncWorkerLease: reconWorkerLease,
+                            lastSyncOperationId: normalizedOpId
+                        }
+                    }
+                );
+            } catch (claimErr) {
+                console.error('Failed to update lastSyncWorkerLease during recovery claim:', claimErr);
+            }
+
+            // Active reconciliation heartbeat: periodic renewal while Redis inspection and Case A finalization run
+            let reconHeartbeatInterval = null;
+            let reconLeaseLostDuringHeartbeat = false;
+            let isReconTransactionActive = false;
+
+            const startReconHeartbeat = () => {
+                reconHeartbeatInterval = setInterval(async () => {
+                    // Do not race with an active transaction updating the same AuditLog
+                    if (isReconTransactionActive) {
+                        return;
+                    }
+
+                    try {
+                        const renewal = await AuditLog.findOneAndUpdate(
+                            {
+                                _id: recoveryClaim._id,
+                                'metadata.leaseOwner': reconWorkerLease,
+                                'metadata.syncPhase': { $in: ['PUBLISHING', 'FINALIZING'] }
+                            },
+                            {
+                                $set: {
+                                    'metadata.leaseExpiresAt': new Date(Date.now() + LEASE_DURATION_MS),
+                                    'metadata.lastHeartbeatAt': new Date()
+                                }
+                            },
+                            { new: true }
+                        );
+                        if (!renewal) {
+                            const currentAudit = await AuditLog.findById(recoveryClaim._id).select('metadata status').lean().catch(() => null);
+                            if (currentAudit?.metadata?.syncPhase === 'COMPLETED' && currentAudit?.metadata?.leaseOwner === reconWorkerLease) {
+                                stopReconHeartbeat();
+                                return;
+                            }
+                            if (currentAudit && currentAudit.metadata?.leaseOwner && currentAudit.metadata.leaseOwner !== reconWorkerLease) {
+                                reconLeaseLostDuringHeartbeat = true;
+                                stopReconHeartbeat();
+                                return;
+                            }
+                            reconLeaseLostDuringHeartbeat = true;
+                            stopReconHeartbeat();
+                        }
+                    } catch (hbErr) {
+                        // Do not interpret transaction write conflict as proof that another worker owns the lease
+                        if (isWriteConflict(hbErr)) {
+                            console.warn('Reconciliation lease heartbeat encountered transient write conflict; skipping tick without losing lease:', hbErr.message);
+                            return;
+                        }
+                        console.error('Reconciliation lease heartbeat renewal error:', hbErr);
+                        reconLeaseLostDuringHeartbeat = true;
+                        stopReconHeartbeat();
+                    }
+                }, HEARTBEAT_INTERVAL_MS);
+                if (reconHeartbeatInterval && typeof reconHeartbeatInterval.unref === 'function') {
+                    reconHeartbeatInterval.unref();
+                }
+            };
+
+            const stopReconHeartbeat = () => {
+                if (reconHeartbeatInterval) {
+                    clearInterval(reconHeartbeatInterval);
+                    reconHeartbeatInterval = null;
+                }
+            };
+
+            startReconHeartbeat();
+
+            try {
+                // 4. AUTHORITATIVE Redis read: strictly inspect Redis without in-memory fallback.
             let currentRedisPolicy = null;
             try {
                 if (typeof quotaProvider.getCanonicalPolicy !== 'function') {
@@ -1489,9 +2049,73 @@ export const syncCanonicalPolicy = async (req, res) => {
                 });
             } catch (readErr) {
                 console.error('Authoritative Redis inspection failed during reconciliation:', readErr);
+                if (readErr.code === 'MALFORMED_REDIS_POLICY') {
+                    await AuditLog.findOneAndUpdate(
+                        {
+                            _id: recoveryClaim._id,
+                            'metadata.leaseOwner': reconWorkerLease,
+                            'metadata.syncPhase': 'PUBLISHING'
+                        },
+                        {
+                            $set: {
+                                status: 'failed',
+                                'metadata.syncPhase': 'PENDING_RECONCILIATION',
+                                'metadata.redisSyncStatus': 'MALFORMED_REDIS_POLICY',
+                                'metadata.errorMessage': `Authoritative Redis record is malformed: ${readErr.message}`
+                            }
+                        }
+                    ).catch(() => {});
+
+                    await AuthorityCanonicalPolicy.updateOne(
+                        {
+                            _id: policyDoc._id,
+                            version: expectedVersion,
+                            contentHash: expectedContentHash,
+                            lastSyncWorkerLease: reconWorkerLease
+                        },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: `Authoritative Redis record is malformed: ${readErr.message}`
+                            }
+                        }
+                    ).catch(() => {});
+
+                    stopReconHeartbeat();
+                    return res.status(502).json({
+                        success: false,
+                        code: 'MALFORMED_REDIS_POLICY',
+                        message: 'Authoritative policy record in Redis is malformed or missing valid version/contentHash; fail closed without re-publishing',
+                        operationId: normalizedOpId,
+                        status: 'PENDING_RECONCILIATION'
+                    });
+                }
+
                 // FAIL CLOSED: Preserve pending state, NEVER republish an ambiguous operation!
+                // Strictly fenced by recoveryClaim._id and reconWorkerLease
+                await AuditLog.findOneAndUpdate(
+                    {
+                        _id: recoveryClaim._id,
+                        'metadata.leaseOwner': reconWorkerLease,
+                        'metadata.syncPhase': 'PUBLISHING'
+                    },
+                    {
+                        $set: {
+                            status: 'warning',
+                            'metadata.syncPhase': 'PENDING_RECONCILIATION',
+                            'metadata.redisSyncStatus': 'PENDING_RECONCILIATION',
+                            'metadata.errorMessage': `Authoritative Redis read failed: ${readErr.message}`
+                        }
+                    }
+                ).catch(() => {});
+
                 await AuthorityCanonicalPolicy.updateOne(
-                    { _id: policyDoc._id },
+                    {
+                        _id: policyDoc._id,
+                        version: expectedVersion,
+                        contentHash: expectedContentHash,
+                        lastSyncWorkerLease: reconWorkerLease
+                    },
                     {
                         $set: {
                             redisSyncStatus: 'PENDING_RECONCILIATION',
@@ -1500,6 +2124,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                     }
                 ).catch(() => {});
 
+                stopReconHeartbeat();
                 return res.status(503).json({
                     success: false,
                     code: readErr.code === 'REDIS_READ_TIMEOUT' ? 'REDIS_READ_TIMEOUT' : 'REDIS_UNAVAILABLE',
@@ -1509,8 +2134,63 @@ export const syncCanonicalPolicy = async (req, res) => {
                 });
             }
 
-            const targetVersion = Number(policyDoc.version);
-            const targetHash = String(policyDoc.contentHash || '');
+            // 5. Strict Authoritative Redis Record Validation
+            // Reject malformed authoritative Redis records. Missing or invalid version or contentHash must fail closed,
+            // NEVER be treated as an absent policy.
+            if (currentRedisPolicy !== null && currentRedisPolicy !== undefined) {
+                const isObject = typeof currentRedisPolicy === 'object' && !Array.isArray(currentRedisPolicy);
+                const rawVersion = isObject ? currentRedisPolicy.version : undefined;
+                const rawHash = isObject ? currentRedisPolicy.contentHash : undefined;
+                const parsedVersion = Number(rawVersion);
+                const isVersionValid = typeof rawVersion !== 'boolean' && !Number.isNaN(parsedVersion) && Number.isInteger(parsedVersion) && parsedVersion > 0;
+                const isHashValid = typeof rawHash === 'string' && rawHash.trim().length > 0;
+
+                if (!isObject || !isVersionValid || !isHashValid) {
+                    console.error('Authoritative Redis record is malformed or invalid:', { currentRedisPolicy });
+                    await AuditLog.findOneAndUpdate(
+                        {
+                            _id: recoveryClaim._id,
+                            'metadata.leaseOwner': reconWorkerLease,
+                            'metadata.syncPhase': 'PUBLISHING'
+                        },
+                        {
+                            $set: {
+                                status: 'failed',
+                                'metadata.syncPhase': 'PENDING_RECONCILIATION',
+                                'metadata.redisSyncStatus': 'MALFORMED_REDIS_POLICY',
+                                'metadata.errorMessage': `Authoritative Redis record is malformed: version=${rawVersion}, contentHash=${rawHash}`
+                            }
+                        }
+                    ).catch(() => {});
+
+                    await AuthorityCanonicalPolicy.updateOne(
+                        {
+                            _id: policyDoc._id,
+                            version: expectedVersion,
+                            contentHash: expectedContentHash,
+                            lastSyncWorkerLease: reconWorkerLease
+                        },
+                        {
+                            $set: {
+                                redisSyncStatus: 'PENDING_RECONCILIATION',
+                                redisSyncError: `Authoritative Redis record is malformed: version=${rawVersion}, contentHash=${rawHash}`
+                            }
+                        }
+                    ).catch(() => {});
+
+                    stopReconHeartbeat();
+                    return res.status(502).json({
+                        success: false,
+                        code: 'MALFORMED_REDIS_POLICY',
+                        message: 'Authoritative policy record in Redis is malformed or missing valid version/contentHash; fail closed without re-publishing',
+                        operationId: normalizedOpId,
+                        status: 'PENDING_RECONCILIATION'
+                    });
+                }
+            }
+
+            const targetVersion = expectedVersion;
+            const targetHash = expectedContentHash;
 
             // Case A: Redis ALREADY holds target version and matching contentHash!
             // Redis-success / audit-finalization failure: do NOT publish to Redis a second time!
@@ -1518,45 +2198,276 @@ export const syncCanonicalPolicy = async (req, res) => {
                 Number(currentRedisPolicy.version) === targetVersion &&
                 String(currentRedisPolicy.contentHash || '') === targetHash
             ) {
-                // Durability: verify acknowledged updates and matched records, never swallow errors
-                const finalizedAudit = await AuditLog.findByIdAndUpdate(existingAudit._id, {
-                    $set: {
-                        status: 'success',
-                        description: `Synchronized canonical policy for authority ${code} to Redis (version ${policyDoc.version}) [reconciled from Redis state]`,
-                        'metadata.redisSyncStatus': 'SYNCED',
-                        'metadata.syncPhase': 'COMPLETED',
-                        'metadata.reconciled': true,
-                        'metadata.reconciledAt': new Date(),
-                        'metadata.reconciledReason': 'REDIS_ALREADY_SYNCED_RECOVERED',
-                        'metadata.syncedAt': new Date()
-                    }
-                }, { new: true });
-
-                if (!finalizedAudit) {
-                    return res.status(500).json({
+                if (reconLeaseLostDuringHeartbeat) {
+                    console.error('Reconciliation lease lost during heartbeat renewal; preempted by another worker');
+                    stopReconHeartbeat();
+                    return res.status(409).json({
                         success: false,
-                        code: 'AUDIT_FINALIZATION_FAILED',
-                        message: 'Failed to durably update audit log during Redis reconciliation'
+                        code: 'STALE_WORKER_LEASE_LOST',
+                        message: 'Reconciliation lease expired or was preempted before finalization boundary',
+                        operationId: normalizedOpId,
+                        status: 'FAILED'
                     });
                 }
 
-                const policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
-                    { _id: policyDoc._id },
-                    {
-                        $set: {
-                            redisSyncStatus: 'SYNCED',
-                            redisSyncError: null,
-                            lastSyncedAt: new Date()
-                        }
-                    }
-                );
+                const isTxSupported = supportsMongoTransactions();
+                if (isTxSupported) {
+                    let session = null;
+                    try {
+                        session = await mongoose.startSession();
+                        isReconTransactionActive = true;
+                        await session.withTransaction(async () => {
+                            const reconFinalNow = new Date();
+                            const finalizingAudit = await AuditLog.findOneAndUpdate(
+                                {
+                                    _id: recoveryClaim._id,
+                                    'metadata.leaseOwner': reconWorkerLease,
+                                    'metadata.syncPhase': 'PUBLISHING',
+                                    'metadata.leaseExpiresAt': { $gt: reconFinalNow }
+                                },
+                                {
+                                    $set: {
+                                        'metadata.syncPhase': 'FINALIZING',
+                                        'metadata.finalizingAt': reconFinalNow,
+                                        'metadata.leaseExpiresAt': new Date(reconFinalNow.getTime() + LEASE_DURATION_MS)
+                                    }
+                                },
+                                { session, new: true }
+                            );
 
-                if (!policyUpdateResult?.acknowledged || (policyUpdateResult.matchedCount !== undefined && policyUpdateResult.matchedCount === 0)) {
-                    return res.status(500).json({
-                        success: false,
-                        code: 'POLICY_UPDATE_FAILED',
-                        message: 'Failed to durably update policy document during Redis reconciliation'
-                    });
+                            if (!finalizingAudit || reconLeaseLostDuringHeartbeat) {
+                                const err = new Error('Reconciliation lease expired or was preempted before finalization boundary');
+                                err.code = 'STALE_WORKER_LEASE_LOST';
+                                throw err;
+                            }
+
+                            const policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
+                                {
+                                    _id: policyDoc._id,
+                                    version: expectedVersion,
+                                    contentHash: expectedContentHash,
+                                    $or: [
+                                        { lastSyncWorkerLease: expectedWorkerLease },
+                                        { lastSyncWorkerLease: reconWorkerLease }
+                                    ]
+                                },
+                                {
+                                    $set: {
+                                        redisSyncStatus: 'SYNCED',
+                                        redisSyncError: null,
+                                        lastSyncedAt: new Date(),
+                                        lastSyncWorkerLease: reconWorkerLease,
+                                        lastSyncOperationId: normalizedOpId
+                                    }
+                                },
+                                { session }
+                            );
+
+                            if (!policyUpdateResult?.acknowledged || policyUpdateResult.matchedCount === 0) {
+                                const err = new Error(policyUpdateResult?.matchedCount === 0 ? 'Policy document was not matched during reconciliation' : 'Policy document update was unacknowledged');
+                                err.code = policyUpdateResult?.matchedCount === 0 ? 'POLICY_NOT_MATCHED' : 'POLICY_UPDATE_FAILED';
+                                throw err;
+                            }
+
+                            const finalizedAudit = await AuditLog.findOneAndUpdate(
+                                {
+                                    _id: recoveryClaim._id,
+                                    'metadata.leaseOwner': reconWorkerLease,
+                                    'metadata.syncPhase': 'FINALIZING',
+                                    'metadata.leaseExpiresAt': { $gt: new Date() }
+                                },
+                                {
+                                    $set: {
+                                        status: 'success',
+                                        description: `Synchronized canonical policy for authority ${code} to Redis (version ${expectedVersion}) [reconciled from Redis state]`,
+                                        'metadata.redisSyncStatus': 'SYNCED',
+                                        'metadata.syncPhase': 'COMPLETED',
+                                        'metadata.reconciled': true,
+                                        'metadata.reconciledAt': new Date(),
+                                        'metadata.reconciledReason': 'REDIS_ALREADY_SYNCED_RECOVERED',
+                                        'metadata.syncedAt': new Date()
+                                    }
+                                },
+                                { session, new: true }
+                            );
+
+                            if (!finalizedAudit) {
+                                const err = new Error('Reconciliation lease expired before audit completion');
+                                err.code = 'STALE_WORKER_LEASE_LOST';
+                                throw err;
+                            }
+                        });
+                    } catch (txErr) {
+                        if (txErr.code === 'STALE_WORKER_LEASE_LOST') {
+                            return res.status(409).json({
+                                success: false,
+                                code: 'STALE_WORKER_LEASE_LOST',
+                                message: 'Reconciliation lease expired or was preempted before finalization boundary',
+                                operationId: normalizedOpId,
+                                status: 'FAILED'
+                            });
+                        }
+                        if (txErr.code === 'POLICY_NOT_MATCHED' || txErr.code === 'POLICY_UPDATE_FAILED') {
+                            return res.status(500).json({
+                                success: false,
+                                code: txErr.code,
+                                message: txErr.message
+                            });
+                        }
+                        throw txErr;
+                    } finally {
+                        isReconTransactionActive = false;
+                        if (session) await session.endSession().catch(() => {});
+                    }
+                } else {
+                    // Atomic CAS Fallback for Standalone MongoDB
+                    const reconFinalNow = new Date();
+                    const finalizingAudit = await AuditLog.findOneAndUpdate(
+                        {
+                            _id: recoveryClaim._id,
+                            'metadata.leaseOwner': reconWorkerLease,
+                            'metadata.syncPhase': 'PUBLISHING',
+                            'metadata.leaseExpiresAt': { $gt: reconFinalNow }
+                        },
+                        {
+                            $set: {
+                                'metadata.syncPhase': 'FINALIZING',
+                                'metadata.finalizingAt': reconFinalNow,
+                                'metadata.leaseExpiresAt': new Date(reconFinalNow.getTime() + LEASE_DURATION_MS)
+                            }
+                        },
+                        { new: true }
+                    );
+
+                    if (!finalizingAudit || reconLeaseLostDuringHeartbeat) {
+                        stopReconHeartbeat();
+                        return res.status(409).json({
+                            success: false,
+                            code: 'STALE_WORKER_LEASE_LOST',
+                            message: 'Reconciliation lease expired or was preempted before finalization boundary',
+                            operationId: normalizedOpId,
+                            status: 'FAILED'
+                        });
+                    }
+
+                    let policyUpdateResult = null;
+                    try {
+                        policyUpdateResult = await AuthorityCanonicalPolicy.updateOne(
+                            {
+                                _id: policyDoc._id,
+                                version: expectedVersion,
+                                contentHash: expectedContentHash,
+                                $or: [
+                                    { lastSyncWorkerLease: expectedWorkerLease },
+                                    { lastSyncWorkerLease: reconWorkerLease }
+                                ]
+                            },
+                            {
+                                $set: {
+                                    redisSyncStatus: 'SYNCED',
+                                    redisSyncError: null,
+                                    lastSyncedAt: new Date(),
+                                    lastSyncWorkerLease: reconWorkerLease,
+                                    lastSyncOperationId: normalizedOpId
+                                }
+                            }
+                        );
+                    } catch (policyErr) {
+                        console.error('Failed to update policy doc during reconciliation:', policyErr);
+                        return res.status(500).json({
+                            success: false,
+                            code: 'POLICY_UPDATE_FAILED',
+                            message: `Failed to durably update policy document during Redis reconciliation: ${policyErr.message}`
+                        });
+                    }
+
+                    if (!policyUpdateResult?.acknowledged || (policyUpdateResult.matchedCount !== undefined && policyUpdateResult.matchedCount === 0)) {
+                        const isZeroMatch = policyUpdateResult?.matchedCount === 0;
+                        if (isZeroMatch) {
+                            const currentInDb = await AuthorityCanonicalPolicy.findById(policyDoc._id).lean();
+                            if (currentInDb && (currentInDb.version !== expectedVersion || currentInDb.contentHash !== expectedContentHash)) {
+                                console.error('Concurrent policy mutation detected during reconciliation:', {
+                                    currentVersion: currentInDb.version,
+                                    expectedVersion,
+                                    currentHash: currentInDb.contentHash,
+                                    expectedContentHash
+                                });
+                                await AuditLog.findOneAndUpdate(
+                                    {
+                                        _id: recoveryClaim._id,
+                                        'metadata.leaseOwner': reconWorkerLease,
+                                        'metadata.syncPhase': 'FINALIZING'
+                                    },
+                                    {
+                                        $set: {
+                                            status: 'failed',
+                                            'metadata.syncPhase': 'FAILED',
+                                            'metadata.redisSyncStatus': 'STALE_VERSION',
+                                            'metadata.errorMessage': `Policy was modified concurrently (current version=${currentInDb.version}, expected=${expectedVersion})`
+                                        }
+                                    }
+                                ).catch(() => {});
+
+                                return res.status(409).json({
+                                    success: false,
+                                    code: 'STALE_POLICY_VERSION',
+                                    message: `Policy was concurrently updated to version ${currentInDb.version} during reconciliation; sync abandoned`,
+                                    operationId: normalizedOpId,
+                                    status: 'FAILED'
+                                });
+                            }
+                            if (currentInDb && currentInDb.lastSyncWorkerLease && currentInDb.lastSyncWorkerLease !== expectedWorkerLease && currentInDb.lastSyncWorkerLease !== reconWorkerLease) {
+                                console.error('Reconciliation policy lease lost: currentInDb.lastSyncWorkerLease !== reconWorkerLease');
+                                return res.status(409).json({
+                                    success: false,
+                                    code: 'STALE_WORKER_LEASE_LOST',
+                                    message: 'Reconciliation lease was preempted by another worker; durable state not updated by stale worker',
+                                    operationId: normalizedOpId,
+                                    status: 'FAILED'
+                                });
+                            }
+                        }
+                        return res.status(500).json({
+                            success: false,
+                            code: isZeroMatch ? 'POLICY_NOT_MATCHED' : 'POLICY_UPDATE_FAILED',
+                            message: isZeroMatch
+                                ? 'Policy document was not matched for update during reconciliation'
+                                : 'Policy document update was unacknowledged by MongoDB during reconciliation'
+                        });
+                    }
+
+                    const finalizedAudit = await AuditLog.findOneAndUpdate(
+                        {
+                            _id: recoveryClaim._id,
+                            'metadata.leaseOwner': reconWorkerLease,
+                            'metadata.syncPhase': 'FINALIZING',
+                            'metadata.leaseExpiresAt': { $gt: new Date() }
+                        },
+                        {
+                            $set: {
+                                status: 'success',
+                                description: `Synchronized canonical policy for authority ${code} to Redis (version ${expectedVersion}) [reconciled from Redis state]`,
+                                'metadata.redisSyncStatus': 'SYNCED',
+                                'metadata.syncPhase': 'COMPLETED',
+                                'metadata.reconciled': true,
+                                'metadata.reconciledAt': new Date(),
+                                'metadata.reconciledReason': 'REDIS_ALREADY_SYNCED_RECOVERED',
+                                'metadata.syncedAt': new Date()
+                            }
+                        },
+                        { new: true }
+                    );
+
+                    if (!finalizedAudit || reconLeaseLostDuringHeartbeat) {
+                        stopReconHeartbeat();
+                        return res.status(409).json({
+                            success: false,
+                            code: 'STALE_WORKER_LEASE_LOST',
+                            message: 'Reconciliation lease expired or was preempted before finalization boundary',
+                            operationId: normalizedOpId,
+                            status: 'FAILED'
+                        });
+                    }
                 }
 
                 // Idempotent reconciliation audit
@@ -1570,11 +2481,11 @@ export const syncCanonicalPolicy = async (req, res) => {
                         userId: req.user?._id,
                         userName: req.user?.fullName || req.user?.name || 'Admin',
                         userEmail: req.user?.email || null,
-                        description: `Reconciled canonical policy sync for authority ${code} (version ${policyDoc.version}) without re-publishing to Redis`,
+                        description: `Reconciled canonical policy sync for authority ${code} (version ${expectedVersion}) without re-publishing to Redis`,
                         metadata: {
                             authorityCode: code,
-                            version: policyDoc.version,
-                            contentHash: policyDoc.contentHash,
+                            version: expectedVersion,
+                            contentHash: expectedContentHash,
                             operationId: normalizedOpId,
                             reconciliationAction: 'AUDIT_FINALIZED_EXISTING_REDIS'
                         },
@@ -1593,6 +2504,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                     }
                 }
 
+                stopReconHeartbeat();
                 policyDoc.redisSyncStatus = 'SYNCED';
                 policyDoc.redisSyncError = null;
                 policyDoc.lastSyncedAt = new Date();
@@ -1609,14 +2521,22 @@ export const syncCanonicalPolicy = async (req, res) => {
 
             // Case B: Redis is already at a HIGHER version than target policy
             if (currentRedisPolicy && Number(currentRedisPolicy.version) > targetVersion) {
-                await AuditLog.findByIdAndUpdate(existingAudit._id, {
-                    $set: {
-                        status: 'failed',
-                        'metadata.syncPhase': 'FAILED',
-                        'metadata.redisSyncStatus': 'STALE_VERSION',
-                        'metadata.errorMessage': `Redis has higher version ${currentRedisPolicy.version} than target ${targetVersion}`
+                stopReconHeartbeat();
+                await AuditLog.findOneAndUpdate(
+                    {
+                        _id: recoveryClaim._id,
+                        'metadata.leaseOwner': reconWorkerLease,
+                        'metadata.syncPhase': 'PUBLISHING'
+                    },
+                    {
+                        $set: {
+                            status: 'failed',
+                            'metadata.syncPhase': 'FAILED',
+                            'metadata.redisSyncStatus': 'STALE_VERSION',
+                            'metadata.errorMessage': `Redis has higher version ${currentRedisPolicy.version} than target ${targetVersion}`
+                        }
                     }
-                }).catch(() => {});
+                ).catch(() => {});
 
                 return res.status(409).json({
                     success: false,
@@ -1632,14 +2552,22 @@ export const syncCanonicalPolicy = async (req, res) => {
                 Number(currentRedisPolicy.version) === targetVersion &&
                 String(currentRedisPolicy.contentHash || '') !== targetHash
             ) {
-                await AuditLog.findByIdAndUpdate(existingAudit._id, {
-                    $set: {
-                        status: 'failed',
-                        'metadata.syncPhase': 'FAILED',
-                        'metadata.redisSyncStatus': 'HASH_MISMATCH',
-                        'metadata.errorMessage': 'Version exists in Redis with divergent content hash'
+                stopReconHeartbeat();
+                await AuditLog.findOneAndUpdate(
+                    {
+                        _id: recoveryClaim._id,
+                        'metadata.leaseOwner': reconWorkerLease,
+                        'metadata.syncPhase': 'PUBLISHING'
+                    },
+                    {
+                        $set: {
+                            status: 'failed',
+                            'metadata.syncPhase': 'FAILED',
+                            'metadata.redisSyncStatus': 'HASH_MISMATCH',
+                            'metadata.errorMessage': 'Version exists in Redis with divergent content hash'
+                        }
                     }
-                }).catch(() => {});
+                ).catch(() => {});
 
                 return res.status(500).json({
                     success: false,
@@ -1651,50 +2579,13 @@ export const syncCanonicalPolicy = async (req, res) => {
             }
 
             // Case D: Redis has NOT been updated to target version yet (!currentRedisPolicy || currentRedisPolicy.version < targetVersion).
-            // Atomically claim the expired lease with a new unique leaseOwner token and leaseExpiresAt:
-            const newWorkerLease = crypto.randomUUID();
-            const newLeaseExpiresAt = new Date(Date.now() + LEASE_DURATION_MS);
-
-            const claim = await AuditLog.findOneAndUpdate(
-                {
-                    _id: existingAudit._id,
-                    $or: [
-                        { 'metadata.syncPhase': { $in: ['INTENT', 'FAILED', 'PENDING_RECONCILIATION'] } },
-                        {
-                            'metadata.syncPhase': 'PUBLISHING',
-                            $or: [
-                                { 'metadata.leaseExpiresAt': { $lte: new Date() } },
-                                { 'metadata.leaseExpiresAt': { $exists: false } }
-                            ]
-                        }
-                    ]
-                },
-                {
-                    $set: {
-                        'metadata.syncPhase': 'PUBLISHING',
-                        'metadata.leaseOwner': newWorkerLease,
-                        'metadata.leaseExpiresAt': newLeaseExpiresAt,
-                        'metadata.recoveryClaimedAt': new Date()
-                    },
-                    $inc: { 'metadata.recoveryAttempts': 1 }
-                },
-                { new: true }
-            );
-
-            if (!claim) {
-                // Another competing worker won the lease race!
-                return res.status(202).json({
-                    success: true,
-                    code: 'OPERATION_IN_PROGRESS',
-                    message: 'Manual canonical policy sync recovery is currently in progress by another worker',
-                    operationId: normalizedOpId,
-                    status: 'IN_PROGRESS'
-                });
-            }
-
-            // Perform safe publication to Redis as the authoritative lease owner
-            return executeRedisSyncAndFinalize(claim, newWorkerLease, true);
-        };
+            // Stop reconciliation heartbeat before delegating to executeRedisSyncAndFinalize (which runs its own heartbeat)
+            stopReconHeartbeat();
+            return await executeRedisSyncAndFinalize(recoveryClaim, reconWorkerLease, true);
+        } finally {
+            stopReconHeartbeat();
+        }
+    };
 
         // If an operation with the same correlationId already exists, evaluate reconciliation or idempotent result
         if (correlationId) {

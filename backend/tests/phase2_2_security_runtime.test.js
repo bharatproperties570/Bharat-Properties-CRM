@@ -83,7 +83,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
             const mmsModule = await import('mongodb-memory-server');
             MongoMemoryServer = mmsModule.MongoMemoryServer;
         } catch (err) {
-            console.error('⚠️  mongodb-memory-server unavailable', err);
+            console.error('[WARN] mongodb-memory-server unavailable', err);
             return;
         }
 
@@ -251,8 +251,21 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
 
     after(async () => {
         if (testServer) {
-            await new Promise((resolve) => testServer.close(resolve));
+            await new Promise((resolve) => {
+                if (typeof testServer.closeAllConnections === 'function') {
+                    testServer.closeAllConnections();
+                }
+                testServer.close(resolve);
+            });
         }
+        try {
+            const cacheModule = await import('../services/cache.service.js');
+            if (typeof cacheModule.closeCache === 'function') {
+                await cacheModule.closeCache();
+            } else if (cacheModule.default?.redis) {
+                await cacheModule.default.redis.quit().catch(() => {});
+            }
+        } catch {}
         if (mongoose.connection.readyState !== 0) {
             await mongoose.disconnect();
         }
