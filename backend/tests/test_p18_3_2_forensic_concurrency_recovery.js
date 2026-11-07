@@ -1204,6 +1204,103 @@ async function main() {
             assert.strictEqual(providerSendCalls.length, callsBefore, 'Provider MUST NOT be dispatched when resolution is ambiguous');
         });
 
+        await runTest('6.9 LeadModel.find() database error fails closed (QUERY_ERROR), prevents findOne fallback, and prevents dispatch', async () => {
+            const mobile = '+919875559999';
+            const lead = await Lead.create({ firstName: 'ErrorLead', lastName: 'Customer', mobile, status: 'New' });
+            const visit = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Error Test Visit',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: { confirmationStatus: 'PENDING' }
+            });
+
+            const originalFind = Lead.find;
+            const originalFindOne = Lead.findOne;
+            let findOneCalled = false;
+
+            Lead.find = function () {
+                return {
+                    then: function (_resolve, reject) {
+                        return Promise.reject(new Error('MongoNetworkTimeoutException: connection closed')).then(_resolve, reject);
+                    }
+                };
+            };
+            Lead.findOne = function (...args) {
+                findOneCalled = true;
+                return originalFindOne.apply(this, args);
+            };
+
+            const callsBefore = providerSendCalls.length;
+            let res;
+            try {
+                res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                    mobile,
+                    message: { text: 'Yes, Confirm' }
+                });
+            } finally {
+                Lead.find = originalFind;
+                Lead.findOne = originalFindOne;
+            }
+
+            assert.strictEqual(res.matched, false, 'Must not match on DB query error');
+            assert.strictEqual(res.success, false, 'Must fail closed');
+            assert.strictEqual(res.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+            assert.strictEqual(findOneCalled, false, 'LeadModel.findOne must NEVER be called after LeadModel.find error');
+            assert.strictEqual(providerSendCalls.length, callsBefore, 'Provider must NEVER be dispatched on DB query error');
+
+            const freshVisit = await Activity.findById(visit._id);
+            assert.strictEqual(freshVisit.details.customerConfirmed || false, false, 'Visit must remain unconfirmed');
+        });
+
+        await runTest('6.10 ActivityModel.find() database error fails closed (QUERY_ERROR) and prevents dispatch', async () => {
+            const mobile = '+919875559998';
+            const lead = await Lead.create({ firstName: 'ActErrorLead', lastName: 'Customer', mobile, status: 'New' });
+            const visit = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Act Error Test Visit',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: { confirmationStatus: 'PENDING' }
+            });
+
+            const originalFind = Activity.find;
+            Activity.find = function () {
+                return {
+                    sort: function () {
+                        return {
+                            limit: function () {
+                                return Promise.reject(new Error('MongoCursorTimeout: cursor expired during query'));
+                            }
+                        };
+                    }
+                };
+            };
+
+            const callsBefore = providerSendCalls.length;
+            let res;
+            try {
+                res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                    mobile,
+                    message: { text: 'Yes, Confirm' }
+                });
+            } finally {
+                Activity.find = originalFind;
+            }
+
+            assert.strictEqual(res.matched, false, 'Must not match on DB query error');
+            assert.strictEqual(res.success, false, 'Must fail closed');
+            assert.strictEqual(res.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+            assert.strictEqual(providerSendCalls.length, callsBefore, 'Provider must NEVER be dispatched on DB query error');
+
+            const freshVisit = await Activity.findById(visit._id);
+            assert.strictEqual(freshVisit.details.customerConfirmed || false, false, 'Visit must remain unconfirmed');
+        });
+
         console.log('\n============================================================');
         console.log(`Phase 18.3.2/18.3.3 Forensic Suite Results:`);
         console.log(`Passed: ${passedCount}, Failed: ${failedCount}`);

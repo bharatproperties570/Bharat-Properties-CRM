@@ -172,13 +172,18 @@ export class SiteVisitConfirmationService {
                 msgQuery.tenantId = tenantId;
             }
 
-            const matchedByMsg = await ActivityModel.findOne(msgQuery, null, sessionOpt);
-            if (matchedByMsg) {
-                return {
-                    activity: matchedByMsg,
-                    method: 'MESSAGE_CORRELATION',
-                    originalMessageId
-                };
+            try {
+                const matchedByMsg = await ActivityModel.findOne(msgQuery, null, sessionOpt);
+                if (matchedByMsg) {
+                    return {
+                        activity: matchedByMsg,
+                        method: 'MESSAGE_CORRELATION',
+                        originalMessageId
+                    };
+                }
+            } catch (msgErr) {
+                console.error(`[SiteVisitConfirmation] ActivityModel.findOne database error for originalMessageId ${originalMessageId}: ${msgErr.message}`);
+                return { activity: null, method: 'QUERY_ERROR', error: msgErr.message };
             }
         }
 
@@ -202,12 +207,11 @@ export class SiteVisitConfirmationService {
                         matchingLeads = found.map(l => (l && typeof l.toObject === 'function') ? l.toObject() : l);
                     }
                 } catch (findErr) {
-                    matchingLeads = [];
+                    console.error(`[SiteVisitConfirmation] LeadModel.find database error for mobile ${mobile}: ${findErr.message}`);
+                    return { activity: null, method: 'QUERY_ERROR', error: findErr.message };
                 }
-            }
-
-            // Fallback if LeadModel.find was not available/mocked or returned empty
-            if (matchingLeads.length === 0 && typeof LeadModel.findOne === 'function') {
+            } else if (typeof LeadModel.findOne === 'function') {
+                // Compatibility fallback ONLY where LeadModel.find is genuinely unavailable (e.g. minimal unit test mocks)
                 const leadQuery = { mobile: { $in: phoneVariants } };
                 if (tenantId) leadQuery.tenantId = tenantId;
                 try {
@@ -215,7 +219,10 @@ export class SiteVisitConfirmationService {
                     if (singleLead) {
                         matchingLeads = [(singleLead && typeof singleLead.toObject === 'function') ? singleLead.toObject() : singleLead];
                     }
-                } catch (_) {}
+                } catch (findOneErr) {
+                    console.error(`[SiteVisitConfirmation] LeadModel.findOne fallback database error for mobile ${mobile}: ${findOneErr.message}`);
+                    return { activity: null, method: 'QUERY_ERROR', error: findOneErr.message };
+                }
             }
 
             const leadIds = matchingLeads.map(l => l?._id).filter(Boolean);
@@ -225,45 +232,50 @@ export class SiteVisitConfirmationService {
             const foundVisits = new Map();
 
             if (typeof ActivityModel.find === 'function') {
-                // Check visits linked to any matching Lead
-                if (leadIds.length > 0) {
-                    const leadVisitQuery = {
-                        type: 'Site Visit',
-                        entityType: 'Lead',
-                        entityId: leadIds.length === 1 ? leadIds[0] : { $in: leadIds },
-                        status: { $in: ['Pending', 'Scheduled'] },
-                        dueDate: { $gte: yesterday }
-                    };
-                    if (tenantId) leadVisitQuery.tenantId = tenantId;
+                try {
+                    // Check visits linked to any matching Lead
+                    if (leadIds.length > 0) {
+                        const leadVisitQuery = {
+                            type: 'Site Visit',
+                            entityType: 'Lead',
+                            entityId: leadIds.length === 1 ? leadIds[0] : { $in: leadIds },
+                            status: { $in: ['Pending', 'Scheduled'] },
+                            dueDate: { $gte: yesterday }
+                        };
+                        if (tenantId) leadVisitQuery.tenantId = tenantId;
 
-                    const leadVisits = await ActivityModel.find(leadVisitQuery, null, sessionOpt)
+                        const leadVisits = await ActivityModel.find(leadVisitQuery, null, sessionOpt)
+                            .sort({ dueDate: 1 })
+                            .limit(5);
+
+                        if (Array.isArray(leadVisits)) {
+                            for (const v of leadVisits) {
+                                if (v && v._id) foundVisits.set(String(v._id), v);
+                            }
+                        }
+                    }
+
+                    // Check visits where customer is listed in participants
+                    const partQuery = {
+                        type: 'Site Visit',
+                        status: { $in: ['Pending', 'Scheduled'] },
+                        dueDate: { $gte: yesterday },
+                        'participants.mobile': { $in: phoneVariants }
+                    };
+                    if (tenantId) partQuery.tenantId = tenantId;
+
+                    const partVisits = await ActivityModel.find(partQuery, null, sessionOpt)
                         .sort({ dueDate: 1 })
                         .limit(5);
 
-                    if (Array.isArray(leadVisits)) {
-                        for (const v of leadVisits) {
+                    if (Array.isArray(partVisits)) {
+                        for (const v of partVisits) {
                             if (v && v._id) foundVisits.set(String(v._id), v);
                         }
                     }
-                }
-
-                // Check visits where customer is listed in participants
-                const partQuery = {
-                    type: 'Site Visit',
-                    status: { $in: ['Pending', 'Scheduled'] },
-                    dueDate: { $gte: yesterday },
-                    'participants.mobile': { $in: phoneVariants }
-                };
-                if (tenantId) partQuery.tenantId = tenantId;
-
-                const partVisits = await ActivityModel.find(partQuery, null, sessionOpt)
-                    .sort({ dueDate: 1 })
-                    .limit(5);
-
-                if (Array.isArray(partVisits)) {
-                    for (const v of partVisits) {
-                        if (v && v._id) foundVisits.set(String(v._id), v);
-                    }
+                } catch (actErr) {
+                    console.error(`[SiteVisitConfirmation] ActivityModel.find database error for mobile ${mobile}: ${actErr.message}`);
+                    return { activity: null, method: 'QUERY_ERROR', error: actErr.message };
                 }
             }
 
@@ -319,7 +331,8 @@ export class SiteVisitConfirmationService {
             return {
                 matched: false,
                 success: false,
-                reason: resolved.method || 'NO_ACTIVE_SITE_VISIT'
+                reason: resolved.method || 'NO_ACTIVE_SITE_VISIT',
+                ...(resolved.error ? { error: resolved.error } : {})
             };
         }
 
@@ -1038,7 +1051,11 @@ export class SiteVisitConfirmationService {
 
         const activity = resolved.activity;
         if (!activity) {
-            return { matched: false, reason: resolved.method || 'NO_ACTIVE_SITE_VISIT' };
+            return {
+                matched: false,
+                reason: resolved.method || 'NO_ACTIVE_SITE_VISIT',
+                ...(resolved.error ? { error: resolved.error } : {})
+            };
         }
 
         if (activity.status === 'Cancelled' || activity.status === 'Completed') {

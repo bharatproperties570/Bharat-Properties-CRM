@@ -278,6 +278,58 @@ async function runTests() {
             assert.strictEqual(providerInvoked, false, 'Provider must not be invoked on zero visits');
         });
 
+        await recordAsync('1.6 LeadModel.find() database error fails closed with QUERY_ERROR, prevents findOne fallback, and prevents dispatch', async () => {
+            Activity.findOne = () => createChainableQuery(null);
+            Lead.find = () => {
+                const q = createChainableQuery(null);
+                q.then = (_resolve, reject) => reject(new Error('Simulated Lead query timeout / DB connection loss'));
+                return q;
+            };
+
+            let findOneCalled = false;
+            Lead.findOne = () => {
+                findOneCalled = true;
+                return createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' });
+            };
+
+            let providerInvoked = false;
+            WhatsAppService.sendTemplate = async () => {
+                providerInvoked = true;
+                return { success: true };
+            };
+
+            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile: '+919876543210',
+                message: { text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(res.matched, false, 'Must not match on query error');
+            assert.strictEqual(res.success, false, 'Must fail closed');
+            assert.strictEqual(res.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+            assert.strictEqual(findOneCalled, false, 'LeadModel.findOne must NEVER be called after LeadModel.find database error');
+            assert.strictEqual(providerInvoked, false, 'WhatsApp template dispatch must NEVER be invoked on query error');
+        });
+
+        await recordAsync('1.7 LeadModel.find() returning empty array does NOT trigger LeadModel.findOne fallback', async () => {
+            Activity.findOne = () => createChainableQuery(null);
+            Lead.find = () => createChainableQuery([]); // Genuine empty result
+
+            let findOneCalled = false;
+            Lead.findOne = () => {
+                findOneCalled = true;
+                return createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' });
+            };
+            Activity.find = () => createChainableQuery([]);
+
+            const res = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
+                mobile: '+919876543210'
+            });
+
+            assert.strictEqual(res.activity, null);
+            assert.strictEqual(res.method, 'NO_ACTIVE_SITE_VISIT');
+            assert.strictEqual(findOneCalled, false, 'LeadModel.findOne must NEVER be invoked when LeadModel.find returns empty array');
+        });
+
         // =========================================================================
         // Finding 2: Resend API Authorization Tests (P0)
         // =========================================================================
