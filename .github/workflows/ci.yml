@@ -166,6 +166,11 @@ jobs:
           cd backend
           npm run test:authority-portal-acceptance
 
+      - name: Run Phase 4.5 Authority Data Ingestion & Operational Acceptance Tests
+        run: |
+          cd backend
+          npm run test:phase4.5-authority
+
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |
           cd backend
@@ -218,6 +223,7 @@ jobs:
           cd backend
           npm run test:authority-portal-redis
           npm run test:authority-portal-acceptance
+          npm run test:phase4.5d-authority
 
   build-frontend:
     name: Frontend Build Check

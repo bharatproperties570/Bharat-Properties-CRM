@@ -32,7 +32,8 @@ describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () 
     before(async () => {
         // Spin up a 1-node replica set supporting real MongoDB transactions
         replSet = await MongoMemoryReplSet.create({
-            replSet: { count: 1, storageEngine: 'wiredTiger' }
+            replSet: { count: 1, storageEngine: 'wiredTiger' },
+            instanceOpts: [{ launchTimeout: 60000 }]
         });
         const mongoUri = replSet.getUri();
         await mongoose.connect(mongoUri);

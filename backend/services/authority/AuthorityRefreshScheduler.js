@@ -27,10 +27,11 @@ export const DEFAULT_WEEKLY_CRON = '0 2 * * 0'; // Sunday 02:00 AM IST
 export const SCHEDULE_TIMEZONE = 'Asia/Kolkata';
 
 export class AuthorityRefreshScheduler {
-    constructor() {
+    constructor(options = {}) {
         this.scheduledTasks = new Map();
         this.isRunning = false;
-        this.timezone = SCHEDULE_TIMEZONE;
+        this.timezone = options.timezone || SCHEDULE_TIMEZONE;
+        this.cronAdapter = options.cronAdapter || cron;
     }
 
     /**
@@ -42,7 +43,7 @@ export class AuthorityRefreshScheduler {
 
         // Register default weekly cron in Asia/Kolkata timezone
         // The job itself evaluates source settings and fails closed if disabled
-        const task = cron.schedule(DEFAULT_WEEKLY_CRON, async () => {
+        const task = this.cronAdapter.schedule(DEFAULT_WEEKLY_CRON, async () => {
             await this.executeWeeklyCycle({ isScheduledTrigger: true });
         }, {
             scheduled: true,
