@@ -162,13 +162,31 @@ export const sendWhatsAppMessage = async (req, res, next) => {
         if (isBaileys) {
             console.log(`[SocialController] Routing WhatsApp directly via WhatsApp Web to: ${mobile}`);
             let outgoingText = message;
-            if (!outgoingText && templateId) {
+            let effectiveType = (type || 'text').toLowerCase();
+            let effectiveMediaUrl = mediaUrl || headerImageUrl || null;
+            let effectiveFilename = filename || null;
+
+            if (templateId) {
                 try {
                     const crmSettings = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
                     const localTemplates = crmSettings?.value || [];
                     const foundTpl = localTemplates.find(t => t.name === templateId || String(t.id) === String(templateId) || t._id === templateId);
                     if (foundTpl) {
-                        outgoingText = foundTpl.body || foundTpl.content || '';
+                        if (!outgoingText) {
+                            outgoingText = foundTpl.body || foundTpl.content || '';
+                        }
+                        // 🌟 Enterprise WhatsApp Web Media Header Resolution:
+                        // Extract template header media (IMAGE / VIDEO / DOCUMENT) if not explicitly overridden by request
+                        const tplHeaderType = (foundTpl.headerType || '').toUpperCase();
+                        const tplMediaUrl = foundTpl.headerMediaUrl || foundTpl.mediaUrl || foundTpl.headerFile?.url || (typeof foundTpl.headerFile?.data === 'string' ? foundTpl.headerFile.data : null);
+
+                        if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tplHeaderType) && tplMediaUrl) {
+                            if (!effectiveMediaUrl) {
+                                effectiveType = tplHeaderType.toLowerCase();
+                                effectiveMediaUrl = tplMediaUrl;
+                                effectiveFilename = foundTpl.headerFileName || foundTpl.headerFile?.name || `${effectiveType}_attachment`;
+                            }
+                        }
                     }
                 } catch (tplErr) {
                     console.warn('[SocialController] Could not resolve WhatsApp Web template:', tplErr.message);
@@ -177,6 +195,9 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             if (!outgoingText && Array.isArray(templateComponents) && templateComponents.length > 0) {
                 outgoingText = templateComponents.map(c => typeof c === 'string' ? c : c?.text || '').filter(Boolean).join('\n');
             }
+
+            // Normalize document type
+            if (effectiveType === 'pdf') effectiveType = 'document';
 
             // 🌟 Enterprise Interpolation for WhatsApp Web: Replace {{...}} before sending!
             if (outgoingText && outgoingText.includes('{{')) {
@@ -198,8 +219,9 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             }
 
             actualRenderedText = outgoingText || message || caption || '';
-            if (type !== 'text' && mediaUrl) {
-                result = await WhatsAppService.sendMedia(mobile, type, mediaUrl, outgoingText || caption, filename, { integrationId: baileysDoc._id.toString() });
+            if (effectiveType !== 'text' && effectiveMediaUrl) {
+                console.log(`[SocialController] Sending media via WhatsApp Web: Type=${effectiveType}, URL=${effectiveMediaUrl.substring(0, 80)}, Filename=${effectiveFilename}`);
+                result = await WhatsAppService.sendMedia(mobile, effectiveType, effectiveMediaUrl, outgoingText || caption || '', effectiveFilename, { integrationId: baileysDoc._id.toString() });
             } else {
                 result = await WhatsAppService.sendMessage(mobile, outgoingText || 'Hello', { integrationId: baileysDoc._id.toString() });
             }

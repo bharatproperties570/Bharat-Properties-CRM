@@ -357,12 +357,24 @@ async function dispatchSingleRecipientCore({
                         contextMap
                     );
                 }
-                waRes = await waService.sendMessage(recipient.mobile, text, { 
-                    integrationId,
-                    useBaileys: Boolean(isBaileys),
-                    provider: isBaileys ? 'BAILEYS' : 'META',
-                    channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
-                });
+                const broadcastMediaUrl = meta.mediaUrl || job.data?.mediaUrl || meta.headerMediaUrl || null;
+                const broadcastMediaType = (meta.mediaType || meta.headerType || 'image').toLowerCase();
+                const broadcastFilename = meta.filename || meta.headerFileName || 'media';
+                if (broadcastMediaUrl) {
+                    waRes = await waService.sendMedia(recipient.mobile, broadcastMediaType, broadcastMediaUrl, text, broadcastFilename, { 
+                        integrationId,
+                        useBaileys: Boolean(isBaileys),
+                        provider: isBaileys ? 'BAILEYS' : 'META',
+                        channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                    });
+                } else {
+                    waRes = await waService.sendMessage(recipient.mobile, text, { 
+                        integrationId,
+                        useBaileys: Boolean(isBaileys),
+                        provider: isBaileys ? 'BAILEYS' : 'META',
+                        channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                    });
+                }
             }
             primaryWaResult = {
                 channel: 'whatsapp', 

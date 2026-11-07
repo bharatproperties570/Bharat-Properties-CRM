@@ -1003,6 +1003,8 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
                         : (richPreviewText || undefined))
                     : undefined,
+                mediaUrl: channels.whatsapp && isBaileys ? (selectedWebTemplate?.headerMediaUrl || selectedWebTemplate?.mediaUrl || undefined) : undefined,
+                mediaType: channels.whatsapp && isBaileys ? (selectedWebTemplate?.headerType ? selectedWebTemplate.headerType.toLowerCase() : undefined) : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
                 // Omnichannel Template Payloads for SMS, RCS, and Email

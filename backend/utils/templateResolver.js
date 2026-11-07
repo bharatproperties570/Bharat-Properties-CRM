@@ -519,6 +519,9 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         resolvedBody,
         components,
         language: template.language || 'en_US',
+        headerType: template.headerType || 'NONE',
+        headerMediaUrl: template.headerMediaUrl || template.mediaUrl || template.headerFile?.url || (typeof template.headerFile?.data === 'string' ? template.headerFile.data : null) || undefined,
+        headerFileName: template.headerFileName || template.headerFile?.name || undefined,
         rcsTitle: channel === 'RCS' ? (template.name || '') : undefined,
         rcsActions: channel === 'RCS' ? (template.buttons || []) : undefined
     };

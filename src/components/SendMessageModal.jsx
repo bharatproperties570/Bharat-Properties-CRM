@@ -4,7 +4,7 @@ import { useTriggers } from '../context/TriggersContext';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import smsService from '../services/smsService';
 import whatsappService from '../services/whatsappService';
-import { systemSettingsAPI } from '../utils/api';
+import { api, systemSettingsAPI } from '../utils/api';
 import { whatsappTemplates as whatsappTemplatesConst, smsTemplates as smsTemplatesConst, rcsTemplates as rcsTemplatesConst } from '../constants/templates';
 import { renderValue } from '../utils/renderUtils';
 import { useUserContext } from '../context/UserContext';
@@ -157,24 +157,91 @@ const SendMessageModal = ({
     const { fireEvent } = useTriggers();
     const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
     const { currentUser } = useUserContext();
-    const [channel, setChannel] = useState('SMS'); // SMS, WHATSAPP, RCS
+    const [channel, setChannel] = useState(initialChannel || 'SMS'); // SMS, WHATSAPP, RCS
     const [recipients, setRecipients] = useState([]);
     const [properties, setProperties] = useState([]);
     const [recipientInput, setRecipientInput] = useState('');
 
     // Message Content States
     const [messageBody, setMessageBody] = useState('');
-    const [templateId, setTemplateId] = useState('');
+    const [templateId, setTemplateId] = useState(initialTemplateId || '');
     const [isTemplateModified, setIsTemplateModified] = useState(false);
 
     // RCS Specifics
     const [rcsTitle, setRcsTitle] = useState('');
     const [rcsActions, setRcsActions] = useState([]);
 
-    // Reference / Context (New Feature)
+    // Reference / Attachment State
+    const [attachmentMode, setAttachmentMode] = useState('upload'); // 'upload' | 'reference'
     const [referenceType, setReferenceType] = useState(''); // 'property', 'booking', 'invoice'
     const [selectedReference, setSelectedReference] = useState(null);
-    const [attachment, setAttachment] = useState(null); // { type: 'pdf'|'image'|'video', name: 'file.pdf', url: '...' }
+    const [attachment, setAttachment] = useState(null); // { type: 'pdf'|'image'|'video', name: 'file.pdf', url: '...', isFromTemplate?: boolean, isUploaded?: boolean }
+    const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+
+    const handleDirectMediaUpload = async (file) => {
+        if (!file) return;
+
+        const isImage = file.type.startsWith('image/');
+        const isVideo = file.type.startsWith('video/');
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+        let mediaType = 'document';
+        if (isImage) {
+            mediaType = 'image';
+            if (file.size > 16 * 1024 * 1024) {
+                toast.error("Image exceeds WhatsApp limit (Max 16MB).");
+                return;
+            }
+        } else if (isVideo) {
+            mediaType = 'video';
+            if (file.size > 16 * 1024 * 1024) {
+                toast.error("Video exceeds WhatsApp limit (Max 16MB MP4). Please compress or select a video under 16MB.");
+                return;
+            }
+        } else if (isPdf) {
+            mediaType = 'pdf';
+            if (file.size > 20 * 1024 * 1024) {
+                toast.error("Document exceeds limit (Max 20MB).");
+                return;
+            }
+        } else {
+            toast.error("Unsupported file type. Please upload JPG, PNG, WEBP, MP4, or PDF.");
+            return;
+        }
+
+        setIsUploadingMedia(true);
+        const toastId = toast.loading(`Uploading ${file.name}...`);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('entityType', 'Communication');
+            formData.append('entityName', recipients[0]?.name || 'WhatsAppDirect');
+
+            const res = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (res.data?.success) {
+                const uploadedUrl = res.data.url || res.data.downloadUrl;
+                const sizeStr = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+                setAttachment({
+                    type: mediaType,
+                    name: file.name,
+                    url: uploadedUrl,
+                    size: sizeStr,
+                    isUploaded: true
+                });
+                toast.success(`${mediaType.toUpperCase()} attached successfully!`, { id: toastId });
+            } else {
+                throw new Error(res.data?.error || 'Upload failed');
+            }
+        } catch (err) {
+            console.error("Direct media upload error:", err);
+            toast.error(`Media upload failed: ${err.message}`, { id: toastId });
+        } finally {
+            setIsUploadingMedia(false);
+        }
+    };
 
     // SMS Templates State
     const [smsTemplates, setSmsTemplates] = useState([]);
@@ -358,7 +425,7 @@ const SendMessageModal = ({
     };
 
     const isCurrentAccountBaileys = useMemo(() => {
-        const acc = whatsappAccounts.find(a => (a.id || a._id) === selectedWhatsAppAccount);
+        const acc = whatsappAccounts.find(a => (a.id || a._id) === selectedWhatsAppAccount) || whatsappAccounts.find(a => a.isDefault) || whatsappAccounts[0];
         return acc?.provider === 'BAILEYS' || acc?.connectionType === 'QR_SCANNER';
     }, [selectedWhatsAppAccount, whatsappAccounts]);
 
@@ -376,13 +443,14 @@ const SendMessageModal = ({
     }, [isCurrentAccountBaileys, whatsappTemplates]);
 
     useEffect(() => {
+        if (isLoadingWhatsApp || (whatsappTemplates || []).length === 0) return;
         if (channel === 'WHATSAPP' && templateId && templateId !== 'free_text') {
             const exists = filteredWhatsAppTemplates.some(t => t.name === templateId || String(t.id) === String(templateId));
             if (!exists) {
                 setTemplateId('free_text');
             }
         }
-    }, [channel, isCurrentAccountBaileys, filteredWhatsAppTemplates]);
+    }, [channel, isCurrentAccountBaileys, filteredWhatsAppTemplates, isLoadingWhatsApp, whatsappTemplates]);
 
     const handleChannelChange = (newChannel) => {
         if (newChannel === channel) return;
@@ -476,6 +544,21 @@ const SendMessageModal = ({
 
                 if (!targetTpl) return;
 
+                // 🖼️ Header Media Auto-Hydration for WhatsApp Templates
+                const tplHeaderType = (targetTpl.headerType || '').toUpperCase();
+                const tplMediaUrl = targetTpl.headerMediaUrl || targetTpl.mediaUrl || targetTpl.headerFile?.url;
+                if (channel === 'WHATSAPP' && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tplHeaderType) && tplMediaUrl) {
+                    setAttachment({
+                        type: tplHeaderType.toLowerCase(),
+                        name: targetTpl.headerFileName || targetTpl.headerFile?.name || `${targetTpl.name || 'template'}_header`,
+                        url: tplMediaUrl,
+                        isFromTemplate: true
+                    });
+                } else if (channel === 'WHATSAPP') {
+                    // If previous attachment was from template and new template has no media, clear it
+                    setAttachment(prev => (prev?.isFromTemplate ? null : prev));
+                }
+
                 const rawBody = targetTpl.body || targetTpl.content || '';
 
                 // ⚡ 1. Instant Client-Side Variable Interpolation (Named + Numbered Placeholders)
@@ -529,7 +612,27 @@ const SendMessageModal = ({
     }, [isOpen, templateId, channel, whatsappTemplates, filteredWhatsAppTemplates, isCurrentAccountBaileys, smsTemplates, recipients, properties, currentUser, variableRegistry]);
 
     const handleTemplateChange = (e) => {
-        setTemplateId(e.target.value);
+        const val = e.target.value;
+        setTemplateId(val);
+        if (!val || val === 'free_text') {
+            setAttachment(prev => (prev?.isFromTemplate ? null : prev));
+        } else {
+            const chosen = (filteredWhatsAppTemplates || []).find(t => t.name === val || String(t.id) === String(val))
+                || (whatsappTemplates || []).find(t => t.name === val || String(t.id) === String(val));
+            if (chosen && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes((chosen.headerType || '').toUpperCase())) {
+                const mediaUrl = chosen.headerMediaUrl || chosen.mediaUrl || chosen.headerFile?.url;
+                if (mediaUrl) {
+                    setAttachment({
+                        type: chosen.headerType.toLowerCase(),
+                        name: chosen.headerFileName || chosen.headerFile?.name || `${chosen.name}_header`,
+                        url: mediaUrl,
+                        isFromTemplate: true
+                    });
+                }
+            } else {
+                setAttachment(prev => (prev?.isFromTemplate ? null : prev));
+            }
+        }
     };
 
     const handleReferenceSelect = (type, id) => {
@@ -825,56 +928,168 @@ const SendMessageModal = ({
 
                     {/* 2.5 Reference / Attachment Selection */}
                     {channel !== 'SMS' && (
-                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#f0f9ff', borderRadius: '16px', border: '1px solid #bae6fd' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                <i className="fas fa-paperclip" style={{ color: '#0284c7' }}></i>
-                                <label style={{ ...labelStyle, marginBottom: 0, color: '#0369a1' }}>Attach Documents / Media</label>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '16px', marginBottom: attachment ? '16px' : '0' }}>
-                                <div style={{ flex: 1 }}>
-                                    <select
-                                        style={inputStyle}
-                                        value={referenceType}
-                                        onChange={(e) => {
-                                            setReferenceType(e.target.value);
-                                            setSelectedReference(null);
-                                            setAttachment(null);
+                        <div style={{ marginBottom: '28px', padding: '18px', backgroundColor: '#f0f9ff', borderRadius: '16px', border: '1px solid #bae6fd' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fas fa-paperclip" style={{ color: '#0284c7' }}></i>
+                                    <label style={{ ...labelStyle, marginBottom: 0, color: '#0369a1' }}>Attach Media / Documents</label>
+                                </div>
+                                {/* Switcher: Upload File vs CRM Reference */}
+                                <div style={{ display: 'flex', background: '#e0f2fe', borderRadius: '8px', padding: '2px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAttachmentMode('upload')}
+                                        style={{
+                                            border: 'none',
+                                            padding: '4px 12px',
+                                            borderRadius: '6px',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            background: attachmentMode === 'upload' ? '#0284c7' : 'transparent',
+                                            color: attachmentMode === 'upload' ? '#fff' : '#0369a1',
+                                            transition: 'all 0.15s ease'
                                         }}
                                     >
-                                        <option value="">-- Select Type --</option>
-                                        <option value="property">Property Brochure/Video</option>
-                                        <option value="booking">Booking Receipt</option>
-                                        <option value="invoice">Invoice (Signed)</option>
-                                    </select>
-                                </div>
-                                <div style={{ flex: 2 }}>
-                                    <select
-                                        style={inputStyle}
-                                        value={selectedReference?.id || ''}
-                                        onChange={(e) => handleReferenceSelect(referenceType, e.target.value)}
-                                        disabled={!referenceType}
+                                        <i className="fas fa-cloud-upload-alt" style={{ marginRight: '5px' }}></i> Upload File
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAttachmentMode('reference')}
+                                        style={{
+                                            border: 'none',
+                                            padding: '4px 12px',
+                                            borderRadius: '6px',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            background: attachmentMode === 'reference' ? '#0284c7' : 'transparent',
+                                            color: attachmentMode === 'reference' ? '#fff' : '#0369a1',
+                                            transition: 'all 0.15s ease'
+                                        }}
                                     >
-                                        <option value="">-- Select Item --</option>
-                                        {referenceType && dynamicReferences[referenceType].map(item => (
-                                            <option key={item.id} value={item.id}>
-                                                {item.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <i className="fas fa-building" style={{ marginRight: '5px' }}></i> CRM Records
+                                    </button>
                                 </div>
                             </div>
 
-                            {attachment && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#fff', borderRadius: '8px', border: '1px solid #e0f2fe' }}>
-                                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
-                                        <i className={`fas ${attachment.type === 'pdf' ? 'fa-file-pdf' : attachment.type === 'image' ? 'fa-image' : 'fa-video'}`} style={{ fontSize: '1.2rem' }}></i>
-                                    </div>
+                            {/* Mode 1: Direct File / Media Upload */}
+                            {attachmentMode === 'upload' && (
+                                <div style={{
+                                    position: 'relative',
+                                    border: '2px dashed #38bdf8',
+                                    borderRadius: '12px',
+                                    padding: '16px',
+                                    textAlign: 'center',
+                                    background: '#ffffff',
+                                    cursor: isUploadingMedia ? 'wait' : 'pointer'
+                                }}>
+                                    <input
+                                        type="file"
+                                        disabled={isUploadingMedia}
+                                        accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,application/pdf"
+                                        onChange={(e) => {
+                                            const file = e.target.files[0];
+                                            if (file) handleDirectMediaUpload(file);
+                                        }}
+                                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: isUploadingMedia ? 'wait' : 'pointer' }}
+                                    />
+                                    {isUploadingMedia ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '6px 0' }}>
+                                            <div className="spinner-border" style={{ width: '24px', height: '24px', color: '#0284c7', border: '3px solid #bae6fd', borderTopColor: '#0284c7', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></div>
+                                            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0369a1' }}>Uploading to WhatsApp storage...</span>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7', fontSize: '16px' }}>
+                                                <i className="fas fa-photo-video"></i>
+                                            </div>
+                                            <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0f172a' }}>
+                                                Drag & drop or click to upload Image, Video or PDF
+                                            </div>
+                                            <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                                Images ≤ 5MB (JPG/PNG) • Videos ≤ 16MB (MP4) • Documents ≤ 20MB (PDF)
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Mode 2: CRM References (Brochure / Booking Receipt / Invoice) */}
+                            {attachmentMode === 'reference' && (
+                                <div style={{ display: 'flex', gap: '12px' }}>
                                     <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{attachment.name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Ready to send • 2.4 MB</div>
+                                        <select
+                                            style={inputStyle}
+                                            value={referenceType}
+                                            onChange={(e) => {
+                                                setReferenceType(e.target.value);
+                                                setSelectedReference(null);
+                                                setAttachment(null);
+                                            }}
+                                        >
+                                            <option value="">-- Select Type --</option>
+                                            <option value="property">Property Brochure/Video</option>
+                                            <option value="booking">Booking Receipt</option>
+                                            <option value="invoice">Invoice (Signed)</option>
+                                        </select>
                                     </div>
-                                    <i className="fas fa-check-circle" style={{ color: '#10b981', fontSize: '1.2rem' }}></i>
+                                    <div style={{ flex: 2 }}>
+                                        <select
+                                            style={inputStyle}
+                                            value={selectedReference?.id || ''}
+                                            onChange={(e) => handleReferenceSelect(referenceType, e.target.value)}
+                                            disabled={!referenceType}
+                                        >
+                                            <option value="">-- Select Item --</option>
+                                            {referenceType && dynamicReferences[referenceType].map(item => (
+                                                <option key={item.id} value={item.id}>
+                                                    {item.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Attached Media Display Card */}
+                            {attachment && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#fff', borderRadius: '10px', border: '1px solid #bae6fd', marginTop: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        {attachment.type === 'image' && attachment.url && !attachment.url.startsWith('#') ? (
+                                            <img src={attachment.url} alt="Attached Preview" style={{ width: '42px', height: '42px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                        ) : (
+                                            <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
+                                                <i className={`fas ${attachment.type === 'pdf' ? 'fa-file-pdf' : attachment.type === 'image' ? 'fa-image' : 'fa-video'}`} style={{ fontSize: '1.2rem' }}></i>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {attachment.name}
+                                            </div>
+                                            <div style={{ fontSize: '0.72rem', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span>{attachment.size || 'Ready to send'}</span>
+                                                <span>•</span>
+                                                <span style={{ color: attachment.isFromTemplate ? '#8b5cf6' : '#10b981', fontWeight: 600 }}>
+                                                    {attachment.isFromTemplate ? 'Template Header Attached' : 'Attached Media'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setAttachment(null);
+                                            setSelectedReference(null);
+                                        }}
+                                        style={{
+                                            border: 'none', background: '#fee2e2', color: '#ef4444',
+                                            padding: '4px 10px', borderRadius: '6px', cursor: 'pointer',
+                                            fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px'
+                                        }}
+                                    >
+                                        <i className="fas fa-times"></i> Remove
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -955,10 +1170,11 @@ const SendMessageModal = ({
                                 )}
 
                                 <div style={{ marginBottom: '16px' }}>
-                                    <label style={labelStyle}>
+                                    <label htmlFor="whatsapp-template-select" style={labelStyle}>
                                         Select Template {isCurrentAccountBaileys ? '(Optional)' : ''}
                                     </label>
                                     <select
+                                        id="whatsapp-template-select"
                                         value={templateId}
                                         onChange={handleTemplateChange}
                                         style={inputStyle}
@@ -1259,13 +1475,21 @@ const SendMessageModal = ({
                                     {attachment && (
                                         <div style={{ margin: '4px', marginBottom: '8px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
                                             {attachment.type === 'image' ? (
-                                                <div style={{ height: '120px', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                                                    <i className="fas fa-image" style={{ fontSize: '2rem' }}></i>
-                                                </div>
+                                                attachment.url && !attachment.url.startsWith('#') ? (
+                                                    <img src={attachment.url} alt="Attached Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }} />
+                                                ) : (
+                                                    <div style={{ height: '120px', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                                                        <i className="fas fa-image" style={{ fontSize: '2rem' }}></i>
+                                                    </div>
+                                                )
                                             ) : attachment.type === 'video' ? (
-                                                <div style={{ height: '120px', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                                                    <i className="fas fa-play-circle" style={{ fontSize: '2rem' }}></i>
-                                                </div>
+                                                attachment.url && !attachment.url.startsWith('#') ? (
+                                                    <video src={attachment.url} controls style={{ width: '100%', maxHeight: '160px', background: '#000', display: 'block' }} />
+                                                ) : (
+                                                    <div style={{ height: '120px', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                                        <i className="fas fa-play-circle" style={{ fontSize: '2rem' }}></i>
+                                                    </div>
+                                                )
                                             ) : (
                                                 <div style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                     <div style={{ width: '32px', height: '32px', background: '#ffeded', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}>
@@ -1273,7 +1497,7 @@ const SendMessageModal = ({
                                                     </div>
                                                     <div style={{ flex: 1, overflow: 'hidden' }}>
                                                         <div style={{ fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{attachment.name}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>PDF • 1 Page</div>
+                                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>PDF Document • Attached</div>
                                                     </div>
                                                 </div>
                                             )}
