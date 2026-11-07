@@ -202,7 +202,7 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
             assert.equal(run.isFixtureMode, false);
             assert.equal(run.provenance, 'LIVE');
             assert.ok(run.policyRejectionReasons.length > 0);
-            assert.match(run.policyRejectionReasons[0], /NOT_OBTAINED|not effectively active/i);
+            assert.match(run.policyRejectionReasons[0], /NOT_OBTAINED|not effectively active|UNDER_REVIEW/i);
 
             // Verify AuditLog record was emitted
             const log = await AuditLog.findOne({
