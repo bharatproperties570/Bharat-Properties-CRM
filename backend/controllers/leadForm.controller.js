@@ -4,7 +4,7 @@ import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import OutboxEvent from "../models/OutboxEvent.js";
 import mongoose from "mongoose";
-import { enrichmentQueue } from "../src/queues/queueManager.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import jwt from "jsonwebtoken";
 
 // Helper to resolve lookup (Find or Create)
@@ -104,7 +104,7 @@ export const submitForm = async (req, res) => {
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });
 
         // 1. Map Form Data to Lead Model
-        let leadId = null;
+        let leadId = req.body?.leadId || req.query?.leadId || null;
         const urlParams = new URLSearchParams(sourceMeta?.search || "");
         const refToken = urlParams.get('ref');
 
@@ -179,53 +179,53 @@ export const submitForm = async (req, res) => {
         let staticFallbackUsed = false;
         
         if (leadId) {
-            lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true });
-            console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
-        } else {
-            const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
-            const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });
-            lead = result.lead;
-            isNewLead = true;
-            
-            // Standard engine handles initial distribution, but fallback to static setting if missing
-            if (!result.assignment && form.settings.autoAssignTo) {
-                lead = await Lead.findByIdAndUpdate(lead._id, {
-                    owner: form.settings.autoAssignTo,
-                    'assignment.assignedTo': form.settings.autoAssignTo,
-                    'assignment.method': 'Manual/Form-Static'
-                }, { new: true });
-                staticFallbackUsed = true;
-            }
-        }
+            // Update path: execute Lead mutation, site-visit activity (if applicable), and Outbox persistence inside ONE MongoDB transaction
+            await withMongoTransaction(async (session) => {
+                lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true, session });
+                if (!lead) {
+                    const notFoundErr = new Error(`Lead ${leadId} not found`);
+                    notFoundErr.status = 404;
+                    throw notFoundErr;
+                }
 
-        // 🚀 SMART ACTIVITY INTEGRATION: If Site Visit category, create Activity
-        if (form.category === 'site_visit') {
-            const Activity = mongoose.model('Activity');
-            const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
-            const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
-            
-            // Extract dynamic activity type if provided via URL (e.g. ?type=Meeting)
-            let activityType = 'Site Visit';
-            if (sourceMeta && sourceMeta.search) {
-                const searchParams = new URLSearchParams(sourceMeta.search);
-                if (searchParams.get('type')) activityType = searchParams.get('type');
-            }
-            
-            await Activity.create({
-                entityType: 'Lead',
-                entityId: lead._id,
-                type: activityType,
-                status: 'Pending',
-                subject: `🌐 ${activityType} Scheduled: ${form.name}`,
-                description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
-                                Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
-                dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
-                assignedTo: lead.owner || form.settings.autoAssignTo
+                // If Site Visit category, create Activity inside the same transaction
+                if (form.category === 'site_visit') {
+                    const Activity = mongoose.model('Activity');
+                    const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
+                    const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
+                    
+                    let activityType = 'Site Visit';
+                    if (sourceMeta && sourceMeta.search) {
+                        const searchParams = new URLSearchParams(sourceMeta.search);
+                        if (searchParams.get('type')) activityType = searchParams.get('type');
+                    }
+                    
+                    await Activity.create([{
+                        entityType: 'Lead',
+                        entityId: lead._id,
+                        type: activityType,
+                        status: 'Pending',
+                        subject: `🌐 ${activityType} Scheduled: ${form.name}`,
+                        description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
+                                        Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
+                        dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
+                        assignedTo: lead.owner || form.settings.autoAssignTo
+                    }], { session });
+                }
+
+                // 4. Trigger Engines -> Durable Background Outbox Event
+                await OutboxEvent.create([{
+                    eventType: 'LeadEnrichmentRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: lead._id,
+                    payload: { leadId: lead._id },
+                    tenantId: lead.tenantId,
+                    provenance: { source: 'PUBLIC_FORM', actorType: 'EXTERNAL' }
+                }], { session });
             });
-        }
+            console.log(`[FORM SUBMIT] Linked and updated existing lead: ${leadId}`);
 
-        // Apply legacy processing ONLY if it's an update (new leads are fully processed by LeadCreationEngine)
-        if (!isNewLead) {
+            // Non-transactional post-commit distribution and fallback assignment
             try {
                 const { distributeEntity } = await import("../src/utils/distributionEngine.js");
                 const assignment = await distributeEntity(lead, 'onWebCapture');
@@ -240,16 +240,47 @@ export const submitForm = async (req, res) => {
             } catch (distErr) {
                 console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
             }
+        } else {
+            // New lead creation path via protected LeadCreationEngine
+            const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+            const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });
+            lead = result.lead;
+            isNewLead = true;
+            
+            // Standard engine handles initial distribution, but fallback to static setting if missing
+            if (!result.assignment && form.settings.autoAssignTo) {
+                lead = await Lead.findByIdAndUpdate(lead._id, {
+                    owner: form.settings.autoAssignTo,
+                    'assignment.assignedTo': form.settings.autoAssignTo,
+                    'assignment.method': 'Manual/Form-Static'
+                }, { new: true });
+                staticFallbackUsed = true;
+            }
 
-            // 4. Trigger Engines -> Durable Background Outbox Event
-            await OutboxEvent.create({
-                eventType: 'LeadEnrichmentRequested',
-                aggregateType: 'Lead',
-                aggregateId: lead._id,
-                payload: { leadId: lead._id },
-                tenantId: lead.tenantId,
-                provenance: { source: 'PUBLIC_FORM', actorType: 'EXTERNAL' }
-            });
+            // SMART ACTIVITY INTEGRATION: If Site Visit category, create Activity
+            if (form.category === 'site_visit') {
+                const Activity = mongoose.model('Activity');
+                const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
+                const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
+                
+                let activityType = 'Site Visit';
+                if (sourceMeta && sourceMeta.search) {
+                    const searchParams = new URLSearchParams(sourceMeta.search);
+                    if (searchParams.get('type')) activityType = searchParams.get('type');
+                }
+                
+                await Activity.create({
+                    entityType: 'Lead',
+                    entityId: lead._id,
+                    type: activityType,
+                    status: 'Pending',
+                    subject: `🌐 ${activityType} Scheduled: ${form.name}`,
+                    description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
+                                    Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
+                    dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
+                    assignedTo: lead.owner || form.settings.autoAssignTo
+                });
+            }
         }
 
         // 3. Update Analytics

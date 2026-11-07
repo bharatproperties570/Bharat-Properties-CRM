@@ -31,6 +31,7 @@ import { processDomainEventJob } from '../src/workers/domainEventWorkerLogic.js'
 import { executeEffect } from '../src/workers/effectOrchestrator.js';
 import { processMarketingJob } from '../src/workers/marketingWorker.js';
 import { marketingQueue } from '../src/queues/queueManager.js';
+import whatsAppService from '../services/WhatsAppService.js';
 import withMongoTransaction from '../utils/withMongoTransaction.js';
 
 describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
@@ -394,6 +395,165 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
                 OutboxEvent.create = originalCreate;
             }
         });
+
+        it('1.9 Existing lead submitForm rolls back Lead mutation when OutboxEvent creation fails in transaction', async () => {
+            const form = await LeadForm.create({
+                name: 'Update Form Rollback',
+                slug: 'update-form-tx-fail',
+                isActive: true,
+                sections: [{
+                    title: 'Contact Information',
+                    fields: [
+                        { id: 'f1', mappingField: 'firstName', type: 'text', label: 'First Name', required: true },
+                        { id: 'f2', mappingField: 'mobile', type: 'text', label: 'Mobile', required: true },
+                        { id: 'f3', mappingField: 'notes', type: 'text', label: 'Notes', required: false }
+                    ]
+                }]
+            });
+
+            const existingLead = await Lead.create({
+                name: 'Original Lead',
+                firstName: 'OriginalName',
+                mobile: '9876543211',
+                notes: 'Original Notes',
+                source: 'Direct'
+            });
+
+            const initialSubmissions = form.analytics?.submissions || 0;
+
+            const originalCreate = OutboxEvent.create;
+            OutboxEvent.create = async () => {
+                throw new Error('SIMULATED_TRANSACTIONAL_OUTBOX_ERROR');
+            };
+
+            const req = createMockReq(
+                {
+                    leadId: existingLead._id.toString(),
+                    formData: { f1: 'MutatedName', f2: '9876543211', f3: 'Mutated Notes' }
+                },
+                { slug: 'update-form-tx-fail' }
+            );
+            const res = createMockRes();
+
+            try {
+                await submitForm(req, res);
+                assert.equal(res.statusCode, 500, 'Must return HTTP 500 on transaction abort');
+                assert.equal(res.data?.success, false);
+                assert.match(res.data?.error || res.data?.message, /SIMULATED_TRANSACTIONAL_OUTBOX_ERROR/);
+
+                // PROOF 1: Lead mutation was ROLLED BACK in MongoDB
+                const freshLead = await Lead.findById(existingLead._id);
+                assert.equal(freshLead.firstName, 'OriginalName', 'Lead.firstName must remain unmutated after rollback');
+                assert.equal(freshLead.notes, 'Original Notes', 'Lead.notes must remain unmutated after rollback');
+
+                // PROOF 2: No OutboxEvent was committed
+                const outboxCount = await OutboxEvent.countDocuments({
+                    aggregateId: existingLead._id,
+                    eventType: 'LeadEnrichmentRequested'
+                });
+                assert.equal(outboxCount, 0, 'No OutboxEvent must be committed on rolled back transaction');
+
+                // PROOF 3: Form analytics was NOT incremented on failed transaction
+                const freshForm = await LeadForm.findById(form._id);
+                assert.equal(freshForm.analytics.submissions, initialSubmissions, 'Form submissions must not increment on abort');
+            } finally {
+                OutboxEvent.create = originalCreate;
+            }
+        });
+
+        it('1.10 Successful existing lead submitForm commits Lead mutation and OutboxEvent together', async () => {
+            const form = await LeadForm.create({
+                name: 'Update Form Success',
+                slug: 'update-form-tx-success',
+                isActive: true,
+                sections: [{
+                    title: 'Contact Information',
+                    fields: [
+                        { id: 'f1', mappingField: 'firstName', type: 'text', label: 'First Name', required: true },
+                        { id: 'f2', mappingField: 'mobile', type: 'text', label: 'Mobile', required: true },
+                        { id: 'f3', mappingField: 'notes', type: 'text', label: 'Notes', required: false }
+                    ]
+                }]
+            });
+
+            const existingLead = await Lead.create({
+                name: 'Initial Lead',
+                firstName: 'InitialName',
+                mobile: '9876543212',
+                notes: 'Initial Notes',
+                source: 'Direct'
+            });
+
+            const initialSubmissions = form.analytics?.submissions || 0;
+
+            const req = createMockReq(
+                {
+                    leadId: existingLead._id.toString(),
+                    formData: { f1: 'CommittedName', f2: '9876543212', f3: 'Committed Notes' }
+                },
+                { slug: 'update-form-tx-success' }
+            );
+            const res = createMockRes();
+
+            await submitForm(req, res);
+            assert.equal(res.statusCode, 201, 'Must return HTTP 201 on success');
+            assert.equal(res.data?.success, true);
+            assert.equal(res.data?.leadId.toString(), existingLead._id.toString());
+
+            // PROOF 1: Lead mutation was COMMITTED
+            const freshLead = await Lead.findById(existingLead._id);
+            assert.equal(freshLead.firstName, 'CommittedName');
+            assert.equal(freshLead.notes, 'Committed Notes');
+
+            // PROOF 2: OutboxEvent was COMMITTED
+            const outbox = await OutboxEvent.findOne({
+                aggregateId: existingLead._id,
+                eventType: 'LeadEnrichmentRequested'
+            });
+            assert.ok(outbox, 'OutboxEvent must be committed alongside Lead');
+            assert.equal(outbox.aggregateType, 'Lead');
+            assert.equal(outbox.provenance?.source, 'PUBLIC_FORM');
+
+            // PROOF 3: Form analytics was incremented post-commit
+            const freshForm = await LeadForm.findById(form._id);
+            assert.equal(freshForm.analytics.submissions, initialSubmissions + 1);
+        });
+
+        it('1.11 New lead submitForm follows LeadCreationEngine contract and increments form analytics', async () => {
+            const form = await LeadForm.create({
+                name: 'New Lead Form',
+                slug: 'new-lead-form',
+                isActive: true,
+                sections: [{
+                    title: 'Contact Information',
+                    fields: [
+                        { id: 'f1', mappingField: 'firstName', type: 'text', label: 'First Name', required: true },
+                        { id: 'f2', mappingField: 'mobile', type: 'text', label: 'Mobile', required: true }
+                    ]
+                }]
+            });
+
+            const initialSubmissions = form.analytics?.submissions || 0;
+
+            const req = createMockReq(
+                { formData: { f1: 'NewCapturedLead', f2: '9876543219' } },
+                { slug: 'new-lead-form' }
+            );
+            const res = createMockRes();
+
+            await submitForm(req, res);
+            assert.equal(res.statusCode, 201, 'Must return HTTP 201 for new lead creation');
+            assert.equal(res.data?.success, true);
+            assert.ok(res.data?.leadId, 'Must return new lead ID');
+
+            const createdLead = await Lead.findById(res.data.leadId);
+            assert.ok(createdLead, 'Lead must be created by LeadCreationEngine');
+            assert.equal(createdLead.firstName, 'NewCapturedLead');
+            assert.equal(createdLead.mobile, '9876543219');
+
+            const freshForm = await LeadForm.findById(form._id);
+            assert.equal(freshForm.analytics.submissions, initialSubmissions + 1);
+        });
     });
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -530,6 +690,317 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
             const result = await processMarketingJob(mockJob);
             assert.equal(result.status, 'SKIPPED_DUPLICATE', 'Must return SKIPPED_DUPLICATE without calling provider');
             assert.equal(providerCalled, false, 'Provider must never be called');
+        });
+
+        it('2.3 Receipt database unavailable before dispatch: provider invocation count must remain strictly zero', async () => {
+            let providerCalled = 0;
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async () => {
+                providerCalled++;
+                return { success: true, messageId: 'wa_mock_msg' };
+            };
+
+            const originalClaimDispatch = MarketingDispatchReceipt.claimDispatch;
+            MarketingDispatchReceipt.claimDispatch = async () => {
+                const dbErr = new Error('RECEIPT_DB_UNAVAILABLE: Connection lost to receipt cluster');
+                dbErr.code = 'RECEIPT_DB_UNAVAILABLE';
+                throw dbErr;
+            };
+
+            const mockJob = {
+                id: 'test-fail-closed-db-job',
+                name: 'blast',
+                data: {
+                    channel: 'whatsapp',
+                    leads: [{ mobile: '9876543210', name: 'FailClosed Customer' }],
+                    message: 'Fail-closed verification'
+                },
+                log: async () => {}
+            };
+
+            try {
+                await assert.rejects(
+                    processMarketingJob(mockJob),
+                    /RECEIPT_DB_UNAVAILABLE/
+                );
+                assert.equal(providerCalled, 0, 'Downstream provider invocation count must remain strictly 0 when receipt DB is unavailable');
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+                MarketingDispatchReceipt.claimDispatch = originalClaimDispatch;
+            }
+        });
+
+        it('2.4 Two concurrent workers attempting the same recipient/channel dispatch: only one claim succeeds', async () => {
+            let providerInvocations = 0;
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async () => {
+                providerInvocations++;
+                return { success: true, messageId: 'wa_msg_race_test' };
+            };
+
+            const sharedKey = `rcpt_camp_concurrent_${Date.now()}_whatsapp_9876543299`;
+
+            try {
+                // Two concurrent workers execute claimDispatch in parallel for the exact same recipient dispatch key
+                const [worker1Claim, worker2Claim] = await Promise.all([
+                    MarketingDispatchReceipt.claimDispatch({
+                        dispatchKey: sharedKey,
+                        idempotencyKey: sharedKey,
+                        jobName: 'blast',
+                        channel: 'whatsapp',
+                        recipientMobile: '9876543299'
+                    }),
+                    MarketingDispatchReceipt.claimDispatch({
+                        dispatchKey: sharedKey,
+                        idempotencyKey: sharedKey,
+                        jobName: 'blast',
+                        channel: 'whatsapp',
+                        recipientMobile: '9876543299'
+                    })
+                ]);
+
+                // Exactly one worker must obtain canDispatch: true
+                const claims = [worker1Claim, worker2Claim];
+                const winningClaims = claims.filter(c => c.canDispatch === true);
+                const losingClaims = claims.filter(c => c.canDispatch === false);
+
+                assert.equal(winningClaims.length, 1, 'Exactly one concurrent worker must win the dispatch claim');
+                assert.equal(losingClaims.length, 1, 'The competing worker must lose the claim');
+                assert.match(losingClaims[0].status, /SKIPPED/);
+
+                // The winning worker executes provider call
+                if (winningClaims[0].canDispatch) {
+                    await whatsAppService.sendMessage('9876543299', 'Hello', { idempotencyKey: sharedKey });
+                    await MarketingDispatchReceipt.recordSuccess(sharedKey, { providerRef: 'wa_msg_race_test' });
+                }
+
+                assert.equal(providerInvocations, 1, 'Provider must be invoked exactly once');
+
+                // Verify receipt state in DB
+                const savedReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: sharedKey });
+                assert.ok(savedReceipt);
+                assert.equal(savedReceipt.status, 'COMPLETED');
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+            }
+        });
+
+        it('2.5 Worker crash after provider call: retry sees DISPATCHING/AMBIGUOUS and skips provider call', async () => {
+            let providerCallCount = 0;
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async () => {
+                providerCallCount++;
+                return { success: true, messageId: 'msg_worker_crash_test' };
+            };
+
+            const crashKey = `rcpt_crash_test_${Date.now()}_whatsapp_9876543288`;
+
+            try {
+                // Worker 1 claims dispatch
+                const claim1 = await MarketingDispatchReceipt.claimDispatch({
+                    dispatchKey: crashKey,
+                    idempotencyKey: crashKey,
+                    jobName: 'blast',
+                    channel: 'whatsapp',
+                    recipientMobile: '9876543288'
+                });
+                assert.equal(claim1.canDispatch, true);
+
+                // Provider accepts message
+                await whatsAppService.sendMessage('9876543288', 'Hello Crash Test', { idempotencyKey: crashKey });
+                assert.equal(providerCallCount, 1);
+
+                // Simulated worker crash BEFORE writing completion:
+                // Receipt remains in status 'DISPATCHING'
+                const inFlightReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: crashKey });
+                assert.equal(inFlightReceipt.status, 'DISPATCHING');
+
+                // Worker 2 (or BullMQ retry) attempts to process the exact same dispatch
+                const retryClaim = await MarketingDispatchReceipt.claimDispatch({
+                    dispatchKey: crashKey,
+                    idempotencyKey: crashKey,
+                    jobName: 'blast',
+                    channel: 'whatsapp',
+                    recipientMobile: '9876543288'
+                });
+
+                // RETRY MUST NOT DISPATCH: in-flight lease is active
+                assert.equal(retryClaim.canDispatch, false, 'Retry must NOT dispatch while active claim is present');
+                assert.equal(retryClaim.status, 'SKIPPED_IN_FLIGHT');
+
+                // Downstream provider call count remains strictly 1
+                assert.equal(providerCallCount, 1, 'Provider must NOT be called again after crash');
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+            }
+        });
+
+        it('2.6 Provider idempotency key is passed to WhatsAppService on template and message dispatch', async () => {
+            let capturedOptions = null;
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async (mobile, message, options) => {
+                capturedOptions = options;
+                return { success: true, messageId: 'wa_idemp_key_test' };
+            };
+
+            const testJobId = `job_idemp_check_${Date.now()}`;
+            const mockJob = {
+                id: testJobId,
+                name: 'blast',
+                data: {
+                    campaignId: 'camp_7788',
+                    channel: 'whatsapp',
+                    leads: [{ id: 'lead_42', mobile: '9876543277', name: 'Idemp Test User' }],
+                    message: 'Idempotency key check'
+                },
+                log: async () => {}
+            };
+
+            try {
+                const res = await processMarketingJob(mockJob);
+                assert.equal(res.sent, 1);
+                assert.ok(capturedOptions, 'Options must be passed to whatsAppService.sendMessage');
+                assert.ok(capturedOptions.idempotencyKey, 'idempotencyKey must be present in options');
+                assert.equal(capturedOptions.idempotencyKey, 'rcpt_camp_7788_whatsapp_lead_42');
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+            }
+        });
+
+        it('2.7 Unsupported provider idempotency or network drop leads to AMBIGUOUS and skips auto-resend', async () => {
+            let providerCallCount = 0;
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async () => {
+                providerCallCount++;
+                const err = new Error('connect ETIMEDOUT 157.240.22.53:443');
+                err.code = 'ETIMEDOUT';
+                throw err;
+            };
+
+            const testJobId = `job_timeout_check_${Date.now()}`;
+            const mockJob = {
+                id: testJobId,
+                name: 'blast',
+                data: {
+                    campaignId: 'camp_timeout_99',
+                    channel: 'whatsapp',
+                    leads: [{ id: 'lead_timeout_1', mobile: '9876543266', name: 'Timeout User' }],
+                    message: 'Timeout test'
+                },
+                log: async () => {}
+            };
+
+            try {
+                const res = await processMarketingJob(mockJob);
+                assert.equal(res.failed, 1);
+                assert.equal(providerCallCount, 1);
+
+                // Receipt transitioned to AMBIGUOUS
+                const recipientKey = 'rcpt_camp_timeout_99_whatsapp_lead_timeout_1';
+                const receipt = await MarketingDispatchReceipt.findOne({ dispatchKey: recipientKey });
+                assert.ok(receipt);
+                assert.equal(receipt.status, 'AMBIGUOUS', 'Network timeout must mark recipient status AMBIGUOUS');
+
+                // Retry attempt
+                const retryClaim = await MarketingDispatchReceipt.claimDispatch({
+                    dispatchKey: recipientKey,
+                    idempotencyKey: recipientKey,
+                    jobName: 'blast',
+                    channel: 'whatsapp',
+                    recipientMobile: '9876543266'
+                });
+
+                assert.equal(retryClaim.canDispatch, false, 'Ambiguous dispatch must not auto-resend');
+                assert.equal(retryClaim.status, 'AMBIGUOUS');
+                assert.equal(providerCallCount, 1, 'Provider must NOT be called on ambiguous retry');
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+            }
+        });
+
+        it('2.8 Receipt completion database failure throws RECEIPT_COMPLETION_FAILED and allows operator reconciliation', async () => {
+            let providerCallCount = 0;
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async () => {
+                providerCallCount++;
+                return { success: true, messageId: 'wa_msg_comp_fail' };
+            };
+
+            const compKey = `job_comp_fail_${Date.now()}`;
+            const originalRecordSuccess = MarketingDispatchReceipt.recordSuccess;
+            MarketingDispatchReceipt.recordSuccess = async (key, opts) => {
+                if (key === compKey) {
+                    const compErr = new Error('RECEIPT_COMPLETION_FAILED: Mongo cluster disk full');
+                    compErr.code = 'RECEIPT_COMPLETION_FAILED';
+                    throw compErr;
+                }
+                return originalRecordSuccess.call(MarketingDispatchReceipt, key, opts);
+            };
+
+            const mockJob = {
+                id: compKey,
+                name: 'blast',
+                data: {
+                    channel: 'whatsapp',
+                    leads: [{ mobile: '9876543255', name: 'Comp Fail User' }],
+                    message: 'Completion failure test'
+                },
+                log: async () => {}
+            };
+
+            try {
+                // Must throw and fail job rather than reporting clean success
+                await assert.rejects(
+                    processMarketingJob(mockJob),
+                    /RECEIPT_COMPLETION_FAILED/
+                );
+                assert.equal(providerCallCount, 1, 'Provider was invoked');
+
+                // Operator manually reconciles receipt after verifying delivery
+                const reconciled = await MarketingDispatchReceipt.reconcileAmbiguous(compKey, {
+                    resolution: 'CONFIRM_DELIVERED',
+                    operatorNotes: 'Verified delivered via provider webhook'
+                });
+                assert.equal(reconciled.status, 'COMPLETED');
+                assert.equal(reconciled.reconciliationStatus, 'CONFIRMED_DELIVERED');
+                assert.match(reconciled.reconciliationNotes, /Verified delivered via provider webhook/);
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+                MarketingDispatchReceipt.recordSuccess = originalRecordSuccess;
+            }
+        });
+
+        it('2.9 Genuinely failed provider call records FAILED status in receipt', async () => {
+            const originalSendMessage = whatsAppService.sendMessage;
+            whatsAppService.sendMessage = async () => {
+                return { success: false, error: 'Recipient phone number is invalid (not on WhatsApp)' };
+            };
+
+            const failJobId = `job_fail_check_${Date.now()}`;
+            const mockJob = {
+                id: failJobId,
+                name: 'blast',
+                data: {
+                    campaignId: 'camp_fail_11',
+                    channel: 'whatsapp',
+                    leads: [{ id: 'lead_invalid_1', mobile: '0000000000', name: 'Invalid Lead' }],
+                    message: 'Fail test'
+                },
+                log: async () => {}
+            };
+
+            try {
+                const res = await processMarketingJob(mockJob);
+                assert.equal(res.failed, 1);
+
+                const recipientKey = 'rcpt_camp_fail_11_whatsapp_lead_invalid_1';
+                const receipt = await MarketingDispatchReceipt.findOne({ dispatchKey: recipientKey });
+                assert.ok(receipt);
+                assert.equal(receipt.status, 'FAILED');
+                assert.match(receipt.lastError, /Recipient phone number is invalid/);
+            } finally {
+                whatsAppService.sendMessage = originalSendMessage;
+            }
         });
     });
 

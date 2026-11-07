@@ -1090,11 +1090,15 @@ export const processDomainEventJob = async (job) => {
                 jobId: deterministicJobId
             };
 
-            // Check if durable dispatch receipt already marked this dispatch as COMPLETED
+            // Check if durable dispatch receipt already marked this dispatch as COMPLETED, SENT, or AMBIGUOUS
             const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
             const existingReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: deterministicJobId });
-            if (existingReceipt && existingReceipt.status === 'COMPLETED') {
+            if (existingReceipt && (existingReceipt.status === 'COMPLETED' || existingReceipt.status === 'SENT')) {
                 console.log(`[DomainEventWorker] Skipping marketing dispatch ${deterministicJobId}: already COMPLETED in receipt.`);
+                break;
+            }
+            if (existingReceipt && existingReceipt.status === 'AMBIGUOUS') {
+                console.log(`[DomainEventWorker] Skipping marketing dispatch ${deterministicJobId}: in AMBIGUOUS state requiring operator reconciliation.`);
                 break;
             }
 

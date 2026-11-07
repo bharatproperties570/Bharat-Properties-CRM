@@ -318,7 +318,10 @@ async function dispatchSingleRecipientCore({
                     universalData
                 );
                 
-                waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { integrationId });
+                waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { 
+                    integrationId,
+                    idempotencyKey: `rcpt_${campaignId}_whatsapp_${recipient.mobile || recipient.id}`
+                });
                 text = `Template: ${templateId}`;
             } else {
                 if (baseTemplateText) {
@@ -359,6 +362,7 @@ async function dispatchSingleRecipientCore({
                 }
                 waRes = await waService.sendMessage(recipient.mobile, text, { 
                     integrationId,
+                    idempotencyKey: `rcpt_${campaignId}_whatsapp_${recipient.mobile || recipient.id}`,
                     useBaileys: Boolean(isBaileys),
                     provider: isBaileys ? 'BAILEYS' : 'META',
                     channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
@@ -661,42 +665,39 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
 // ── Job Processor ─────────────────────────────────────────────────────────────
 
 const processMarketingJob = async (job) => {
+    if (!job.updateProgress || typeof job.updateProgress !== 'function') {
+        job.updateProgress = async () => {};
+    }
+    if (!job.log || typeof job.log !== 'function') {
+        job.log = async () => {};
+    }
     await loadServices();
     const { name, data } = job;
     console.log(`[MarketingWorker] ▶ Processing job: ${name} (id=${job.id})`);
 
-    const dispatchKey = job.id ? String(job.id) : null;
+    const dispatchKey = job.id ? String(job.id) : (data?.eventId ? `mkt_${data.eventId}_${name}` : null);
     let receiptModel = null;
     if (dispatchKey) {
-        try {
-            const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
-            receiptModel = MarketingDispatchReceipt;
-            const existingReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey });
-            if (existingReceipt && existingReceipt.status === 'COMPLETED') {
-                console.log(`[MarketingWorker] Idempotency: Dispatch ${dispatchKey} was already COMPLETED. Skipping duplicate provider call.`);
-                if (typeof job.log === 'function') {
-                    await job.log(`Idempotency receipt: ${dispatchKey} already COMPLETED. Skipping.`);
-                }
-                return { status: 'SKIPPED_DUPLICATE', receiptId: existingReceipt._id };
+        const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
+        receiptModel = MarketingDispatchReceipt;
+        
+        // P1-B: Atomic conditional claim. Fail-closed: DB failure throws and prevents provider dispatch!
+        const claimResult = await MarketingDispatchReceipt.claimDispatch({
+            dispatchKey,
+            idempotencyKey: dispatchKey,
+            jobName: name,
+            channel: data?.channel || 'multi',
+            campaignId: data?.campaignId,
+            eventId: data?.eventId,
+            tenantId: data?.tenantId
+        });
+
+        if (!claimResult.canDispatch) {
+            console.log(`[MarketingWorker] Idempotency: Dispatch ${dispatchKey} cannot proceed (status=${claimResult.status}, reason=${claimResult.reason}). Skipping duplicate provider call.`);
+            if (typeof job.log === 'function') {
+                await job.log(`Idempotency receipt: ${dispatchKey} cannot proceed (${claimResult.status}). Skipping.`);
             }
-            await MarketingDispatchReceipt.updateOne(
-                { dispatchKey },
-                {
-                    $setOnInsert: {
-                        dispatchKey,
-                        jobName: name,
-                        tenantId: data?.tenantId,
-                        eventId: data?.eventId
-                    },
-                    $set: {
-                        status: 'DISPATCHING',
-                        dispatchedAt: new Date()
-                    }
-                },
-                { upsert: true }
-            );
-        } catch (receiptErr) {
-            console.warn(`[MarketingWorker] Receipt lookup/upsert warning for ${dispatchKey}:`, receiptErr.message);
+            return { status: claimResult.status, receiptId: claimResult.receipt?._id, reason: claimResult.reason };
         }
     }
 
@@ -718,6 +719,35 @@ const processMarketingJob = async (job) => {
             const recipient = leads[i]; // Standardized recipient from MarketingAudienceService
             const targetMobile = recipient.mobile;
             const targetEmail = recipient.email;
+            const campaignId = data.campaignId || job.data?.campaignId || job.id;
+            const recipientId = recipient.id || recipient._id || targetMobile || targetEmail || String(i);
+            const recipientIdempotencyKey = `rcpt_${campaignId}_${channel}_${recipientId}`;
+
+            // P1-B: Recipient-level durable safety boundary
+            const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
+            const rcptClaim = await MarketingDispatchReceipt.claimDispatch({
+                dispatchKey: recipientIdempotencyKey,
+                idempotencyKey: recipientIdempotencyKey,
+                jobName: name,
+                channel,
+                recipientMobile: targetMobile,
+                recipientEmail: targetEmail,
+                recipientId: String(recipientId),
+                campaignId: String(campaignId),
+                eventId: data?.eventId,
+                tenantId: data?.tenantId,
+                providerIdempotencyKey: recipientIdempotencyKey
+            });
+
+            if (!rcptClaim.canDispatch) {
+                console.log(`[MarketingWorker] Recipient dispatch ${recipientIdempotencyKey} skipped (status=${rcptClaim.status})`);
+                if (rcptClaim.status === 'SKIPPED_DUPLICATE') {
+                    sent++;
+                } else if (rcptClaim.status === 'AMBIGUOUS') {
+                    failed++;
+                }
+                continue;
+            }
 
             // 1. Resolve Variables
             let resolvedMessage = message || '';
@@ -813,13 +843,23 @@ const processMarketingJob = async (job) => {
                             }
                         });
 
-                        const res = await whatsAppService.sendTemplate(targetMobile, templateName, templateLang, finalComponents);
+                        const res = await whatsAppService.sendTemplate(
+                            targetMobile,
+                            templateName,
+                            templateLang,
+                            finalComponents,
+                            { idempotencyKey: recipientIdempotencyKey }
+                        );
                         success = res.success;
                         messageId = res.messageId;
                         if (!success) recipient.error = res.error;
                     } else {
                         // Standardize on sendMessage for plain text dispatches
-                        const res = await whatsAppService.sendMessage(targetMobile, resolvedMessage);
+                        const res = await whatsAppService.sendMessage(
+                            targetMobile,
+                            resolvedMessage,
+                            { idempotencyKey: recipientIdempotencyKey }
+                        );
                         success = res.success;
                         messageId = res.messageId;
                         if (!success) recipient.error = res.error;
@@ -880,7 +920,23 @@ const processMarketingJob = async (job) => {
                     ? `Sent via ${channel.toUpperCase()}\nMessage: ${resolvedMessage.substring(0, 100)}...`
                     : `Failed via ${channel.toUpperCase()}\nReason: ${recipient.error || 'Provider rejected dispatch'}`;
 
-                if (success) sent++; else failed++;
+                if (success) {
+                    sent++;
+                    // P1-B: Record recipient completion durably
+                    await MarketingDispatchReceipt.recordSuccess(recipientIdempotencyKey, {
+                        providerRef: messageId,
+                        result: { success: true, messageId },
+                        completedStatus: 'SENT'
+                    });
+                } else {
+                    failed++;
+                    const isAmbiguous = /timeout|econnreset|etimedout|ambiguous/i.test(recipient.error || '');
+                    await MarketingDispatchReceipt.recordFailure(recipientIdempotencyKey, {
+                        error: recipient.error || 'Provider rejected dispatch',
+                        isAmbiguous,
+                        reconciliationNotes: isAmbiguous ? 'Provider returned ambiguous outcome; delivery uncertain' : ''
+                    });
+                }
 
                 // 2. LOG ACTIVITY (The Pulse) 
                 // 🧠 SENIOR PROFESSIONAL FIX: Log activities for ALL recipients (including imports)
@@ -915,6 +971,15 @@ const processMarketingJob = async (job) => {
                 }
             } catch (err) {
                 failed++;
+                const isAmbiguous = /timeout|econnreset|etimedout|network/i.test(err.message);
+                try {
+                    const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
+                    await MarketingDispatchReceipt.recordFailure(recipientIdempotencyKey, {
+                        error: err.message,
+                        isAmbiguous,
+                        reconciliationNotes: isAmbiguous ? 'Provider dispatch threw network error or timeout; delivery outcome uncertain.' : ''
+                    });
+                } catch (_) {}
                 await job.log(`Worker EXCEPTION for ${recipient.name} (${targetMobile || targetEmail}): ${err.message}`);
                 
                 // 🧠 SENIOR PROFESSIONAL FIX: Log failures even for imports
@@ -935,7 +1000,9 @@ const processMarketingJob = async (job) => {
                 }
             }
 
-            await job.updateProgress(Math.round(((i + 1) / leads.length) * 100));
+            if (typeof job.updateProgress === 'function') {
+                await job.updateProgress(Math.round(((i + 1) / leads.length) * 100));
+            }
             // Adaptive cooldown to respect provider limits
             await new Promise(r => setTimeout(r, channel === 'wa' ? 300 : 150));
         }
@@ -1558,35 +1625,21 @@ if (name === 'bna-broadcast') {
         })();
 
         if (dispatchKey && receiptModel) {
-            try {
-                await receiptModel.updateOne(
-                    { dispatchKey },
-                    {
-                        $set: {
-                            status: 'COMPLETED',
-                            completedAt: new Date(),
-                            result: typeof result === 'object' ? result : { value: result }
-                        }
-                    }
-                );
-            } catch (compErr) {
-                console.warn(`[MarketingWorker] Receipt completion warning for ${dispatchKey}:`, compErr.message);
-            }
+            // P1-B: Record completion durably. If DB write fails, THROW so it is never reported as clean success!
+            await receiptModel.recordSuccess(dispatchKey, { result });
         }
 
         return result;
     } catch (err) {
-        if (dispatchKey && receiptModel) {
+        if (dispatchKey && receiptModel && err.code !== 'RECEIPT_COMPLETION_FAILED') {
             try {
-                await receiptModel.updateOne(
-                    { dispatchKey },
-                    {
-                        $set: {
-                            status: 'FAILED',
-                            lastError: err.message
-                        }
-                    }
-                );
+                await receiptModel.recordFailure(dispatchKey, {
+                    error: err.message,
+                    isAmbiguous: /timeout|econnreset|etimedout|ambiguous/i.test(err.message),
+                    reconciliationNotes: /timeout|econnreset|etimedout|ambiguous/i.test(err.message)
+                        ? 'Job execution failed with ambiguous network/timeout error; requires operator reconciliation'
+                        : ''
+                });
             } catch (_) {}
         }
         throw err;
