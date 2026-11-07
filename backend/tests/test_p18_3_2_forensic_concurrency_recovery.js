@@ -617,43 +617,41 @@ async function main() {
             assert.strictEqual(res.reason, 'VISIT_STALE');
         });
 
-        await runTest('4.3 Rejects cross-tenant reschedule callbacks (Tenant B cannot update Tenant A visit)', async () => {
-            const tenantA = new mongoose.Types.ObjectId();
-            const tenantB = new mongoose.Types.ObjectId();
-
+        await runTest('4.3 Single-organization reschedule callback updates visit and audit trail without tenant requirement', async () => {
             const lead = await Lead.create({
-                tenantId: tenantA,
-                firstName: 'TenantA', lastName: 'Customer',
+                firstName: 'SingleOrg', lastName: 'Customer',
                 mobile: '+919871111111',
                 status: 'New'
             });
 
             const activity = await Activity.create({
-                tenantId: tenantA,
                 type: 'Site Visit', subject: 'Site Visit Consultation',
                 entityType: 'Lead',
                 entityId: lead._id,
                 status: 'Pending',
                 dueDate: new Date(Date.now() + 24 * 3600 * 1000),
                 details: {
-                    waScheduleMessageId: 'wamid.tenantA.invitation'
+                    waScheduleMessageId: 'wamid.singleorg.invitation'
                 }
             });
 
-            // Inbound callback with Tenant B scope attempting to reschedule Tenant A's message
+            // Inbound callback in single-organization mode without tenantId
             const res = await SiteVisitConfirmationService.handleRescheduleCallback({
                 mobile: '+919871111111',
-                originalMessageId: 'wamid.tenantA.invitation',
-                message: { context: { id: 'wamid.tenantA.invitation' } },
-                tenantId: tenantB.toString(),
+                originalMessageId: 'wamid.singleorg.invitation',
+                message: { id: 'wamid.resched.reply', context: { id: 'wamid.singleorg.invitation' } },
                 text: 'reschedule'
             });
 
-            assert.strictEqual(res.matched, false);
-            assert.strictEqual(res.reason, 'NONE');
+            assert.strictEqual(res.matched, true);
+            assert.strictEqual(res.success, true);
+            assert.strictEqual(res.confirmationStatus, 'RESCHEDULE_REQUESTED');
 
-            const unmodified = await Activity.findById(activity._id);
-            assert.strictEqual(unmodified.details.rescheduleRequested, undefined);
+            const updated = await Activity.findById(activity._id);
+            assert.strictEqual(updated.details.rescheduleRequested, true);
+            assert.strictEqual(updated.details.confirmationStatus, 'RESCHEDULE_REQUESTED');
+            const hasAudit = updated.details.auditHistory?.some(a => a.action === 'CUSTOMER_RESCHEDULE_REQUESTED');
+            assert.strictEqual(hasAudit, true);
         });
 
         console.log('\n--- Section 5: Phase 18.3.3 Lease Fencing & Production Wiring ---');
@@ -683,9 +681,11 @@ async function main() {
                 }
             });
 
-            // Worker A starts dispatch with very short lease (50ms) and slow provider (300ms)
+            // Worker A starts dispatch with very short lease (50ms) and slow provider
             let workerAStartedSend;
             const workerAInFlight = new Promise(resolve => { workerAStartedSend = resolve; });
+            let releaseWorkerA;
+            const workerAWaitSignal = new Promise(resolve => { releaseWorkerA = resolve; });
 
             // Temporarily intercept sendTemplate
             const originalSend = WhatsAppService.sendTemplate;
@@ -694,8 +694,8 @@ async function main() {
                 if (firstCall) {
                     firstCall = false;
                     workerAStartedSend();
-                    // Worker A: Delay 300ms
-                    await new Promise(r => setTimeout(r, 300));
+                    // Worker A: Wait until Worker B completes and releases it
+                    await workerAWaitSignal;
                     return {
                         success: true,
                         messageId: 'wamid.workerA.late.999',
@@ -739,7 +739,8 @@ async function main() {
             assert.strictEqual(workerBResult.messageId, 'wamid.workerB.winner.111');
             assert.strictEqual(workerBResult.dispatchStatus, 'ACCEPTED');
 
-            // Now wait for Worker A's late HTTP call to finally complete
+            // Now release Worker A's late HTTP call to finally complete
+            releaseWorkerA();
             const workerAResult = await workerAExecution;
 
             // Worker A MUST BE FENCED OUT!
@@ -783,10 +784,12 @@ async function main() {
             const originalSend = WhatsAppService.sendTemplate;
             let workerAStartedSend;
             const workerAInFlight = new Promise(resolve => { workerAStartedSend = resolve; });
+            let releaseWorkerA52;
+            const workerAWaitSignal52 = new Promise(resolve => { releaseWorkerA52 = resolve; });
 
             WhatsAppService.sendTemplate = async () => {
                 workerAStartedSend();
-                await new Promise(r => setTimeout(r, 250));
+                await workerAWaitSignal52;
                 return { success: true, messageId: 'wamid.workerA.late', status: 'ACCEPTED' };
             };
 
@@ -813,7 +816,8 @@ async function main() {
                 }
             });
 
-            // Wait for Worker A to finish
+            // Release Worker A to finish and attempt write
+            releaseWorkerA52();
             const workerARes = await workerAExecution;
             assert.strictEqual(workerARes.stale, true, 'Worker A must be flagged as stale');
             assert.strictEqual(workerARes.dispatchStatus, 'FENCED_OUT', 'Worker A must be FENCED_OUT');

@@ -128,98 +128,29 @@ export class SiteVisitConfirmationService {
     }
 
     /**
-     * Derives trusted tenant identity exclusively from verified server-side configuration.
-     * Never trusts customer text or unauthenticated client request headers.
-     * Fails closed (returns null) if tenant is missing or ambiguous.
+     * Resolves trusted organization / tenant identity if available from verified middleware.
+     * In single-organization mode, returns null without blocking callback execution.
      */
     static async resolveTrustedWebhookTenant({ phoneNumberId = null, wabaId = null, req = null } = {}) {
-        // 1. If upstream verified middleware (e.g. webhookAttribution.middleware) already validated HMAC & tenant
         if (req?.resolvedTenantId) {
             return String(req.resolvedTenantId);
         }
         if (req?.webhookAttribution?.tenantId) {
             return String(req.webhookAttribution.tenantId);
         }
-
-        // 2. Query TenantWebhookConfig by phoneNumberId / wabaId
-        const TenantWebhookConfigModel = mongoose.models.TenantWebhookConfig || (await import('../../../models/TenantWebhookConfig.js').then(m => m.default).catch(() => null));
-        if (TenantWebhookConfigModel && typeof TenantWebhookConfigModel.find === 'function') {
-            if (phoneNumberId) {
-                const configs = await TenantWebhookConfigModel.find({
-                    'providerConfig.phoneNumberId': String(phoneNumberId),
-                    isActive: true
-                }).lean();
-                if (configs.length === 1) return String(configs[0].tenantId);
-                if (configs.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple TenantWebhookConfigs for phoneNumberId ${phoneNumberId}`);
-                    return null; // Fail closed!
-                }
-            }
-            if (wabaId) {
-                const configs = await TenantWebhookConfigModel.find({
-                    'providerConfig.wabaId': String(wabaId),
-                    isActive: true
-                }).lean();
-                if (configs.length === 1) return String(configs[0].tenantId);
-                if (configs.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple TenantWebhookConfigs for wabaId ${wabaId}`);
-                    return null; // Fail closed!
-                }
-            }
-        }
-
-        // 3. Query WhatsAppIntegration by phoneNumberId / wabaId
-        const WhatsAppIntegrationModel = mongoose.models.WhatsAppIntegration || (await import('../../../models/WhatsAppIntegration.js').then(m => m.default).catch(() => null));
-        if (WhatsAppIntegrationModel && typeof WhatsAppIntegrationModel.find === 'function') {
-            if (phoneNumberId) {
-                const integrations = await WhatsAppIntegrationModel.find({
-                    phoneNumberId: String(phoneNumberId),
-                    status: { $ne: 'REVOKED' }
-                }).lean();
-                if (integrations.length === 1) {
-                    const tId = integrations[0].organizationId || integrations[0].tenantId;
-                    if (tId) return String(tId);
-                }
-                if (integrations.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple WhatsAppIntegrations for phoneNumberId ${phoneNumberId}`);
-                    return null; // Fail closed!
-                }
-            }
-            if (wabaId) {
-                const integrations = await WhatsAppIntegrationModel.find({
-                    wabaId: String(wabaId),
-                    status: { $ne: 'REVOKED' }
-                }).lean();
-                if (integrations.length === 1) {
-                    const tId = integrations[0].organizationId || integrations[0].tenantId;
-                    if (tId) return String(tId);
-                }
-                if (integrations.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous tenant mapping: Multiple WhatsAppIntegrations for wabaId ${wabaId}`);
-                    return null; // Fail closed!
-                }
-            }
-        }
-
         return null;
     }
 
     /**
-     * Resolves the target Site Visit activity for an inbound customer reply.
-     * Enforces strict tenant scope and unambiguous matching:
-     * - Tenant scope is mandatory. If tenantId is not provided, fails closed.
-     * - Precedence 1: Outbound WAMID correlation (message.context.id) scoped to tenant.
+     * Resolves the target Site Visit activity for an inbound customer reply:
+     * - Precedence 1: Outbound WAMID correlation (message.context.id).
      * - Precedence 2: Customer phone number resolving active Lead and their upcoming Site Visit.
      *   * If multiple upcoming visits exist, FAILS CLOSED to prevent misconfirmation.
      * - Precedence 3: Participant phone number matching.
      *   * If multiple upcoming visits exist, FAILS CLOSED.
+     * Supports optional tenantId scoping if provided; operates in single-organization mode by default.
      */
     static async resolveSiteVisitForCallback({ mobile, originalMessageId = null, tenantId = null, session = null }) {
-        if (!tenantId) {
-            console.warn('[SiteVisitConfirmation] Callback rejected: Tenant scope is required for all callback resolutions.');
-            return { activity: null, method: 'TENANT_SCOPE_REQUIRED', error: 'TENANT_SCOPE_REQUIRED' };
-        }
-
         const ActivityModel = mongoose.models.Activity || Activity;
         const LeadModel = mongoose.models.Lead || Lead;
         const sessionOpt = session ? { session } : undefined;
@@ -228,7 +159,6 @@ export class SiteVisitConfirmationService {
         if (originalMessageId && typeof ActivityModel.findOne === 'function') {
             const msgQuery = {
                 type: 'Site Visit',
-                tenantId,
                 status: { $in: ['Pending', 'Scheduled'] },
                 $or: [
                     { 'details.waScheduleMessageId': originalMessageId },
@@ -238,6 +168,9 @@ export class SiteVisitConfirmationService {
                     { 'details.journeyMessageId': originalMessageId }
                 ]
             };
+            if (tenantId) {
+                msgQuery.tenantId = tenantId;
+            }
 
             const matchedByMsg = await ActivityModel.findOne(msgQuery, null, sessionOpt);
             if (matchedByMsg) {
@@ -250,13 +183,14 @@ export class SiteVisitConfirmationService {
         }
 
         // ── Precedence 2: Customer phone number resolving Lead & Site Visit ──
-        // Only permitted when exactly one unambiguous upcoming visit exists in tenant
+        // Only permitted when exactly one unambiguous upcoming visit exists
         if (mobile) {
             const phoneVariants = getPhoneVariants(mobile);
 
             let lead = null;
             if (typeof LeadModel.findOne === 'function') {
-                const leadQuery = { mobile: { $in: phoneVariants }, tenantId };
+                const leadQuery = { mobile: { $in: phoneVariants } };
+                if (tenantId) leadQuery.tenantId = tenantId;
                 lead = await LeadModel.findOne(leadQuery, null, sessionOpt);
                 if (lead && typeof lead.toObject === 'function') lead = lead.toObject();
                 else if (lead && typeof lead.lean === 'function') lead = await lead.lean();
@@ -265,20 +199,20 @@ export class SiteVisitConfirmationService {
             if (lead && lead._id && typeof ActivityModel.find === 'function') {
                 const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
                 const leadVisitQuery = {
-                    tenantId,
                     type: 'Site Visit',
                     entityType: 'Lead',
                     entityId: lead._id,
                     status: { $in: ['Pending', 'Scheduled'] },
                     dueDate: { $gte: yesterday }
                 };
+                if (tenantId) leadVisitQuery.tenantId = tenantId;
 
                 const matchingVisits = await ActivityModel.find(leadVisitQuery, null, sessionOpt)
                     .sort({ dueDate: 1 })
                     .limit(2);
 
                 if (matchingVisits.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Lead ${lead._id} has ${matchingVisits.length} upcoming Site Visits in tenant ${tenantId}. Failing closed.`);
+                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Lead ${lead._id} has ${matchingVisits.length} upcoming Site Visits. Failing closed.`);
                     return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
                 }
 
@@ -294,18 +228,18 @@ export class SiteVisitConfirmationService {
             // ── Precedence 3: Participants phone matching ──
             if (typeof ActivityModel.find === 'function') {
                 const partQuery = {
-                    tenantId,
                     type: 'Site Visit',
                     status: { $in: ['Pending', 'Scheduled'] },
                     'participants.mobile': { $in: phoneVariants }
                 };
+                if (tenantId) partQuery.tenantId = tenantId;
 
                 const partVisits = await ActivityModel.find(partQuery, null, sessionOpt)
                     .sort({ dueDate: 1 })
                     .limit(2);
 
                 if (partVisits.length > 1) {
-                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Multiple participant Site Visits found for ${mobile} in tenant ${tenantId}. Failing closed.`);
+                    console.warn(`[SiteVisitConfirmation] Ambiguous resolution: Multiple participant Site Visits found for ${mobile}. Failing closed.`);
                     return { activity: null, method: 'AMBIGUOUS_MULTIPLE_VISITS' };
                 }
 
@@ -325,7 +259,7 @@ export class SiteVisitConfirmationService {
     /**
      * Handles customer confirmation callback when "Yes, Confirm" is clicked.
      * Enforces atomic CAS claim to prevent race conditions:
-     * 1. Resolves visit with mandatory tenant scope.
+     * 1. Resolves visit reliably in single-organization mode (optional tenantId scoping).
      * 2. Checks active status (rejects Cancelled or Completed visits).
      * 3. Atomically claims confirmation event in DB before dispatching template.
      * 4. Persists customer confirmation independently from delivery.
@@ -334,15 +268,6 @@ export class SiteVisitConfirmationService {
      */
     static async handleConfirmationCallback({ mobile, message = {}, originalMessageId = null, tenantId = null, text = '', session = null }) {
         const traceId = crypto.randomBytes(6).toString('hex');
-        
-        if (!tenantId) {
-            console.warn(`[SiteVisitConfirmation][${traceId}] Callback rejected: Tenant scope is required.`);
-            return {
-                matched: false,
-                success: false,
-                reason: 'TENANT_SCOPE_REQUIRED'
-            };
-        }
 
         const resolved = await this.resolveSiteVisitForCallback({
             mobile,
@@ -353,7 +278,7 @@ export class SiteVisitConfirmationService {
 
         const activity = resolved.activity;
         if (!activity) {
-            console.warn(`[SiteVisitConfirmation][${traceId}] No unique pending Site Visit activity found for customer ${mobile} in tenant ${tenantId} (Method: ${resolved.method})`);
+            console.warn(`[SiteVisitConfirmation][${traceId}] No unique pending Site Visit activity found for customer ${mobile} (Method: ${resolved.method})`);
             return {
                 matched: false,
                 success: false,
@@ -394,10 +319,10 @@ export class SiteVisitConfirmationService {
         const claimToken = incomingMsgId || `claim_${activity._id}_${Date.now()}`;
         const claimFilter = {
             _id: activity._id,
-            tenantId,
             status: { $in: ['Pending', 'Scheduled'] },
             'details.customerConfirmed': { $ne: true }
         };
+        if (tenantId) claimFilter.tenantId = tenantId;
 
         const claimUpdate = {
             $set: {
@@ -422,7 +347,7 @@ export class SiteVisitConfirmationService {
                         messageId: incomingMsgId,
                         originalMessageId: originalMessageId || message?.context?.id || null,
                         traceId,
-                        tenantId
+                        ...(tenantId ? { tenantId } : {})
                     }
                 }
             }
@@ -1053,18 +978,10 @@ export class SiteVisitConfirmationService {
     }
 
     /**
-     * Handles customer request to reschedule with strict tenant scope, verified intent, and stale checks.
+     * Handles customer request to reschedule with verified intent and stale checks.
+     * Operates in single-organization mode with optional tenantId scoping.
      */
     static async handleRescheduleCallback({ mobile, message = {}, text = '', tenantId = null, session = null }) {
-        if (!tenantId) {
-            console.warn('[SiteVisitConfirmation] Reschedule callback rejected: Tenant scope is required.');
-            return {
-                matched: false,
-                success: false,
-                reason: 'TENANT_SCOPE_REQUIRED'
-            };
-        }
-
         // Verify that the inbound message represents a verified reschedule intent
         if (!this.isRescheduleReply(text, message)) {
             console.warn('[SiteVisitConfirmation] Reschedule callback rejected: Unverified reschedule intent or conversational text.');

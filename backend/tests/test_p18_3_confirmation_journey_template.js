@@ -153,112 +153,86 @@ async function runTests() {
 
     try {
         // =========================================================================
-        // Finding 1: Tenant Isolation Tests (P0)
+        // Section 1: Single-Organization WhatsApp Callbacks & Resolution (P0)
         // =========================================================================
-        console.log('--- Finding 1: Tenant Isolation (P0) ---');
+        console.log('--- Section 1: Single-Organization WhatsApp Callbacks (P0) ---');
 
-        await recordAsync('1.1 Fails closed when tenant scope is missing or unmapped', async () => {
-            // Missing tenant scope
-            const res = await SiteVisitConfirmationService.handleConfirmationCallback({
-                mobile: '+919876543210',
-                message: { id: 'wamid.123', text: 'Yes, Confirm' },
-                tenantId: null // Missing!
-            });
-            assert.strictEqual(res.matched, false);
-            assert.strictEqual(res.reason, 'TENANT_SCOPE_REQUIRED');
-
-            // Reschedule callback missing tenant
-            const resch = await SiteVisitConfirmationService.handleRescheduleCallback({
-                mobile: '+919876543210',
-                text: 'reschedule',
-                tenantId: null
-            });
-            assert.strictEqual(resch.matched, false);
-            assert.strictEqual(resch.reason, 'TENANT_SCOPE_REQUIRED');
-        });
-
-        await recordAsync('1.2 Isolates same customer mobile number across two different tenants', async () => {
-            const tenantA = new mongoose.Types.ObjectId().toString();
-            const tenantB = new mongoose.Types.ObjectId().toString();
-
-            const visitA = {
+        await recordAsync('1.1 Single-organization WhatsApp confirmation succeeds without tenantId', async () => {
+            const visit = {
                 _id: new mongoose.Types.ObjectId(),
-                tenantId: tenantA,
                 type: 'Site Visit',
                 status: 'Scheduled',
-                details: { customerConfirmed: false, auditHistory: [] },
-                participants: [{ mobile: '+919876543210', name: 'Vikram' }]
-            };
-            const visitB = {
-                _id: new mongoose.Types.ObjectId(),
-                tenantId: tenantB,
-                type: 'Site Visit',
-                status: 'Scheduled',
-                details: { customerConfirmed: false, auditHistory: [] },
+                details: {
+                    waScheduleMessageId: 'wamid.singleorg.schedule',
+                    customerConfirmed: false,
+                    auditHistory: []
+                },
                 participants: [{ mobile: '+919876543210', name: 'Vikram' }]
             };
 
-            // Mock DB lookup scoped strictly to tenant
-            Activity.findOne = (query) => {
-                if (String(query.tenantId) === tenantA) return createChainableQuery(visitA);
-                if (String(query.tenantId) === tenantB) return createChainableQuery(visitB);
-                return createChainableQuery(null);
-            };
-            Activity.find = (query) => {
-                if (String(query.tenantId) === tenantA) return createChainableQuery([visitA]);
-                if (String(query.tenantId) === tenantB) return createChainableQuery([visitB]);
-                return createChainableQuery([]);
-            };
-            Lead.findOne = (query) => createChainableQuery({ _id: new mongoose.Types.ObjectId(), tenantId: query.tenantId, mobile: '+919876543210' });
-            Lead.findById = () => createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210', name: 'Vikram' });
-
-            bindActivityMocks(visitA);
-
-            WhatsAppService.sendTemplate = async () => ({ success: true, messageId: 'wamid.journey.tenantA' });
-
-            // Callback on Tenant A
-            const resA = await SiteVisitConfirmationService.handleConfirmationCallback({
-                mobile: '+919876543210',
-                tenantId: tenantA,
-                message: { id: 'wamid.msg.tenantA', text: 'Yes, Confirm' }
-            });
-
-            assert.strictEqual(resA.matched, true);
-            assert.strictEqual(visitA.details.customerConfirmed, true);
-            assert.strictEqual(visitB.details.customerConfirmed, false, 'Tenant B visit must remain completely untouched');
-        });
-
-        await recordAsync('1.3 Rejects cross-tenant confirmation when WAMID belongs to a different tenant', async () => {
-            const tenantA = new mongoose.Types.ObjectId().toString();
-            const tenantB = new mongoose.Types.ObjectId().toString();
-
-            const visitA = {
-                _id: new mongoose.Types.ObjectId(),
-                tenantId: tenantA,
-                type: 'Site Visit',
-                status: 'Scheduled',
-                details: { waScheduleMessageId: 'wamid.target.tenantA' }
-            };
-
-            // Query with tenantB will not find visitA because query filters on tenantId
-            Activity.findOne = (query) => {
-                if (String(query.tenantId) === String(visitA.tenantId)) {
-                    return createChainableQuery(visitA);
-                }
-                return createChainableQuery(null);
-            };
-            Activity.find = () => createChainableQuery([]);
+            Activity.findOne = () => createChainableQuery(visit);
+            Activity.find = () => createChainableQuery([visit]);
             Lead.findOne = () => createChainableQuery(null);
+            Lead.findById = () => createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210', name: 'Vikram' });
+            bindActivityMocks(visit);
 
+            WhatsAppService.sendTemplate = async () => ({ success: true, messageId: 'wamid.journey.singleorg' });
+
+            // Inbound callback with zero tenantId (Single Organization Mode)
             const res = await SiteVisitConfirmationService.handleConfirmationCallback({
                 mobile: '+919876543210',
-                originalMessageId: 'wamid.target.tenantA',
-                tenantId: tenantB, // Wrong tenant scope!
-                message: { id: 'wamid.cross.tenant', text: 'Yes, Confirm' }
+                originalMessageId: 'wamid.singleorg.schedule',
+                message: { id: 'wamid.reply.1', text: 'Yes, Confirm' }
             });
 
-            assert.strictEqual(res.matched, false);
-            assert.strictEqual(res.reason, 'NONE');
+            assert.strictEqual(res.matched, true);
+            assert.strictEqual(res.success, true);
+            assert.strictEqual(res.duplicate, false);
+            assert.strictEqual(visit.details.customerConfirmed, true);
+            assert.strictEqual(res.confirmationStatus, 'CONFIRMED');
+        });
+
+        await recordAsync('1.2 Single-organization reschedule callback updates visit without tenantId', async () => {
+            const visit = {
+                _id: new mongoose.Types.ObjectId(),
+                type: 'Site Visit',
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: {
+                    waScheduleMessageId: 'wamid.singleorg.resched',
+                    auditHistory: []
+                },
+                participants: [{ mobile: '+919876543210', name: 'Vikram' }]
+            };
+
+            bindActivityMocks(visit);
+
+            const res = await SiteVisitConfirmationService.handleRescheduleCallback({
+                mobile: '+919876543210',
+                message: { id: 'wamid.resched.reply', context: { id: 'wamid.singleorg.resched' } },
+                text: 'reschedule'
+            });
+
+            assert.strictEqual(res.matched, true);
+            assert.strictEqual(res.success, true);
+            assert.strictEqual(res.confirmationStatus, 'RESCHEDULE_REQUESTED');
+            assert.strictEqual(visit.details.rescheduleRequested, true);
+        });
+
+        await recordAsync('1.3 Ambiguous resolution fails closed when multiple upcoming visits exist', async () => {
+            const visitA = { _id: new mongoose.Types.ObjectId(), type: 'Site Visit', status: 'Scheduled', dueDate: new Date() };
+            const visitB = { _id: new mongoose.Types.ObjectId(), type: 'Site Visit', status: 'Scheduled', dueDate: new Date() };
+
+            Activity.findOne = () => createChainableQuery(null);
+            Lead.findOne = () => createChainableQuery({ _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' });
+            Activity.find = () => createChainableQuery([visitA, visitB]); // Multiple upcoming visits!
+
+            const res = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
+                mobile: '+919876543210'
+            });
+
+            assert.strictEqual(res.activity, null);
+            assert.strictEqual(res.method, 'AMBIGUOUS_MULTIPLE_VISITS');
         });
 
         // =========================================================================
@@ -274,7 +248,7 @@ async function runTests() {
             assert.strictEqual(res.body.success, false);
         });
 
-        await recordAsync('2.2 Rejects unauthorized user or cross-tenant access with 403/404', async () => {
+        await recordAsync('2.2 Rejects unauthorized user access with 403/404', async () => {
             const actId = new mongoose.Types.ObjectId();
             const unauthorizedUser = { id: 'intruder_1', role: 'agent', organizationId: 'tenant_other' };
 

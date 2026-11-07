@@ -543,22 +543,12 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     try {
                         const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
                         if (SiteVisitAutomationService?.handleDeliveryStatusCallback) {
-                            const { SiteVisitConfirmationService } = await import('../src/modules/siteVisit/siteVisitConfirmation.service.js');
-                            const waba_id = req.body?.entry?.[0]?.id || null;
-                            const phoneNumberId = value?.metadata?.phone_number_id || null;
-                            const trustedTenantId = await SiteVisitConfirmationService.resolveTrustedWebhookTenant({
-                                phoneNumberId,
-                                wabaId: waba_id,
-                                req
-                            });
-
                             const errDetail = status.errors && status.errors[0]
                                 ? `${status.errors[0].code || ''}: ${status.errors[0].title || status.errors[0].message || ''}`.trim()
                                 : null;
                             await SiteVisitAutomationService.handleDeliveryStatusCallback({
                                 providerMessageId: status.id,
                                 status: statusVal,
-                                tenantId: trustedTenantId,
                                 timestamp: new Date(Number(status.timestamp || 0) * 1000),
                                 error: errDetail,
                                 channel: 'whatsapp'
@@ -606,30 +596,20 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     const isResched = !isConfirm && SiteVisitConfirmationService.isRescheduleReply(text, message);
 
                     if (isConfirm || isResched) {
-                        const waba_id = req.body?.entry?.[0]?.id || null;
-                        const phoneNumberId = value?.metadata?.phone_number_id || null;
-                        const trustedTenantId = await SiteVisitConfirmationService.resolveTrustedWebhookTenant({
-                            phoneNumberId,
-                            wabaId: waba_id,
-                            req
-                        });
-
                         if (isConfirm) {
-                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Yes, Confirm' callback from ${mobile} (Tenant: ${trustedTenantId || 'UNRESOLVED'})`);
+                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Yes, Confirm' callback from ${mobile}`);
                             await SiteVisitConfirmationService.handleConfirmationCallback({
                                 mobile,
                                 message,
                                 originalMessageId: message.context?.id || null,
-                                tenantId: trustedTenantId,
                                 text
                             });
                         } else if (isResched) {
-                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Reschedule' callback from ${mobile} (Tenant: ${trustedTenantId || 'UNRESOLVED'})`);
+                            console.log(`[WhatsApp Webhook] Detected Site Visit 'Reschedule' callback from ${mobile}`);
                             await SiteVisitConfirmationService.handleRescheduleCallback({
                                 mobile,
                                 message,
-                                text,
-                                tenantId: trustedTenantId
+                                text
                             });
                         }
                     }
