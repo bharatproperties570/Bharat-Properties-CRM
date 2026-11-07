@@ -210,8 +210,8 @@ export class SiteVisitConfirmationService {
                     console.error(`[SiteVisitConfirmation] LeadModel.find database error for mobile ${mobile}: ${findErr.message}`);
                     return { activity: null, method: 'QUERY_ERROR', error: findErr.message };
                 }
-            } else if (typeof LeadModel.findOne === 'function' && (LeadModel._isMock || LeadModel.isTestMock || !LeadModel.schema)) {
-                // Compatibility fallback strictly restricted to test mocks that define findOne but omit find
+            } else if (typeof LeadModel.findOne === 'function' && (LeadModel._isMock === true || LeadModel.isTestMock === true)) {
+                // Compatibility fallback strictly restricted to explicit test mocks that define findOne but omit find
                 const leadQuery = { mobile: { $in: phoneVariants } };
                 if (tenantId) leadQuery.tenantId = tenantId;
                 try {

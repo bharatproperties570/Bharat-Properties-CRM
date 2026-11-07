@@ -1396,6 +1396,70 @@ async function main() {
             assert.strictEqual(freshVisit.details.rescheduleRequested, false, 'Visit must not be updated on query error');
         });
 
+        await runTest('6.13 Real MongoDB connection interruption and recovery integration test', async () => {
+            const mobile = '+919875550003';
+            const lead = await Lead.create({ firstName: 'RealDiscon', lastName: 'Customer', mobile, status: 'New' });
+            const visit = await Activity.create({
+                type: 'Site Visit',
+                subject: 'Real Discon Visit',
+                entityType: 'Lead',
+                entityId: lead._id,
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 24 * 3600 * 1000),
+                details: { confirmationStatus: 'PENDING' }
+            });
+
+            const originalFindOne = Lead.findOne;
+            let findOneInvoked = false;
+            Lead.findOne = function (...args) {
+                findOneInvoked = true;
+                return originalFindOne.apply(this, args);
+            };
+
+            const uri = replSet.getUri();
+            const callsBefore = providerSendCalls.length;
+
+            // 1. Physically disconnect Mongoose from the real MongoDB replica set
+            await mongoose.disconnect();
+            assert.strictEqual(mongoose.connection.readyState, 0, 'Connection readyState must be 0 (disconnected)');
+
+            // Set short buffer timeout so the disconnected buffer fails fast
+            mongoose.set('bufferTimeoutMS', 300);
+
+            let disconRes;
+            try {
+                disconRes = await SiteVisitConfirmationService.handleConfirmationCallback({
+                    mobile,
+                    message: { text: 'Yes, Confirm' }
+                });
+            } finally {
+                // 2. Recover the connection to the real MongoDB replica set
+                await mongoose.connect(uri);
+                mongoose.set('bufferTimeoutMS', 10000);
+                Lead.findOne = originalFindOne;
+            }
+
+            assert.strictEqual(mongoose.connection.readyState, 1, 'Connection must be recovered and connected');
+            assert.strictEqual(disconRes.matched, false, 'Must not match during real DB disconnection');
+            assert.strictEqual(disconRes.success, false, 'Must fail closed during real DB disconnection');
+            assert.strictEqual(disconRes.reason, 'QUERY_ERROR', 'Reason must be QUERY_ERROR');
+            assert.strictEqual(findOneInvoked, false, 'Lead.findOne must NEVER be called during real DB disconnection');
+            assert.strictEqual(providerSendCalls.length, callsBefore, 'Provider must NEVER be dispatched during real DB disconnection');
+
+            // 3. Post-recovery verification: after reconnecting, normal callback processing succeeds
+            const recoverRes = await SiteVisitConfirmationService.handleConfirmationCallback({
+                mobile,
+                message: { text: 'Yes, Confirm' }
+            });
+
+            assert.strictEqual(recoverRes.matched, true, 'Must match successfully after connection recovery');
+            assert.strictEqual(recoverRes.success, true, 'Must succeed after connection recovery');
+            assert.strictEqual(providerSendCalls.length, callsBefore + 1, 'Provider must be dispatched exactly once after recovery');
+
+            const postVisit = await Activity.findById(visit._id);
+            assert.strictEqual(postVisit.details.customerConfirmed, true, 'Visit must be confirmed after recovery');
+        });
+
         console.log('\n============================================================');
         console.log(`Phase 18.3.2/18.3.3 Forensic Suite Results:`);
         console.log(`Passed: ${passedCount}, Failed: ${failedCount}`);

@@ -334,7 +334,7 @@ async function runTests() {
             assert.strictEqual(findOneCalled, false, 'LeadModel.findOne must NEVER be invoked when LeadModel.find returns empty array');
         });
 
-        await recordAsync('1.8 Test mock compatibility remains functional for mocks omitting Lead.find', async () => {
+        await recordAsync('1.8 Explicit _isMock=true mock without find can use findOne fallback', async () => {
             const mockLead = { _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' };
             const visit = {
                 _id: new mongoose.Types.ObjectId(),
@@ -346,7 +346,10 @@ async function runTests() {
             };
 
             Activity.findOne = () => createChainableQuery(null);
-            Activity.find = () => createChainableQuery([visit]);
+            Activity.find = (q) => {
+                if (q && q.entityId) return createChainableQuery([visit]);
+                return createChainableQuery([]);
+            };
 
             // Explicit test mock object without a find method
             const savedFind = Lead.find;
@@ -367,7 +370,81 @@ async function runTests() {
             }
         });
 
-        await recordAsync('1.9 Reschedule callback fails closed on LeadModel.find database error', async () => {
+        await recordAsync('1.9 Explicit isTestMock=true mock without find can use findOne fallback', async () => {
+            const mockLead = { _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' };
+            const visit = {
+                _id: new mongoose.Types.ObjectId(),
+                entityId: mockLead._id,
+                type: 'Site Visit',
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 86400000),
+                details: { confirmationStatus: 'PENDING' }
+            };
+
+            Activity.findOne = () => createChainableQuery(null);
+            Activity.find = (q) => {
+                if (q && q.entityId) return createChainableQuery([visit]);
+                return createChainableQuery([]);
+            };
+
+            const savedFind = Lead.find;
+            Lead.find = null;
+            Lead.isTestMock = true;
+            Lead.findOne = () => createChainableQuery(mockLead);
+
+            try {
+                const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
+                    mobile: '+919876543210'
+                });
+                assert.ok(resolved.activity, 'Explicit isTestMock=true fallback should resolve visit');
+                assert.strictEqual(String(resolved.activity._id), String(visit._id));
+                assert.strictEqual(resolved.method, 'PHONE_LEAD_LOOKUP');
+            } finally {
+                Lead.find = savedFind;
+                delete Lead.isTestMock;
+            }
+        });
+
+        await recordAsync('1.10 Model without find and without explicit mock marker must NOT use findOne fallback', async () => {
+            const mockLead = { _id: new mongoose.Types.ObjectId(), mobile: '+919876543210' };
+            const visit = {
+                _id: new mongoose.Types.ObjectId(),
+                entityId: mockLead._id,
+                type: 'Site Visit',
+                status: 'Scheduled',
+                dueDate: new Date(Date.now() + 86400000),
+                details: { confirmationStatus: 'PENDING' }
+            };
+
+            Activity.findOne = () => createChainableQuery(null);
+            Activity.find = (q) => {
+                if (q && q.entityId) return createChainableQuery([visit]);
+                return createChainableQuery([]);
+            };
+
+            const savedFind = Lead.find;
+            let findOneCalled = false;
+            Lead.find = null;
+            delete Lead._isMock;
+            delete Lead.isTestMock;
+            Lead.findOne = () => {
+                findOneCalled = true;
+                return createChainableQuery(mockLead);
+            };
+
+            try {
+                const resolved = await SiteVisitConfirmationService.resolveSiteVisitForCallback({
+                    mobile: '+919876543210'
+                });
+                assert.strictEqual(findOneCalled, false, 'findOne must NEVER be called without explicit _isMock or isTestMock');
+                assert.strictEqual(resolved.activity, null, 'Must fail to resolve visit when model lacks find and is not marked mock');
+                assert.strictEqual(resolved.method, 'NO_ACTIVE_SITE_VISIT');
+            } finally {
+                Lead.find = savedFind;
+            }
+        });
+
+        await recordAsync('1.11 Reschedule callback fails closed on LeadModel.find database error', async () => {
             Activity.findOne = () => createChainableQuery(null);
             Lead.find = () => {
                 const q = createChainableQuery(null);
