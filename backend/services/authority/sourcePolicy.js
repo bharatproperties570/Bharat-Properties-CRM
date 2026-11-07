@@ -119,9 +119,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         dataUsageRestrictions: 'Internal CRM preview and staging only. No automated mutations or public re-distribution.',
 
         // ── Rate & concurrency policy (Internal safety throttle) ───────────
-        maxRequestsPerMinute: 1,
-        maxRequestsPerDay: 1440,
-        maxConcurrentRequests: 1,
+        maxRequestsPerMinute: null,
+        maxRequestsPerDay: null,
+        maxConcurrentRequests: null,
         requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
         ratePolicy: {
             maxRequestsPerMinute: 1,
@@ -217,9 +217,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         permittedUse: 'Read-only internal CRM property status verification and staging',
         dataUsageRestrictions: 'Internal CRM preview and staging only. Official provisional-record disclaimer must be preserved.',
 
-        maxRequestsPerMinute: 1,
-        maxRequestsPerDay: 1440,
-        maxConcurrentRequests: 1,
+        maxRequestsPerMinute: null,
+        maxRequestsPerDay: null,
+        maxConcurrentRequests: null,
         requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
         ratePolicy: {
             maxRequestsPerMinute: 1,
@@ -310,9 +310,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         permittedUse: 'Read-only internal CRM property status verification and staging',
         dataUsageRestrictions: 'Internal CRM preview and staging only. No automated mutations or public re-distribution.',
 
-        maxRequestsPerMinute: 1,
-        maxRequestsPerDay: 1440,
-        maxConcurrentRequests: 1,
+        maxRequestsPerMinute: null,
+        maxRequestsPerDay: null,
+        maxConcurrentRequests: null,
         requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
         ratePolicy: {
             maxRequestsPerMinute: 1,

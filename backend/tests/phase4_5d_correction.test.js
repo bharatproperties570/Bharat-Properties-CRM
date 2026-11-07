@@ -383,9 +383,12 @@ test('Phase 4.5-D Correction — R13: Policy matrix consistency across model, st
         assert.strictEqual(matrixPolicy.permissionStatus, PERMISSION_STATUS.GRANTED);
         assert.strictEqual(matrixPolicy.reviewStatus, 'UNDER_REVIEW');
         assert.strictEqual(matrixPolicy.isEnabled, false);
-        assert.strictEqual(matrixPolicy.maxRequestsPerMinute, 1);
-        assert.strictEqual(matrixPolicy.maxRequestsPerDay, 1440);
-        assert.strictEqual(matrixPolicy.maxConcurrentRequests, 1);
+        assert.strictEqual(matrixPolicy.ratePolicy.maxRequestsPerMinute, 1);
+        assert.strictEqual(matrixPolicy.ratePolicy.maxRequestsPerDay, 1440);
+        assert.strictEqual(matrixPolicy.ratePolicy.maxConcurrentRequests, 1);
+        assert.strictEqual(matrixPolicy.maxRequestsPerMinute, null);
+        assert.strictEqual(matrixPolicy.maxRequestsPerDay, null);
+        assert.strictEqual(matrixPolicy.maxConcurrentRequests, null);
 
         const activation = isSourceActivated(code);
         assert.strictEqual(activation.allowed, false);
