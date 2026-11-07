@@ -144,12 +144,18 @@ class DealService {
             // Reset inventory status if the deal was deleted and no other active deals remain
             if (deal.inventoryId) {
                 const activeDeals = await Deal.countDocuments({
+                    _id: { $ne: deal._id },
                     inventoryId: deal.inventoryId,
                     stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
                 }).session(txnSession);
                 if (activeDeals === 0) {
                     const Lookup = mongoose.model('Lookup');
-                    const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+                    let availableLookup = null;
+                    try {
+                        availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).session(txnSession).lean();
+                    } catch {
+                        availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+                    }
                     const availableId = availableLookup ? availableLookup._id : 'Available';
                     const Inventory = mongoose.model('Inventory');
                     await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId }, { session: txnSession });

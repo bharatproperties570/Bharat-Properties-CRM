@@ -207,7 +207,7 @@ describe('Phase 6 — Enterprise Backend Refactoring Acceptance Suite', () => {
             assert.equal(outbox.payload.newStage, 'Negotiation');
         });
 
-        it('soft deletes a deal and protects against non-existent IDs', async () => {
+        it('hard deletes a deal document and protects against non-existent IDs', async () => {
             const deal = await Deal.create({
                 title: 'Deletable Deal',
                 stage: 'Open'
@@ -224,6 +224,63 @@ describe('Phase 6 — Enterprise Backend Refactoring Acceptance Suite', () => {
                 DealService.deleteDeal(new mongoose.Types.ObjectId(), { user: superAdminUser }),
                 (err) => err.statusCode === 404
             );
+        });
+
+        it('reverts linked inventory status to Available when the only active deal is deleted', async () => {
+            const availStatus = await Lookup.create({ lookup_type: 'Status', lookup_value: 'Available' });
+            const blockedStatus = await Lookup.create({ lookup_type: 'Status', lookup_value: 'Blocked' });
+
+            const inv = await Inventory.create({
+                projectName: 'Park Avenue',
+                unitNo: 'PA-101',
+                status: blockedStatus._id
+            });
+
+            const deal = await Deal.create({
+                title: 'Single Deal',
+                inventoryId: inv._id,
+                stage: 'Booked'
+            });
+
+            const res = await DealService.deleteDeal(deal._id, { user: superAdminUser });
+            assert.equal(res.success, true);
+
+            const checkDeal = await Deal.findById(deal._id);
+            assert.equal(checkDeal, null);
+
+            const checkInv = await Inventory.findById(inv._id);
+            assert.equal(String(checkInv.status), String(availStatus._id));
+        });
+
+        it('retains linked inventory status when another active deal remains on the unit', async () => {
+            const availStatus = await Lookup.create({ lookup_type: 'Status', lookup_value: 'Available' });
+            const activeStatus = await Lookup.create({ lookup_type: 'Status', lookup_value: 'Active' });
+
+            const inv = await Inventory.create({
+                projectName: 'Skyline Plaza',
+                unitNo: 'SP-202',
+                status: activeStatus._id
+            });
+
+            const deal1 = await Deal.create({
+                title: 'Active Deal 1',
+                inventoryId: inv._id,
+                stage: 'Negotiation'
+            });
+
+            const deal2 = await Deal.create({
+                title: 'Active Deal 2',
+                inventoryId: inv._id,
+                stage: 'Open'
+            });
+
+            // Delete deal1
+            const res = await DealService.deleteDeal(deal1._id, { user: superAdminUser });
+            assert.equal(res.success, true);
+
+            // Inventory must retain Active status because deal2 is still active
+            const checkInv = await Inventory.findById(inv._id);
+            assert.equal(String(checkInv.status), String(activeStatus._id));
         });
     });
 

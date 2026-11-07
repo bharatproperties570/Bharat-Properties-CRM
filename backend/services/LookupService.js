@@ -45,14 +45,16 @@ class LookupService {
             parentId = null,
             parent_lookup_id = null,
             session = null,
-            useCache = true
+            useCache = true,
+            tenantId = null
         } = options;
 
         const effectiveParentId = parentId || parent_lookup_id;
         const trimmedValue = String(value).trim();
         if (!trimmedValue) return null;
 
-        const cacheKey = `${type}:${effectiveParentId || 'root'}:${trimmedValue.toLowerCase()}`;
+        const effectiveTenant = tenantId || 'global';
+        const cacheKey = `${effectiveTenant}:${type}:${effectiveParentId || 'root'}:${trimmedValue.toLowerCase()}`;
         if (useCache && !session && LOOKUP_CACHE.has(cacheKey)) {
             return LOOKUP_CACHE.get(cacheKey);
         }
@@ -181,8 +183,9 @@ class LookupService {
     /**
      * Checks if a lookup is currently cached in memory.
      */
-    static hasCached(type, value, parentId = 'root') {
-        const key = `${type}:${parentId}:${String(value).trim().toLowerCase()}`;
+    static hasCached(type, value, parentId = 'root', tenantId = null) {
+        const effectiveTenant = tenantId || 'global';
+        const key = `${effectiveTenant}:${type}:${parentId}:${String(value).trim().toLowerCase()}`;
         return LOOKUP_CACHE.has(key);
     }
 }

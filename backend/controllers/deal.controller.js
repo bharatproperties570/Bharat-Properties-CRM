@@ -10,6 +10,7 @@ import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import Lookup from "../models/Lookup.js";
 import LookupService from "../services/LookupService.js";
+import DealService from "../services/DealService.js";
 import AuditLog from "../models/AuditLog.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 import CampaignEngine from "../services/CampaignEngine.js";
