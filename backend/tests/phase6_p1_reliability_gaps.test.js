@@ -1,9 +1,11 @@
 process.env.NODE_ENV = 'test';
 process.env.ALLOW_TRANSACTION_TEST_FALLBACK = 'true';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'phase6_jwt_secret_test_key_secure_12345';
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import Deal from '../models/Deal.js';
@@ -420,22 +422,23 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
             });
 
             const initialSubmissions = form.analytics?.submissions || 0;
+            const refToken = jwt.sign({ leadId: existingLead._id.toString() }, process.env.JWT_SECRET);
 
             const originalCreate = OutboxEvent.create;
-            OutboxEvent.create = async () => {
-                throw new Error('SIMULATED_TRANSACTIONAL_OUTBOX_ERROR');
-            };
-
-            const req = createMockReq(
-                {
-                    leadId: existingLead._id.toString(),
-                    formData: { f1: 'MutatedName', f2: '9876543211', f3: 'Mutated Notes' }
-                },
-                { slug: 'update-form-tx-fail' }
-            );
-            const res = createMockRes();
-
             try {
+                OutboxEvent.create = async () => {
+                    throw new Error('SIMULATED_TRANSACTIONAL_OUTBOX_ERROR');
+                };
+
+                const req = createMockReq(
+                    {
+                        formData: { f1: 'MutatedName', f2: '9876543211', f3: 'Mutated Notes' },
+                        sourceMeta: { search: `?ref=${refToken}` }
+                    },
+                    { slug: 'update-form-tx-fail' }
+                );
+                const res = createMockRes();
+
                 await submitForm(req, res);
                 assert.equal(res.statusCode, 500, 'Must return HTTP 500 on transaction abort');
                 assert.equal(res.data?.success, false);
@@ -486,16 +489,20 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
 
             const initialSubmissions = form.analytics?.submissions || 0;
 
+            const refToken = jwt.sign({ leadId: existingLead._id.toString() }, process.env.JWT_SECRET);
             const req = createMockReq(
                 {
-                    leadId: existingLead._id.toString(),
-                    formData: { f1: 'CommittedName', f2: '9876543212', f3: 'Committed Notes' }
+                    formData: { f1: 'CommittedName', f2: '9876543212', f3: 'Committed Notes' },
+                    sourceMeta: { search: `?ref=${refToken}` }
                 },
                 { slug: 'update-form-tx-success' }
             );
             const res = createMockRes();
 
             await submitForm(req, res);
+            if (res.statusCode !== 201) {
+                console.error('TEST 1.10 FAILED WITH:', res.statusCode, res.data);
+            }
             assert.equal(res.statusCode, 201, 'Must return HTTP 201 on success');
             assert.equal(res.data?.success, true);
             assert.equal(res.data?.leadId.toString(), existingLead._id.toString());

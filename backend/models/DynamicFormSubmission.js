@@ -1,7 +1,9 @@
 import mongoose from "mongoose";
 
 const DynamicFormSubmissionSchema = new mongoose.Schema({
-    formId: { type: mongoose.Schema.Types.ObjectId, ref: 'DynamicForm', required: true },
+    formId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true },
+    idempotencyKey: { type: String },
     data: { type: Map, of: mongoose.Schema.Types.Mixed },
     metadata: {
         ip: String,
@@ -14,4 +16,13 @@ const DynamicFormSubmissionSchema = new mongoose.Schema({
     status: { type: String, enum: ['new', 'processed', 'archived'], default: 'new' }
 }, { timestamps: true });
 
-export default mongoose.model("DynamicFormSubmission", DynamicFormSubmissionSchema);
+DynamicFormSubmissionSchema.index(
+    { idempotencyKey: 1 },
+    {
+        unique: true,
+        sparse: true,
+        partialFilterExpression: { idempotencyKey: { $type: "string" } }
+    }
+);
+
+export default mongoose.models.DynamicFormSubmission || mongoose.model("DynamicFormSubmission", DynamicFormSubmissionSchema);

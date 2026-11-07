@@ -113,7 +113,8 @@ MarketingDispatchReceiptSchema.statics.claimDispatch = async function({
     eventId,
     tenantId,
     providerIdempotencyKey,
-    leaseMs = 300000 // 5 minutes
+    leaseMs = 300000, // 5 minutes
+    isBatch = false
 }) {
     if (!mongoose.connection || mongoose.connection.readyState !== 1) {
         const dbErr = new Error('RECEIPT_DB_UNAVAILABLE: Database connection is not ready for dispatch claim');
@@ -155,7 +156,31 @@ MarketingDispatchReceiptSchema.statics.claimDispatch = async function({
         }
 
         if (existing.status === 'DISPATCHING') {
-            // Check if claim has expired (lease)
+            // For batch/campaign jobs, BullMQ retry must be allowed to resume remaining recipients!
+            if (isBatch) {
+                const refreshed = await this.findOneAndUpdate(
+                    { _id: existing._id, status: 'DISPATCHING' },
+                    {
+                        $set: {
+                            claimToken,
+                            claimedAt: now,
+                            dispatchedAt: now
+                        },
+                        $inc: { attempts: 1 }
+                    },
+                    { new: true }
+                );
+
+                return {
+                    canDispatch: true,
+                    status: 'DISPATCHING',
+                    receipt: refreshed || existing,
+                    claimToken,
+                    isResumed: true
+                };
+            }
+
+            // Recipient-level or single-dispatch: check lease
             const claimedTime = existing.claimedAt ? new Date(existing.claimedAt).getTime() : 0;
             const isExpired = (now.getTime() - claimedTime) > leaseMs;
             if (!isExpired) {
@@ -292,9 +317,10 @@ MarketingDispatchReceiptSchema.statics.claimDispatch = async function({
 
 /**
  * Record successful completion of dispatch durably.
+ * Uses claim token fencing to prevent stale workers from overwriting newer states.
  * Throws RECEIPT_COMPLETION_FAILED if database write fails.
  */
-MarketingDispatchReceiptSchema.statics.recordSuccess = async function(key, { providerRef, result, completedStatus = 'COMPLETED' } = {}) {
+MarketingDispatchReceiptSchema.statics.recordSuccess = async function(key, { providerRef, result, completedStatus = 'COMPLETED', claimToken } = {}) {
     if (!mongoose.connection || mongoose.connection.readyState !== 1) {
         const dbErr = new Error('RECEIPT_DB_UNAVAILABLE: Database connection is not ready for recordSuccess');
         dbErr.code = 'RECEIPT_DB_UNAVAILABLE';
@@ -302,10 +328,18 @@ MarketingDispatchReceiptSchema.statics.recordSuccess = async function(key, { pro
     }
 
     try {
+        const filter = {
+            $or: [{ dispatchKey: key }, { idempotencyKey: key }]
+        };
+
+        // Claim token fencing: Only update if claimToken matches and not manually reconciled
+        if (claimToken) {
+            filter.claimToken = claimToken;
+            filter.reconciliationStatus = { $in: ['NONE', null] };
+        }
+
         const updated = await this.findOneAndUpdate(
-            {
-                $or: [{ dispatchKey: key }, { idempotencyKey: key }]
-            },
+            filter,
             {
                 $set: {
                     status: completedStatus,
@@ -318,6 +352,18 @@ MarketingDispatchReceiptSchema.statics.recordSuccess = async function(key, { pro
         );
 
         if (!updated) {
+            if (claimToken) {
+                const existing = await this.findOne({
+                    $or: [{ dispatchKey: key }, { idempotencyKey: key }]
+                });
+                if (existing) {
+                    const staleErr = new Error(`STALE_CLAIM_REJECTED: Stale worker with claimToken '${claimToken}' cannot overwrite newer receipt state (${existing.status}, claimToken=${existing.claimToken})`);
+                    staleErr.code = 'STALE_CLAIM_REJECTED';
+                    staleErr.receipt = existing;
+                    throw staleErr;
+                }
+            }
+
             return await this.create({
                 dispatchKey: key,
                 idempotencyKey: key,
@@ -330,6 +376,9 @@ MarketingDispatchReceiptSchema.statics.recordSuccess = async function(key, { pro
         }
         return updated;
     } catch (err) {
+        if (err.code === 'STALE_CLAIM_REJECTED' || err.code === 'RECEIPT_DB_UNAVAILABLE') {
+            throw err;
+        }
         const compErr = new Error(`RECEIPT_COMPLETION_FAILED: Provider dispatch succeeded but receipt completion write failed for '${key}': ${err.message}`);
         compErr.code = 'RECEIPT_COMPLETION_FAILED';
         compErr.originalError = err;
@@ -339,19 +388,29 @@ MarketingDispatchReceiptSchema.statics.recordSuccess = async function(key, { pro
 
 /**
  * Record failure or ambiguity of dispatch durably.
+ * Uses claim token fencing to prevent stale workers from overwriting newer states.
+ * Fails closed without swallowing database errors.
  */
-MarketingDispatchReceiptSchema.statics.recordFailure = async function(key, { error, isAmbiguous = false, reconciliationNotes = '' } = {}) {
+MarketingDispatchReceiptSchema.statics.recordFailure = async function(key, { error, isAmbiguous = false, reconciliationNotes = '', claimToken } = {}) {
     if (!mongoose.connection || mongoose.connection.readyState !== 1) {
-        console.error('[MarketingDispatchReceipt] Cannot record failure: DB unavailable');
-        return null;
+        const dbErr = new Error('RECEIPT_DB_UNAVAILABLE: Database connection is not ready for recordFailure');
+        dbErr.code = 'RECEIPT_DB_UNAVAILABLE';
+        throw dbErr;
     }
 
     try {
         const status = isAmbiguous ? 'AMBIGUOUS' : 'FAILED';
-        return await this.findOneAndUpdate(
-            {
-                $or: [{ dispatchKey: key }, { idempotencyKey: key }]
-            },
+        const filter = {
+            $or: [{ dispatchKey: key }, { idempotencyKey: key }]
+        };
+
+        if (claimToken) {
+            filter.claimToken = claimToken;
+            filter.reconciliationStatus = { $in: ['NONE', null] };
+        }
+
+        const updated = await this.findOneAndUpdate(
+            filter,
             {
                 $set: {
                     status,
@@ -361,9 +420,28 @@ MarketingDispatchReceiptSchema.statics.recordFailure = async function(key, { err
             },
             { new: true, upsert: false }
         );
+
+        if (!updated && claimToken) {
+            const existing = await this.findOne({
+                $or: [{ dispatchKey: key }, { idempotencyKey: key }]
+            });
+            if (existing) {
+                const staleErr = new Error(`STALE_CLAIM_REJECTED: Stale worker with claimToken '${claimToken}' cannot overwrite newer receipt state (${existing.status}, claimToken=${existing.claimToken})`);
+                staleErr.code = 'STALE_CLAIM_REJECTED';
+                staleErr.receipt = existing;
+                throw staleErr;
+            }
+        }
+
+        return updated;
     } catch (err) {
-        console.error(`[MarketingDispatchReceipt] Error recording failure for '${key}':`, err.message);
-        return null;
+        if (err.code === 'STALE_CLAIM_REJECTED' || err.code === 'RECEIPT_DB_UNAVAILABLE') {
+            throw err;
+        }
+        const failErr = new Error(`RECEIPT_FAILURE_RECORD_FAILED: Error recording failure for '${key}': ${err.message}`);
+        failErr.code = 'RECEIPT_FAILURE_RECORD_FAILED';
+        failErr.originalError = err;
+        throw failErr;
     }
 };
 

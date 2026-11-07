@@ -677,27 +677,31 @@ const processMarketingJob = async (job) => {
 
     const dispatchKey = job.id ? String(job.id) : (data?.eventId ? `mkt_${data.eventId}_${name}` : null);
     let receiptModel = null;
+    let jobClaimResult = null;
+    const isBatchJob = name === 'blast' || name === 'bna-broadcast' || Boolean(data?.leads?.length > 1);
+
     if (dispatchKey) {
         const { default: MarketingDispatchReceipt } = await import('../../models/MarketingDispatchReceipt.js');
         receiptModel = MarketingDispatchReceipt;
         
         // P1-B: Atomic conditional claim. Fail-closed: DB failure throws and prevents provider dispatch!
-        const claimResult = await MarketingDispatchReceipt.claimDispatch({
+        jobClaimResult = await MarketingDispatchReceipt.claimDispatch({
             dispatchKey,
             idempotencyKey: dispatchKey,
             jobName: name,
             channel: data?.channel || 'multi',
             campaignId: data?.campaignId,
             eventId: data?.eventId,
-            tenantId: data?.tenantId
+            tenantId: data?.tenantId,
+            isBatch: isBatchJob
         });
 
-        if (!claimResult.canDispatch) {
-            console.log(`[MarketingWorker] Idempotency: Dispatch ${dispatchKey} cannot proceed (status=${claimResult.status}, reason=${claimResult.reason}). Skipping duplicate provider call.`);
+        if (!jobClaimResult.canDispatch) {
+            console.log(`[MarketingWorker] Idempotency: Dispatch ${dispatchKey} cannot proceed (status=${jobClaimResult.status}, reason=${jobClaimResult.reason}). Skipping duplicate provider call.`);
             if (typeof job.log === 'function') {
-                await job.log(`Idempotency receipt: ${dispatchKey} cannot proceed (${claimResult.status}). Skipping.`);
+                await job.log(`Idempotency receipt: ${dispatchKey} cannot proceed (${jobClaimResult.status}). Skipping.`);
             }
-            return { status: claimResult.status, receiptId: claimResult.receipt?._id, reason: claimResult.reason };
+            return { status: jobClaimResult.status, receiptId: jobClaimResult.receipt?._id, reason: jobClaimResult.reason };
         }
     }
 
@@ -926,7 +930,8 @@ const processMarketingJob = async (job) => {
                     await MarketingDispatchReceipt.recordSuccess(recipientIdempotencyKey, {
                         providerRef: messageId,
                         result: { success: true, messageId },
-                        completedStatus: 'SENT'
+                        completedStatus: 'SENT',
+                        claimToken: rcptClaim.claimToken
                     });
                 } else {
                     failed++;
@@ -934,7 +939,8 @@ const processMarketingJob = async (job) => {
                     await MarketingDispatchReceipt.recordFailure(recipientIdempotencyKey, {
                         error: recipient.error || 'Provider rejected dispatch',
                         isAmbiguous,
-                        reconciliationNotes: isAmbiguous ? 'Provider returned ambiguous outcome; delivery uncertain' : ''
+                        reconciliationNotes: isAmbiguous ? 'Provider returned ambiguous outcome; delivery uncertain' : '',
+                        claimToken: rcptClaim.claimToken
                     });
                 }
 
@@ -977,9 +983,14 @@ const processMarketingJob = async (job) => {
                     await MarketingDispatchReceipt.recordFailure(recipientIdempotencyKey, {
                         error: err.message,
                         isAmbiguous,
-                        reconciliationNotes: isAmbiguous ? 'Provider dispatch threw network error or timeout; delivery outcome uncertain.' : ''
+                        reconciliationNotes: isAmbiguous ? 'Provider dispatch threw network error or timeout; delivery outcome uncertain.' : '',
+                        claimToken: rcptClaim.claimToken
                     });
-                } catch (_) {}
+                } catch (recFailErr) {
+                    if (recFailErr.code === 'RECEIPT_DB_UNAVAILABLE' || recFailErr.code === 'RECEIPT_FAILURE_RECORD_FAILED') {
+                        throw recFailErr;
+                    }
+                }
                 await job.log(`Worker EXCEPTION for ${recipient.name} (${targetMobile || targetEmail}): ${err.message}`);
                 
                 // 🧠 SENIOR PROFESSIONAL FIX: Log failures even for imports
@@ -1003,8 +1014,10 @@ const processMarketingJob = async (job) => {
             if (typeof job.updateProgress === 'function') {
                 await job.updateProgress(Math.round(((i + 1) / leads.length) * 100));
             }
-            // Adaptive cooldown to respect provider limits
-            await new Promise(r => setTimeout(r, channel === 'wa' ? 300 : 150));
+            // Adaptive cooldown to respect provider limits (bypassed in test environment)
+            if (process.env.NODE_ENV !== 'test') {
+                await new Promise(r => setTimeout(r, channel === 'wa' ? 300 : 150));
+            }
         }
 
         const result = { sent, failed };
@@ -1626,7 +1639,18 @@ if (name === 'bna-broadcast') {
 
         if (dispatchKey && receiptModel) {
             // P1-B: Record completion durably. If DB write fails, THROW so it is never reported as clean success!
-            await receiptModel.recordSuccess(dispatchKey, { result });
+            let shouldMarkComplete = true;
+            if (isBatchJob && data?.leads?.length) {
+                const totalAccounted = (result?.sent || 0) + (result?.failed || 0);
+                if (totalAccounted < data.leads.length) {
+                    shouldMarkComplete = false;
+                    console.warn(`[MarketingWorker] Batch campaign ${dispatchKey} processed ${totalAccounted}/${data.leads.length} recipients; keeping job resumable`);
+                }
+            }
+
+            if (shouldMarkComplete) {
+                await receiptModel.recordSuccess(dispatchKey, { result, claimToken: jobClaimResult?.claimToken });
+            }
         }
 
         return result;
@@ -1638,9 +1662,14 @@ if (name === 'bna-broadcast') {
                     isAmbiguous: /timeout|econnreset|etimedout|ambiguous/i.test(err.message),
                     reconciliationNotes: /timeout|econnreset|etimedout|ambiguous/i.test(err.message)
                         ? 'Job execution failed with ambiguous network/timeout error; requires operator reconciliation'
-                        : ''
+                        : '',
+                    claimToken: jobClaimResult?.claimToken
                 });
-            } catch (_) {}
+            } catch (failRecErr) {
+                if (failRecErr.code === 'RECEIPT_DB_UNAVAILABLE' || failRecErr.code === 'RECEIPT_FAILURE_RECORD_FAILED') {
+                    throw failRecErr;
+                }
+            }
         }
         throw err;
     }

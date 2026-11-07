@@ -37,6 +37,7 @@ const LeadFormSchema = new mongoose.Schema({
     name: { type: String, required: true },
     slug: { type: String, required: true, unique: true, index: true },
     isActive: { type: Boolean, default: true },
+    category: { type: String, default: 'lead_capture' },
     description: { type: String },
     sections: [SectionSchema],
     settings: {
