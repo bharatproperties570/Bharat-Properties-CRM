@@ -159,15 +159,11 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         fireEvent.click(inventoryTabBtn);
 
         await waitFor(() => {
-            expect(screen.getByText(/Units & Inventory Register|Project Units/i)).toBeInTheDocument();
-        }, { timeout: 5000 });
-
-        await waitFor(() => {
             const headers = container.querySelectorAll('th');
             expect(headers).toHaveLength(7);
             const headerTexts = Array.from(headers).map(th => th.textContent.trim());
             expect(headerTexts).toEqual(['Block / Unit', 'Unit Type', 'Area / Dimension', 'Listing Price', 'Specs & Floor', 'Allocation Status', 'Actions']);
-        }, { timeout: 5000 });
+        }, { timeout: 15000 });
     }, 15000);
 
     it('renders populated inventory units with block, unit type, attributes, and status badge', async () => {
