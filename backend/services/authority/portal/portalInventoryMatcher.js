@@ -138,6 +138,13 @@ export function matchChdRecord(inventory = {}, link = {}, record = {}) {
  */
 export function matchAuthorityInventory(authorityCode, inventory = {}, link = {}, record = {}) {
     const code = String(authorityCode || '').trim().toUpperCase();
+    if (!record || typeof record !== 'object') {
+        return Object.freeze({
+            matches: false,
+            mismatches: Object.freeze(['No authority record returned from portal']),
+            authorityCode: code
+        });
+    }
     if (code === 'HSVP') {
         return matchHsvpRecord(inventory, link, record);
     }

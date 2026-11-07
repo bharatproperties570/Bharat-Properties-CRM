@@ -38,8 +38,9 @@
         "test:authority-portal": "node --test --test-force-exit --test-concurrency=1 tests/authority_portal_approval_gate.test.js tests/authority_portal_contract.test.js tests/authority_portal_egress_trap.test.js tests/authority_portal_golden_parsers.test.js tests/authority_portal_runtime.test.js tests/authority_portal_acceptance_pr42.test.js tests/authority_portal_residual_blockers_pr42.test.js tests/phase4_5_authority_sync.test.js",
         "test:authority-portal-acceptance": "node --test --test-force-exit --test-concurrency=1 tests/authority_portal_acceptance_pr42.test.js tests/authority_portal_residual_blockers_pr42.test.js",
         "test:authority-portal-redis": "node --test --test-force-exit tests/authority_portal_redis_integration.test.js",
-        "test:phase4.5-authority": "node --test --test-force-exit tests/phase4_5_authority_sync.test.js tests/phase4_5c_persistent_authority_sync.test.js",
-        "test:phase4.5c-authority": "node --test --test-force-exit tests/phase4_5c_persistent_authority_sync.test.js"
+        "test:phase4.5-authority": "node --test --test-force-exit tests/phase4_5_authority_sync.test.js tests/phase4_5c_persistent_authority_sync.test.js tests/phase4_5d_operational_acceptance.test.js",
+        "test:phase4.5c-authority": "node --test --test-force-exit tests/phase4_5c_persistent_authority_sync.test.js",
+        "test:phase4.5d-authority": "node --test --test-force-exit tests/phase4_5d_operational_acceptance.test.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1159.0",

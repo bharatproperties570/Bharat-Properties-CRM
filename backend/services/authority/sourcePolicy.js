@@ -1,22 +1,19 @@
 /**
  * ============================================================================
  *  AUTHORITY PROPERTY VERIFICATION — SOURCE AUTHORIZATION & POLICY MATRIX
- *  Phase 1: Policy contract only. No live requests permitted.
+ *  Phase 4.5: Canonical Owner-Attested Authority Permission & Internal Throttles
  * ============================================================================
  *
  *  This module documents the authorization requirements, access policies,
  *  rate limits, retention rules, and pause conditions for each authority
  *  data source.
  *
- *  CRITICAL: permissionStatus for ALL sources is NOT_OBTAINED.
- *  Live HTTP collection MUST remain disabled until:
- *    1. Written permission is obtained from the authority
- *    2. The approved access method is documented here
- *    3. The rate policy is configured and tested
- *    4. A code review has approved the activation
+ *  Owner permission is attested as GRANTED under OWNER_ATTESTED_AUTHORITY_PERMISSION.
+ *  Live HTTP collection and operational scheduling MUST remain disabled (isEnabled: false)
+ *  until an independent maker-checker review has approved activation.
  *
  *  @module sourcePolicy
- *  @version 1.0.0-phase1
+ *  @version 4.5.0-phase4.5d
  */
 
 export const PERMISSION_STATUS = Object.freeze({
@@ -50,6 +47,8 @@ export const ACCESS_METHOD = Object.freeze({
     RTI_REQUEST: 'RTI_REQUEST',
     /** Authorized web portal access (with terms acceptance) */
     AUTHORIZED_WEB: 'AUTHORIZED_WEB',
+    /** Authorized public portal automation with owner attestation */
+    AUTHORIZED_PUBLIC_PORTAL_AUTOMATION: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
 });
 
 export const STOP_CONDITIONS = Object.freeze({
@@ -81,7 +80,8 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         portalUrl: 'https://hsvphry.org.in',
 
         // ── Authorization ──────────────────────────────────────────────────
-        permissionStatus: PERMISSION_STATUS.NOT_OBTAINED,
+        permissionStatus: PERMISSION_STATUS.GRANTED,
+        evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
         permissionEvidence: null,
         permissionDate: null,
         permissionExpiry: null,
@@ -94,30 +94,55 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
         },
+        ownerAttestation: {
+            attestingParty: 'Bharat Properties Owner',
+            attestedAt: '2026-11-06T17:51:10+05:30',
+            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
+            claimedAuthorityRole: 'Authorized Broker'
+        },
 
         // ── Access method ──────────────────────────────────────────────────
-        approvedAccessMethod: ACCESS_METHOD.NONE,
-        approvedAccessNotes: 'No access method has been approved. The portal existence is publicly known but no authorization to programmatically access it has been obtained.',
+        approvedAccessMethod: ACCESS_METHOD.AUTHORIZED_PUBLIC_PORTAL_AUTOMATION,
+        approvedAccessNotes: 'Owner-attested read-only public portal access for internal CRM staging and preview only.',
+
+        // ── Operational status (disabled until maker-checker approval) ─────
+        reviewStatus: 'UNDER_REVIEW',
+        termsReviewed: false,
+        termsReference: 'https://hsvphry.org.in/Home/Terms',
+        contractVerificationStatus: 'UNVERIFIED',
+        contractEvidenceReference: null,
 
         // ── Permitted fields / use ─────────────────────────────────────────
         permittedFields: [],
-        permittedUse: null,
-        dataUsageRestrictions: 'Unknown — requires written clarification from HSVP.',
+        permittedUse: 'Read-only internal CRM property status verification and staging',
+        dataUsageRestrictions: 'Internal CRM preview and staging only. No automated mutations or public re-distribution.',
 
-        // ── Rate & concurrency policy ──────────────────────────────────────
+        // ── Rate & concurrency policy (Internal safety throttle) ───────────
         maxRequestsPerMinute: null,
         maxRequestsPerDay: null,
         maxConcurrentRequests: null,
-        requestRateNotes: 'No rate limit has been approved. Do NOT guess or invent numeric limits.',
+        requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
+        ratePolicy: {
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            minIntervalMs: 60000,
+            maxConcurrent: 1,
+            maxConcurrentRequests: 1,
+            isInternalSafetyThrottle: true,
+            policyReference: 'INTERNAL_SAFETY_THROTTLE_HSVP_1_REQ_PER_MIN'
+        },
 
         // ── Scheduling ─────────────────────────────────────────────────────
-        desiredSchedule: 'Weekly, Asia/Kolkata business hours (future)',
+        desiredSchedule: 'Weekly, Asia/Kolkata Sunday 02:00 AM IST',
         schedulingEnabled: false,
-        schedulingNotes: 'Weekly scheduling is a desired future configuration, not an authorization to make requests.',
+        schedulingNotes: 'Weekly scheduling requires operational maker-checker approval and enabled state.',
 
         // ── Retention ──────────────────────────────────────────────────────
-        retentionPolicy: null,
-        retentionNotes: 'Retention policy unknown — requires written authority confirmation.',
+        retentionPolicy: 'Snapshot immutable audit trail',
+        retentionNotes: 'Sealed read-only staging snapshots with strict PII exclusion.',
 
         // ── Pause / stop conditions ────────────────────────────────────────
         stopConditions: [
@@ -144,8 +169,9 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             { item: 'Code review approving activation', status: 'MISSING' },
         ],
 
-        // ── Source activation flag ─────────────────────────────────────────
+        // ── Source activation flag (strictly false until maker-checker) ───
         isEnabled: false,
+        isPaused: false,
     },
 
     // ════════════════════════════════════════════════════════════════════════
@@ -156,7 +182,8 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         fullName: 'Estate Office, Chandigarh Administration',
         portalUrl: 'https://estateoffice.chd.gov.in',
 
-        permissionStatus: PERMISSION_STATUS.NOT_OBTAINED,
+        permissionStatus: PERMISSION_STATUS.GRANTED,
+        evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
         permissionEvidence: null,
         permissionDate: null,
         permissionExpiry: null,
@@ -169,25 +196,49 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
         },
+        ownerAttestation: {
+            attestingParty: 'Bharat Properties Owner',
+            attestedAt: '2026-11-06T17:51:10+05:30',
+            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
+            claimedAuthorityRole: 'Authorized Broker'
+        },
 
-        approvedAccessMethod: ACCESS_METHOD.NONE,
-        approvedAccessNotes: 'No access method approved. Portal existence known but programmatic access not authorized.',
+        approvedAccessMethod: ACCESS_METHOD.AUTHORIZED_PUBLIC_PORTAL_AUTOMATION,
+        approvedAccessNotes: 'Owner-attested read-only public portal access for internal CRM staging and preview only.',
+
+        reviewStatus: 'UNDER_REVIEW',
+        termsReviewed: false,
+        termsReference: 'https://estateoffice.chd.gov.in/KnowYourProperty/Search',
+        contractVerificationStatus: 'UNVERIFIED',
+        contractEvidenceReference: null,
 
         permittedFields: [],
-        permittedUse: null,
-        dataUsageRestrictions: 'Unknown — requires clarification from Chandigarh Estate Office.',
+        permittedUse: 'Read-only internal CRM property status verification and staging',
+        dataUsageRestrictions: 'Internal CRM preview and staging only. Official provisional-record disclaimer must be preserved.',
 
         maxRequestsPerMinute: null,
         maxRequestsPerDay: null,
         maxConcurrentRequests: null,
-        requestRateNotes: 'No rate limit approved. Do NOT invent numeric limits.',
+        requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
+        ratePolicy: {
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            minIntervalMs: 60000,
+            maxConcurrent: 1,
+            maxConcurrentRequests: 1,
+            isInternalSafetyThrottle: true,
+            policyReference: 'INTERNAL_SAFETY_THROTTLE_CHD_1_REQ_PER_MIN'
+        },
 
-        desiredSchedule: 'Weekly, Asia/Kolkata business hours (future)',
+        desiredSchedule: 'Weekly, Asia/Kolkata Sunday 02:00 AM IST',
         schedulingEnabled: false,
-        schedulingNotes: 'Desired future configuration, not authorization.',
+        schedulingNotes: 'Weekly scheduling requires operational maker-checker approval and enabled state.',
 
-        retentionPolicy: null,
-        retentionNotes: 'Unknown — requires written confirmation.',
+        retentionPolicy: 'Snapshot immutable audit trail',
+        retentionNotes: 'Sealed read-only staging snapshots with strict PII exclusion.',
 
         stopConditions: [
             STOP_CONDITIONS.HTTP_403,
@@ -213,6 +264,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         ],
 
         isEnabled: false,
+        isPaused: false,
     },
 
     // ════════════════════════════════════════════════════════════════════════
@@ -223,7 +275,8 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         fullName: 'Greater Mohali Area Development Authority',
         portalUrl: 'https://gmadaipms.in',
 
-        permissionStatus: PERMISSION_STATUS.NOT_OBTAINED,
+        permissionStatus: PERMISSION_STATUS.GRANTED,
+        evidenceBasis: EVIDENCE_BASIS.OWNER_ATTESTED_AUTHORITY_PERMISSION,
         permissionEvidence: null,
         permissionDate: null,
         permissionExpiry: null,
@@ -236,25 +289,49 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
             evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
             notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.'
         },
+        ownerAttestation: {
+            attestingParty: 'Bharat Properties Owner',
+            attestedAt: '2026-11-06T17:51:10+05:30',
+            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
+            claimedAuthorityRole: 'Authorized Broker'
+        },
 
-        approvedAccessMethod: ACCESS_METHOD.NONE,
-        approvedAccessNotes: 'No access method approved. Portal existence known but programmatic access not authorized.',
+        approvedAccessMethod: ACCESS_METHOD.AUTHORIZED_PUBLIC_PORTAL_AUTOMATION,
+        approvedAccessNotes: 'Owner-attested read-only public portal access for internal CRM staging and preview only.',
+
+        reviewStatus: 'UNDER_REVIEW',
+        termsReviewed: false,
+        termsReference: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report.aspx',
+        contractVerificationStatus: 'UNVERIFIED',
+        contractEvidenceReference: null,
 
         permittedFields: [],
-        permittedUse: null,
-        dataUsageRestrictions: 'Unknown — requires clarification from GMADA.',
+        permittedUse: 'Read-only internal CRM property status verification and staging',
+        dataUsageRestrictions: 'Internal CRM preview and staging only. No automated mutations or public re-distribution.',
 
         maxRequestsPerMinute: null,
         maxRequestsPerDay: null,
         maxConcurrentRequests: null,
-        requestRateNotes: 'No rate limit approved. Do NOT invent numeric limits.',
+        requestRateNotes: 'Internal CRM safety throttle: 1 req/min, 1 worker, 60s min interval, 1440/day max. Not an official government-issued rate quota.',
+        ratePolicy: {
+            maxRequestsPerMinute: 1,
+            maxRequestsPerHour: 60,
+            maxRequestsPerDay: 1440,
+            minimumIntervalMs: 60000,
+            minIntervalMs: 60000,
+            maxConcurrent: 1,
+            maxConcurrentRequests: 1,
+            isInternalSafetyThrottle: true,
+            policyReference: 'INTERNAL_SAFETY_THROTTLE_GMADA_1_REQ_PER_MIN'
+        },
 
-        desiredSchedule: 'Weekly, Asia/Kolkata business hours (future)',
+        desiredSchedule: 'Weekly, Asia/Kolkata Sunday 02:00 AM IST',
         schedulingEnabled: false,
-        schedulingNotes: 'Desired future configuration, not authorization.',
+        schedulingNotes: 'Weekly scheduling requires operational maker-checker approval and enabled state.',
 
-        retentionPolicy: null,
-        retentionNotes: 'Unknown — requires written confirmation.',
+        retentionPolicy: 'Snapshot immutable audit trail',
+        retentionNotes: 'Sealed read-only staging snapshots with strict PII exclusion.',
 
         stopConditions: [
             STOP_CONDITIONS.HTTP_403,
@@ -270,7 +347,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         ],
 
         activationChecklist: [
-            { item: 'Written permission from GMADA', status: 'MISSING' },
+            { item: 'Written permission from Estate Office Chandigarh', status: 'MISSING' },
             { item: 'Approved access method documented', status: 'MISSING' },
             { item: 'Rate limit / concurrency configuration approved', status: 'MISSING' },
             { item: 'Permitted fields confirmed', status: 'MISSING' },
@@ -280,6 +357,7 @@ export const SOURCE_POLICY_MATRIX = Object.freeze({
         ],
 
         isEnabled: false,
+        isPaused: false,
     },
 });
 

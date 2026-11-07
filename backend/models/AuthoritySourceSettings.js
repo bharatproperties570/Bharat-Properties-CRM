@@ -404,31 +404,102 @@ AuthoritySourceSettingsSchema.statics.getAllForTenant = function (tenantId) {
  * Safe for repeated calls — uses upsert.
  */
 AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId) {
-    const ops = AUTHORITY_CODES.map(code => ({
-        updateOne: {
-            filter: { tenantId, authorityCode: code },
-            update: {
-                $setOnInsert: {
-                    tenantId,
-                    authorityCode: code,
-                    permissionStatus: 'NOT_OBTAINED',
-                    approvedAccessMethod: 'NONE',
-                    isEnabled: false,
-                    isPaused: false,
-                    schedulingEnabled: false,
-                    reviewStatus: 'NOT_REVIEWED',
-                    userReportedEvidence: {
-                        reportedBy: 'Bharat Properties Owner',
-                        reportedAt: new Date('2026-11-06T17:51:10+05:30'),
-                        claimedAuthorityRole: 'Authorized Broker',
-                        notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
-                        verificationStatus: 'PENDING_WRITTEN_REFERENCE'
-                    }
-                }
-            },
-            upsert: true
+    const commonFields = [
+        'propertyId', 'fileNumber', 'formNumber', 'propertyType', 'propertyCategory',
+        'sectorNumber', 'phaseCode', 'blockCode', 'schemeName', 'urbanEstate',
+        'estateOffice', 'propertySize', 'propertyAreaValue', 'propertyAreaUnit',
+        'allotmentMode', 'allotmentPrice', 'currentDues', 'totalPaid', 'allotmentDate',
+        'transferDate', 'possessionDate', 'possessionStatus', 'authorityStatus',
+        'buildingPlanApproved', 'occupancyCertificate', 'litigationStatus', 'mortgageStatus',
+        'duesStatus', 'leaseRentStatus', 'verificationStatus', 'matchConfidence'
+    ];
+    const sourceConfigs = {
+        HSVP: {
+            termsReference: 'https://hsvphry.org.in/Home/Terms',
+            claimedAuthorityRole: 'Authorized Broker',
+            identityRequirements: {
+                required: ['urbanEstate', 'sectorNumber', 'propertyId'],
+                optional: ['phaseCode'],
+                verified: false
+            }
+        },
+        GMADA: {
+            termsReference: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report.aspx',
+            claimedAuthorityRole: 'Authorized Broker',
+            identityRequirements: {
+                required: ['location', 'sectors', 'propertyNo'],
+                optional: ['usageType', 'propertyType', 'formNo'],
+                verified: false
+            }
+        },
+        CHD: {
+            termsReference: 'https://estateoffice.chd.gov.in/KnowYourProperty/Search',
+            claimedAuthorityRole: 'Authorized Broker',
+            identityRequirements: {
+                required: ['sectorNumber', 'propertyId'],
+                optional: ['fileType', 'fileNumber'],
+                verified: false
+            }
         }
-    }));
+    };
+    const ops = AUTHORITY_CODES.map(code => {
+        const cfg = sourceConfigs[code];
+        const throttleRef = `INTERNAL_SAFETY_THROTTLE_${code}_1_REQ_PER_MIN`;
+        return {
+            updateOne: {
+                filter: { tenantId, authorityCode: code },
+                update: {
+                    $setOnInsert: {
+                        tenantId,
+                        authorityCode: code,
+                        permissionStatus: 'GRANTED',
+                        evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
+                        approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                        permittedFields: commonFields,
+                        approvalReference: `OWNER_ATTESTATION_${code}_20261106`,
+                        authorizationScope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
+                        commercialUseAuthorized: false,
+                        readOnlySearchAuthorized: true,
+                        termsReviewed: false,
+                        termsReference: cfg.termsReference,
+                        contractVerificationStatus: 'NOT_VERIFIED',
+                        contractEvidenceReference: null,
+                        ownerAttestation: {
+                            attestingParty: 'Bharat Properties Owner',
+                            attestedAt: new Date('2026-11-06T17:51:10+05:30'),
+                            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
+                            claimedAuthorityRole: cfg.claimedAuthorityRole
+                        },
+                        ratePolicy: {
+                            maxRequestsPerMinute: 1,
+                            maxRequestsPerHour: 60,
+                            maxRequestsPerDay: 1440,
+                            minimumIntervalMs: 60000,
+                            minIntervalMs: 60000,
+                            maxConcurrent: 1,
+                            cooldownSeconds: 60,
+                            isInternalSafetyThrottle: true,
+                            policySource: throttleRef
+                        },
+                        isEnabled: false,
+                        isPaused: false,
+                        schedulingEnabled: false,
+                        reviewStatus: 'UNDER_REVIEW',
+                        identityRequirements: cfg.identityRequirements,
+                        userReportedEvidence: {
+                            reportedBy: 'Bharat Properties Owner',
+                            reportedAt: new Date('2026-11-06T17:51:10+05:30'),
+                            claimedAuthorityRole: 'Authorized Broker',
+                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
+                            verificationStatus: 'PENDING_WRITTEN_REFERENCE'
+                        }
+                    }
+                },
+                upsert: true
+            }
+        };
+    });
     return this.bulkWrite(ops);
 };
 
@@ -526,12 +597,12 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
                         permittedFields: commonFields,
                         approvalReference: `OWNER_ATTESTATION_${code}_20261106`,
                         authorizationScope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
-                        commercialUseAuthorized: Boolean(options.commercialUseAuthorized ?? true),
+                        commercialUseAuthorized: Boolean(options.commercialUseAuthorized ?? (hasMakerChecker ? true : false)),
                         readOnlySearchAuthorized: Boolean(options.readOnlySearchAuthorized ?? true),
-                        termsReviewed: Boolean(options.termsReviewed ?? true),
+                        termsReviewed: Boolean(options.termsReviewed ?? (hasMakerChecker ? true : false)),
                         termsReference: cfg.termsReference,
-                        contractVerificationStatus: 'LIVE_VERIFIED',
-                        contractEvidenceReference: `LIVE_PORTAL_CONTRACT_${code}_20261106`,
+                        contractVerificationStatus: options.contractVerificationStatus || (hasMakerChecker ? 'LIVE_VERIFIED' : 'NOT_VERIFIED'),
+                        contractEvidenceReference: options.contractEvidenceReference || (hasMakerChecker ? `LIVE_PORTAL_CONTRACT_${code}_20261106` : null),
                         ownerAttestation: {
                             attestingParty: options.attestingParty || 'Bharat Properties Owner',
                             attestedAt: defaultAttestedAt,
