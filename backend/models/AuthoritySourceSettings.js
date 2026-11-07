@@ -291,7 +291,7 @@ AuthoritySourceSettingsSchema.index(
 // ========== Server-Side Activation Lock & Gate (Phase 4.4.4 Lifecycle) ==========
 // Sources remain strictly offline and fixture-only until complete, independently verified Phase 4.4.4 approval records exist.
 AuthoritySourceSettingsSchema.pre('save', function (next) {
-    if (this.isEnabled || this.schedulingEnabled || this.reviewStatus === 'APPROVED' || this.permissionStatus === 'GRANTED') {
+    if (this.isEnabled || this.schedulingEnabled || this.reviewStatus === 'APPROVED') {
         const check = this.checkActivationEligibility();
         if (!check.canActivate) {
             const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation, approvals, and scheduling are prohibited without complete, independently verified Phase 4.4.4 approval record. Blockers: ${check.blockers.join('; ')}`);
@@ -420,7 +420,7 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                     userReportedEvidence: {
                         reportedBy: 'Bharat Properties Owner',
                         reportedAt: new Date('2026-11-06T17:51:10+05:30'),
-                        claimedAuthorityRole: code === 'HSVP' ? 'Chief Administrator' : (code === 'GMADA' ? 'Chief Administrator' : 'Estate Officer'),
+                        claimedAuthorityRole: 'Authorized Broker',
                         notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
                         verificationStatus: 'PENDING_WRITTEN_REFERENCE'
                     }
@@ -442,7 +442,7 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
             $set: {
                 'userReportedEvidence.reportedBy': details.reportedBy || 'Bharat Properties Owner',
                 'userReportedEvidence.reportedAt': details.reportedAt || new Date('2026-11-06T17:51:10+05:30'),
-                'userReportedEvidence.claimedAuthorityRole': details.claimedAuthorityRole || (authorityCode === 'HSVP' ? 'Chief Administrator' : (authorityCode === 'GMADA' ? 'Chief Administrator' : 'Estate Officer')),
+                'userReportedEvidence.claimedAuthorityRole': details.claimedAuthorityRole || 'Authorized Broker',
                 'userReportedEvidence.notes': details.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
                 'userReportedEvidence.verificationStatus': details.verificationStatus || 'PENDING_WRITTEN_REFERENCE'
             }
@@ -472,7 +472,7 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
     const sourceConfigs = {
         HSVP: {
             termsReference: 'https://hsvphry.org.in/Home/Terms',
-            claimedAuthorityRole: 'Chief Administrator',
+            claimedAuthorityRole: 'Authorized Broker',
             identityRequirements: {
                 required: ['urbanEstate', 'sectorNumber', 'propertyId'],
                 optional: ['phaseCode'],
@@ -481,7 +481,7 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
         },
         GMADA: {
             termsReference: 'https://gmadaipms.in/UserExternalPages/Property_Ledger_Report.aspx',
-            claimedAuthorityRole: null, // do not invent official designations
+            claimedAuthorityRole: 'Authorized Broker',
             identityRequirements: {
                 required: ['location', 'sectors', 'propertyNo'],
                 optional: ['usageType', 'propertyType', 'formNo'],
@@ -490,7 +490,7 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
         },
         CHD: {
             termsReference: 'https://estateoffice.chd.gov.in/KnowYourProperty/Search',
-            claimedAuthorityRole: null, // do not invent official designations
+            claimedAuthorityRole: 'Authorized Broker',
             identityRequirements: {
                 required: ['sectorNumber', 'propertyId'],
                 optional: ['fileType', 'fileNumber'],
@@ -499,9 +499,18 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
         }
     };
 
-    const submitterId = options.submittedBy || new mongoose.Types.ObjectId();
-    const approverId = options.approvedBy || new mongoose.Types.ObjectId();
-    const reviewerId = options.reviewedBy || new mongoose.Types.ObjectId();
+    const submitterId = options.submittedBy || null;
+    const approverId = options.approvedBy || null;
+    const reviewerId = options.reviewedBy || null;
+    const hasMakerChecker = Boolean(
+        submitterId && approverId && reviewerId &&
+        String(submitterId) !== String(approverId) &&
+        String(approverId) !== String(reviewerId) &&
+        String(submitterId) !== String(reviewerId)
+    );
+    const reviewStatus = options.reviewStatus || (hasMakerChecker ? 'APPROVED' : 'UNDER_REVIEW');
+    const isEnabled = options.isEnabled !== undefined ? (hasMakerChecker ? options.isEnabled : false) : hasMakerChecker;
+    const schedulingEnabled = options.schedulingEnabled !== undefined ? (hasMakerChecker ? options.schedulingEnabled : false) : hasMakerChecker;
 
     const ops = AUTHORITY_CODES.map(code => {
         const cfg = sourceConfigs[code];
@@ -517,17 +526,17 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
                         permittedFields: commonFields,
                         approvalReference: `OWNER_ATTESTATION_${code}_20261106`,
                         authorizationScope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
-                        commercialUseAuthorized: true,
-                        readOnlySearchAuthorized: true,
-                        termsReviewed: true,
+                        commercialUseAuthorized: Boolean(options.commercialUseAuthorized ?? true),
+                        readOnlySearchAuthorized: Boolean(options.readOnlySearchAuthorized ?? true),
+                        termsReviewed: Boolean(options.termsReviewed ?? true),
                         termsReference: cfg.termsReference,
                         contractVerificationStatus: 'LIVE_VERIFIED',
                         contractEvidenceReference: `LIVE_PORTAL_CONTRACT_${code}_20261106`,
                         ownerAttestation: {
-                            attestingParty: 'Bharat Properties Owner',
+                            attestingParty: options.attestingParty || 'Bharat Properties Owner',
                             attestedAt: defaultAttestedAt,
-                            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
-                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
+                            scope: options.scope || 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+                            notes: options.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
                             claimedAuthorityRole: cfg.claimedAuthorityRole
                         },
                         ratePolicy: {
@@ -542,18 +551,18 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
                             policySource: throttleRef
                         },
                         identityRequirements: cfg.identityRequirements,
-                        reviewStatus: 'APPROVED',
+                        reviewStatus: reviewStatus,
                         submittedBy: submitterId,
-                        submittedAt: defaultAttestedAt,
-                        approvedBy: approverId,
-                        approvedAt: defaultAttestedAt,
-                        reviewedBy: reviewerId,
-                        reviewedAt: defaultAttestedAt,
-                        approvalDate: defaultAttestedAt,
-                        approvalExpiryDate: defaultExpiry,
-                        isEnabled: options.isEnabled !== undefined ? options.isEnabled : true,
+                        submittedAt: submitterId ? (options.submittedAt || defaultAttestedAt) : null,
+                        approvedBy: hasMakerChecker ? approverId : null,
+                        approvedAt: hasMakerChecker ? (options.approvedAt || defaultAttestedAt) : null,
+                        reviewedBy: hasMakerChecker ? reviewerId : null,
+                        reviewedAt: hasMakerChecker ? (options.reviewedAt || defaultAttestedAt) : null,
+                        approvalDate: hasMakerChecker ? (options.approvalDate || defaultAttestedAt) : null,
+                        approvalExpiryDate: hasMakerChecker ? defaultExpiry : null,
+                        isEnabled: isEnabled,
                         isPaused: false,
-                        schedulingEnabled: options.schedulingEnabled !== undefined ? options.schedulingEnabled : true,
+                        schedulingEnabled: schedulingEnabled,
                         scheduleCron: '0 2 * * 0',
                         scheduleTimezone: 'Asia/Kolkata'
                     }

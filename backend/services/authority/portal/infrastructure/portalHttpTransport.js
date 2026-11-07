@@ -125,6 +125,8 @@ export const portalHttpTransport = Object.freeze({
         const adapter = getPortalAdapter(code);
         let sessionCookies = '';
         let hiddenFields = {};
+        let initialHtml = '';
+        let availableSchemes = [];
 
         // Phase 4.4.4 Session Bootstrap (P0.3):
         // Execute initial GET to capture ephemeral same-origin cookies and anti-forgery fields
@@ -185,8 +187,20 @@ export const portalHttpTransport = Object.freeze({
                     sessionCookies = rawCookies.map(c => c.split(';')[0].trim()).join('; ');
                 }
 
-                const initialHtml = await readStreamWithByteCeiling(getResponse, MAX_BYTES, bootstrapController);
+                initialHtml = await readStreamWithByteCeiling(getResponse, MAX_BYTES, bootstrapController);
                 const lowerHtml = initialHtml.toLowerCase();
+
+                // Extract available scheme option values if present (e.g. GMADA ddlScheme)
+                if (code === 'GMADA' && initialHtml) {
+                    const schemeMatch = /<select[^>]+ddlScheme[^>]*>([\s\S]*?)<\/select>/i.exec(initialHtml);
+                    if (schemeMatch && schemeMatch[1]) {
+                        const optRegex = /<option[^>]+value=["']([^"']*)["']/gi;
+                        let m;
+                        while ((m = optRegex.exec(schemeMatch[1])) !== null) {
+                            availableSchemes.push(m[1]);
+                        }
+                    }
+                }
 
                 // Classify bootstrap HTML for blockers before any POST
                 // Strip harmless empty hidden input hfCaptcha before evaluating captcha challenges
@@ -267,7 +281,8 @@ export const portalHttpTransport = Object.freeze({
             verificationToken: hiddenFields['__RequestVerificationToken'] || hiddenFields['__CSRFTOKEN__'] || null,
             viewState: hiddenFields['__VIEWSTATE'] || null,
             viewStateGenerator: hiddenFields['__VIEWSTATEGENERATOR'] || null,
-            eventValidation: hiddenFields['__EVENTVALIDATION'] || null
+            eventValidation: hiddenFields['__EVENTVALIDATION'] || null,
+            availableSchemes
         };
         const reqConfig = adapter.buildSearchRequest(criteria, adapterOptions);
 

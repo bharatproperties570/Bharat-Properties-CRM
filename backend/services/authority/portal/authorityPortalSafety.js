@@ -36,6 +36,7 @@ const LOGIN_PATTERNS = [
 export function classifyAuthorityPortalResponse({ status = 0, body = '', location = '' } = {}) {
     const content = String(body || '');
     const redirect = String(location || '');
+    const sanitizedContent = content.replace(/<input[^>]+(?:name|id)=["'][^"']*hfcaptcha[^"']*["'][^>]*>/gi, '');
 
     if (status === 403) {
         return Object.freeze({ action: 'PAUSE_SOURCE', reason: 'HTTP_403_FORBIDDEN', retry: false });
@@ -43,7 +44,7 @@ export function classifyAuthorityPortalResponse({ status = 0, body = '', locatio
     if (status === 429) {
         return Object.freeze({ action: 'PAUSE_SOURCE', reason: 'HTTP_429_RATE_LIMITED', retry: false, respectRetryAfter: true });
     }
-    if (CAPTCHA_PATTERNS.some((pattern) => pattern.test(content))) {
+    if (CAPTCHA_PATTERNS.some((pattern) => pattern.test(sanitizedContent))) {
         return Object.freeze({ action: 'PAUSE_SOURCE', reason: 'CAPTCHA_OR_CHALLENGE', retry: false });
     }
     if (

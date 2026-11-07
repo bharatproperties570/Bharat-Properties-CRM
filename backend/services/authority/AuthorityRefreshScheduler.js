@@ -146,7 +146,10 @@ export class AuthorityRefreshScheduler {
                 continue;
             }
 
-            const inventoryIds = [...new Set(links.map(l => l.inventoryId.toString()))];
+            let inventoryIds = [...new Set(links.map(l => l.inventoryId.toString()))];
+            if (options.maxItemsPerAuthority && inventoryIds.length > options.maxItemsPerAuthority) {
+                inventoryIds = inventoryIds.slice(0, options.maxItemsPerAuthority);
+            }
 
             // 4. Create and execute scheduled bulk run
             const run = await AuthorityBulkProcessor.createBulkRun({
@@ -172,7 +175,9 @@ export class AuthorityRefreshScheduler {
                         isFixtureMode: isSimulation || !settings.isEffectivelyActive(),
                         isSystem: true,
                         ipAddress: 'system',
-                        userAgent: 'AuthorityRefreshScheduler/v4.4.1'
+                        userAgent: 'AuthorityRefreshScheduler/v4.4.1',
+                        portalRuntime: options.portalRuntime,
+                        portalOptions: options.portalOptions
                     });
                 } catch (procErr) {
                     executionError = procErr;

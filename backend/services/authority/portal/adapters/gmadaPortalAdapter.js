@@ -47,9 +47,18 @@ export const gmadaPortalAdapter = Object.freeze({
             throw new Error('GMADA_MISSING_IDENTIFIER: Property No or Form No is required for GMADA property search.');
         }
 
+        // ASP.NET EventValidation: If the bootstrap form has options and does not include the requested sector,
+        // use '0' (--Select One-- / All Schemes) to prevent ASP.NET EventValidation HTTP 500 rejection.
+        let schemeValue = sector;
+        if (Array.isArray(options.availableSchemes) && options.availableSchemes.length > 0) {
+            if (!options.availableSchemes.includes(sector)) {
+                schemeValue = '0';
+            }
+        }
+
         const params = new URLSearchParams();
         params.append('ctl00$Column1_ContentPlaceHolder$ddlLocations', location);
-        params.append('ctl00$Column1_ContentPlaceHolder$ddlScheme', sector);
+        params.append('ctl00$Column1_ContentPlaceHolder$ddlScheme', schemeValue);
         params.append('ctl00$Column1_ContentPlaceHolder$ddlUsageType', criteria.usageType ? String(criteria.usageType) : '0');
         params.append('ctl00$Column1_ContentPlaceHolder$ddlPropertyType', criteria.propertyType ? String(criteria.propertyType) : '0');
         params.append('ctl00$Column1_ContentPlaceHolder$txtSearch', searchIdentifier);

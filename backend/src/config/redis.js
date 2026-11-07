@@ -324,12 +324,15 @@ class MockRedis extends EventEmitter {
             const genKey = keys[1];
             const token = argv[0];
             const ttl = parseInt(argv[1], 10) || 15;
-            if (this.data.has(lockKey)) return 0;
-            await this.set(lockKey, token, 'NX', 'EX', ttl);
+            const isPortalLock = s.includes('tostring(seq)') || s.includes('{1,');
+            if (this.data.has(lockKey)) {
+                return isPortalLock ? [0, "0"] : 0;
+            }
+            await this.set(lockKey, token, 'NX', 'PX', ttl);
             const currentGen = parseInt(this.data.get(genKey) || '0', 10);
             const nextGen = currentGen + 1;
             this.data.set(genKey, String(nextGen));
-            return nextGen;
+            return isPortalLock ? [1, String(nextGen)] : nextGen;
         }
 
         // Canonical release lock script: if get(k) == token then del(k) return 1 else return 0
