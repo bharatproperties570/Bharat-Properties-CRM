@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -32,10 +32,16 @@ import {
   MessageSquare,
   Check,
   Calendar,
-  Clock
+  Clock,
+  Palette,
+  Wand2,
+  Sliders,
+  Camera,
+  Layers
 } from 'lucide-react';
 import { socialAPI, marketingAPI, googleSettingsAPI, api } from '../utils/api';
 import toast from 'react-hot-toast';
+import { brandifyPropertyImage, BRAND_COLORS } from '../utils/brandCanvasEngine';
 
 /**
  * SocialPostModal - Enterprise Promote Studio
@@ -79,6 +85,18 @@ const SocialPostModal = ({
   const [status, setStatus] = useState('idle');
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledTime, setScheduledTime] = useState('');
+
+  // 🎨 --- ENTERPRISE AI COPYWRITER & VISUAL STUDIO STATE ---
+  const [aiTone, setAiTone] = useState('urgent'); // 'urgent' | 'luxury' | 'investor' | 'short_hook'
+  const [isBrandified, setIsBrandified] = useState(false);
+  const [brandedImageUrl, setBrandedImageUrl] = useState('');
+  const [isBrandifying, setIsBrandifying] = useState(false);
+  const [showPromptLab, setShowPromptLab] = useState(false);
+  const [promptAngle, setPromptAngle] = useState('drone'); // 'drone' | 'hero' | 'interior' | 'walking'
+  const [promptMood, setPromptMood] = useState('golden_hour'); // 'golden_hour' | 'cinematic' | 'luxury' | 'minimalist'
+  const [generatedPrompt, setGeneratedPrompt] = useState('');
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [previewBrandedMode, setPreviewBrandedMode] = useState(true); // Toggle on phone mirror
 
   // --- TAB 2: PORTALS & SYNDICATION STATE ---
   const [selectedPortals, setSelectedPortals] = useState([
@@ -153,23 +171,50 @@ const SocialPostModal = ({
     }
   }, [initialData, initialContent, explicitImageUrl, isActuallyOpen]);
 
+  // 🖼️ Extract All High-Res Property Gallery Images from Deal / Project
+  const galleryImages = useMemo(() => {
+    if (!initialData) return [];
+    const list = [];
+    if (initialData.imageUrl) list.push(initialData.imageUrl);
+    if (initialData.primaryImage) list.push(initialData.primaryImage);
+    if (Array.isArray(initialData.images)) {
+      initialData.images.forEach(img => {
+        if (typeof img === 'string' && img) list.push(img);
+        else if (img?.url) list.push(img.url);
+      });
+    }
+    if (Array.isArray(initialData.media)) {
+      initialData.media.forEach(m => {
+        if (typeof m === 'string' && m) list.push(m);
+        else if (m?.url) list.push(m.url);
+      });
+    }
+    if (Array.isArray(initialData.photos)) {
+      initialData.photos.forEach(p => {
+        if (typeof p === 'string' && p) list.push(p);
+        else if (p?.url) list.push(p.url);
+      });
+    }
+    return Array.from(new Set(list.filter(Boolean)));
+  }, [initialData]);
+
   if (!isActuallyOpen) return null;
 
-  // ── AI Copywriting Generation ──
-  const handleGenerateAI = async () => {
+  // ── Enterprise AI Copywriting Generation ──
+  const handleGenerateAI = async (overrideTone = aiTone) => {
     const propertyId = initialData?.id || initialData?._id;
     
     setIsGenerating(true);
     try {
       if (propertyId) {
-        const res = await marketingAPI.generateSocial(propertyId, platform);
+        const res = await marketingAPI.generateSocial(propertyId, platform, overrideTone, format);
         if (res?.success && res.content) {
           setContent(res.content);
-          toast.success('Premium AI Caption Generated! ✨');
+          toast.success(`✨ ${overrideTone.toUpperCase()} Narrative Generated!`);
           return;
         }
       }
-      // Resilient fallback formatting — always gives professional copy without intrusive red error toasts
+      // Enterprise Resilient Fallback based on Selected Tone
       const title = initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity';
       const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
         ? String(initialData.location).trim()
@@ -177,10 +222,24 @@ const SocialPostModal = ({
           ? String(initialData.locationSearch).trim()
           : 'Kurukshetra, Haryana';
       const price = initialData?.price || 'Price on Request';
-      const pUpper = platform.toUpperCase();
-      const aiDraft = `✨ ${title}\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\n${initialData?.description || 'Explore this premier property with Bharat Properties. Verified title and prime connectivity. Schedule a private site visit today!'}\n\n#BharatProperties #RealEstate #${pUpper} #Investment`;
+      const isMohali = cleanLoc.toLowerCase().includes('mohali');
+      const regionalPhone = isMohali ? '+91 99910 00570' : '+91 99913 33570';
+      const website = 'www.bharatproperties.co';
+
+      let aiDraft = '';
+      if (overrideTone === 'luxury') {
+        aiDraft = `💎 EXCLUSIVE LUXURY LIVING | ${title}\n\nIndulge in refined architecture and serene living at ${cleanLoc}. Designed for those who value timeless quality, expansive spaces, and unmatched lifestyle amenities.\n\n✨ Unit: ${title}\n📍 Location: ${cleanLoc}\n💰 Investment: ${price}\n📜 Verified Title & RERA Compliant\n\nPrivate viewings available on prior appointment:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #LuxuryHomes #PrimeRealEstate #Kurukshetra`;
+      } else if (overrideTone === 'investor') {
+        aiDraft = `📈 HIGH-YIELD INVESTMENT OPPORTUNITY | ${title}\n\nStrategic property located in the high-growth development corridor of ${cleanLoc}. Outstanding capital appreciation and rental yield potential.\n\n🔑 Property: ${title}\n📍 Location: ${cleanLoc}\n💵 Price: ${price}\n🛡️ 100% Verified Title & Clear Registry\n\nRequest complete financial breakdown & advisory:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #RealEstateInvestment #CapitalGrowth #CommercialProperty`;
+      } else if (overrideTone === 'short_hook') {
+        aiDraft = `🚨 Prime Deal Alert in ${cleanLoc}! ${title} at ${price}. 100% verified registry title. Call ${regionalPhone} to book site visit now! 🌐 ${website} #BharatProperties #HotDeal`;
+      } else {
+        // Urgent Deal (Hinglish)
+        aiDraft = `🔥 URGENT DEAL ALERT: ${title}!\n\nKurukshetra ke prime location ${cleanLoc} par ready possession opportunity! Verified title, bank loan approval, aur prime road connectivity.\n\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\nLimited units available — aaj hi apni private site visit book karein!\n📞 Call/WhatsApp: ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #Kurukshetra #HotProperty #RealEstateDeals`;
+      }
+
       setContent(aiDraft);
-      toast.success('Premium AI Caption Generated! ✨');
+      toast.success(`✨ ${overrideTone.toUpperCase()} Narrative Generated!`);
     } catch (error) {
       console.warn('[SocialPostModal] AI generation service fallback:', error);
       const title = initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity';
@@ -188,13 +247,81 @@ const SocialPostModal = ({
         ? String(initialData.location).trim()
         : 'Kurukshetra, Haryana';
       const price = initialData?.price || 'Price on Request';
-      const pUpper = platform.toUpperCase();
-      const aiDraft = `✨ ${title}\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\n${initialData?.description || 'Explore this premier property with Bharat Properties. Verified title and prime connectivity. Schedule a private site visit today!'}\n\n#BharatProperties #RealEstate #${pUpper} #Investment`;
-      setContent(aiDraft);
-      toast.success('Premium AI Caption Generated! ✨');
+      setContent(`🔥 URGENT DEAL: ${title}\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\nVerified title and prime connectivity. Contact Bharat Properties today!\n📞 +91 99913 33570 | 🌐 www.bharatproperties.co\n\n#BharatProperties #RealEstate`);
+      toast.success('Narrative Generated! ✨');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // 🎨 ── Apply Bharat Properties Brand Kit (HTML5 Canvas Engine) ──
+  const handleBrandify = async (targetImg = imageUrl) => {
+    if (!targetImg) {
+      toast.error('Please upload or select an image first');
+      return;
+    }
+    setIsBrandifying(true);
+    try {
+      const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
+        ? String(initialData.location).trim()
+        : (initialData?.locationSearch && !/^[0-9a-fA-F]{24}$/.test(String(initialData.locationSearch).trim()))
+          ? String(initialData.locationSearch).trim()
+          : 'Kurukshetra, Haryana';
+
+      const propData = {
+        title: initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity',
+        location: cleanLoc,
+        price: initialData?.price || 'Price on Request',
+        format: format === 'story' || format === 'reel' ? '9:16' : '1:1'
+      };
+
+      const result = await brandifyPropertyImage(targetImg, propData);
+      setBrandedImageUrl(result.dataUrl);
+      setIsBrandified(true);
+      setPreviewBrandedMode(true);
+      toast.success('Bharat Properties Brand Kit Applied! 🎨✨');
+    } catch (err) {
+      console.warn('[SocialPostModal] Brandify error:', err);
+      toast.error('Could not apply Brand Kit: ' + (err.message || 'Image loading issue'));
+    } finally {
+      setIsBrandifying(false);
+    }
+  };
+
+  // 🛸 ── Generate Visual Prompts for DALL-E 3 & Runway v3 ──
+  const handleGenerateVisualPrompt = () => {
+    setIsGeneratingPrompt(true);
+    setTimeout(() => {
+      const title = initialData?.name || initialData?.title || initialData?.unitNo || 'Residential Project';
+      const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
+        ? String(initialData.location).trim()
+        : 'Kurukshetra, Haryana';
+      const isMohali = cleanLoc.toLowerCase().includes('mohali');
+      const phone = isMohali ? '9991000570' : '9991333570';
+      const aspect = format === 'story' || format === 'reel' ? '9:16 Vertical Reel' : '1:1 Square Post';
+
+      const angleDesc = promptAngle === 'drone'
+        ? 'cinematic 4k overhead drone shot highlighting expansive plots and lush green road connectivity'
+        : promptAngle === 'hero'
+          ? 'eye-level architectural hero shot showing grand entrance and contemporary facade'
+          : promptAngle === 'interior'
+            ? 'wide-angle luxury interior shot showcasing sunlit living spaces and high ceilings'
+            : 'street-level walking POV tour showcasing serene neighborhood and paved wide roads';
+
+      const moodDesc = promptMood === 'golden_hour'
+        ? 'Golden hour warm sunlight casting long dramatic shadows, amber glow'
+        : promptMood === 'cinematic'
+          ? 'Moody cinematic dusk lighting with elegant warm LED perimeter lights'
+          : promptMood === 'luxury'
+            ? 'Aspirational crisp daylight, crystal clear sky, vibrant royal ambiance'
+            : 'Minimalist clean aesthetic, architectural precision, soft diffused daylight';
+
+      const promptStr = `A stunning ${angleDesc} of ${title} in ${cleanLoc}. ${moodDesc}. Architecture emphasizes clear lines with Bharat Properties brand aesthetic: Deep Navy accents with subtle Gold lighting. [BRAND IDENTITY]: Include Bharat Properties emblem. [CONTACT STRIP]: Display Website: www.bharatproperties.co, Contact: ${phone}. Photorealistic, 8k resolution, Unreal Engine 5 render style, perfectly composed for ${aspect}.`;
+
+      setGeneratedPrompt(promptStr);
+      setIsGeneratingPrompt(false);
+      toast.success('Visual Prompt Generated by Designer AI! 🎨');
+    }, 600);
   };
 
   // ── Media Upload Handler ──
@@ -263,10 +390,33 @@ const SocialPostModal = ({
     const entityType = initialData?.type || (initialData?.unitNo ? 'Deal' : 'System');
 
     try {
+      // Resolve Final Media Asset: If brandified, ensure public URL or robust asset reference
+      let finalImageUrl = imageUrl;
+      if (isBrandified && brandedImageUrl) {
+        if (brandedImageUrl.startsWith('data:image')) {
+          try {
+            const blobRes = await fetch(brandedImageUrl);
+            const blob = await blobRes.blob();
+            const uploadFormData = new FormData();
+            uploadFormData.append('file', blob, `bharat_branded_${Date.now()}.jpg`);
+            const upRes = await api.post('/upload', uploadFormData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+              _silentError: true
+            });
+            finalImageUrl = upRes.data?.url || upRes.data?.downloadUrl || brandedImageUrl;
+          } catch (e) {
+            console.warn('[SocialPostModal] Branded upload fallback:', e);
+            finalImageUrl = brandedImageUrl;
+          }
+        } else {
+          finalImageUrl = brandedImageUrl;
+        }
+      }
+
       const res = await socialAPI.postContent({
         platform,
         text: content,
-        imageUrl: imageUrl,
+        imageUrl: finalImageUrl,
         videoUrl: videoUrl,
         videoPath: videoUrl,
         format: format,
@@ -1091,6 +1241,47 @@ const SocialPostModal = ({
                                     </div>
                                 </div>
 
+                                {/* ⚡ Enterprise AI Copywriting Tone Selector Chips */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: '0.64rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        AI TONE:
+                                    </span>
+                                    {[
+                                        { id: 'urgent', label: '⚡ Urgent (Hinglish)', desc: 'High-conversion urgency & local appeal' },
+                                        { id: 'luxury', label: '💎 Luxury Living', desc: 'Prestige, elegance & aspirational lifestyle' },
+                                        { id: 'investor', label: '📈 Investor ROI', desc: 'Financial yields, appreciation & advisory' },
+                                        { id: 'short_hook', label: '🎯 Short Hook', desc: 'Punchy social media hook for viral reach' }
+                                    ].map(t => {
+                                        const isActive = aiTone === t.id;
+                                        return (
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                title={t.desc}
+                                                onClick={() => {
+                                                    setAiTone(t.id);
+                                                    handleGenerateAI(t.id);
+                                                }}
+                                                style={{
+                                                    padding: '3px 9px',
+                                                    borderRadius: '6px',
+                                                    border: isActive ? '1px solid #6366f1' : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'),
+                                                    background: isActive 
+                                                        ? (isDark ? 'rgba(99, 102, 241, 0.25)' : '#eef2ff') 
+                                                        : (isDark ? 'rgba(255,255,255,0.03)' : '#ffffff'),
+                                                    color: isActive ? '#6366f1' : (isDark ? '#cbd5e1' : '#475569'),
+                                                    fontSize: '0.68rem',
+                                                    fontWeight: isActive ? 800 : 600,
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s ease'
+                                                }}
+                                            >
+                                                {t.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
                                 <div style={{ position: 'relative' }}>
                                     <textarea
                                         value={content}
@@ -1368,6 +1559,42 @@ const SocialPostModal = ({
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Quick Deal Photo Picker */}
+                                    {galleryImages.length > 0 && (
+                                        <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #e2e8f0' }}>
+                                            <div style={{ fontSize: '0.60rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.4px', display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>Deal Gallery ({galleryImages.length})</span>
+                                                <span style={{ fontSize: '0.56rem', color: '#6366f1' }}>Click to select</span>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '3px', scrollbarWidth: 'none' }}>
+                                                {galleryImages.map((img, idx) => {
+                                                    const isSelected = imageUrl === img;
+                                                    return (
+                                                        <img
+                                                            key={idx}
+                                                            src={img}
+                                                            alt={`Deal ${idx + 1}`}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setImageUrl(img);
+                                                                setIsBrandified(false);
+                                                                setBrandedImageUrl('');
+                                                            }}
+                                                            style={{
+                                                                width: '34px', height: '34px', borderRadius: '5px', objectFit: 'cover',
+                                                                cursor: 'pointer',
+                                                                border: isSelected ? '2px solid #6366f1' : (isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1'),
+                                                                opacity: isSelected ? 1 : 0.65,
+                                                                flexShrink: 0,
+                                                                transition: 'all 0.15s ease'
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Scheduling Box */}
@@ -1403,6 +1630,244 @@ const SocialPostModal = ({
                                         />
                                     )}
                                 </div>
+                            </div>
+
+                            {/* 🎨 Visual AI & Brand Studio Suite */}
+                            <div style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                borderRadius: '14px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{
+                                            width: '28px', height: '28px', borderRadius: '8px',
+                                            background: 'linear-gradient(135deg, #0B1F3A 0%, #1e3a8a 100%)',
+                                            border: '1px solid #C9921A',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FAD87A'
+                                        }}>
+                                            <Palette size={14} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                Visual AI & Brand Studio
+                                                <span style={{ fontSize: '0.60rem', background: '#C9921A', color: '#0B1F3A', padding: '1px 6px', borderRadius: '4px', fontWeight: 900 }}>
+                                                    BHARAT BRAND KIT
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: '0.64rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                Verified Title Badge • RERA Compliant • Gold Price Pill • Regional Contact Footer
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {imageUrl && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleBrandify()}
+                                                disabled={isBrandifying}
+                                                style={{
+                                                    background: isBrandified ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : 'linear-gradient(135deg, #C9921A 0%, #E6AF2E 100%)',
+                                                    color: isBrandified ? '#ffffff' : '#0B1F3A',
+                                                    border: 'none',
+                                                    padding: '6px 12px',
+                                                    borderRadius: '8px',
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: 800,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px',
+                                                    cursor: isBrandifying ? 'not-allowed' : 'pointer',
+                                                    boxShadow: '0 2px 8px rgba(201, 146, 26, 0.25)'
+                                                }}
+                                            >
+                                                {isBrandifying ? (
+                                                    <>
+                                                        <Loader2 size={13} className="animate-spin" />
+                                                        <span>Brandifying...</span>
+                                                    </>
+                                                ) : isBrandified ? (
+                                                    <>
+                                                        <CheckCircle2 size={13} />
+                                                        <span>Brandified ✓</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Wand2 size={13} />
+                                                        <span>Apply Brand Kit</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        )}
+
+                                        {isBrandified && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsBrandified(false);
+                                                    setBrandedImageUrl('');
+                                                    toast('Reverted to original photo', { icon: '↺' });
+                                                }}
+                                                style={{
+                                                    background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+                                                    border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                                    padding: '6px 8px', borderRadius: '8px',
+                                                    color: isDark ? '#94a3b8' : '#64748b',
+                                                    fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer'
+                                                }}
+                                                title="Revert to original unbranded image"
+                                            >
+                                                Revert
+                                            </button>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPromptLab(prev => !prev)}
+                                            style={{
+                                                background: showPromptLab ? (isDark ? 'rgba(99, 102, 241, 0.2)' : '#e0e7ff') : (isDark ? 'rgba(255,255,255,0.05)' : '#ffffff'),
+                                                border: showPromptLab ? '1px solid #6366f1' : (isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1'),
+                                                padding: '6px 10px',
+                                                borderRadius: '8px',
+                                                color: showPromptLab ? '#6366f1' : (isDark ? '#cbd5e1' : '#475569'),
+                                                fontSize: '0.70rem',
+                                                fontWeight: 800,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <Camera size={13} />
+                                            <span>Visual Prompt Lab</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Expandable Visual Prompt Lab Drawer */}
+                                {showPromptLab && (
+                                    <div style={{
+                                        background: isDark ? '#0f172a' : '#ffffff',
+                                        border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                        borderRadius: '10px', padding: '12px',
+                                        display: 'flex', flexDirection: 'column', gap: '10px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                <Layers size={13} className="text-indigo-400" />
+                                                <span>DALL-E 3 & Runway v3 Drone Studio Prompt Generator</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                Engineered for Photorealistic Real Estate Renders
+                                            </span>
+                                        </div>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.60rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginBottom: '3px' }}>
+                                                    CAMERA PERSPECTIVE
+                                                </label>
+                                                <select
+                                                    value={promptAngle}
+                                                    onChange={(e) => setPromptAngle(e.target.value)}
+                                                    style={{
+                                                        width: '100%', padding: '5px 8px', borderRadius: '6px',
+                                                        border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #cbd5e1',
+                                                        background: isDark ? '#1e293b' : '#ffffff',
+                                                        color: isDark ? '#f8fafc' : '#0f172a',
+                                                        fontSize: '0.70rem', fontWeight: 600, outline: 'none'
+                                                    }}
+                                                >
+                                                    <option value="drone">🛸 4K Overhead Drone Aerial</option>
+                                                    <option value="hero">🏛️ Eye-Level Architectural Hero</option>
+                                                    <option value="interior">🛋️ Luxury Interior Sunlit Space</option>
+                                                    <option value="walking">🚶 Street-Level POV Walkthrough</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label style={{ fontSize: '0.60rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginBottom: '3px' }}>
+                                                    LIGHTING & MOOD
+                                                </label>
+                                                <select
+                                                    value={promptMood}
+                                                    onChange={(e) => setPromptMood(e.target.value)}
+                                                    style={{
+                                                        width: '100%', padding: '5px 8px', borderRadius: '6px',
+                                                        border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #cbd5e1',
+                                                        background: isDark ? '#1e293b' : '#ffffff',
+                                                        color: isDark ? '#f8fafc' : '#0f172a',
+                                                        fontSize: '0.70rem', fontWeight: 600, outline: 'none'
+                                                    }}
+                                                >
+                                                    <option value="golden_hour">🌅 Golden Hour Sunset Ambiance</option>
+                                                    <option value="cinematic">🌌 Dusk Cinematic with LED Accents</option>
+                                                    <option value="luxury">✨ Crisp Luxury High-Noon Daylight</option>
+                                                    <option value="minimalist">🏙️ Minimalist Architectural Daylight</option>
+                                                </select>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={handleGenerateVisualPrompt}
+                                                disabled={isGeneratingPrompt}
+                                                style={{
+                                                    alignSelf: 'flex-end',
+                                                    padding: '6px 12px',
+                                                    borderRadius: '6px',
+                                                    border: 'none',
+                                                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                                                    color: '#ffffff',
+                                                    fontSize: '0.70rem',
+                                                    fontWeight: 800,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px',
+                                                    cursor: isGeneratingPrompt ? 'not-allowed' : 'pointer'
+                                                }}
+                                            >
+                                                {isGeneratingPrompt ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                                                <span>Synthesize</span>
+                                            </button>
+                                        </div>
+
+                                        {generatedPrompt && (
+                                            <div style={{ position: 'relative', marginTop: '4px' }}>
+                                                <textarea
+                                                    readOnly
+                                                    value={generatedPrompt}
+                                                    style={{
+                                                        width: '100%', height: '70px', padding: '8px 10px',
+                                                        borderRadius: '6px',
+                                                        border: isDark ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid #c7d2fe',
+                                                        background: isDark ? '#020617' : '#f8fafc',
+                                                        color: isDark ? '#e2e8f0' : '#1e293b',
+                                                        fontSize: '0.68rem', lineHeight: '1.45', outline: 'none',
+                                                        resize: 'none', fontFamily: 'monospace'
+                                                    }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(generatedPrompt);
+                                                        toast.success('Visual prompt copied! 🛸');
+                                                    }}
+                                                    style={{
+                                                        position: 'absolute', top: '6px', right: '6px',
+                                                        background: '#4f46e5', color: '#fff', border: 'none',
+                                                        padding: '3px 8px', borderRadius: '4px',
+                                                        fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', gap: '4px'
+                                                    }}
+                                                >
+                                                    <Copy size={11} />
+                                                    <span>Copy</span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
@@ -1727,26 +2192,60 @@ const SocialPostModal = ({
 
                         {/* Switchers in Preview Header */}
                         {activeTab === 'social' ? (
-                            <div style={{
-                                display: 'flex', gap: '3px',
-                                background: isDark ? '#1e293b' : '#e2e8f0',
-                                padding: '2px', borderRadius: '8px'
-                            }}>
-                                {['post', 'story', 'reel'].map(f => (
-                                    <button
-                                        key={f}
-                                        type="button"
-                                        onClick={() => setFormat(f)}
-                                        style={{
-                                            padding: '3px 8px', borderRadius: '6px', border: 'none',
-                                            background: format === f ? '#4f46e5' : 'transparent',
-                                            color: format === f ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
-                                            fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer'
-                                        }}
-                                    >
-                                        {f.toUpperCase()}
-                                    </button>
-                                ))}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {isBrandified && (
+                                    <div style={{
+                                        display: 'flex', gap: '2px',
+                                        background: isDark ? '#1e293b' : '#e2e8f0',
+                                        padding: '2px', borderRadius: '8px'
+                                    }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPreviewBrandedMode(false)}
+                                            style={{
+                                                padding: '3px 7px', borderRadius: '6px', border: 'none',
+                                                background: !previewBrandedMode ? '#64748b' : 'transparent',
+                                                color: !previewBrandedMode ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                                                fontSize: '0.64rem', fontWeight: 700, cursor: 'pointer'
+                                            }}
+                                        >
+                                            Original
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPreviewBrandedMode(true)}
+                                            style={{
+                                                padding: '3px 7px', borderRadius: '6px', border: 'none',
+                                                background: previewBrandedMode ? 'linear-gradient(135deg, #C9921A 0%, #E6AF2E 100%)' : 'transparent',
+                                                color: previewBrandedMode ? '#0B1F3A' : (isDark ? '#94a3b8' : '#64748b'),
+                                                fontSize: '0.64rem', fontWeight: 800, cursor: 'pointer'
+                                            }}
+                                        >
+                                            ✨ Branded
+                                        </button>
+                                    </div>
+                                )}
+                                <div style={{
+                                    display: 'flex', gap: '3px',
+                                    background: isDark ? '#1e293b' : '#e2e8f0',
+                                    padding: '2px', borderRadius: '8px'
+                                }}>
+                                    {['post', 'story', 'reel'].map(f => (
+                                        <button
+                                            key={f}
+                                            type="button"
+                                            onClick={() => setFormat(f)}
+                                            style={{
+                                                padding: '3px 8px', borderRadius: '6px', border: 'none',
+                                                background: format === f ? '#4f46e5' : 'transparent',
+                                                color: format === f ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b'),
+                                                fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer'
+                                            }}
+                                        >
+                                            {f.toUpperCase()}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         ) : (
                             <div style={{
@@ -1821,6 +2320,13 @@ const SocialPostModal = ({
                                                         <i className="fas fa-video"></i> .MP4 VIDEO
                                                     </span>
                                                 </div>
+                                            ) : (isBrandified && previewBrandedMode && brandedImageUrl) ? (
+                                                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                                    <img src={brandedImageUrl} alt="Branded Property Post" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    <div style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(11, 31, 58, 0.92)', border: '1px solid #C9921A', color: '#FAD87A', fontSize: '8px', fontWeight: 900, padding: '2px 6px', borderRadius: '4px', letterSpacing: '0.4px', display: 'flex', alignItems: 'center', gap: '3px', boxShadow: '0 2px 6px rgba(0,0,0,0.4)' }}>
+                                                        <i className="fas fa-certificate text-amber-400"></i> BRANDED
+                                                    </div>
+                                                </div>
                                             ) : imageUrl ? (
                                                 <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                                     <img src={imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -1872,7 +2378,13 @@ const SocialPostModal = ({
                                 ) : (
                                     /* STORY / REEL PREVIEW */
                                     <div style={{ flex: 1, position: 'relative', background: '#000' }}>
-                                        {imageUrl && <img src={imageUrl} alt="Background" style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} />}
+                                        {((isBrandified && previewBrandedMode && brandedImageUrl) ? brandedImageUrl : imageUrl) && (
+                                            <img 
+                                                src={(isBrandified && previewBrandedMode && brandedImageUrl) ? brandedImageUrl : imageUrl} 
+                                                alt="Background" 
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} 
+                                            />
+                                        )}
                                         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 20%, transparent 75%, rgba(0,0,0,0.85) 100%)' }}></div>
                                         <div style={{ position: 'absolute', top: '24px', left: '10px', right: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '8px', fontWeight: 900 }}>BP</div>

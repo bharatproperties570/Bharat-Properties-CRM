@@ -403,7 +403,7 @@ export const deleteScheduledCampaign = async (req, res) => {
 
 export const generateSocialContent = async (req, res) => {
     try {
-        const { dealId, platform } = req.body;
+        const { dealId, platform, tone = 'urgent', format = 'post' } = req.body;
         if (!dealId || !platform) return res.status(400).json({ success: false, error: 'Target ID and platform are required' });
 
         const visibilityFilter = await getVisibilityFilter(req.user);
@@ -454,14 +454,7 @@ export const generateSocialContent = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Target property or project not found or access denied' });
         }
 
-        let content = '';
-        try {
-            content = await marketingService.generateSocialPost(targetEntity, platform.toLowerCase());
-        } catch (aiErr) {
-            console.warn('[generateSocialContent] AI service generation fallback:', aiErr.message);
-            const pUpper = platform.toUpperCase();
-            content = `✨ ${targetEntity.projectName || targetEntity.unitNo || 'Prime Real Estate Opportunity'}\n📍 Location: ${targetEntity.location || 'Kurukshetra, Haryana'}\n💰 Price: ${targetEntity.price || 'Price on Request'}\n\n${targetEntity.description || 'Explore this premier investment and residential property. Contact Bharat Properties today for private viewing and verified documentation!'}\n\n#BharatProperties #RealEstate #${pUpper} #Investment`;
-        }
+        const content = await marketingService.generateSocialPost(targetEntity, platform.toLowerCase(), { tone, format });
 
         const post = await MarketingContent.create({
             title: `${targetEntity.unitNo || targetEntity.projectName || 'Property'} ${platform} Post`,

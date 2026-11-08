@@ -231,4 +231,49 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
     );
     expect(socialAPI.postContent).not.toHaveBeenCalled();
   });
+
+  it('renders 4 AI Tone selector chips and triggers multi-tone generation on click', async () => {
+    marketingAPI.generateSocial.mockResolvedValueOnce({
+      success: true,
+      content: '💎 EXCLUSIVE LUXURY LIVING | Godrej Palm Retreat'
+    });
+
+    render(
+      <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
+    );
+
+    // Verify all 4 tones are present
+    expect(screen.getByText(/⚡ Urgent \(Hinglish\)/i)).toBeTruthy();
+    expect(screen.getByText(/💎 Luxury Living/i)).toBeTruthy();
+    expect(screen.getByText(/📈 Investor ROI/i)).toBeTruthy();
+    expect(screen.getByText(/🎯 Short Hook/i)).toBeTruthy();
+
+    // Click on Luxury Living tone
+    fireEvent.click(screen.getByText(/💎 Luxury Living/i));
+
+    await waitFor(() => {
+      expect(marketingAPI.generateSocial).toHaveBeenCalledWith(
+        'proj-12345',
+        'facebook',
+        'luxury',
+        'post'
+      );
+    });
+  });
+
+  it('renders Visual AI & Brand Studio with Brand Kit and Visual Prompt Lab', async () => {
+    render(
+      <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
+    );
+
+    // Verify Brand Kit studio elements
+    expect(screen.getByText(/Visual AI & Brand Studio/i)).toBeTruthy();
+    expect(screen.getByText(/BHARAT BRAND KIT/i)).toBeTruthy();
+    expect(screen.getByText(/Apply Brand Kit/i)).toBeTruthy();
+    expect(screen.getByText(/Visual Prompt Lab/i)).toBeTruthy();
+
+    // Open Visual Prompt Lab
+    fireEvent.click(screen.getByText(/Visual Prompt Lab/i));
+    expect(screen.getByText(/DALL-E 3 & Runway v3 Drone Studio Prompt Generator/i)).toBeTruthy();
+  });
 });
