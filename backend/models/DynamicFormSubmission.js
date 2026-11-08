@@ -11,7 +11,10 @@ const DynamicFormSubmissionSchema = new mongoose.Schema({
         referrer: String,
         utm_source: String,
         utm_medium: String,
-        utm_campaign: String
+        utm_campaign: String,
+        isExistingLeadUpdate: { type: Boolean, default: false },
+        hasRefToken: { type: Boolean, default: false },
+        authorizedLeadId: String
     },
     status: { type: String, enum: ['new', 'processed', 'archived'], default: 'new' }
 }, { timestamps: true });

@@ -2533,7 +2533,8 @@ export const createCampaignTrackedLink = async (req, res) => {
                 source: src,
                 campaign: camp,
                 medium: med,
-                content: content || null
+                content: content || null,
+                purpose: 'lead_reference'
             }, process.env.JWT_SECRET, { expiresIn: '30d' });
         }
 

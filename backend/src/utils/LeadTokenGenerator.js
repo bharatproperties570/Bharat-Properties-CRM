@@ -30,6 +30,7 @@ export class LeadTokenGenerator {
 
         const payload = {
             leadId: String(leadId),
+            purpose: extraData.purpose || 'lead_reference',
             ...extraData,
             iat: Math.floor(Date.now() / 1000)
         };

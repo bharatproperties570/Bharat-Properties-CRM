@@ -132,7 +132,7 @@ describe('Phase 6 — P1 LeadForm Post-Commit Idempotency & Lookup Boundary Suit
 
     it('P1.1 Existing Lead update remains idempotent: client retry returns cached response without duplicating Activity or OutboxEvent', async () => {
         const refToken = jwt.sign(
-            { leadId: testLead._id.toString() },
+            { leadId: testLead._id.toString(), purpose: 'lead_reference' },
             process.env.JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -408,7 +408,7 @@ describe('Phase 6 — P1 LeadForm Post-Commit Idempotency & Lookup Boundary Suit
 
     it('P1.8 Post-commit analytics failure does not fail form submission or cause replay duplication', async () => {
         const refToken = jwt.sign(
-            { leadId: testLead._id.toString() },
+            { leadId: testLead._id.toString(), purpose: 'lead_reference' },
             process.env.JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -465,7 +465,7 @@ describe('Phase 6 — P1 LeadForm Post-Commit Idempotency & Lookup Boundary Suit
 
     it('P1.9 resolveLookup pre-transaction failure aborts before modifying any database state', async () => {
         const refToken = jwt.sign(
-            { leadId: testLead._id.toString() },
+            { leadId: testLead._id.toString(), purpose: 'lead_reference' },
             process.env.JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -506,7 +506,7 @@ describe('Phase 6 — P1 LeadForm Post-Commit Idempotency & Lookup Boundary Suit
 
     it('P1.10 resolveLookup executes idempotently for repeated reference values', async () => {
         const refToken = jwt.sign(
-            { leadId: testLead._id.toString() },
+            { leadId: testLead._id.toString(), purpose: 'lead_reference' },
             process.env.JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -539,5 +539,97 @@ describe('Phase 6 — P1 LeadForm Post-Commit Idempotency & Lookup Boundary Suit
 
         const lookupCount = await Lookup.countDocuments({ lookup_type: 'Location', lookup_value: 'Gurgaon Sector 102' });
         assert.equal(lookupCount, 1, 'Lookup must resolve idempotently without creating duplicate dictionary entries');
+    });
+
+    it('P1.11 Secure Replay Authorization: Unauthenticated or mismatched callers cannot replay an existing-Lead submission', async () => {
+        const legitimateToken = jwt.sign(
+            { leadId: testLead._id.toString(), purpose: 'lead_reference' },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+        const secretIdempotencyKey = 'sec_replay_guard_key_999';
+
+        // 1. Legitimate user submits an update for testLead
+        const reqLegit = createMockReq({
+            formData: {
+                f_name: 'AuthorizedLeadOwner',
+                f_mobile: '9876543210',
+                f_notes: 'Private booking notes'
+            },
+            sourceMeta: { search: `?ref=${legitimateToken}` },
+            idempotencyKey: secretIdempotencyKey
+        }, { slug: 'site-visit-form' }, { 'idempotency-key': secretIdempotencyKey });
+        const resLegit = createMockRes();
+        await submitForm(reqLegit, resLegit);
+
+        assert.equal(resLegit.statusCode, 201);
+        assert.equal(resLegit.data?.leadId?.toString(), testLead._id.toString());
+
+        // 2. Unauthenticated attacker attempts to replay using only the idempotency key (NO reference token)
+        const reqUnauth = createMockReq({
+            formData: { f_name: 'AttackerReplayer' },
+            idempotencyKey: secretIdempotencyKey
+        }, { slug: 'site-visit-form' }, { 'idempotency-key': secretIdempotencyKey });
+        const resUnauth = createMockRes();
+        await submitForm(reqUnauth, resUnauth);
+
+        assert.equal(resUnauth.statusCode, 403, 'Unauthenticated replay of existing-lead submission must return HTTP 403');
+        assert.equal(resUnauth.data?.success, false);
+        assert.match(resUnauth.data?.message, /Cannot replay existing-lead submission without a valid reference token/);
+        assert.equal(resUnauth.data?.leadId, undefined, 'Must NOT disclose victim leadId to unauthenticated attacker');
+
+        // 3. Attacker with a valid token for a DIFFERENT lead attempts to replay secretIdempotencyKey
+        const otherLead = await Lead.create({
+            name: 'Attacker Lead',
+            firstName: 'Attacker',
+            mobile: '9000000000',
+            owner: testUser._id
+        });
+        const attackerToken = jwt.sign(
+            { leadId: otherLead._id.toString(), purpose: 'lead_reference' },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        const reqCrossLead = createMockReq({
+            formData: { f_name: 'CrossLeadAttacker' },
+            sourceMeta: { search: `?ref=${attackerToken}` },
+            idempotencyKey: secretIdempotencyKey
+        }, { slug: 'site-visit-form' }, { 'idempotency-key': secretIdempotencyKey });
+        const resCrossLead = createMockRes();
+        await submitForm(reqCrossLead, resCrossLead);
+
+        assert.equal(resCrossLead.statusCode, 403, 'Cross-lead replay must return HTTP 403');
+        assert.equal(resCrossLead.data?.success, false);
+        assert.match(resCrossLead.data?.message, /belongs to another lead submission/i);
+        assert.equal(resCrossLead.data?.leadId, undefined, 'Must NOT disclose target leadId');
+
+        // 4. Attacker with invalid token attempts to replay secretIdempotencyKey
+        const reqBadToken = createMockReq({
+            formData: { f_name: 'BadTokenAttacker' },
+            sourceMeta: { search: '?ref=not-a-valid-token' },
+            idempotencyKey: secretIdempotencyKey
+        }, { slug: 'site-visit-form' }, { 'idempotency-key': secretIdempotencyKey });
+        const resBadToken = createMockRes();
+        await submitForm(reqBadToken, resBadToken);
+
+        assert.equal(resBadToken.statusCode, 400, 'Invalid token must fail validation before replay lookup');
+        assert.equal(resBadToken.data?.leadId, undefined);
+
+        // 5. Legitimate owner replaying with legitimate token succeeds with HTTP 200 idempotentReplay
+        const reqLegitRetry = createMockReq({
+            formData: {
+                f_name: 'AuthorizedLeadOwner',
+                f_mobile: '9876543210'
+            },
+            sourceMeta: { search: `?ref=${legitimateToken}` },
+            idempotencyKey: secretIdempotencyKey
+        }, { slug: 'site-visit-form' }, { 'idempotency-key': secretIdempotencyKey });
+        const resLegitRetry = createMockRes();
+        await submitForm(reqLegitRetry, resLegitRetry);
+
+        assert.equal(resLegitRetry.statusCode, 200, 'Legitimate retry must succeed with HTTP 200');
+        assert.equal(resLegitRetry.data?.idempotentReplay, true);
+        assert.equal(resLegitRetry.data?.leadId?.toString(), testLead._id.toString());
     });
 });

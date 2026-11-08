@@ -110,27 +110,12 @@ export const submitForm = async (req, res) => {
 
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });
 
-        // P1 Submission-Level Idempotency Boundary
+        // Extract idempotency key and reference token upfront
         const idempotencyKey = req.headers?.['idempotency-key'] ||
                                req.headers?.['x-idempotency-key'] ||
                                req.body?.idempotencyKey ||
                                sourceMeta?.idempotencyKey ||
                                null;
-
-        if (idempotencyKey) {
-            const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
-            const existingSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
-            if (existingSubmission) {
-                console.log(`[FORM SUBMIT] Duplicate submission replayed for form ${form.slug}, idempotencyKey: ${idempotencyKey}`);
-                return res.status(200).json({
-                    success: true,
-                    message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
-                    redirectUrl: form.settings?.redirectUrl,
-                    leadId: existingSubmission.lead || null,
-                    idempotentReplay: true
-                });
-            }
-        }
 
         // 1. P0 IDOR Remediation: Never trust unauthenticated raw req.body.leadId or req.query.leadId
         let leadId = null;
@@ -183,6 +168,15 @@ export const submitForm = async (req, res) => {
                 });
             }
 
+            // Mandatory token purpose claim validation
+            if (!decoded.purpose || typeof decoded.purpose !== 'string') {
+                console.warn("[SUBMIT] Reference token rejected: Missing mandatory purpose claim");
+                return res.status(403).json({
+                    success: false,
+                    message: "Forbidden: Reference token missing mandatory purpose claim"
+                });
+            }
+
             // Token purpose binding validation (consistent with issuance contract)
             const ALLOWED_LEAD_FORM_PURPOSES = new Set([
                 'lead_reference',
@@ -194,7 +188,7 @@ export const submitForm = async (req, res) => {
                 'client_portal'
             ]);
 
-            if (decoded.purpose && !ALLOWED_LEAD_FORM_PURPOSES.has(decoded.purpose)) {
+            if (!ALLOWED_LEAD_FORM_PURPOSES.has(decoded.purpose)) {
                 console.warn(`[SUBMIT] Reference token rejected: Unauthorized purpose '${decoded.purpose}'`);
                 return res.status(403).json({
                     success: false,
@@ -203,6 +197,23 @@ export const submitForm = async (req, res) => {
             }
 
             // Intended form / workflow binding validation
+            const FORM_BOUND_PURPOSES = new Set([
+                'form_submission',
+                'public_form',
+                'form_prefill',
+                'site_visit_scheduler'
+            ]);
+
+            if (FORM_BOUND_PURPOSES.has(decoded.purpose)) {
+                if (!decoded.formSlug && !decoded.formId) {
+                    console.warn(`[SUBMIT] Reference token rejected: Token purpose '${decoded.purpose}' requires form binding (formSlug or formId missing)`);
+                    return res.status(403).json({
+                        success: false,
+                        message: "Forbidden: Reference token missing required form binding"
+                    });
+                }
+            }
+
             if (decoded.formSlug && String(decoded.formSlug) !== String(slug)) {
                 console.warn(`[SUBMIT] Reference token rejected: Token bound to formSlug '${decoded.formSlug}' but submitted to '${slug}'`);
                 return res.status(403).json({
@@ -236,6 +247,55 @@ export const submitForm = async (req, res) => {
             }
 
             leadId = String(decoded.leadId);
+
+            // Authorized existing-Lead Idempotency Check:
+            // An authorized caller with valid token and same idempotency key retrieves replayed response
+            if (idempotencyKey) {
+                const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
+                const existingSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
+                if (existingSubmission) {
+                    if (String(existingSubmission.lead) !== String(leadId)) {
+                        console.warn(`[FORM SUBMIT] Replay rejected: Idempotency key '${idempotencyKey}' belongs to lead ${existingSubmission.lead}, but token authorized lead ${leadId}`);
+                        return res.status(403).json({
+                            success: false,
+                            message: "Forbidden: Idempotency key belongs to another lead submission"
+                        });
+                    }
+                    console.log(`[FORM SUBMIT] Duplicate submission replayed for form ${form.slug}, idempotencyKey: ${idempotencyKey}`);
+                    return res.status(200).json({
+                        success: true,
+                        message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
+                        redirectUrl: form.settings?.redirectUrl,
+                        leadId: existingSubmission.lead || null,
+                        idempotentReplay: true
+                    });
+                }
+            }
+        } else {
+            // Unauthenticated Public Submission Idempotency Check:
+            // A public caller without a reference token can ONLY replay a new-lead submission.
+            // Under NO circumstances can an unauthenticated request replay an existing-lead submission!
+            if (idempotencyKey) {
+                const { default: DynamicFormSubmission } = await import("../models/DynamicFormSubmission.js");
+                const existingSubmission = await DynamicFormSubmission.findOne({ formId: form._id, idempotencyKey });
+                if (existingSubmission) {
+                    if (existingSubmission.metadata?.isExistingLeadUpdate || existingSubmission.metadata?.hasRefToken) {
+                        console.warn(`[FORM SUBMIT] Replay rejected: Unauthenticated request cannot replay existing-lead submission '${idempotencyKey}' without reference token`);
+                        return res.status(403).json({
+                            success: false,
+                            message: "Forbidden: Cannot replay existing-lead submission without a valid reference token"
+                        });
+                    }
+                    console.log(`[FORM SUBMIT] Duplicate submission replayed for form ${form.slug}, idempotencyKey: ${idempotencyKey}`);
+                    return res.status(200).json({
+                        success: true,
+                        message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
+                        redirectUrl: form.settings?.redirectUrl,
+                        leadId: existingSubmission.lead || null,
+                        idempotentReplay: true
+                    });
+                }
+            }
         }
 
         const leadData = {
@@ -351,7 +411,10 @@ export const submitForm = async (req, res) => {
                                 referrer: req.headers?.referrer || sourceMeta?.referrer,
                                 utm_source: sourceMeta?.utm_source,
                                 utm_medium: sourceMeta?.utm_medium,
-                                utm_campaign: sourceMeta?.utm_campaign
+                                utm_campaign: sourceMeta?.utm_campaign,
+                                isExistingLeadUpdate: true,
+                                hasRefToken: true,
+                                authorizedLeadId: String(lead._id)
                             },
                             status: 'processed'
                         }], { session });
@@ -370,6 +433,12 @@ export const submitForm = async (req, res) => {
                         }
                     }
                     if (winningSubmission) {
+                        if (String(winningSubmission.lead) !== String(leadId)) {
+                            return res.status(403).json({
+                                success: false,
+                                message: "Forbidden: Idempotency key belongs to another lead submission"
+                            });
+                        }
                         return res.status(200).json({
                             success: true,
                             message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",
@@ -462,7 +531,9 @@ export const submitForm = async (req, res) => {
                                 referrer: req.headers?.referrer || sourceMeta?.referrer,
                                 utm_source: sourceMeta?.utm_source,
                                 utm_medium: sourceMeta?.utm_medium,
-                                utm_campaign: sourceMeta?.utm_campaign
+                                utm_campaign: sourceMeta?.utm_campaign,
+                                isExistingLeadUpdate: false,
+                                hasRefToken: false
                             },
                             status: 'processed'
                         }], { session });
@@ -481,6 +552,12 @@ export const submitForm = async (req, res) => {
                         }
                     }
                     if (winningSubmission) {
+                        if (winningSubmission.metadata?.isExistingLeadUpdate || winningSubmission.metadata?.hasRefToken) {
+                            return res.status(403).json({
+                                success: false,
+                                message: "Forbidden: Cannot replay existing-lead submission without a valid reference token"
+                            });
+                        }
                         return res.status(200).json({
                             success: true,
                             message: form.settings?.successMessage || "Thank you for your interest! We will contact you soon.",

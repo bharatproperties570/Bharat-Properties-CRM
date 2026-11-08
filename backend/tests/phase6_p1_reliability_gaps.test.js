@@ -423,7 +423,7 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
 
             const initialSubmissions = form.analytics?.submissions || 0;
             const refToken = jwt.sign(
-                { leadId: existingLead._id.toString() },
+                { leadId: existingLead._id.toString(), purpose: 'lead_reference' },
                 process.env.JWT_SECRET,
                 { expiresIn: '1h' }
             );
@@ -494,7 +494,7 @@ describe('Phase 6 — Final P1 Reliability Gaps & Side-Effects Suite', () => {
             const initialSubmissions = form.analytics?.submissions || 0;
 
             const refToken = jwt.sign(
-                { leadId: existingLead._id.toString() },
+                { leadId: existingLead._id.toString(), purpose: 'lead_reference' },
                 process.env.JWT_SECRET,
                 { expiresIn: '1h' }
             );

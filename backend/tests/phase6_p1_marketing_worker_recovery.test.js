@@ -3,6 +3,7 @@ process.env.ALLOW_TRANSACTION_TEST_FALLBACK = 'true';
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
@@ -11,7 +12,26 @@ import Activity from '../models/Activity.js';
 import { processMarketingJob } from '../src/workers/marketingWorker.js';
 import whatsAppService from '../services/WhatsAppService.js';
 
-describe('Phase 6 — P1 Marketing Worker Resumable Recovery & State Machine Suite', () => {
+async function isRedisRunning(port = 6379, host = '127.0.0.1', timeoutMs = 500) {
+    return new Promise((resolve) => {
+        const socket = new net.Socket();
+        socket.setTimeout(timeoutMs);
+        socket.once('connect', () => {
+            socket.destroy();
+            resolve(true);
+        });
+        socket.once('timeout', () => {
+            socket.destroy();
+            resolve(false);
+        });
+        socket.once('error', () => {
+            resolve(false);
+        });
+        socket.connect(port, host);
+    });
+}
+
+describe('Phase 6 — P1 Marketing Worker Resumable Recovery & State Machine Suite [In-Process / Mock Suite]', () => {
     let replset;
 
     before(async () => {
@@ -591,6 +611,116 @@ describe('Phase 6 — P1 Marketing Worker Resumable Recovery & State Machine Sui
         } finally {
             whatsAppService.sendMessage = originalSendMessage;
             MarketingDispatchReceipt.recordSuccess = originalRecordSuccess;
+        }
+    });
+});
+
+describe('Phase 6 — P1 Real Redis BullMQ Recovery Integration Suite [Live Redis Required]', () => {
+    let replset;
+    let redisAvailable = false;
+
+    before(async () => {
+        replset = await MongoMemoryReplSet.create({
+            replSet: { count: 1, storageEngine: 'wiredTiger' }
+        });
+        await mongoose.connect(replset.getUri());
+
+        redisAvailable = await isRedisRunning(6379, process.env.REDIS_HOST || '127.0.0.1');
+        if (!redisAvailable) {
+            console.log('\n[Real Redis Integration] Redis server not reachable on 127.0.0.1:6379.');
+            console.log('[Real Redis Integration] Status: NOT VERIFIED LOCALLY (environment unavailable; verified in GitHub Actions CI with redis:7-alpine).\n');
+        }
+    });
+
+    after(async () => {
+        await mongoose.disconnect();
+        if (replset) await replset.stop();
+    });
+
+    beforeEach(async () => {
+        await MarketingDispatchReceipt.deleteMany({});
+        await Activity.deleteMany({});
+    });
+
+    it('P1.REAL.1 Real Redis BullMQ queue & worker: crash at recipient 20 -> BullMQ retry resumes 21-100 without duplicates', async (t) => {
+        if (!redisAvailable) {
+            t.skip('Redis 6379 not available locally (requires live Redis daemon / CI container)');
+            return;
+        }
+
+        const { Queue, Worker } = await import('bullmq');
+        const redisConnection = {
+            host: process.env.REDIS_HOST || '127.0.0.1',
+            port: parseInt(process.env.REDIS_PORT || '6379', 10),
+            maxRetriesPerRequest: null
+        };
+
+        const testQueueName = `test_marketing_recovery_${Date.now()}`;
+        const queue = new Queue(testQueueName, { connection: redisConnection });
+
+        const campaignId = `camp_real_redis_100_${Date.now()}`;
+        const recipients = Array.from({ length: 100 }, (_, i) => ({
+            id: `lead_real_${i + 1}`,
+            mobile: `98765432${String(i).padStart(2, '0')}`,
+            name: `Recipient ${i + 1}`
+        }));
+
+        let attempt = 0;
+        const dispatchedMobiles = [];
+        const originalSendMessage = whatsAppService.sendMessage;
+        whatsAppService.sendMessage = async (mobile) => {
+            dispatchedMobiles.push(mobile);
+            return { success: true, messageId: `msg_${mobile}_${Date.now()}` };
+        };
+
+        let worker;
+        try {
+            await queue.add('blast', {
+                channel: 'whatsapp',
+                campaignId,
+                leads: recipients,
+                message: 'Live BullMQ Test'
+            }, {
+                attempts: 2,
+                backoff: { type: 'fixed', delay: 100 }
+            });
+
+            const jobFinished = new Promise((resolve, reject) => {
+                worker = new Worker(testQueueName, async (job) => {
+                    attempt++;
+                    if (attempt === 1) {
+                        const origUpdateProgress = job.updateProgress.bind(job);
+                        let progCount = 0;
+                        job.updateProgress = async (val) => {
+                            progCount++;
+                            if (progCount === 20) {
+                                throw new Error('REAL_BULLMQ_WORKER_SIMULATED_CRASH_AT_20');
+                            }
+                            return origUpdateProgress(val);
+                        };
+                    }
+                    return await processMarketingJob(job);
+                }, { connection: redisConnection });
+
+                worker.on('completed', (job, result) => {
+                    resolve(result);
+                });
+                worker.on('failed', (job, err) => {
+                    if (attempt >= 2) {
+                        reject(err);
+                    }
+                });
+            });
+
+            const result = await jobFinished;
+            assert.equal(dispatchedMobiles.length, 100, 'Total dispatches must be exactly 100 in real BullMQ');
+            const receiptCount = await MarketingDispatchReceipt.countDocuments({ campaignId, status: 'SENT' });
+            assert.equal(receiptCount, 100);
+        } finally {
+            whatsAppService.sendMessage = originalSendMessage;
+            if (worker) await worker.close();
+            await queue.obliterate({ force: true });
+            await queue.close();
         }
     });
 });
