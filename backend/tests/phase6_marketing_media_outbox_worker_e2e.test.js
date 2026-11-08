@@ -29,6 +29,14 @@ import { processMarketingJob } from '../src/workers/marketingWorker.js';
 import { marketingQueue } from '../src/queues/queueManager.js';
 import whatsAppService from '../services/WhatsAppService.js';
 
+/**
+ * ⚠️ INFRASTRUCTURE SCOPE CLARIFICATION:
+ * This test suite is an isolated integration test covering the complete
+ * 4-tier marketing dispatch flow (Controller -> OutboxEvent -> DomainEventWorker -> MarketingWorker -> Provider).
+ * It uses a mocked BullMQ queue harness and in-memory replica set to assert media payload and caption fidelity.
+ * It DOES NOT claim real Redis-backed BullMQ crash/stalled-job recovery coverage; real Redis recovery
+ * is covered separately in `phase6_p1_marketing_worker_recovery.test.js`.
+ */
 describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Suite', () => {
     let replset;
     let testAdminUser;
@@ -185,6 +193,7 @@ describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Su
                 mediaType: 'image',
                 headerFileName: 'villa_front.jpg',
                 headerText: 'Exclusive Ultra Luxury Villa Showcase',
+                templateText: 'Exclusive Ultra Luxury Villa Showcase',
                 meta: { title: 'Royal Palms Penthouse Sector 32' }
             });
             const res = createMockRes();
@@ -251,6 +260,7 @@ describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Su
             assert.equal(call.type, 'image');
             assert.equal(call.mediaUrl, 'https://cdn.bharatproperties.co/properties/royal-palms/villa_front.jpg');
             assert.equal(call.filename, 'villa_front.jpg');
+            assert.equal(call.caption, 'Exclusive Ultra Luxury Villa Showcase', 'Provider caption must contain exact expected headerText');
             assert.equal(call.options.idempotencyKey, `rcpt_${res.data.campaignId}_whatsapp_9876543210`);
         } finally {
             marketingQueue.add = originalQueueAdd;
@@ -316,6 +326,7 @@ describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Su
             assert.equal(call.type, 'document', 'PDF must be normalized to document');
             assert.equal(call.mediaUrl, 'https://cdn.bharatproperties.co/docs/Sector32_Brochure_Floorplan.pdf');
             assert.equal(call.filename, 'Sector32_Brochure_Floorplan.pdf');
+            assert.ok(call.caption && typeof call.caption === 'string' && call.caption.includes('Royal Palms Penthouse'), 'Provider caption must contain property recommendation details');
             assert.equal(call.options.idempotencyKey, `rcpt_${res.data.campaignId}_whatsapp_9876543210`);
         } finally {
             marketingQueue.add = originalQueueAdd;
@@ -395,6 +406,7 @@ describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Su
             assert.equal(call.type, 'video');
             assert.equal(call.mediaUrl, 'https://cdn.bharatproperties.co/videos/penthouse_virtual_tour_4k.mp4');
             assert.equal(call.filename, 'penthouse_virtual_tour_4k.mp4');
+            assert.equal(call.caption, 'Experience our ultra luxury penthouse walkthrough today!', 'Provider caption must contain expected template content resolved from SystemSetting');
             assert.equal(call.options.idempotencyKey, `rcpt_${res.data.campaignId}_whatsapp_9876543210`);
         } finally {
             marketingQueue.add = originalQueueAdd;
@@ -590,8 +602,14 @@ describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Su
             });
 
             assert.equal(providerCalls.sendMedia.length, 1);
+            const call = providerCalls.sendMedia[0];
+            assert.equal(call.mobile, '9876543210');
+            assert.equal(call.type, 'image');
+            assert.equal(call.mediaUrl, 'https://cdn.bharatproperties.co/media/site_plan.jpg');
+            assert.equal(call.filename, 'site_plan.jpg');
+            assert.ok(call.caption && typeof call.caption === 'string' && call.caption.includes('Royal Palms Penthouse'), 'Provider caption must be valid');
             const expectedIdempotencyKey = `rcpt_${campaignId}_whatsapp_9876543210`;
-            assert.equal(providerCalls.sendMedia[0].options.idempotencyKey, expectedIdempotencyKey);
+            assert.equal(call.options.idempotencyKey, expectedIdempotencyKey);
         } finally {
             marketingQueue.add = originalQueueAdd;
         }
@@ -643,6 +661,12 @@ describe('Phase 6 — Marketing Media Header Outbox-to-Worker E2E Integration Su
             });
 
             assert.equal(providerCalls.sendMedia.length, 1, 'First dispatch must call provider exactly once');
+            const call = providerCalls.sendMedia[0];
+            assert.equal(call.mobile, '9876543210');
+            assert.equal(call.type, 'document');
+            assert.equal(call.mediaUrl, 'https://cdn.bharatproperties.co/media/brochure.pdf');
+            assert.equal(call.filename, 'brochure.pdf');
+            assert.ok(call.caption && typeof call.caption === 'string' && call.caption.includes('Royal Palms Penthouse'), 'Provider caption must be valid');
 
             // Verify MarketingDelivery record exists and is ACCEPTED/SENT
             const deliveryRecord = await MarketingDelivery.findOne({
