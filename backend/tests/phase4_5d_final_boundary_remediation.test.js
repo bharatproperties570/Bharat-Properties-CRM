@@ -668,7 +668,7 @@ test('Activation Bypass 3: Direct bulkWrite on AuthoritySourceSettings throws DI
         },
         (err) => {
             assert.strictEqual(err.code, 'DIRECT_BULK_WRITE_PROHIBITED');
-            assert.ok(err.message.includes('Bulk update attempts cannot bypass activation checks'));
+            assert.ok(err.message.includes('Bulk update attempts cannot circumvent activation checks'));
             return true;
         }
     );
