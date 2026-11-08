@@ -160,6 +160,11 @@ jobs:
           cd backend
           npm run test:facebook-oauth
 
+      - name: Run Promote Studio Marketing AI & Compliance Tests
+        run: |
+          cd backend
+          npm run test:marketing-studio
+
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |
           cd backend

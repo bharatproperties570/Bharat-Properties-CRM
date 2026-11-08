@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import unifiedAIService from './UnifiedAIService.js';
 import AIGovernance from './ai/AIGovernance.js';
 import AiAgent from '../models/AiAgent.js';
@@ -33,6 +34,13 @@ class MarketingService {
         const regionalPhone = isMohali ? '+91 99910 00570' : '+91 99913 33570';
         const website = 'www.bharatproperties.co';
 
+        // Verification & Compliance Validation from Property Records
+        const isReraApproved = Boolean(deal.reraId || deal.isReraApproved || deal.reraNumber || deal.project?.reraId || deal.reraStatus === 'APPROVED');
+        const isTitleVerified = Boolean(deal.isVerified || deal.authorityVerification?.status === 'VERIFIED' || deal.titleVerified || deal.isTitleVerified);
+        const verificationClaim = isTitleVerified ? 'Verified Title' : 'Clear Documentation';
+        const reraClaim = isReraApproved ? ' & RERA Compliant' : '';
+        const docBadge = isTitleVerified ? '🛡️ 100% Verified Title & Clear Registry' : '📜 Documented Property & Clear Registry';
+
         let platformFocus = '';
         if (platform === 'linkedin') {
             platformFocus = 'Professional, investment-focused, and industry-oriented. Emphasize capital appreciation and legal verification.';
@@ -65,10 +73,12 @@ class MarketingService {
         let provider = undefined;
         let personaPrompt = '';
         try {
-            const agent = await AiAgent.findOne({ useCases: { $in: ['social_media', 'marketing_campaigns'] }, isActive: true });
-            if (agent) {
-                personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
-                provider = agent.provider;
+            if (mongoose.connection?.readyState === 1) {
+                const agent = await AiAgent.findOne({ useCases: { $in: ['social_media', 'marketing_campaigns'] }, isActive: true });
+                if (agent) {
+                    personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
+                    provider = agent.provider;
+                }
             }
         } catch(e) {}
 
@@ -105,13 +115,13 @@ class MarketingService {
             
             // Enterprise Resilient Fallbacks based on Tone
             if (tone === 'luxury') {
-                return `💎 EXCLUSIVE LUXURY LIVING | ${projectName}\n\nIndulge in refined architecture and serene living at ${location}. Designed for those who value timeless quality and premier lifestyle amenities.\n\n✨ Unit: ${unitNo} ${unitType} (${size})\n💰 Investment: ${price}\n📜 Verified Title & RERA Compliant\n\nPrivate viewings available on prior appointment:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #LuxuryHomes #PrimeRealEstate #Kurukshetra`;
+                return `💎 EXCLUSIVE LUXURY LIVING | ${projectName}\n\nIndulge in refined architecture and serene living at ${location}. Designed for those who value timeless quality and premier lifestyle amenities.\n\n✨ Unit: ${unitNo} ${unitType} (${size})\n💰 Investment: ${price}\n📜 ${verificationClaim}${reraClaim}\n\nPrivate viewings available on prior appointment:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #LuxuryHomes #PrimeRealEstate #Kurukshetra`;
             } else if (tone === 'investor') {
-                return `📈 HIGH-YIELD INVESTMENT OPPORTUNITY | ${projectName}\n\nPrime commercial/residential asset positioned in the high-growth corridor of ${location}. Proven capital appreciation and strong rental yield potential.\n\n🔑 Property: ${unitNo} ${unitType} (${size})\n💵 Price: ${price}\n🛡️ 100% Verified Title & Clear Registry\n\nRequest financial breakdown & advisory:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #RealEstateInvestment #CapitalGrowth #CommercialProperty`;
+                return `📈 HIGH-YIELD INVESTMENT OPPORTUNITY | ${projectName}\n\nPrime commercial/residential asset positioned in the high-growth corridor of ${location}. Proven capital appreciation and strong rental yield potential.\n\n🔑 Property: ${unitNo} ${unitType} (${size})\n💵 Price: ${price}\n${docBadge}${reraClaim}\n\nRequest financial breakdown & advisory:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #RealEstateInvestment #CapitalGrowth #CommercialProperty`;
             } else if (tone === 'short_hook') {
-                return `🚨 Prime Deal Alert in ${location}! ${unitNo} at just ${price}. 100% verified registry title. Call ${regionalPhone} to book site visit now! 🌐 ${website} #BharatProperties`;
+                return `🚨 Prime Deal Alert in ${location}! ${unitNo} at just ${price}. ${verificationClaim}. Call ${regionalPhone} to book site visit now! 🌐 ${website} #BharatProperties`;
             } else {
-                return `🔥 URGENT DEAL ALERT: ${unitNo} ${unitType} at ${projectName}!\n\nKurukshetra ke prime location ${location} par ready possession opportunity! Verified title, bank loan approval, aur prime connectivity.\n\n📍 Location: ${location}\n📐 Area: ${size}\n💰 Price: ${price}\n\nLimited units available — aaj hi site visit book karein!\n📞 Call/WhatsApp: ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #Kurukshetra #HotProperty #RealEstateDeals`;
+                return `🔥 URGENT DEAL ALERT: ${unitNo} ${unitType} at ${projectName}!\n\nKurukshetra ke prime location ${location} par ready possession opportunity! ${verificationClaim}${reraClaim}, aur prime connectivity.\n\n📍 Location: ${location}\n📐 Area: ${size}\n💰 Price: ${price}\n\nLimited units available — aaj hi site visit book karein!\n📞 Call/WhatsApp: ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #Kurukshetra #HotProperty #RealEstateDeals`;
             }
         }
     }
@@ -128,10 +138,12 @@ class MarketingService {
         let provider = undefined;
         let personaPrompt = '';
         try {
-            const agent = await AiAgent.findOne({ useCases: { $in: ['email_drip', 'marketing_campaigns'] }, isActive: true });
-            if (agent) {
-                personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
-                provider = agent.provider;
+            if (mongoose.connection?.readyState === 1) {
+                const agent = await AiAgent.findOne({ useCases: { $in: ['email_drip', 'marketing_campaigns'] }, isActive: true });
+                if (agent) {
+                    personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
+                    provider = agent.provider;
+                }
             }
         } catch(e) {}
 

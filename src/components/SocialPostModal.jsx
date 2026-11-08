@@ -268,11 +268,19 @@ const SocialPostModal = ({
           ? String(initialData.locationSearch).trim()
           : 'Kurukshetra, Haryana';
 
+      const isVerified = Boolean(
+        initialData?.isVerified || 
+        initialData?.titleVerified || 
+        initialData?.authorityVerification?.status === 'VERIFIED'
+      );
+
       const propData = {
         title: initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity',
         location: cleanLoc,
         price: initialData?.price || 'Price on Request',
-        format: format === 'story' || format === 'reel' ? '9:16' : '1:1'
+        format: format === 'story' || format === 'reel' ? '9:16' : '1:1',
+        isVerified,
+        badgeText: isVerified ? '🛡️ VERIFIED PROPERTY' : '✨ FEATURED PROPERTY'
       };
 
       const result = await brandifyPropertyImage(targetImg, propData);
