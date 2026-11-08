@@ -1003,8 +1003,12 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
                         : (richPreviewText || undefined))
                     : undefined,
-                mediaUrl: channels.whatsapp && isBaileys ? (selectedWebTemplate?.headerMediaUrl || selectedWebTemplate?.mediaUrl || undefined) : undefined,
-                mediaType: channels.whatsapp && isBaileys ? (selectedWebTemplate?.headerType ? selectedWebTemplate.headerType.toLowerCase() : undefined) : undefined,
+                mediaUrl: channels.whatsapp ? (selectedWebTemplate?.headerMediaUrl || selectedWebTemplate?.mediaUrl || selectedWebTemplate?.headerFile?.url || undefined) : undefined,
+                mediaType: channels.whatsapp ? (selectedWebTemplate?.headerType ? (selectedWebTemplate.headerType === 'DOCUMENT' ? 'document' : selectedWebTemplate.headerType.toLowerCase()) : undefined) : undefined,
+                headerType: selectedWebTemplate?.headerType || 'NONE',
+                headerMediaUrl: channels.whatsapp ? (selectedWebTemplate?.headerMediaUrl || selectedWebTemplate?.mediaUrl || selectedWebTemplate?.headerFile?.url || undefined) : undefined,
+                headerFileName: channels.whatsapp ? (selectedWebTemplate?.headerFileName || selectedWebTemplate?.headerFile?.name || undefined) : undefined,
+                headerText: selectedWebTemplate?.headerType === 'TEXT' ? selectedWebTemplate.headerText : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
                 // Omnichannel Template Payloads for SMS, RCS, and Email
@@ -2399,9 +2403,31 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                             fontSize: '0.8rem', lineHeight: '1.65',
                                             color: isDark ? '#ecfdf5' : '#14532d',
                                             whiteSpace: 'pre-wrap', fontFamily: 'inherit',
-                                            maxHeight: '230px', overflowY: 'auto',
+                                            maxHeight: '260px', overflowY: 'auto',
                                             boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06)'
                                         }}>
+                                            {/* Header Media / Image / Video / Text Preview */}
+                                            {selectedWebTemplate && selectedWebTemplate.headerType && selectedWebTemplate.headerType !== 'NONE' && (
+                                                <div style={{ marginBottom: '10px', borderRadius: '8px', overflow: 'hidden' }}>
+                                                    {selectedWebTemplate.headerType === 'IMAGE' && (selectedWebTemplate.headerMediaUrl || selectedWebTemplate.mediaUrl) && (
+                                                        <img src={selectedWebTemplate.headerMediaUrl || selectedWebTemplate.mediaUrl} alt="Header Preview" style={{ width: '100%', maxHeight: '140px', objectFit: 'cover', borderRadius: '8px' }} />
+                                                    )}
+                                                    {selectedWebTemplate.headerType === 'VIDEO' && (selectedWebTemplate.headerMediaUrl || selectedWebTemplate.mediaUrl) && (
+                                                        <video src={selectedWebTemplate.headerMediaUrl || selectedWebTemplate.mediaUrl} controls style={{ width: '100%', maxHeight: '140px', background: '#000', borderRadius: '8px' }} />
+                                                    )}
+                                                    {selectedWebTemplate.headerType === 'DOCUMENT' && (
+                                                        <div style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.06)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <i className="fas fa-file-pdf" style={{ color: '#ef4444', fontSize: '1.2rem' }}></i>
+                                                            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{selectedWebTemplate.headerFileName || 'PDF Document Attached'}</span>
+                                                        </div>
+                                                    )}
+                                                    {selectedWebTemplate.headerType === 'TEXT' && selectedWebTemplate.headerText && (
+                                                        <div style={{ fontWeight: 800, fontSize: '0.86rem', marginBottom: '6px', borderBottom: '1px solid rgba(0,0,0,0.08)', paddingBottom: '4px' }}>
+                                                            {selectedWebTemplate.headerText}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                             {renderWhatsAppFormattedText(activeWhatsAppPreview)}
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b', padding: '0 4px' }}>

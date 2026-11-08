@@ -18,14 +18,19 @@ const ALLOWED_MIME_TYPES = {
     'text/csv': ['.csv'],
     'text/plain': ['.txt'],
     // Videos
-    'video/mp4': ['.mp4'],
-    'video/quicktime': ['.mov'],
+    'video/mp4': ['.mp4', '.m4v'],
+    'video/quicktime': ['.mov', '.mp4'],
+    'video/x-m4v': ['.m4v', '.mp4'],
+    'video/3gpp': ['.3gp', '.3gpp'],
+    'video/3gpp2': ['.3g2'],
+    'video/webm': ['.webm'],
     'video/x-msvideo': ['.avi'],
+    'video/mpeg': ['.mpeg', '.mpg'],
     // Archives
     'application/zip': ['.zip'],
     'application/x-zip-compressed': ['.zip'],
     'application/x-zip': ['.zip'],
-    'application/octet-stream': ['.zip', '.csv', '.txt'],
+    'application/octet-stream': ['.zip', '.csv', '.txt', '.mp4', '.mov', '.pdf', '.png', '.jpg', '.jpeg'],
     // GIS / Maps
     'application/vnd.google-earth.kml+xml': ['.kml'],
     'application/geo+json': ['.geojson'],
@@ -68,12 +73,40 @@ const createUploader = (allowedTypes, maxMb = 25) => {
         fileFilter: (req, file, cb) => {
             const ext = path.extname(file.originalname).toLowerCase();
 
-            // Double validation: Matches recognized MIME and exact extension matches
+            // 1. Direct validation: Matches recognized MIME and exact extension matches
             if (allowedTypes[file.mimetype] && allowedTypes[file.mimetype].includes(ext)) {
-                cb(null, true);
-            } else {
-                cb(new Error(`Validation failed: Disallowed file type or extension mismatch. MIME: ${file.mimetype}, Ext: ${ext}`), false);
+                return cb(null, true);
             }
+
+            // 2. Cross-platform browser fallback for video types
+            // (e.g. Safari reporting video/quicktime or application/octet-stream for .mp4, or empty MIME)
+            const validVideoExts = ['.mp4', '.mov', '.m4v', '.3gp', '.3gpp', '.webm', '.avi'];
+            const acceptsVideo = allowedTypes['video/mp4'] || allowedTypes['video/quicktime'] || allowedTypes['application/octet-stream'];
+            if (acceptsVideo && validVideoExts.includes(ext)) {
+                if (!file.mimetype || file.mimetype.startsWith('video/') || file.mimetype === 'application/octet-stream') {
+                    return cb(null, true);
+                }
+            }
+
+            // 3. Fallback for image types (e.g. image/pjpeg, image/x-png, octet-stream for images)
+            const validImageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+            const acceptsImage = allowedTypes['image/jpeg'] || allowedTypes['image/png'];
+            if (acceptsImage && validImageExts.includes(ext)) {
+                if (!file.mimetype || file.mimetype.startsWith('image/') || file.mimetype === 'application/octet-stream') {
+                    return cb(null, true);
+                }
+            }
+
+            // 4. Fallback for document types (e.g. application/octet-stream for .pdf)
+            const validDocExts = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt'];
+            const acceptsDoc = allowedTypes['application/pdf'] || allowedTypes['text/csv'];
+            if (acceptsDoc && validDocExts.includes(ext)) {
+                if (!file.mimetype || file.mimetype === 'application/octet-stream' || file.mimetype === 'application/pdf') {
+                    return cb(null, true);
+                }
+            }
+
+            cb(new Error(`Validation failed: Disallowed file type or extension mismatch. MIME: ${file.mimetype || 'unknown'}, Ext: ${ext}`), false);
         }
     });
 };
