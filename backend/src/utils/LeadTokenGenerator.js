@@ -36,8 +36,8 @@ export class LeadTokenGenerator {
         };
 
         const secret = process.env.JWT_SECRET;
-        if (!secret) {
-            throw new Error('FATAL: JWT secret not configured');
+        if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+            throw new Error('FATAL: JWT secret not configured or insecure default');
         }
 
         const token = jwt.sign(payload, secret, {

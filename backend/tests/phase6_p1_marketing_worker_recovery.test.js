@@ -4,6 +4,11 @@ process.env.ALLOW_TRANSACTION_TEST_FALLBACK = 'true';
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
@@ -11,6 +16,9 @@ import MarketingDispatchReceipt from '../models/MarketingDispatchReceipt.js';
 import Activity from '../models/Activity.js';
 import { processMarketingJob } from '../src/workers/marketingWorker.js';
 import whatsAppService from '../services/WhatsAppService.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function isRedisRunning(port = 6379, host = '127.0.0.1', timeoutMs = 500) {
     return new Promise((resolve) => {
@@ -629,6 +637,9 @@ describe('Phase 6 — P1 Real Redis BullMQ Recovery Integration Suite [Live Redi
         if (!redisAvailable) {
             console.log('\n[Real Redis Integration] Redis server not reachable on 127.0.0.1:6379.');
             console.log('[Real Redis Integration] Status: NOT VERIFIED LOCALLY (environment unavailable; verified in GitHub Actions CI with redis:7-alpine).\n');
+            if (process.env.CI) {
+                throw new Error('[Real Redis Integration] FATAL: Redis MUST be available in CI environment (127.0.0.1:6379)!');
+            }
         }
     });
 
@@ -642,8 +653,11 @@ describe('Phase 6 — P1 Real Redis BullMQ Recovery Integration Suite [Live Redi
         await Activity.deleteMany({});
     });
 
-    it('P1.REAL.1 Real Redis BullMQ queue & worker: crash at recipient 20 -> BullMQ retry resumes 21-100 without duplicates', async (t) => {
+    it('P1.REAL.1 Real Redis BullMQ queue & worker: abrupt process crash at recipient 20 -> BullMQ stalled recovery resumes 21-100 without duplicates', async (t) => {
         if (!redisAvailable) {
+            if (process.env.CI) {
+                throw new Error('FATAL: Redis service is required in CI for BullMQ process-crash recovery integration test!');
+            }
             t.skip('Redis 6379 not available locally (requires live Redis daemon / CI container)');
             return;
         }
@@ -665,62 +679,133 @@ describe('Phase 6 — P1 Real Redis BullMQ Recovery Integration Suite [Live Redi
             name: `Recipient ${i + 1}`
         }));
 
-        let attempt = 0;
-        const dispatchedMobiles = [];
-        const originalSendMessage = whatsAppService.sendMessage;
-        whatsAppService.sendMessage = async (mobile) => {
-            dispatchedMobiles.push(mobile);
-            return { success: true, messageId: `msg_${mobile}_${Date.now()}` };
-        };
+        const dispatchLogFile = path.join(os.tmpdir(), `phase6_crash_recovery_dispatches_${Date.now()}.log`);
+        fs.writeFileSync(dispatchLogFile, '');
 
-        let worker;
+        let secondWorker;
+        const originalSendMessage = whatsAppService.sendMessage;
+
         try {
+            // Step 1: Enqueue the 100-recipient marketing blast job into real BullMQ
             await queue.add('blast', {
                 channel: 'whatsapp',
                 campaignId,
                 leads: recipients,
-                message: 'Live BullMQ Test'
+                message: 'Live BullMQ Process-Crash Recovery Test'
             }, {
-                attempts: 2,
-                backoff: { type: 'fixed', delay: 100 }
+                jobId: `job_${campaignId}`,
+                attempts: 3,
+                backoff: { type: 'fixed', delay: 200 }
             });
 
-            const jobFinished = new Promise((resolve, reject) => {
-                worker = new Worker(testQueueName, async (job) => {
-                    attempt++;
-                    if (attempt === 1) {
-                        const origUpdateProgress = job.updateProgress.bind(job);
-                        let progCount = 0;
-                        job.updateProgress = async (val) => {
-                            progCount++;
-                            if (progCount === 20) {
-                                throw new Error('REAL_BULLMQ_WORKER_SIMULATED_CRASH_AT_20');
-                            }
-                            return origUpdateProgress(val);
-                        };
-                    }
-                    return await processMarketingJob(job);
-                }, { connection: redisConnection });
+            // Step 2: Spawn isolated child worker process that will process 1-20 and SIGKILL itself
+            const childWorkerPath = path.resolve(__dirname, 'helpers/crashableMarketingWorkerChild.js');
+            const child = spawn(process.execPath, [childWorkerPath], {
+                env: {
+                    ...process.env,
+                    CHILD_MONGO_URI: replset.getUri(),
+                    CHILD_REDIS_HOST: redisConnection.host,
+                    CHILD_REDIS_PORT: String(redisConnection.port),
+                    CHILD_QUEUE_NAME: testQueueName,
+                    CHILD_DISPATCH_LOG: dispatchLogFile,
+                    CHILD_CRASH_AT: '20'
+                },
+                stdio: ['inherit', 'pipe', 'pipe']
+            });
 
-                worker.on('completed', (job, result) => {
-                    resolve(result);
+            // Step 3: Await abrupt termination of child process
+            const childExit = await new Promise((resolve) => {
+                child.on('exit', (code, signal) => resolve({ code, signal }));
+                child.on('error', (err) => resolve({ error: err }));
+            });
+
+            // Child was abruptly killed via SIGKILL (or non-zero exit)
+            assert.ok(
+                childExit.signal === 'SIGKILL' || childExit.code !== 0,
+                `Child worker process must terminate abruptly via SIGKILL (actual: signal=${childExit.signal}, code=${childExit.code})`
+            );
+
+            // Step 4: Verify MongoDB and dispatch log state immediately after crash
+            const crashDispatches = fs.readFileSync(dispatchLogFile, 'utf8').trim().split('\n').filter(Boolean);
+            assert.equal(crashDispatches.length, 20, 'First worker must have dispatched exactly 20 recipients before crash');
+
+            const initialSentCount = await MarketingDispatchReceipt.countDocuments({
+                campaignId,
+                status: 'SENT'
+            });
+            assert.equal(initialSentCount, 20, 'First 20 receipts must be durably recorded as SENT in MongoDB before crash');
+
+            // Step 5: Start a second worker on the same queue with short stalledInterval.
+            // When the BullMQ lock expires in Redis, stalled recovery triggers, and the second worker resumes the job.
+            whatsAppService.sendMessage = async (mobile) => {
+                fs.appendFileSync(dispatchLogFile, `${mobile}\n`);
+                return { success: true, messageId: `msg_recovered_${mobile}_${Date.now()}` };
+            };
+
+            const jobFinished = new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    reject(new Error('BullMQ stalled recovery and second worker processing timed out after 45s'));
+                }, 45000);
+
+                secondWorker = new Worker(testQueueName, async (job) => {
+                    return await processMarketingJob(job);
+                }, {
+                    connection: redisConnection,
+                    lockDuration: 2500,
+                    stalledInterval: 1000,
+                    maxStalledCount: 3
                 });
-                worker.on('failed', (job, err) => {
-                    if (attempt >= 2) {
+
+                secondWorker.on('completed', (job, result) => {
+                    clearTimeout(timer);
+                    resolve({ job, result });
+                });
+
+                secondWorker.on('failed', (job, err) => {
+                    if (job.attemptsMade >= 3) {
+                        clearTimeout(timer);
                         reject(err);
                     }
                 });
             });
 
-            const result = await jobFinished;
-            assert.equal(dispatchedMobiles.length, 100, 'Total dispatches must be exactly 100 in real BullMQ');
-            const receiptCount = await MarketingDispatchReceipt.countDocuments({ campaignId, status: 'SENT' });
-            assert.equal(receiptCount, 100);
+            const completion = await jobFinished;
+            assert.ok(completion, 'Job must emit completed event after stalled recovery');
+
+            // Step 6: Verify total dispatches equals exactly 100 and no recipient was duplicated
+            const allDispatches = fs.readFileSync(dispatchLogFile, 'utf8').trim().split('\n').filter(Boolean);
+            assert.equal(allDispatches.length, 100, 'Total provider dispatches across crash and recovery must equal exactly 100');
+
+            const dispatchFrequency = {};
+            allDispatches.forEach(m => {
+                dispatchFrequency[m] = (dispatchFrequency[m] || 0) + 1;
+            });
+
+            for (let i = 0; i < 100; i++) {
+                const mob = recipients[i].mobile;
+                assert.equal(dispatchFrequency[mob], 1, `Recipient mobile ${mob} must have been dispatched exactly ONCE`);
+            }
+
+            // Step 7: Verify all 100 receipts in MongoDB are SENT
+            const totalSentReceipts = await MarketingDispatchReceipt.countDocuments({
+                campaignId,
+                status: 'SENT'
+            });
+            assert.equal(totalSentReceipts, 100, 'All 100 receipts must be recorded as SENT in MongoDB');
+
+            // Step 8: Verify job-level receipt reached COMPLETED only after complete accounting
+            const jobReceipt = await MarketingDispatchReceipt.findOne({ dispatchKey: `job_${campaignId}` });
+            assert.ok(jobReceipt, 'Job-level receipt must exist');
+            assert.equal(jobReceipt.status, 'COMPLETED', 'Job-level receipt must be COMPLETED after all 100 recipients accounted for');
+            assert.equal(jobReceipt.result?.sent, 100, 'Campaign total sent count must reflect all 100 recipients');
         } finally {
             whatsAppService.sendMessage = originalSendMessage;
-            if (worker) await worker.close();
+            if (secondWorker) await secondWorker.close();
             await queue.obliterate({ force: true });
             await queue.close();
+            if (fs.existsSync(dispatchLogFile)) {
+                try { fs.unlinkSync(dispatchLogFile); } catch {}
+            }
         }
     });
 });

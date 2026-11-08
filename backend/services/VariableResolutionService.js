@@ -122,7 +122,12 @@ class VariableResolutionService {
             "siteVisitToken": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return '?ref=demo_token';
+                    if (!leadId) return '';
+                    const secret = process.env.JWT_SECRET;
+                    if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+                        console.error("[VariableResolution] JWT_SECRET is missing or insecure; failing closed for siteVisitToken");
+                        return '';
+                    }
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -141,15 +146,23 @@ class VariableResolutionService {
                             hideUnit: lead.hideUnit || false,
                             hideLocation: lead.hideLocation || false
                         },
-                        process.env.JWT_SECRET || 'crm_secret_key',
+                        secret,
                         { expiresIn: '30d' }
                     );
-                } catch(e) { return '?ref=demo_token'; }
+                } catch(e) { 
+                    console.error("[VariableResolution] Error generating siteVisitToken:", e.message);
+                    return ''; 
+                }
             })(),
             "site_visit_token": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return '?ref=demo_token';
+                    if (!leadId) return '';
+                    const secret = process.env.JWT_SECRET;
+                    if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+                        console.error("[VariableResolution] JWT_SECRET is missing or insecure; failing closed for site_visit_token");
+                        return '';
+                    }
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -168,10 +181,48 @@ class VariableResolutionService {
                             hideUnit: lead.hideUnit || false,
                             hideLocation: lead.hideLocation || false
                         },
-                        process.env.JWT_SECRET || 'crm_secret_key',
+                        secret,
                         { expiresIn: '30d' }
                     );
-                } catch(e) { return '?ref=demo_token'; }
+                } catch(e) { 
+                    console.error("[VariableResolution] Error generating site_visit_token:", e.message);
+                    return ''; 
+                }
+            })(),
+            "match_centre_token": (() => {
+                try {
+                    const leadId = lead.id || lead._id;
+                    if (!leadId) return '';
+                    const secret = process.env.JWT_SECRET;
+                    if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+                        console.error("[VariableResolution] JWT_SECRET is missing or insecure; failing closed for match_centre_token");
+                        return '';
+                    }
+                    
+                    const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
+                        id: p.inventoryId?._id || p.inventoryId,
+                        name: p.inventoryId?.name || lead.projectName || '',
+                        block: p.inventoryId?.block || '',
+                        unit: p.inventoryId?.unitNumber || ''
+                    })) : [];
+                    
+                    return '?ref=' + jwt.sign(
+                        { 
+                            leadId: String(leadId), 
+                            source: 'wa_match_centre',
+                            purpose: 'wa_match_centre',
+                            properties: propertyDetails,
+                            hidePrice: lead.hidePrice || false,
+                            hideUnit: lead.hideUnit || false,
+                            hideLocation: lead.hideLocation || false
+                        },
+                        secret,
+                        { expiresIn: '30d' }
+                    );
+                } catch(e) { 
+                    console.error("[VariableResolution] Error generating match_centre_token:", e.message);
+                    return ''; 
+                }
             })(),
 
             // --- Activity Specific Variables ---

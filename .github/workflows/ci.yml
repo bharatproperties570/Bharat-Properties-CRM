@@ -103,6 +103,9 @@ jobs:
           npm run test:phase6:refactoring
           npm run test:phase6:reliability
           npm run test:phase6:p1
+          npm run test:phase6:p0:auth
+          npm run test:phase6:p1:recovery
+          npm run test:phase6:p1:leadform
 
       - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
         run: |

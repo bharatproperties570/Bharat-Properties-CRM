@@ -16,6 +16,7 @@ import User from '../models/User.js';
 import Role from '../models/Role.js';
 import { submitForm } from '../controllers/leadForm.controller.js';
 import LeadTokenGenerator from '../src/utils/LeadTokenGenerator.js';
+import VariableResolutionService from '../services/VariableResolutionService.js';
 
 describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', () => {
     let replset;
@@ -653,5 +654,78 @@ describe('Phase 6 — P0 Public Lead Authorization & IDOR Remediation Suite', ()
         assert.equal(endOther.firstName, baselineOther.firstName);
         assert.equal(endOther.notes, baselineOther.notes);
         assert.equal(endOther.mobile, baselineOther.mobile);
+    });
+
+    it('P0.19 VariableResolutionService fails closed: no tokens issued when JWT_SECRET is unset or predictable (crm_secret_key)', () => {
+        const savedSecret = process.env.JWT_SECRET;
+        try {
+            // Test 1: When JWT_SECRET is missing
+            delete process.env.JWT_SECRET;
+            const varsMissing = VariableResolutionService.resolveNamed(targetLead);
+            assert.equal(varsMissing.siteVisitToken, '', 'siteVisitToken must be empty when JWT_SECRET is missing');
+            assert.equal(varsMissing.site_visit_token, '', 'site_visit_token must be empty when JWT_SECRET is missing');
+            assert.equal(varsMissing.match_centre_token, '', 'match_centre_token must be empty when JWT_SECRET is missing');
+
+            // Test 2: When JWT_SECRET is set to predictable fallback 'crm_secret_key'
+            process.env.JWT_SECRET = 'crm_secret_key';
+            const varsWeak = VariableResolutionService.resolveNamed(targetLead);
+            assert.equal(varsWeak.siteVisitToken, '', 'siteVisitToken must fail closed when predictable crm_secret_key is set');
+            assert.equal(varsWeak.site_visit_token, '', 'site_visit_token must fail closed when predictable crm_secret_key is set');
+            assert.equal(varsWeak.match_centre_token, '', 'match_centre_token must fail closed when predictable crm_secret_key is set');
+
+            // Test 3: When legitimate strong JWT_SECRET is set
+            process.env.JWT_SECRET = 'secure_test_secret_for_p0_testing_12345';
+            const varsValid = VariableResolutionService.resolveNamed(targetLead);
+            assert.ok(varsValid.siteVisitToken.startsWith('?ref='), 'siteVisitToken must issue valid reference parameter');
+            assert.ok(varsValid.site_visit_token.startsWith('?ref='), 'site_visit_token must issue valid reference parameter');
+            assert.ok(varsValid.match_centre_token.startsWith('?ref='), 'match_centre_token must issue valid reference parameter');
+
+            // Verify the generated token can be decoded with the secure secret
+            const tokenStr = varsValid.site_visit_token.replace('?ref=', '');
+            const decoded = jwt.verify(tokenStr, process.env.JWT_SECRET);
+            assert.equal(decoded.leadId, targetLead._id.toString());
+            assert.equal(decoded.purpose, 'wa_match_centre');
+
+            // Verify token cannot be verified with predictable 'crm_secret_key'
+            assert.throws(() => {
+                jwt.verify(tokenStr, 'crm_secret_key');
+            }, /invalid signature/i);
+        } finally {
+            process.env.JWT_SECRET = savedSecret;
+        }
+    });
+
+    it('P0.20 LeadTokenGenerator fails closed: throws when JWT_SECRET is unset or predictable (crm_secret_key)', () => {
+        const savedSecret = process.env.JWT_SECRET;
+        try {
+            // Test 1: When JWT_SECRET is missing
+            delete process.env.JWT_SECRET;
+            assert.throws(() => {
+                LeadTokenGenerator.generate(targetLead._id.toString());
+            }, /FATAL: JWT secret not configured or insecure default/);
+
+            // Test 2: When JWT_SECRET is predictable fallback 'crm_secret_key'
+            process.env.JWT_SECRET = 'crm_secret_key';
+            assert.throws(() => {
+                LeadTokenGenerator.generate(targetLead._id.toString());
+            }, /FATAL: JWT secret not configured or insecure default/);
+
+            // Test 3: When legitimate strong JWT_SECRET is configured
+            process.env.JWT_SECRET = 'secure_test_secret_for_token_gen_12345';
+            const token = LeadTokenGenerator.generate(targetLead._id.toString());
+            assert.ok(token && typeof token === 'string');
+            // Dots are replaced with ~ for Meta URL compatibility
+            assert.ok(!token.includes('.'));
+            assert.ok(token.includes('~'));
+
+            // Verify with genuine JWT secret
+            const restoredJwt = token.replace(/~/g, '.');
+            const decoded = jwt.verify(restoredJwt, process.env.JWT_SECRET);
+            assert.equal(decoded.leadId, targetLead._id.toString());
+            assert.equal(decoded.purpose, 'lead_reference');
+            assert.ok(decoded.exp);
+        } finally {
+            process.env.JWT_SECRET = savedSecret;
+        }
     });
 });
