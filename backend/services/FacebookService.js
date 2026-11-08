@@ -21,16 +21,34 @@ class FacebookService {
     }
 
     /**
+     * Helper to resolve clean App ID & App Secret (preferring saved DB config, falling back to valid env)
+     */
+    _resolveAppCredentials(config) {
+        const cleanEnvAppId = (process.env.FB_CLIENT_ID || process.env.FB_APP_ID || process.env.FB_GRAPH_APP_ID || '').trim();
+        const validEnvAppId = (cleanEnvAppId && !cleanEnvAppId.startsWith('YOUR_')) ? cleanEnvAppId : null;
+        const appId = (config?.appId || validEnvAppId || '1676785590510736').toString().trim();
+
+        const cleanEnvSecret = (process.env.FB_CLIENT_SECRET || process.env.FB_APP_SECRET || '').trim();
+        const validEnvSecret = (cleanEnvSecret && !cleanEnvSecret.startsWith('YOUR_')) ? cleanEnvSecret : null;
+        const appSecret = (config?.appSecret || validEnvSecret || '').toString().trim();
+
+        return { appId, appSecret };
+    }
+
+    /**
      * Step 1: Exchange Short-lived User Token for Long-lived User Token (60 days)
      */
     async exchangeUserToken(shortLivedToken) {
         try {
+            const config = await this._getConfig();
+            const { appId, appSecret } = this._resolveAppCredentials(config);
+
             const url = `${this.graphBase}/${this.graphVersion}/oauth/access_token`;
             const { data } = await axios.get(url, {
                 params: {
                     grant_type: 'fb_exchange_token',
-                    client_id: process.env.FB_CLIENT_ID,
-                    client_secret: process.env.FB_CLIENT_SECRET,
+                    client_id: appId,
+                    client_secret: appSecret,
                     fb_exchange_token: shortLivedToken
                 }
             });
@@ -309,7 +327,7 @@ class FacebookService {
      */
     async getOAuthUrl(redirectUri) {
         const config = await this._getConfig();
-        const appId = process.env.FB_CLIENT_ID || process.env.FB_APP_ID || config.appId;
+        const { appId } = this._resolveAppCredentials(config);
         
         if (!appId) {
             throw new Error('Meta App ID is missing. Please configure your Meta App ID in CRM Settings > Integrations.');
@@ -339,8 +357,7 @@ class FacebookService {
      */
     async handleOAuthCallback(code, redirectUri, userContext = null) {
         const config = await this._getConfig();
-        const appId = process.env.FB_CLIENT_ID || process.env.FB_APP_ID || config.appId;
-        const appSecret = process.env.FB_CLIENT_SECRET || process.env.FB_APP_SECRET || config.appSecret;
+        const { appId, appSecret } = this._resolveAppCredentials(config);
 
         if (!appId || !appSecret) {
             throw new Error('Meta App ID or App Secret is missing. Please configure them in Settings > Integrations.');
