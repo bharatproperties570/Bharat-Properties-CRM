@@ -203,7 +203,7 @@ export const marketingAPI = {
     getCampaignHistory: () => api.get('/marketing/campaign-runs').then(res => res.data),
     getRecentDeals: () => api.get('/marketing/recent-deals').then(res => res.data),
     broadcastToHub: (data) => api.post('/marketing/broadcast', data).then(res => res.data),
-    generateSocial: (dealId, platform) => api.post('/marketing/generate-social', { dealId, platform }, { _silentError: true }).then(res => res.data),
+    generateSocial: (dealId, platform, tone = 'urgent', format = 'post') => api.post('/marketing/generate-social', { dealId, platform, tone, format }, { _silentError: true }).then(res => res.data),
     generateEmail: (dealId, audience) => api.post('/marketing/generate-email', { dealId, audience }, { _silentError: true }).then(res => res.data),
     runAgent: () => api.post('/marketing/run-agent').then(res => res.data),
 
