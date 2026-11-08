@@ -29,6 +29,7 @@ import User from '../models/User.js';
 import Role from '../models/Role.js';
 import AuditLog from '../models/AuditLog.js';
 import { applyApprovedChanges } from '../controllers/authorityVerification.controller.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', async (t) => {
 
@@ -251,7 +252,7 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
         const uri = mongoServer.getUri();
         await mongoose.connect(uri);
 
-        tenantId = new mongoose.Types.ObjectId();
+        tenantId = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         linkId = new mongoose.Types.ObjectId();
     });
 

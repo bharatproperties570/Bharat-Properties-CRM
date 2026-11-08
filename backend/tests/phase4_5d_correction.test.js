@@ -76,7 +76,7 @@ test.before(async () => {
         }
     });
     await mongoose.connect(mongod.getUri());
-    testTenantId = new mongoose.Types.ObjectId();
+    testTenantId = new mongoose.Types.ObjectId('000000000000000000000001');
 });
 
 test.after(async () => {

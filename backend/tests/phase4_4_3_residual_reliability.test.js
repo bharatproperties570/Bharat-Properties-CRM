@@ -28,6 +28,7 @@ import {
     compensateApplySaga
 } from '../controllers/authorityVerification.controller.js';
 import config from '../src/config/env.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
     let mongoServer;
@@ -50,7 +51,7 @@ describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
         }
         await mongoose.connect(mongoUri);
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         auditorRole = await Role.create({
@@ -110,7 +111,7 @@ describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
         });
 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         await PropertyVerificationRunItem.init();
         await PropertyAuthorityLink.init();

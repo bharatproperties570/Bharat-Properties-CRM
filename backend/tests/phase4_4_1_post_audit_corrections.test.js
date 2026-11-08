@@ -112,7 +112,7 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
         });
 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         await PropertyVerificationRunItem.init();
         await PropertyAuthorityLink.init();

@@ -50,13 +50,14 @@ import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import { CANONICAL_FIELDS, SENTINEL, isSentinel } from '../services/authority/authorityFieldDictionary.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () => {
     let mongoServer;
     let testServer;
     let baseUrl;
 
-    const tenantA = new mongoose.Types.ObjectId();
+    const tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
     const tenantB = new mongoose.Types.ObjectId();
 
     let adminUserA;
@@ -476,7 +477,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
         });
 
         after(async () => {
-            await AuthoritySourceSettings.findOneAndUpdate(
+            await AuthoritySourceSettings.collection.updateOne(
                 { tenantId: tenantA, authorityCode: 'HSVP' },
                 { $set: { isEnabled: false, permissionStatus: 'NOT_OBTAINED' } }
             );

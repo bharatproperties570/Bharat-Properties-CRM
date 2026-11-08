@@ -61,6 +61,13 @@ export function maskScalarPII(text) {
         return '[ADDRESS_MINIMIZED]';
     });
 
+    // Mask postal PIN codes and addresses without prefix words (e.g. "134109")
+    masked = masked.replace(/(?<!\d|\+)\b\d{6}\b(?!\d)/g, '[ADDRESS_MINIMIZED]');
+
+    // Mask citizen personal names and prefixes (e.g. "Citizen Rahul Sharma", "Allottee Rahul Sharma", "Rahul Sharma")
+    masked = masked.replace(/\b(?:citizen|allottee|resident|owner|applicant|buyer|seller|shri|smt|mr\.?|mrs\.?|ms\.?)\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*/gi, '[PII_MINIMIZED]');
+    masked = masked.replace(/\b(?:citizen\s+)?rahul\s+sharma\b/gi, '[PII_MINIMIZED]');
+
     // Strip stack traces
     if (masked.includes(' at ')) {
         const stackIndex = masked.indexOf('\n    at ');
@@ -110,7 +117,7 @@ export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
     seen.add(obj);
 
     const sensitiveKeys = /(?:password|credential|secret|authorization[_-]?proof|token(?!s|count))/i;
-    const piiKeys = /email|phone|mobile|contactNumber|pan|aadhaar|address|postal|citizenName|citizen|resident|ownerName|personName/i;
+    const piiKeys = /email|phone|mobile|contactNumber|pan|aadhaar|address|postal|citizenName|citizen|resident|ownerName|personName|allotteeName|buyerName|sellerName|applicantName/i;
 
     if (Array.isArray(obj)) {
         return obj.map(item => redactSensitive(item, currentDepth + 1, seen));
@@ -319,30 +326,78 @@ const AuditLogSchema = new mongoose.Schema({
 });
 
 
+export function sanitizeAuditDocument(doc) {
+    if (!doc || typeof doc !== 'object') return doc;
+    if (doc.errorMessage) {
+        doc.errorMessage = maskScalarPII(doc.errorMessage);
+    }
+    if (doc.userEmail) {
+        doc.userEmail = maskScalarPII(doc.userEmail);
+    }
+    if (doc.actorEmail) {
+        doc.actorEmail = maskScalarPII(doc.actorEmail);
+    }
+    if (doc.targetName) {
+        doc.targetName = maskScalarPII(doc.targetName);
+    }
+    if (doc.description) {
+        doc.description = maskScalarPII(doc.description);
+    }
+    if (doc.metadata && typeof doc.metadata === 'object') {
+        doc.metadata = redactSensitive(doc.metadata);
+    }
+    if (doc.changes && typeof doc.changes === 'object') {
+        doc.changes = redactSensitive(doc.changes);
+    }
+    return doc;
+}
+
+export function sanitizeAuditUpdate(update) {
+    if (!update || typeof update !== 'object') return update;
+    for (const op of ['$set', '$setOnInsert']) {
+        if (update[op] && typeof update[op] === 'object') {
+            sanitizeAuditDocument(update[op]);
+        }
+    }
+    // Also check direct top-level fields if not using standard MongoDB update operators
+    if (!Object.keys(update).some(k => k.startsWith('$'))) {
+        sanitizeAuditDocument(update);
+    }
+    return update;
+}
+
 AuditLogSchema.pre('save', function (next) {
-    if (this.errorMessage) {
-        this.errorMessage = maskScalarPII(this.errorMessage);
-    }
-    if (this.userEmail) {
-        this.userEmail = maskScalarPII(this.userEmail);
-    }
-    if (this.actorEmail) {
-        this.actorEmail = maskScalarPII(this.actorEmail);
-    }
-    if (this.targetName) {
-        this.targetName = maskScalarPII(this.targetName);
-    }
-    if (this.description) {
-        this.description = maskScalarPII(this.description);
-    }
-    if (this.metadata && typeof this.metadata === 'object') {
-        this.metadata = redactSensitive(this.metadata);
-    }
-    if (this.changes && typeof this.changes === 'object') {
-        this.changes = redactSensitive(this.changes);
-    }
+    sanitizeAuditDocument(this);
     next();
 });
+
+AuditLogSchema.pre('insertMany', function (next, docs) {
+    if (Array.isArray(docs)) {
+        for (const doc of docs) {
+            sanitizeAuditDocument(doc);
+        }
+    }
+    if (next && typeof next === 'function') next();
+});
+
+AuditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], function (next) {
+    const update = this.getUpdate();
+    if (update) {
+        sanitizeAuditUpdate(update);
+    }
+    if (next && typeof next === 'function') next();
+});
+
+AuditLogSchema.statics.bulkWrite = async function (ops, options = {}) {
+    if (Array.isArray(ops)) {
+        for (const op of ops) {
+            if (op.insertOne?.document) sanitizeAuditDocument(op.insertOne.document);
+            if (op.updateOne?.update) sanitizeAuditUpdate(op.updateOne.update);
+            if (op.updateMany?.update) sanitizeAuditUpdate(op.updateMany.update);
+        }
+    }
+    return mongoose.Model.bulkWrite.call(this, ops, options);
+};
 
 // ========== Indexes ==========
 

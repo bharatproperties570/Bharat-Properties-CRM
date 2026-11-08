@@ -22,6 +22,7 @@ import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () => {
     let replSet;
@@ -41,7 +42,7 @@ describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () 
         const mongoUri = replSet.getUri();
         await mongoose.connect(mongoUri);
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         const auditorRole = await Role.create({
@@ -93,7 +94,7 @@ describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () 
         });
 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         await Inventory.init();
         await AuditLog.init();

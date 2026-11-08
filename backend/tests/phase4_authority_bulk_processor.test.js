@@ -24,6 +24,7 @@ import Role from '../models/Role.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
 
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', () => {
     let mongoServer;
@@ -38,7 +39,7 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         const testRole = await Role.create({
@@ -116,7 +117,7 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
 
         // Initialize default settings (sources default to disabled/NOT_OBTAINED)
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         // Ensure indexes are built in MongoMemoryServer
         await PropertyVerificationRunItem.init();

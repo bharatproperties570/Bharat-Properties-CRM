@@ -153,7 +153,7 @@ describe('--- PHASE 4.4: FORENSIC FINDINGS REMEDIATION & REVALIDATION SUITE ---'
         });
 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         await PropertyVerificationRunItem.init();
         await PropertyAuthorityLink.init();
