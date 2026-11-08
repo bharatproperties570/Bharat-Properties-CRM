@@ -805,7 +805,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             await mongoose.connect(uri);
         }
 
-        const tenantAlpha = new mongoose.Types.ObjectId();
+        const tenantAlpha = new mongoose.Types.ObjectId('000000000000000000000001');
         const tenantBeta = new mongoose.Types.ObjectId();
         const authorityCode = 'GMADA';
 
@@ -1221,7 +1221,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
             await mongoose.connect(uri);
         }
 
-        const tenantId = new mongoose.Types.ObjectId();
+        const tenantId = new mongoose.Types.ObjectId('000000000000000000000001');
         const authorityCode = 'HSVP';
 
         // Clean up previous Redis keys for HSVP and clear Mongo state
@@ -1504,7 +1504,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         }
 
         const authorityCode = 'HSVP';
-        const tenantId = new mongoose.Types.ObjectId();
+        const tenantId = new mongoose.Types.ObjectId('000000000000000000000001');
         const cleanupKeys = await redisClient.keys(`*${authorityCode}*`);
         if (cleanupKeys.length > 0) await redisClient.del(...cleanupKeys);
 
