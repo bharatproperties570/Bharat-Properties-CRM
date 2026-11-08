@@ -159,6 +159,31 @@ export async function runLiveAuthoritySmokeTest() {
                 await mongoose.connect(stagingMongoUri);
                 createdOwnMongo = true;
             }
+
+            // P0: Verify actual active connection identity again before allowing database writes
+            const postConnectCheck = verifyDatabaseEnvironmentSafety({
+                uri: stagingMongoUri,
+                allowMemoryFallback: false
+            });
+            if (!postConnectCheck.verified) {
+                console.error(`\n[CRITICAL SAFETY ABORT] Post-connection identity verification failed: ${postConnectCheck.reason}`);
+                testResults.databaseClassification = {
+                    environment: postConnectCheck.environment || 'UNKNOWN_OR_UNSAFE',
+                    isProduction: postConnectCheck.code.includes('PRODUCTION'),
+                    isPersistentNonProduction: false,
+                    persistentStagingStatus: 'BLOCKED_DATABASE_ENVIRONMENT_NOT_VERIFIED',
+                    storageEngine: null,
+                    connectionUri: postConnectCheck.redactedUri,
+                    reason: postConnectCheck.reason
+                };
+                testResults.persistenceSurvival = {
+                    status: 'BLOCKED_DATABASE_ENVIRONMENT_NOT_VERIFIED',
+                    stepsExecuted: 0,
+                    reason: postConnectCheck.reason
+                };
+                return testResults;
+            }
+
             testResults.databaseClassification = {
                 environment: 'PERSISTENT_NON_PRODUCTION_STAGING',
                 isProduction: false,
@@ -313,6 +338,25 @@ export async function runLiveAuthoritySmokeTest() {
                 invalidLinkReason = `Authority link ${link._id} has invalid authorityCode '${link.authorityCode}'.`;
                 break;
             }
+
+            // 4. Deterministic property-identity consistency check between link and matching inventory
+            const linkPropId = (link.propertyId || link.fileNumber || link.formNumber || '').trim().toLowerCase();
+            const invPropId = (
+                matchingInv.unitNo ||
+                matchingInv.unitNumber ||
+                matchingInv.propertyId ||
+                matchingInv.authorityVerification?.propertyId ||
+                matchingInv.authorityVerification?.fileNumber ||
+                matchingInv.authorityVerification?.formNumber ||
+                ''
+            ).trim().toLowerCase();
+
+            if (!linkPropId || !invPropId || (linkPropId !== invPropId && !invPropId.includes(linkPropId) && !linkPropId.includes(invPropId))) {
+                allLinksValid = false;
+                invalidLinkReason = `Authority link ${link._id} (${link.authorityCode}) property identifier '${linkPropId || '(empty)'}' does not deterministically match inventory ${matchingInv._id} identifier '${invPropId || '(empty)'}'. Property identity cannot be verified from ObjectId join alone.`;
+                testResults.existingInventoryResolution.propertyIdentityStatus = 'IDENTITY_NOT_VERIFIED';
+                break;
+            }
         }
 
         if (allLinksValid && (existingInventoryRecords.length === 0 || !hsvpLink || !chdLink)) {
@@ -322,6 +366,7 @@ export async function runLiveAuthoritySmokeTest() {
 
         if (!allLinksValid) {
             testResults.existingInventoryResolution.status = 'BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY';
+            testResults.existingInventoryResolution.propertyIdentityStatus = testResults.existingInventoryResolution.propertyIdentityStatus || 'IDENTITY_NOT_VERIFIED';
             testResults.existingInventoryResolution.reason = invalidLinkReason;
             testResults.pilotCounts.HSVP.status = 'BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY';
             testResults.pilotCounts.CHD.status = 'BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY';
@@ -329,6 +374,7 @@ export async function runLiveAuthoritySmokeTest() {
             console.log(` Inventory resolution: BLOCKED_NO_EXISTING_NON_PRODUCTION_INVENTORY (${invalidLinkReason}).`);
         } else {
             testResults.existingInventoryResolution.status = 'PRE_EXISTING_INVENTORY_VERIFIED';
+            testResults.existingInventoryResolution.propertyIdentityStatus = 'PROPERTY_IDENTITY_VERIFIED';
             testResults.existingInventoryResolution.matchedRecords = {
                 HSVP: { linkId: hsvpLink._id.toString(), inventoryId: hsvpLink.inventoryId.toString() },
                 CHD: { linkId: chdLink._id.toString(), inventoryId: chdLink.inventoryId.toString() },
