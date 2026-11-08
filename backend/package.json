@@ -37,6 +37,7 @@
         "test:whatsapp-enterprise": "node --test --test-force-exit --test-concurrency=1 tests/redis_production_safety.test.js tests/whatsapp_auth_state_integrity.test.js tests/whatsapp_group_registry_permission.test.js tests/whatsapp_dispatch_ack_reliability.test.js",
         "test:phase10": "node --test --test-force-exit --test-concurrency=1 tests/phase10_deals_domain_lifecycle.test.js",
         "test:phase11": "node --test --test-force-exit --test-concurrency=1 tests/phase11_document_storage.test.js tests/documentAPI.test.js tests/documentSignedUrl.test.js tests/documentStorage.test.js tests/documentFailureConsistency.test.js tests/documentLeakage.test.js tests/documentMalwareArchitecture.test.js tests/documentRecovery.test.js tests/providerRegistry.test.js tests/googleDriveStorage.test.js",
+        "test:upload-mime": "node --test --test-force-exit --test-concurrency=1 tests/test_upload_video_mime.test.js",
         "test:phase12": "node --test --test-force-exit --test-concurrency=1 tests/phase12_bulk_deal_import_safety.test.js",
         "test:phase14": "node --test --test-force-exit --test-concurrency=1 tests/phase14_automation_audit_logs.test.js",
         "test:phase17": "node --test --test-force-exit --test-concurrency=1 tests/phase17_infrastructure_hardening.test.js",

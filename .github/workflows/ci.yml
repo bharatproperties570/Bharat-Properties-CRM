@@ -137,6 +137,7 @@ jobs:
         run: |
           cd backend
           npm run test:phase11
+          npm run test:upload-mime
 
       - name: Run Phase 12 Bulk Deal Import Safety Tests
         run: |
