@@ -106,6 +106,7 @@ jobs:
           npm run test:phase6:p0:auth
           npm run test:phase6:p1:recovery
           npm run test:phase6:p1:leadform
+          npm run test:phase6:media-e2e
 
       - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
         run: |
