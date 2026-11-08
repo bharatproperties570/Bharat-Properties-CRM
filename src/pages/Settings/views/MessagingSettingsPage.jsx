@@ -139,7 +139,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     mediaUrl: uploadedUrl,
                     headerFileName: file.name,
                     headerFileSize: file.size,
-                    headerFile: { name: file.name, type: file.type, url: uploadedUrl, size: file.size }
+                    headerFile: { name: file.name, type: file.type || 'video/mp4', url: uploadedUrl, size: file.size }
                 }));
                 toast.success(`${templateData.headerType} uploaded and linked to template!`, { id: toastId });
             } else {
@@ -147,7 +147,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
             }
         } catch (err) {
             console.error("Template media upload error:", err);
-            toast.error(`Media upload failed: ${err.message}`, { id: toastId });
+            const serverMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Upload failed';
+            toast.error(`Media upload failed: ${serverMsg}`, { id: toastId });
         } finally {
             setIsUploadingMedia(false);
         }
@@ -762,12 +763,13 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                             <input
                                 type="file"
                                 disabled={isUploadingMedia}
-                                accept={templateData.headerType === 'IMAGE' ? 'image/jpeg,image/png,image/webp' : templateData.headerType === 'VIDEO' ? 'video/mp4,video/3gpp' : '.pdf,.doc,.docx'}
+                                accept={templateData.headerType === 'IMAGE' ? 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp' : templateData.headerType === 'VIDEO' ? 'video/mp4,video/quicktime,video/3gpp,video/*,.mp4,.mov,.m4v,.3gp' : '.pdf,.doc,.docx,application/pdf'}
                                 onChange={(e) => {
-                                    const file = e.target.files[0];
+                                    const file = e.target.files && e.target.files[0];
                                     if (file) handleMediaUpload(file);
+                                    e.target.value = '';
                                 }}
-                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: isUploadingMedia ? 'wait' : 'pointer' }}
+                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: isUploadingMedia ? 'wait' : 'pointer', zIndex: 1 }}
                             />
                             {isUploadingMedia ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '10px 0' }}>
@@ -808,10 +810,13 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                                 headerFile: null,
                                                 headerMediaUrl: '',
                                                 mediaUrl: '',
-                                                headerFileName: ''
+                                                headerFileName: '',
+                                                headerFileSize: 0
                                             });
                                         }}
                                         style={{
+                                            position: 'relative',
+                                            zIndex: 10,
                                             padding: '4px 10px', borderRadius: '6px', border: '1px solid #fca5a5',
                                             background: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer'
                                         }}

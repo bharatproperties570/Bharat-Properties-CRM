@@ -357,10 +357,12 @@ async function dispatchSingleRecipientCore({
                         contextMap
                     );
                 }
-                const broadcastMediaUrl = meta.mediaUrl || job.data?.mediaUrl || meta.headerMediaUrl || null;
-                const broadcastMediaType = (meta.mediaType || meta.headerType || 'image').toLowerCase();
-                const broadcastFilename = meta.filename || meta.headerFileName || 'media';
-                if (broadcastMediaUrl) {
+                const broadcastMediaUrl = meta.mediaUrl || job.data?.mediaUrl || job.data?.headerMediaUrl || meta.headerMediaUrl || null;
+                let broadcastMediaType = (meta.mediaType || job.data?.mediaType || job.data?.headerType || meta.headerType || 'image').toLowerCase();
+                if (broadcastMediaType === 'pdf') broadcastMediaType = 'document';
+                const broadcastFilename = meta.filename || job.data?.headerFileName || meta.headerFileName || `${broadcastMediaType}_attachment`;
+                if (broadcastMediaUrl && ['image', 'video', 'document'].includes(broadcastMediaType)) {
+                    console.log(`[MarketingWorker] Dispatching media via ${isBaileys ? 'WhatsApp Web' : 'Meta API'}: Type=${broadcastMediaType}, URL=${broadcastMediaUrl.substring(0, 80)}, File=${broadcastFilename}`);
                     waRes = await waService.sendMedia(recipient.mobile, broadcastMediaType, broadcastMediaUrl, text, broadcastFilename, { 
                         integrationId,
                         useBaileys: Boolean(isBaileys),

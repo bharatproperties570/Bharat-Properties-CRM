@@ -181,9 +181,10 @@ const SendMessageModal = ({
     const handleDirectMediaUpload = async (file) => {
         if (!file) return;
 
-        const isImage = file.type.startsWith('image/');
-        const isVideo = file.type.startsWith('video/');
-        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const fileExt = (file.name || '').toLowerCase();
+        const isImage = (file.type && file.type.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif)$/i.test(fileExt);
+        const isVideo = (file.type && file.type.startsWith('video/')) || /\.(mp4|mov|m4v|3gp|3gpp|webm|avi)$/i.test(fileExt);
+        const isPdf = file.type === 'application/pdf' || fileExt.endsWith('.pdf');
 
         let mediaType = 'document';
         if (isImage) {
@@ -237,7 +238,8 @@ const SendMessageModal = ({
             }
         } catch (err) {
             console.error("Direct media upload error:", err);
-            toast.error(`Media upload failed: ${err.message}`, { id: toastId });
+            const serverMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Upload failed';
+            toast.error(`Media upload failed: ${serverMsg}`, { id: toastId });
         } finally {
             setIsUploadingMedia(false);
         }
@@ -987,10 +989,11 @@ const SendMessageModal = ({
                                     <input
                                         type="file"
                                         disabled={isUploadingMedia}
-                                        accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,application/pdf"
+                                        accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/3gpp,video/*,application/pdf,.mp4,.mov,.m4v,.3gp,.pdf,.jpg,.jpeg,.png,.webp"
                                         onChange={(e) => {
-                                            const file = e.target.files[0];
+                                            const file = e.target.files && e.target.files[0];
                                             if (file) handleDirectMediaUpload(file);
+                                            e.target.value = '';
                                         }}
                                         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: isUploadingMedia ? 'wait' : 'pointer' }}
                                     />

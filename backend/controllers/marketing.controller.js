@@ -912,9 +912,47 @@ export const broadcastToBrokerGroup = async (req, res) => {
             integrationId, channels = ['whatsapp'], templateId, language, templateText, 
             isBaileys, smsTemplate, rcsTemplate, emailTemplate,
             forceBroadcast = false, deduplicationWindowHours = 4,
-            scheduledTime
+            scheduledTime,
+            mediaUrl, mediaType, headerMediaUrl, headerType, headerFileName, headerText
         } = req.body;
         console.log(`[BNA] Dispatching to audience: Project=${projectId || 'NONE'} Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'}, Force: ${Boolean(forceBroadcast)})`);
+        
+        // 🚀 Enterprise Media Header Resolution (Video / Image / Document / Text)
+        let effectiveMediaUrl = mediaUrl || headerMediaUrl || null;
+        let effectiveMediaType = (mediaType || headerType || 'image').toLowerCase();
+        let effectiveFileName = headerFileName || null;
+        let effectiveHeaderText = headerText || null;
+
+        // Auto-resolve template header media and text from SystemSetting if templateId is provided and media not explicit
+        if (templateId && (!effectiveMediaUrl || !effectiveHeaderText)) {
+            try {
+                const SystemSetting = mongoose.model('SystemSetting');
+                let waTemplatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                if (!waTemplatesSetting && mongoose.connection.db) {
+                    waTemplatesSetting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'crm_whatsapp_templates' });
+                }
+                if (waTemplatesSetting?.value && Array.isArray(waTemplatesSetting.value)) {
+                    const foundTpl = waTemplatesSetting.value.find(t => String(t.id) === String(templateId) || t.name === templateId);
+                    if (foundTpl) {
+                        const tplHeaderType = (foundTpl.headerType || '').toUpperCase();
+                        const tplMediaUrl = foundTpl.headerMediaUrl || foundTpl.mediaUrl || foundTpl.headerFile?.url || (typeof foundTpl.headerFile?.data === 'string' ? foundTpl.headerFile.data : null);
+                        
+                        if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tplHeaderType) && tplMediaUrl && !effectiveMediaUrl) {
+                            effectiveMediaUrl = tplMediaUrl;
+                            effectiveMediaType = tplHeaderType === 'DOCUMENT' ? 'document' : tplHeaderType.toLowerCase();
+                            effectiveFileName = foundTpl.headerFileName || foundTpl.headerFile?.name || `${effectiveMediaType}_attachment`;
+                        }
+                        if (tplHeaderType === 'TEXT' && foundTpl.headerText && !effectiveHeaderText) {
+                            effectiveHeaderText = foundTpl.headerText;
+                        }
+                    }
+                }
+            } catch (tplResolveErr) {
+                console.warn('[broadcastToBrokerGroup] Template media header resolution warning:', tplResolveErr.message);
+            }
+        }
+
+        if (effectiveMediaType === 'pdf') effectiveMediaType = 'document';
         
         const hasCompanyGroups = Array.isArray(groupIds) && groupIds.length > 0;
         const hasContactGroups = Array.isArray(contactGroupIds) && contactGroupIds.length > 0;
@@ -1131,6 +1169,17 @@ export const broadcastToBrokerGroup = async (req, res) => {
             return res.status(404).json({ success: false, error: 'No recipients or groups with valid contact information found.' });
         }
 
+        // Attach Media Header attributes to meta
+        if (meta) {
+            meta.mediaUrl = effectiveMediaUrl;
+            meta.mediaType = effectiveMediaType;
+            meta.headerMediaUrl = effectiveMediaUrl;
+            meta.headerType = (headerType || effectiveMediaType).toUpperCase();
+            meta.filename = effectiveFileName;
+            meta.headerFileName = effectiveFileName;
+            meta.headerText = effectiveHeaderText;
+        }
+
         // 3. Queue the Broadcast for Async Processing (Senior Professional Pattern)
         const queue = await getMarketingQueue();
         const { isRedisOnline } = await import('../src/config/redis.js');
@@ -1153,6 +1202,12 @@ export const broadcastToBrokerGroup = async (req, res) => {
             templateId,
             templateText: templateText || null,
             isBaileys: Boolean(isBaileys),
+            mediaUrl: effectiveMediaUrl,
+            mediaType: effectiveMediaType,
+            headerMediaUrl: effectiveMediaUrl,
+            headerType: (headerType || effectiveMediaType).toUpperCase(),
+            headerFileName: effectiveFileName,
+            headerText: effectiveHeaderText,
             language,
             integrationId: integrationId || null,
             shareableId,
@@ -1179,6 +1234,8 @@ export const broadcastToBrokerGroup = async (req, res) => {
                 channels,
                 isBaileys: Boolean(isBaileys),
                 provider: isBaileys ? 'BAILEYS' : 'META',
+                mediaUrl: effectiveMediaUrl,
+                mediaType: effectiveMediaType,
                 status: scheduledTime ? 'SCHEDULED' : 'RUNNING',
                 campaignParams: jobData,
                 performedBy: jobData.performedBy
@@ -1398,7 +1455,8 @@ export async function _dispatchBNADirectly(data) {
     const { 
         dealId, channels, recipients, meta, templateId, language, shareableId, 
         performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate,
-        forceBroadcast = false, deduplicationWindowHours = 4 
+        forceBroadcast = false, deduplicationWindowHours = 4,
+        mediaUrl, mediaType, headerMediaUrl, headerType, headerFileName, headerText
     } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
     const Activity = mongoose.model('Activity');
@@ -1589,12 +1647,28 @@ export async function _dispatchBNADirectly(data) {
                             contextMap
                         );
                     }
-                    waRes = await waService.sendMessage(recipient.mobile, text, { 
-                        integrationId: data.integrationId,
-                        useBaileys: Boolean(data.isBaileys),
-                        provider: data.isBaileys ? 'BAILEYS' : 'META',
-                        channel: data.isBaileys ? 'whatsapp_web' : 'whatsapp_api'
-                    });
+                    // 🚀 Enterprise Media Header Dispatch (Video, Image, Document)
+                    const directMediaUrl = mediaUrl || headerMediaUrl || data?.mediaUrl || data?.headerMediaUrl || meta?.mediaUrl || meta?.headerMediaUrl || null;
+                    let directMediaType = (mediaType || headerType || data?.mediaType || data?.headerType || meta?.mediaType || meta?.headerType || 'image').toLowerCase();
+                    if (directMediaType === 'pdf') directMediaType = 'document';
+                    const directFilename = headerFileName || data?.headerFileName || meta?.filename || meta?.headerFileName || `${directMediaType}_attachment`;
+
+                    if (directMediaUrl && ['image', 'video', 'document'].includes(directMediaType)) {
+                        console.log(`[BNA/WA Direct] Dispatching media via ${data.isBaileys ? 'WhatsApp Web' : 'Meta API'}: Type=${directMediaType}, URL=${directMediaUrl.substring(0, 80)}, File=${directFilename}`);
+                        waRes = await waService.sendMedia(recipient.mobile, directMediaType, directMediaUrl, text, directFilename, {
+                            integrationId: data.integrationId,
+                            useBaileys: Boolean(data.isBaileys),
+                            provider: data.isBaileys ? 'BAILEYS' : 'META',
+                            channel: data.isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                        });
+                    } else {
+                        waRes = await waService.sendMessage(recipient.mobile, text, { 
+                            integrationId: data.integrationId,
+                            useBaileys: Boolean(data.isBaileys),
+                            provider: data.isBaileys ? 'BAILEYS' : 'META',
+                            channel: data.isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                        });
+                    }
                 }
                 results.push({ 
                     channel: 'whatsapp', 

@@ -422,12 +422,39 @@ export async function authorizeFileAccess(user, fileId, operation = 'READ') {
     return false;
 }
 
+// Express Multer error wrappers to ensure clean 400 JSON responses on validation or limit failures
+const handleSingleUpload = (req, res, next) => {
+    uploadGeneric.single('file')(req, res, (err) => {
+        if (err) {
+            console.error('[Upload Middleware Error]:', err.message);
+            return res.status(400).json({
+                success: false,
+                error: err.message || 'File upload failed validation'
+            });
+        }
+        next();
+    });
+};
+
+const handleMultipleUpload = (req, res, next) => {
+    uploadGeneric.array('files', 10)(req, res, (err) => {
+        if (err) {
+            console.error('[Upload Multiple Middleware Error]:', err.message);
+            return res.status(400).json({
+                success: false,
+                error: err.message || 'File upload failed validation'
+            });
+        }
+        next();
+    });
+};
+
 /**
  * @route   POST /api/upload
  * @desc    Upload documents/images/videos to Google Drive with local fallback
  * @access  Private
  */
-router.post('/', uploadGeneric.single('file'), async (req, res) => {
+router.post('/', handleSingleUpload, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'No file uploaded.' });
@@ -592,7 +619,7 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
  *          Enforces atomic batch ownership registration with complete fail-closed rollback.
  * @access  Private
  */
-router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
+router.post('/multiple', handleMultipleUpload, async (req, res) => {
     // Generate a unique batch-scoped ownership token and exact record ID tracker
     const batchToken = `batch-${Date.now()}-${crypto.randomUUID()}`;
     const batchRegisteredFileIds = new Set();
