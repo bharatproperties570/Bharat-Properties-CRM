@@ -40,7 +40,8 @@ import {
     getPortalStatuses,
     savePortalConfig,
     testPortalConnection,
-    syndicateToPortals
+    syndicateToPortals,
+    generateVisualAsset
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -73,6 +74,7 @@ router.get('/recent-deals',  getRecentDeals);
 
 // ── AI Generation ─────────────────────────────────────────────────────────────
 router.post('/generate-social', generateSocialContent);
+router.post('/generate-visual', generateVisualAsset);
 router.post('/generate-email',  generateEmailCampaign);
 router.post('/run-agent',       runMarketingAgent);
 
