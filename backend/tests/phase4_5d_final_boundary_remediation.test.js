@@ -698,7 +698,7 @@ test('Expiry Separation 1: recordMakerCheckerApproval sets internalReviewExpiryD
         userId: u2._id,
         status: 'success',
         description: 'Authentic review for HSVP',
-        metadata: { tenantId: testTenantId, authorityCode: 'HSVP', reviewerId: u3._id, approverId: u2._id }
+        metadata: { tenantId: testTenantId, authorityCode: 'HSVP', reviewerId: u3._id, approverId: u2._id, submittedBy: u1._id }
     });
 
     const updated = await AuthoritySourceSettings.recordMakerCheckerApproval({

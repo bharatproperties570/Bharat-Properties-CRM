@@ -376,7 +376,8 @@ test('P0 Maker-Checker: Authentic maker-checker with genuine users and roles suc
             tenantId: testTenantId,
             authorityCode: 'HSVP',
             approverId: approver._id,
-            reviewerId: reviewer._id
+            reviewerId: reviewer._id,
+            submittedBy: submitter._id
         }
     });
 

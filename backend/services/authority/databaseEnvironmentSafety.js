@@ -112,6 +112,32 @@ export function isProductionEnvironment() {
 }
 
 /**
+ * Checks whether any recognized environment indicator identifies a production or unverified/unknown environment.
+ * Enforces fail-closed safety for transactions and dangerous execution paths.
+ * @returns {boolean}
+ */
+export function isEnvironmentProductionOrUnsafe(envOverride) {
+    if (envOverride !== undefined && envOverride !== null) {
+        const cls = classifyEnvironment(envOverride);
+        return cls === 'PRODUCTION' || cls === 'UNKNOWN_OR_UNSAFE';
+    }
+    const recognizedEnvs = [
+        process.env.NODE_ENV,
+        process.env.APP_ENV,
+        process.env.APPLICATION_ENV,
+        process.env.ENVIRONMENT,
+        process.env.STAGE
+    ];
+    for (const val of recognizedEnvs) {
+        const cls = classifyEnvironment(val);
+        if (cls === 'PRODUCTION' || cls === 'UNKNOWN_OR_UNSAFE') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * Returns environment decision matrix for standard environment labels.
  * Explains policy, transaction requirements, and live execution boundaries.
  */

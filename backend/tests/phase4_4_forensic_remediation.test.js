@@ -18,7 +18,10 @@ import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    INTERNAL_WORKFLOW_OPTION,
+    createAuthorizedInternalWorkflowToken
+} from '../models/AuthoritySourceSettings.js';
 import AuthorityBulkProcessor from '../services/authority/AuthorityBulkProcessor.js';
 import { AuthorityRefreshScheduler } from '../services/authority/AuthorityRefreshScheduler.js';
 import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
@@ -188,6 +191,9 @@ describe('--- PHASE 4.4: FORENSIC FINDINGS REMEDIATION & REVALIDATION SUITE ---'
                     'ratePolicy.maxConcurrentRequests': 5,
                     'identityRequirements.verified': true
                 }
+            },
+            {
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
             }
         );
     }

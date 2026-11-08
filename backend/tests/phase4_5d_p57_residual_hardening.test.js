@@ -169,11 +169,11 @@ test.before(async () => {
 });
 
 test.after(async () => {
-    if (mongoose.connection?.readyState === 1) {
+    if (mongoose.connection && mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
     }
     if (replSet) {
-        await replSet.stop();
+        await replSet.stop({ doCleanup: true, force: true });
     }
 });
 

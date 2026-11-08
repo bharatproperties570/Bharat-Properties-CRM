@@ -21,7 +21,15 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
-import AuthoritySourceSettings, { checkActivationEligibility } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    checkActivationEligibility,
+    INTERNAL_WORKFLOW_OPTION,
+    createAuthorizedInternalWorkflowToken
+} from '../models/AuthoritySourceSettings.js';
+
+const getAuthWorkflowOptions = () => ({
+    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+});
 import AuthorityGlobalKillSwitch from '../models/AuthorityGlobalKillSwitch.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
 import {
@@ -306,7 +314,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                         submittedBy: null,
                         evidenceVersion: 1
                     }
-                }
+                },
+                getAuthWorkflowOptions()
             );
         });
 
@@ -314,7 +323,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             // Set GMADA to PENDING_REVIEW without a submittedBy
             await AuthoritySourceSettings.updateOne(
                 { tenantId: testTenantId, authorityCode: 'GMADA' },
-                { $set: { permissionStatus: 'PENDING_REVIEW', reviewStatus: 'UNDER_REVIEW', submittedBy: null } }
+                { $set: { permissionStatus: 'PENDING_REVIEW', reviewStatus: 'UNDER_REVIEW', submittedBy: null } },
+                getAuthWorkflowOptions()
             );
 
             const { req, res } = createMockReqRes({
@@ -331,7 +341,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         await t2.test('2.2 reviewSourceApproval rejects self-approval (submitter === reviewer) with 403', async () => {
             await AuthoritySourceSettings.updateOne(
                 { tenantId: testTenantId, authorityCode: 'GMADA' },
-                { $set: { permissionStatus: 'PENDING_REVIEW', reviewStatus: 'UNDER_REVIEW', submittedBy: reviewerUser._id } }
+                { $set: { permissionStatus: 'PENDING_REVIEW', reviewStatus: 'UNDER_REVIEW', submittedBy: reviewerUser._id } },
+                getAuthWorkflowOptions()
             );
 
             const { req, res } = createMockReqRes({
@@ -348,7 +359,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         await t2.test('2.3 reviewSourceApproval rejects when current state is not PENDING_REVIEW and UNDER_REVIEW', async () => {
             await AuthoritySourceSettings.updateOne(
                 { tenantId: testTenantId, authorityCode: 'GMADA' },
-                { $set: { permissionStatus: 'NOT_OBTAINED', reviewStatus: 'NOT_REVIEWED', submittedBy: submitterUser._id } }
+                { $set: { permissionStatus: 'NOT_OBTAINED', reviewStatus: 'NOT_REVIEWED', submittedBy: submitterUser._id } },
+                getAuthWorkflowOptions()
             );
 
             const { req, res } = createMockReqRes({
@@ -372,7 +384,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                         submittedBy: submitterUser._id,
                         evidenceVersion: 2
                     }
-                }
+                },
+                getAuthWorkflowOptions()
             );
 
             const { req, res } = createMockReqRes({
@@ -807,7 +820,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     evidenceVersion: 1,
                     'identityRequirements.verified': false
                 }
-            }
+            },
+            getAuthWorkflowOptions()
         );
 
         // Reviewer approves without identity contract attestation
@@ -1075,7 +1089,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                         submittedBy: submitterUser._id,
                         evidenceVersion: 2
                     }
-                }
+                },
+                getAuthWorkflowOptions()
             );
 
             // REJECTED without expectedEvidenceVersion -> 422
@@ -2428,7 +2443,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     }
                 }
             },
-            { upsert: true }
+            { upsert: true, ...getAuthWorkflowOptions() }
         );
 
         // Initialize AuthorityGlobalFenceWatermark
@@ -3469,7 +3484,11 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 assert.equal(recondDoc.redisSyncStatus, 'PENDING_RECONCILIATION', 'Must retain explicit pending reconciliation status');
                 assert.ok(recondDoc.redisSyncError.includes('audit status finalization failed'));
             } finally {
-                AuditLog.findByIdAndUpdate = origFindByIdAndUpdate;
+                if (origFindByIdAndUpdate) {
+                    AuditLog.findByIdAndUpdate = origFindByIdAndUpdate;
+                } else {
+                    delete AuditLog.findByIdAndUpdate;
+                }
             }
 
             // P2-D Case 2b: AuditLog.findByIdAndUpdate returns null -> marks PENDING_RECONCILIATION
@@ -3488,7 +3507,11 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 const recondDoc = await AuthorityCanonicalPolicy.findOne({ authorityCode });
                 assert.equal(recondDoc.redisSyncStatus, 'PENDING_RECONCILIATION');
             } finally {
-                AuditLog.findByIdAndUpdate = origFindByIdAndUpdate;
+                if (origFindByIdAndUpdate) {
+                    AuditLog.findByIdAndUpdate = origFindByIdAndUpdate;
+                } else {
+                    delete AuditLog.findByIdAndUpdate;
+                }
             }
 
             // P2-D Case 2c: Policy status updateOne throws after Redis sync -> marks PENDING_RECONCILIATION

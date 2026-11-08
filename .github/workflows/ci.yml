@@ -175,6 +175,7 @@ jobs:
           npm run test:phase4.5d-final-boundary-remediation
           npm run test:phase4.5d-p56-security-remediation
           npm run test:phase4.5d-p57-residual-hardening
+          npm run test:phase4.5d-p58-final-residual-security
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |
