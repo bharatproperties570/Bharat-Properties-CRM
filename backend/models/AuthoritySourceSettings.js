@@ -343,7 +343,9 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate'], async funct
         const doc = await this.model.findOne(this.getQuery());
         if (doc) {
             const merged = Object.assign(doc.toObject(), set);
-            if (set.reviewStatus === 'APPROVED' && merged.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION') {
+            const isOwnerAttestedPortal = merged.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' &&
+                merged.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+            if (set.reviewStatus === 'APPROVED' && isOwnerAttestedPortal) {
                 const userCheck = await AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers({
                     submitterId: merged.submittedBy,
                     approverId: merged.approvedBy,

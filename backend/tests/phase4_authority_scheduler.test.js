@@ -19,6 +19,7 @@ import {
     DEFAULT_WEEKLY_CRON,
     SCHEDULE_TIMEZONE
 } from '../services/authority/AuthorityRefreshScheduler.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
     let mongoServer;
@@ -31,7 +32,7 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         const schedRole = await Role.create({
@@ -222,17 +223,21 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
             assert.equal(run.tenantId.toString(), tenantA.toString());
         });
 
-        it('3.2 scheduled run respects multi-tenant boundaries (Tenant A links do not leak to Tenant B)', async () => {
-            const reportB = await scheduler.executeWeeklyCycle({
-                tenantId: tenantB,
-                authorityCode: 'HSVP',
-                isSimulation: true,
-                triggeredBy: userB._id
-            });
-
-            const hsvpResB = reportB.results.find(r => r.authorityCode === 'HSVP');
-            // Tenant B has no active links for HSVP
-            assert.equal(hsvpResB.status, 'NOOP_NO_ELIGIBLE_LINKS');
+        it('3.2 scheduled run respects single-organization boundary (rejects alternate organization ID with zero DB queries)', async () => {
+            await assert.rejects(
+                async () => {
+                    await scheduler.executeWeeklyCycle({
+                        tenantId: tenantB,
+                        authorityCode: 'HSVP',
+                        isSimulation: true,
+                        triggeredBy: userB._id
+                    });
+                },
+                (err) => {
+                    assert.equal(err.code, 'BLOCKED_CANONICAL_ORGANIZATION_MISMATCH');
+                    return true;
+                }
+            );
         });
     });
 

@@ -21,6 +21,7 @@ import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import AuthorityBulkProcessor from '../services/authority/AuthorityBulkProcessor.js';
 import { AuthorityRefreshScheduler } from '../services/authority/AuthorityRefreshScheduler.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('--- PHASE 4.4: FORENSIC FINDINGS REMEDIATION & REVALIDATION SUITE ---', () => {
     let mongoServer;
@@ -45,7 +46,7 @@ describe('--- PHASE 4.4: FORENSIC FINDINGS REMEDIATION & REVALIDATION SUITE ---'
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         const auditorRole = await Role.create({
