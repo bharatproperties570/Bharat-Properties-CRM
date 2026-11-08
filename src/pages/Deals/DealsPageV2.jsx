@@ -1569,8 +1569,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                         onClose={() => setIsSocialModalOpen(false)}
                         initialData={{
                             id: selectedSocialData?.id,
+                            name: selectedSocialData?.projectName ? `${selectedSocialData.projectName} - ${selectedSocialData?.unitNo}` : 'Prime Property',
+                            title: selectedSocialData?.unitNo ? `Unit ${selectedSocialData.unitNo} | ${selectedSocialData.projectName || 'Exclusive Listing'}` : 'Exclusive Property',
+                            location: (selectedSocialData?.location && selectedSocialData.location !== 'null' && selectedSocialData.location !== 'undefined') ? selectedSocialData.location : (selectedSocialData?.city || 'Kurukshetra, Haryana'),
+                            price: selectedSocialData?.price ? `₹${selectedSocialData.price.toLocaleString('en-IN')}` : 'Price on Request',
                             type: 'Deal',
-                            text: `🏡 Fresh Deal Alert: ${selectedSocialData?.unitNo || 'New Property'} at ${selectedSocialData?.projectName || 'Prime Location'}.\n\n✨ Unit: ${selectedSocialData?.unitNo}\n📍 Location: ${selectedSocialData?.location}\n💰 Expected: ₹${selectedSocialData?.price?.toLocaleString('en-IN')}\n\nInterested? Contact us for exclusive details! #BharatProperties #RealEstate`,
+                            text: `🏡 Fresh Deal Alert: ${selectedSocialData?.unitNo || 'New Property'} at ${selectedSocialData?.projectName || 'Kurukshetra'}.\n\n✨ Unit: ${selectedSocialData?.unitNo || 'Prime'}\n📍 Location: ${(selectedSocialData?.location && selectedSocialData.location !== 'null' && selectedSocialData.location !== 'undefined') ? selectedSocialData.location : (selectedSocialData?.city || 'Kurukshetra, Haryana')}\n💰 Expected: ₹${selectedSocialData?.price ? selectedSocialData.price.toLocaleString('en-IN') : 'Price on Request'}\n\nInterested? Contact us for exclusive details! #BharatProperties #RealEstate`,
                             imageUrl: selectedSocialData?.images?.[0] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&q=80&w=1000'
                         }}
                     />

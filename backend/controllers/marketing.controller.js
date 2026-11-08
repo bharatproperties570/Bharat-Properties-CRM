@@ -538,9 +538,9 @@ export const generateVisualAsset = async (req, res) => {
         let targetEntity = null;
         if (dealId) {
             const visibilityFilter = await getVisibilityFilter(req.user);
-            targetEntity = await Deal.findOne({ _id: dealId, ...visibilityFilter }).populate('pipelineStageId');
+            targetEntity = await Deal.findOne({ _id: dealId, ...visibilityFilter }).lean();
             if (!targetEntity) {
-                targetEntity = await Project.findOne({ _id: dealId, ...visibilityFilter });
+                targetEntity = await Project.findOne({ _id: dealId, ...visibilityFilter }).lean();
             }
         }
 

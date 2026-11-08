@@ -206,8 +206,12 @@ class MarketingService {
     async generateVisualAsset(options = {}) {
         const { deal, type = 'image', angle = 'drone', mood = 'golden_hour', format = 'post', customPrompt = '' } = options;
         
-        const projectName = deal?.projectName || deal?.name || deal?.title || deal?.unitNo || 'Prime Real Estate Opportunity';
-        const location = deal?.location || 'Kurukshetra, Haryana';
+        const projectName = deal?.projectName?.name || deal?.projectName || deal?.name || deal?.title || deal?.unitNo || 'Prime Real Estate Opportunity';
+        let rawLoc = deal?.location || deal?.locCity || deal?.city || deal?.address?.location || 'Kurukshetra, Haryana';
+        if (typeof rawLoc !== 'string' || rawLoc === 'null' || rawLoc === 'undefined' || /^[0-9a-fA-F]{24}$/.test(String(rawLoc).trim())) {
+            rawLoc = 'Kurukshetra, Haryana';
+        }
+        const location = rawLoc;
         const isMohali = location.toLowerCase().includes('mohali');
         const phone = isMohali ? '9991000570' : '9991333570';
 
