@@ -339,7 +339,8 @@ class FacebookService {
             'pages_manage_posts',
             'instagram_basic',
             'instagram_content_publish',
-            'public_profile'
+            'public_profile',
+            'business_management'
         ].join(',');
 
         const state = Math.random().toString(36).substring(7);
@@ -397,20 +398,76 @@ class FacebookService {
             }
 
             // 3. Fetch all managed Facebook Pages with their linked Instagram Business accounts
-            const pagesRes = await axios.get(`${this.graphBase}/${this.graphVersion}/me/accounts`, {
-                params: {
-                    fields: 'id,name,access_token,category,instagram_business_account{id,username,name,profile_picture_url}',
-                    access_token: longLivedToken
-                }
-            });
-
-            const pages = pagesRes.data.data || [];
-            if (pages.length === 0) {
-                throw new Error('No Facebook Pages found under this Facebook account. Please ensure you are an Admin of a Facebook Page.');
+            let pages = [];
+            try {
+                const pagesRes = await axios.get(`${this.graphBase}/${this.graphVersion}/me/accounts`, {
+                    params: {
+                        fields: 'id,name,access_token,category,instagram_business_account{id,username,name,profile_picture_url}',
+                        access_token: longLivedToken
+                    }
+                });
+                pages = pagesRes.data.data || [];
+            } catch (pErr) {
+                console.warn('[FacebookService] /me/accounts fetch error:', pErr.response?.data || pErr.message);
             }
 
-            // Prefer a page named "Bharat Properties" or select the first available page
-            let selectedPage = pages.find(p => p.name?.toLowerCase().includes('bharat')) || pages[0];
+            // 3b. Also discover Pages managed via Business Portfolios (e.g. Bharat Properties Business portfolio)
+            try {
+                const bizRes = await axios.get(`${this.graphBase}/${this.graphVersion}/me/businesses`, {
+                    params: {
+                        fields: 'id,name',
+                        access_token: longLivedToken
+                    }
+                });
+                const businesses = bizRes.data?.data || [];
+                for (const biz of businesses) {
+                    try {
+                        const bizPagesRes = await axios.get(`${this.graphBase}/${this.graphVersion}/${biz.id}/owned_pages`, {
+                            params: {
+                                fields: 'id,name,access_token,category,instagram_business_account{id,username,name,profile_picture_url}',
+                                access_token: longLivedToken
+                            }
+                        });
+                        const ownedPages = bizPagesRes.data?.data || [];
+                        for (const op of ownedPages) {
+                            if (!pages.some(p => p.id === op.id)) {
+                                pages.push(op);
+                            }
+                        }
+                    } catch (bizPagesErr) {
+                        console.warn(`[FacebookService] Owned pages error for business ${biz.id}:`, bizPagesErr.response?.data?.error?.message || bizPagesErr.message);
+                    }
+                }
+            } catch (bErr) {
+                console.warn('[FacebookService] /me/businesses check error:', bErr.response?.data?.error?.message || bErr.message);
+            }
+
+            // 3c. Direct lookup fallback: If user provided a specific pageId or known Bharat page ID
+            const targetPageId = config.pageId;
+            if (targetPageId && !pages.some(p => p.id === targetPageId)) {
+                try {
+                    const directPageRes = await axios.get(`${this.graphBase}/${this.graphVersion}/${targetPageId}`, {
+                        params: {
+                            fields: 'id,name,access_token,category,instagram_business_account{id,username,name,profile_picture_url}',
+                            access_token: longLivedToken
+                        }
+                    });
+                    if (directPageRes.data?.id) {
+                        pages.unshift(directPageRes.data);
+                    }
+                } catch (directErr) {
+                    console.warn(`[FacebookService] Direct page lookup error for ${targetPageId}:`, directErr.response?.data?.error?.message || directErr.message);
+                }
+            }
+
+            if (pages.length === 0) {
+                throw new Error('No Facebook Pages found under this account. Please ensure you have Admin access to a Page.');
+            }
+
+            // Prefer a page matching config.pageId or named "Bharat Properties" or select the first available page
+            let selectedPage = (targetPageId && pages.find(p => p.id === targetPageId)) ||
+                               pages.find(p => p.name?.toLowerCase().includes('bharat')) || 
+                               pages[0];
 
             const pageAccessToken = selectedPage.access_token;
             const pageId = selectedPage.id;
