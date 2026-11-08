@@ -412,7 +412,7 @@ test('--- PHASE 2.12: FINAL STATUS CONTRACT, DERIVATION & TEST EVIDENCE RECONCIL
             createdBy: testUser._id
         });
 
-        await AuthoritySourceSettings.findOneAndUpdate(
+        await AuthoritySourceSettings.collection.updateOne(
             { tenantId, authorityCode: 'HSVP' },
             {
                 $set: {

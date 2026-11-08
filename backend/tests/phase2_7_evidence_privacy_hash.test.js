@@ -625,7 +625,7 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
     });
 
     await t.test('19. Legitimate Apply Sets Both snapshotContentHash and rawSnapshotHash on Inventory', async () => {
-        await AuthoritySourceSettings.findOneAndUpdate(
+        await AuthoritySourceSettings.collection.updateOne(
             { tenantId, authorityCode: 'CHD' },
             {
                 $set: {

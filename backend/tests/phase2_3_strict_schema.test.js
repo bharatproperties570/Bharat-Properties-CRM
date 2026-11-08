@@ -583,7 +583,7 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
                 status: 'Available'
             });
 
-            await AuthoritySourceSettings.findOneAndUpdate(
+            await AuthoritySourceSettings.collection.updateOne(
                 { tenantId: tenantA, authorityCode: 'HSVP' },
                 {
                     $set: {

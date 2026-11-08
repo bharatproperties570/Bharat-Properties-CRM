@@ -97,9 +97,11 @@ function createMockReqRes({ user, params = {}, body = {} } = {}) {
 
 test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) => {
     let mongoServer;
-    const testTenantId = new mongoose.Types.ObjectId();
-    const submitterUser = { _id: new mongoose.Types.ObjectId(), tenantId: testTenantId };
-    const reviewerUser = { _id: new mongoose.Types.ObjectId(), tenantId: testTenantId };
+    const testTenantId = new mongoose.Types.ObjectId('000000000000000000000001');
+    let submitterUser;
+    let approverUser;
+    let reviewerUser;
+    let hsvpAuditLog;
 
     t.before(async () => {
         mongoServer = await MongoMemoryServer.create();
@@ -108,7 +110,87 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             await mongoose.disconnect();
         }
         await mongoose.connect(uri);
+
+        await User.createCollection();
+        await Role.createCollection();
+        await AuditLog.createCollection();
+        await AuthoritySourceSettings.createCollection();
+
+        const submitterRole = await Role.create({
+            name: 'Submitter Role',
+            department: 'inventory',
+            tenantId: testTenantId,
+            permissions: ['authorityVerification.edit'],
+            approvalRights: { manageAuthoritySettings: true },
+            moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+        });
+        const approverRole = await Role.create({
+            name: 'Approver Role',
+            department: 'accounts',
+            tenantId: testTenantId,
+            permissions: ['authorityVerification.edit'],
+            approvalRights: { manageAuthoritySettings: true },
+            moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+        });
+        const reviewerRole = await Role.create({
+            name: 'Reviewer Role',
+            department: 'sales',
+            tenantId: testTenantId,
+            permissions: ['authorityVerification.edit'],
+            approvalRights: { manageAuthoritySettings: true, approveAuthorityChanges: true },
+            moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+        });
+
+        submitterUser = await User.create({
+            fullName: 'Submitter User',
+            email: 'submitter@test.internal',
+            password: 'hashed-password-123',
+            role: submitterRole._id,
+            department: 'inventory',
+            tenantId: testTenantId,
+            isActive: true
+        });
+        approverUser = await User.create({
+            fullName: 'Approver User',
+            email: 'approver@test.internal',
+            password: 'hashed-password-123',
+            role: approverRole._id,
+            department: 'accounts',
+            tenantId: testTenantId,
+            isActive: true
+        });
+        reviewerUser = await User.create({
+            fullName: 'Reviewer User',
+            email: 'reviewer@test.internal',
+            password: 'hashed-password-123',
+            role: reviewerRole._id,
+            department: 'sales',
+            tenantId: testTenantId,
+            isActive: true
+        });
+
         await AuthoritySourceSettings.ensureDefaults(testTenantId);
+
+        const hsvpSetting = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
+        hsvpAuditLog = await AuditLog.create({
+            tenantId: testTenantId,
+            eventType: 'authority_source_approval_reviewed',
+            targetType: 'authority_settings',
+            targetId: hsvpSetting._id,
+            targetName: 'HSVP',
+            userId: approverUser._id,
+            performedBy: reviewerUser._id,
+            actorId: reviewerUser._id,
+            actorName: 'Reviewer User',
+            description: 'Authority source approval reviewed for HSVP',
+            metadata: {
+                tenantId: testTenantId,
+                authorityCode: 'HSVP',
+                submittedBy: submitterUser._id,
+                approvedBy: approverUser._id,
+                reviewedBy: reviewerUser._id
+            }
+        });
     });
 
     t.after(async () => {
@@ -126,8 +208,9 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             setting.permissionStatus = 'GRANTED';
             setting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
             setting.approvalReference = 'REF-HSVP-2026';
+            setting.makerCheckerAuditLogId = hsvpAuditLog._id;
             setting.submittedBy = submitterUser._id;
-            setting.approvedBy = reviewerUser._id;
+            setting.approvedBy = approverUser._id;
             setting.reviewedBy = reviewerUser._id;
             setting.reviewStatus = 'APPROVED';
             setting.commercialUseAuthorized = true;
@@ -674,7 +757,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             permissionStatus: 'GRANTED',
             reviewStatus: 'APPROVED',
             submittedBy: submitterUser._id,
-            approvedBy: reviewerUser._id,
+            approvedBy: approverUser._id,
+            reviewedBy: reviewerUser._id,
             approvalReference: 'REF',
             commercialUseAuthorized: true,
             readOnlySearchAuthorized: true,
@@ -719,6 +803,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     permissionStatus: 'PENDING_REVIEW',
                     reviewStatus: 'UNDER_REVIEW',
                     submittedBy: submitterUser._id,
+                    approvedBy: approverUser._id,
                     evidenceVersion: 1,
                     'identityRequirements.verified': false
                 }
@@ -935,7 +1020,10 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         await t16.test('16.2 reviewSourceApproval with valid reviewer attestation sets verified: true', async () => {
             // First transition to UNDER_REVIEW
             const setting = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'GMADA' });
+            setting.permissionStatus = 'PENDING_REVIEW';
             setting.reviewStatus = 'UNDER_REVIEW';
+            setting.submittedBy = submitterUser._id;
+            setting.approvedBy = approverUser._id;
             await setting.save();
 
             const { req, res } = createMockReqRes({
@@ -2195,8 +2283,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
 
     await t.test('31. Deterministic Lease-Loss in Persistence Stage Across Tenants (Remediation 1)', async () => {
         const authorityCode = 'GMADA';
-        const tenantA = new mongoose.Types.ObjectId();
-        const tenantB = new mongoose.Types.ObjectId();
+        const tenantA = testTenantId;
+        const tenantB = testTenantId;
 
         const invA = await Inventory.create({
             tenantId: tenantA,
@@ -2213,7 +2301,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             urbanEstate: 'Mohali',
             matchEligibility: 'ELIGIBLE',
             compositeKey: 'GMADA:MOHALI:66:PLT-RACE-A',
-            createdBy: new mongoose.Types.ObjectId()
+            createdBy: submitterUser._id
         });
         const runItemA = await PropertyVerificationRunItem.create({
             tenantId: tenantA,
@@ -2242,7 +2330,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             urbanEstate: 'Mohali',
             matchEligibility: 'ELIGIBLE',
             compositeKey: 'GMADA:MOHALI:66:PLT-RACE-B',
-            createdBy: new mongoose.Types.ObjectId()
+            createdBy: submitterUser._id
         });
         const runItemB = await PropertyVerificationRunItem.create({
             tenantId: tenantB,
@@ -2271,46 +2359,68 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                     maxConcurrent: 1,
                     effectiveFrom: new Date(Date.now() - 10000),
                     expiresAt: new Date(Date.now() + 86400000),
-                    reviewedBy: String(new mongoose.Types.ObjectId()),
-                    approvedBy: String(new mongoose.Types.ObjectId()),
+                    reviewedBy: String(reviewerUser._id),
+                    approvedBy: String(approverUser._id),
                     isActive: true
                 }
             },
             { upsert: true, new: true }
         );
 
-        // Ensure settings exist for both tenants
-        for (const tid of [tenantA, tenantB]) {
-            await AuthoritySourceSettings.deleteMany({ tenantId: tid, authorityCode });
-            await AuthoritySourceSettings.create({
-                tenantId: tid,
+        const gmadaSetting = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode });
+        const raceAudit = await AuditLog.create({
+            tenantId: testTenantId,
+            eventType: 'authority_source_approval_reviewed',
+            targetType: 'authority_settings',
+            targetId: gmadaSetting._id,
+            targetName: authorityCode,
+            userId: approverUser._id,
+            performedBy: reviewerUser._id,
+            actorId: reviewerUser._id,
+            actorName: 'Reviewer User',
+            description: 'Authority source approval reviewed for GMADA',
+            metadata: {
+                tenantId: testTenantId,
                 authorityCode,
-                permissionStatus: 'GRANTED',
-                approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
-                approvalReference: 'GMADA/RACE/2026',
-                commercialUseAuthorized: true,
-                readOnlySearchAuthorized: true,
-                termsReviewed: true,
-                termsReference: 'https://gmada.gov.in/terms',
-                submittedBy: new mongoose.Types.ObjectId(),
-                approvedBy: new mongoose.Types.ObjectId(),
-                reviewedBy: new mongoose.Types.ObjectId(),
-                permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate', 'status'],
-                reviewStatus: 'APPROVED',
-                isEnabled: true,
-                contractVerificationStatus: 'VERIFIED_CONTRACT',
-                contractEvidenceReference: 'GMADA/CONTRACT/01',
-                identityRequirements: { verified: true },
-                ratePolicy: {
-                    maxConcurrent: 1,
-                    maxRequestsPerMinute: 10,
-                    maxRequestsPerDay: 500,
-                    minIntervalMs: 50,
-                    minimumIntervalMs: 50,
-                    policySource: 'GMADA/RACE/POL'
+                submittedBy: submitterUser._id,
+                approvedBy: approverUser._id,
+                reviewedBy: reviewerUser._id
+            }
+        });
+
+        await AuthoritySourceSettings.updateOne(
+            { tenantId: testTenantId, authorityCode },
+            {
+                $set: {
+                    permissionStatus: 'GRANTED',
+                    approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                    approvalReference: raceAudit._id.toString(),
+                    makerCheckerAuditLogId: raceAudit._id,
+                    commercialUseAuthorized: true,
+                    readOnlySearchAuthorized: true,
+                    termsReviewed: true,
+                    termsReference: 'https://gmada.gov.in/terms',
+                    submittedBy: submitterUser._id,
+                    approvedBy: approverUser._id,
+                    reviewedBy: reviewerUser._id,
+                    permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate', 'status'],
+                    reviewStatus: 'APPROVED',
+                    isEnabled: true,
+                    contractVerificationStatus: 'VERIFIED_CONTRACT',
+                    contractEvidenceReference: 'GMADA/CONTRACT/01',
+                    identityRequirements: { verified: true },
+                    ratePolicy: {
+                        maxConcurrent: 1,
+                        maxRequestsPerMinute: 10,
+                        maxRequestsPerDay: 500,
+                        minIntervalMs: 50,
+                        minimumIntervalMs: 50,
+                        policySource: 'GMADA/RACE/POL'
+                    }
                 }
-            });
-        }
+            },
+            { upsert: true }
+        );
 
         // Initialize AuthorityGlobalFenceWatermark
         await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });

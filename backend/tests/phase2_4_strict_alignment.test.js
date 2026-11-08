@@ -425,7 +425,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
 
         beforeEach(async () => {
             for (const code of ['HSVP', 'GMADA', 'CHD']) {
-                await AuthoritySourceSettings.findOneAndUpdate(
+                await AuthoritySourceSettings.collection.updateOne(
                     { tenantId: tenantA, authorityCode: code },
                     {
                         $set: {
@@ -824,7 +824,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 ]
             });
 
-            await AuthoritySourceSettings.findOneAndUpdate(
+            await AuthoritySourceSettings.collection.updateOne(
                 { tenantId: tenantA, authorityCode: 'HSVP' },
                 {
                     $set: {

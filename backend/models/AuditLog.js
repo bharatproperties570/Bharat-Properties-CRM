@@ -162,6 +162,7 @@ const AuditLogSchema = new mongoose.Schema({
             // Authority Verification Events
             'authority_settings_updated',
             'authority_source_approval_submitted',
+            'authority_source_approval_recorded',
             'authority_source_approval_reviewed',
             'authority_link_created',
             'authority_run_created',
@@ -1106,10 +1107,19 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
     if (userId) {
         try {
             const UserModel = mongoose.model('User');
-            user = await UserModel.findById(userId).select('fullName email department').lean();
+            user = await UserModel.findById(userId).select('fullName email department').setOptions(mongooseOptions).lean();
         } catch (_) { /* User lookup non-critical */ }
     }
     const department = user?.department;
+
+    let actor = null;
+    const actorId = options?.actorId || null;
+    if (actorId) {
+        try {
+            const UserModel = mongoose.model('User');
+            actor = await UserModel.findById(actorId).select('fullName email department').setOptions(mongooseOptions).lean();
+        } catch (_) { /* Actor lookup non-critical */ }
+    }
 
     let redactedChanges;
     try {
@@ -1118,21 +1128,39 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
         redactedChanges = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
     }
 
+    let finalMetadata = options.metadata;
+    if (!finalMetadata || (typeof finalMetadata === 'object' && Object.keys(finalMetadata).length === 0)) {
+        if (changes && typeof changes === 'object' && !Array.isArray(changes) && !changes.before && !changes.after) {
+            finalMetadata = changes;
+        } else {
+            finalMetadata = { origin: userId ? 'authenticated_user' : 'unknown' };
+        }
+    }
+    let redactedMetadata;
+    try {
+        redactedMetadata = redactSensitive(finalMetadata);
+    } catch (err) {
+        redactedMetadata = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
+    }
+
     return this.create([{
         eventType,
         userId,
         userName: user?.fullName || 'System',
         userEmail: maskScalarPII(user?.email || 'system@crm.local'),
+        actorId: actorId || null,
+        actorName: actor?.fullName || (actorId ? 'System' : null),
+        actorEmail: actor?.email ? maskScalarPII(actor.email) : null,
         department,
         targetType,
         targetId,
         targetName: maskScalarPII(targetName),
         description: maskScalarPII(description),
         changes: redactedChanges,
-        metadata: options.metadata || { origin: userId ? 'authenticated_user' : 'unknown' },
+        metadata: redactedMetadata,
         ipAddress: options.ipAddress || null,
         userAgent: options.userAgent || null,
-        status: 'success',
+        status: options.status || 'success',
         correlationId: options.correlationId
     }], mongooseOptions).then(docs => docs[0]);
 };

@@ -69,6 +69,13 @@ export function getQuotaProvider(req = null) {
 
 function auditEvent(eventType, userId, targetType, targetId, description, metadata = {}, options = {}) {
     const targetName = metadata.targetName || metadata.authorityCode || null;
+    const mergedOptions = {
+        ...options,
+        metadata: {
+            ...(metadata || {}),
+            ...(options.metadata || {})
+        }
+    };
     return AuditLog.logEntityUpdate(
         eventType,
         targetType,
@@ -77,7 +84,7 @@ function auditEvent(eventType, userId, targetType, targetId, description, metada
         userId,
         metadata,
         description,
-        options
+        mergedOptions
     );
 }
 
@@ -382,6 +389,11 @@ export const submitSourceApproval = async (req, res) => {
         setting.reviewStatus = 'UNDER_REVIEW';
         setting.submittedBy = req.user._id;
         setting.submittedAt = new Date();
+        setting.approvedBy = null;
+        setting.approvedAt = null;
+        setting.reviewedBy = null;
+        setting.reviewedAt = null;
+        setting.makerCheckerAuditLogId = null;
         setting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
         setting.evidenceVersion = (setting.evidenceVersion || 0) + 1;
 
@@ -463,10 +475,100 @@ export const submitSourceApproval = async (req, res) => {
 };
 
 /**
+ * POST /api/authority/settings/:authorityCode/record-approval
+ * Records authorization approval by an authorized approver (maker-checker approver stage).
+ * Permission: authorityVerification admin (approvalRights.manageAuthoritySettings)
+ * Enforces: submitter cannot self-approve.
+ */
+export const recordSourceApprover = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { authorityCode } = req.params;
+        if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
+            return res.status(400).json({ success: false, message: 'Invalid authority code' });
+        }
+
+        const setting = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!setting) {
+            return res.status(404).json({ success: false, message: 'Settings not found' });
+        }
+
+        if (setting.permissionStatus !== 'PENDING_REVIEW' || setting.reviewStatus !== 'UNDER_REVIEW') {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_APPROVAL_STATE',
+                message: `Source cannot be approved in current state: permissionStatus=${setting.permissionStatus}, reviewStatus=${setting.reviewStatus}. Must be PENDING_REVIEW and UNDER_REVIEW.`
+            });
+        }
+
+        if (!setting.submittedBy) {
+            return res.status(422).json({
+                success: false,
+                code: 'SUBMITTER_REQUIRED',
+                message: 'Cannot record approval: evidence has no authenticated submitter.'
+            });
+        }
+
+        const approverId = String(req.user._id);
+        const submitterId = String(setting.submittedBy);
+
+        if (submitterId === approverId) {
+            return res.status(403).json({
+                success: false,
+                code: 'SELF_APPROVAL_PROHIBITED',
+                message: 'Independent maker-checker review violation: submitter cannot approve authorization.'
+            });
+        }
+
+        setting.approvedBy = req.user._id;
+        setting.approvedAt = new Date();
+        setting.reviewStatus = 'UNDER_REVIEW';
+        setting.isEnabled = false;
+        setting.schedulingEnabled = false;
+
+        await setting.save();
+
+        await auditEvent(
+            'authority_source_approval_recorded',
+            req.user._id,
+            'authority_settings',
+            setting._id,
+            `Authority source authorization approval recorded for ${authorityCode} (v${setting.evidenceVersion})`,
+            {
+                tenantId,
+                authorityCode,
+                targetName: authorityCode,
+                submittedBy: setting.submittedBy,
+                approvedBy: req.user._id,
+                approverId: req.user._id,
+                evidenceVersion: setting.evidenceVersion,
+                notes: req.body?.notes || null
+            },
+            { actorId: req.user._id }
+        );
+
+        res.json({
+            success: true,
+            message: `Authority authorization approval recorded for ${authorityCode} (v${setting.evidenceVersion}). Awaiting final independent review.`,
+            data: {
+                ...setting.toObject(),
+                activationCheck: setting.checkActivationEligibility(),
+                effectivelyActive: setting.isEffectivelyActive()
+            }
+        });
+    } catch (error) {
+        console.error('recordSourceApprover error:', error);
+        res.status(500).json({ success: false, message: 'Failed to record source approval' });
+    }
+};
+
+/**
  * POST /api/authority/settings/:authorityCode/review-approval
  * Reviews and approves or rejects an authority-specific authorization record.
- * Permission: authorityVerification admin (approvalRights.manageAuthoritySettings)
- * Enforces strict independent maker-checker: submitter cannot self-approve.
+ * Permission: authorityVerification reviewer (approvalRights.approveAuthorityChanges)
+ * Enforces strict independent 3-person maker-checker: submitter, approver, reviewer must be 3 distinct authenticated users.
  */
 export const reviewSourceApproval = async (req, res) => {
     try {
@@ -488,7 +590,7 @@ export const reviewSourceApproval = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Decision must be either APPROVED or REJECTED' });
         }
 
-        // P0.2 Close maker-checker loophole guard: Require current state permissionStatus=PENDING_REVIEW and reviewStatus=UNDER_REVIEW
+        // Require current state permissionStatus=PENDING_REVIEW and reviewStatus=UNDER_REVIEW
         if (setting.permissionStatus !== 'PENDING_REVIEW' || setting.reviewStatus !== 'UNDER_REVIEW') {
             return res.status(422).json({
                 success: false,
@@ -500,7 +602,6 @@ export const reviewSourceApproval = async (req, res) => {
         const reviewerId = String(req.user._id);
 
         if (decision === 'APPROVED') {
-            // P0.2: For APPROVED, require submittedBy to exist and be a valid authenticated user ID
             if (!setting.submittedBy) {
                 return res.status(422).json({
                     success: false,
@@ -510,7 +611,8 @@ export const reviewSourceApproval = async (req, res) => {
             }
 
             const submitterId = String(setting.submittedBy);
-            // Strict independent maker-checker separation: reviewer ID != submitter ID
+
+            // Strict independent maker-checker separation: submitter cannot review/approve
             if (submitterId === reviewerId) {
                 return res.status(403).json({
                     success: false,
@@ -520,7 +622,7 @@ export const reviewSourceApproval = async (req, res) => {
             }
         }
 
-        // PR42 Mandatory Fix 3: Evidence version is mandatory on BOTH review outcomes
+        // Evidence version is mandatory on BOTH review outcomes
         if (expectedEvidenceVersion === undefined || expectedEvidenceVersion === null || !Number.isInteger(Number(expectedEvidenceVersion)) || Number(expectedEvidenceVersion) < 1) {
             return res.status(422).json({
                 success: false,
@@ -539,7 +641,25 @@ export const reviewSourceApproval = async (req, res) => {
         }
 
         if (decision === 'APPROVED') {
-            // PR42 Mandatory Fix 2: Require reviewer explicit, evidence-backed identity contract attestation
+            if (!setting.approvedBy) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'APPROVER_REQUIRED',
+                    message: 'Cannot review authorization: approval has not been recorded by an authorized approver.'
+                });
+            }
+
+            const submitterId = String(setting.submittedBy);
+            const approverId = String(setting.approvedBy);
+
+            // Strict independent maker-checker separation: 3 distinct authenticated users
+            if (approverId === reviewerId || submitterId === approverId) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'MAKER_CHECKER_VIOLATION',
+                    message: 'Independent maker-checker review violation: submitter, approver, and reviewer must be three distinct authenticated users.'
+                });
+            }
             let updateIdentityVerified = false;
             let attestationData = null;
             if (identityContractAttestation && typeof identityContractAttestation === 'object') {
@@ -569,7 +689,7 @@ export const reviewSourceApproval = async (req, res) => {
                 ...setting.toObject(),
                 permissionStatus: 'GRANTED',
                 reviewStatus: 'APPROVED',
-                approvedBy: req.user._id,
+                approvedBy: setting.approvedBy,
                 reviewedBy: req.user._id,
                 identityRequirements: {
                     ...existingIdReq,
@@ -588,60 +708,160 @@ export const reviewSourceApproval = async (req, res) => {
                 });
             }
 
-            // P0.2 & Fix 3: Atomic update with expectedEvidenceVersion guard
-            const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
-                {
-                    _id: setting._id,
-                    tenantId,
-                    permissionStatus: 'PENDING_REVIEW',
-                    reviewStatus: 'UNDER_REVIEW',
-                    evidenceVersion: expectedVer
-                },
-                {
-                    $set: {
-                        permissionStatus: 'GRANTED',
-                        reviewStatus: 'APPROVED',
-                        approvedBy: req.user._id,
-                        approvedAt: new Date(),
-                        reviewedBy: req.user._id,
-                        reviewedAt: new Date(),
-                        'identityRequirements.verified': true,
-                        'identityRequirements.attestation': attestationData
-                    }
-                },
-                { new: true }
-            );
+            // Transaction-backed atomic approval: AuditLog creation + AuthoritySourceSettings update
+            const topologyType = mongoose.connection?.client?.topology?.description?.type;
+            const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
-            if (!updatedSetting) {
-                return res.status(409).json({
+            if (!supportsTransactions && (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true' || process.env.NODE_ENV === 'production' || process.env.STAGING_MONGODB_URI)) {
+                return res.status(500).json({
                     success: false,
-                    code: 'CONCURRENT_REVIEW_CONFLICT',
-                    message: 'Source settings were modified by another transaction or already reviewed.'
+                    code: 'TRANSACTIONS_UNAVAILABLE',
+                    message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
                 });
             }
 
-            await auditEvent(
-                'authority_source_approval_reviewed',
-                req.user._id,
-                'authority_settings',
-                updatedSetting._id,
-                `Authority source authorization APPROVED for ${authorityCode}`,
-                {
-                    tenantId,
-                    authorityCode,
-                    targetName: authorityCode,
-                    decision: 'APPROVED',
-                    submittedBy: setting.submittedBy,
-                    approvedBy: setting.approvedBy || req.user._id,
-                    approverId: setting.approvedBy || req.user._id,
-                    reviewedBy: req.user._id,
-                    reviewerId: req.user._id,
-                    evidenceVersion: expectedVer,
-                    identityVerified: true,
-                    identityContractAttestation: attestationData,
-                    notes: notes || null
+            let session = null;
+            if (supportsTransactions) {
+                try {
+                    session = await mongoose.startSession();
+                } catch (txErr) {
+                    return res.status(500).json({
+                        success: false,
+                        code: 'TRANSACTIONS_UNAVAILABLE',
+                        message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
+                    });
                 }
-            );
+            }
+
+            let updatedSetting = null;
+            try {
+                const executeReview = async (activeSession) => {
+                    const auditEntry = await AuditLog.logEntityUpdate(
+                        'authority_source_approval_reviewed',
+                        'authority_settings',
+                        setting._id,
+                        authorityCode,
+                        setting.approvedBy,
+                        {
+                            tenantId,
+                            authorityCode,
+                            targetName: authorityCode,
+                            decision: 'APPROVED',
+                            submittedBy: setting.submittedBy,
+                            approvedBy: setting.approvedBy,
+                            approverId: setting.approvedBy,
+                            reviewedBy: req.user._id,
+                            reviewerId: req.user._id,
+                            evidenceVersion: expectedVer,
+                            identityVerified: true,
+                            identityContractAttestation: attestationData,
+                            notes: notes || null
+                        },
+                        `Authority source authorization APPROVED for ${authorityCode}`,
+                        {
+                            session: activeSession,
+                            actorId: req.user._id,
+                            metadata: {
+                                tenantId,
+                                authorityCode,
+                                targetName: authorityCode,
+                                decision: 'APPROVED',
+                                submittedBy: setting.submittedBy,
+                                approvedBy: setting.approvedBy,
+                                approverId: setting.approvedBy,
+                                reviewedBy: req.user._id,
+                                reviewerId: req.user._id,
+                                evidenceVersion: expectedVer,
+                                identityVerified: true,
+                                identityContractAttestation: attestationData,
+                                notes: notes || null
+                            }
+                        }
+                    );
+
+                    updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                        {
+                            _id: setting._id,
+                            tenantId,
+                            permissionStatus: 'PENDING_REVIEW',
+                            reviewStatus: 'UNDER_REVIEW',
+                            evidenceVersion: expectedVer
+                        },
+                        {
+                            $set: {
+                                permissionStatus: 'GRANTED',
+                                reviewStatus: 'APPROVED',
+                                reviewedBy: req.user._id,
+                                reviewedAt: new Date(),
+                                makerCheckerAuditLogId: auditEntry._id,
+                                internalReviewExpiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                                'identityRequirements.verified': true,
+                                'identityRequirements.attestation': attestationData
+                            }
+                        },
+                        { new: true, ...(activeSession ? { session: activeSession } : {}) }
+                    );
+
+                    if (!updatedSetting) {
+                        const conflictErr = new Error('CONCURRENT_REVIEW_CONFLICT');
+                        conflictErr.code = 'CONCURRENT_REVIEW_CONFLICT';
+                        throw conflictErr;
+                    }
+
+                    const verifyCheck = await AuthoritySourceSettings.verifyMakerCheckerUsers({
+                        submitterId: updatedSetting.submittedBy,
+                        approverId: updatedSetting.approvedBy,
+                        reviewerId: updatedSetting.reviewedBy,
+                        approvalReference: auditEntry._id,
+                        makerCheckerAuditLogId: auditEntry._id,
+                        authorityCode,
+                        tenantId,
+                        settingsId: updatedSetting._id,
+                        ...(activeSession ? { session: activeSession } : {})
+                    });
+
+                    if (!verifyCheck.valid) {
+                        const verifyErr = new Error(`Maker-checker verification failed: ${verifyCheck.reason}`);
+                        verifyErr.code = 'MAKER_CHECKER_VERIFICATION_FAILED';
+                        throw verifyErr;
+                    }
+                };
+
+                if (session) {
+                    await session.withTransaction(async () => {
+                        await executeReview(session);
+                    });
+                } else {
+                    await executeReview(null);
+                }
+            } catch (innerErr) {
+                if (innerErr.code === 'CONCURRENT_REVIEW_CONFLICT') {
+                    return res.status(409).json({
+                        success: false,
+                        code: 'CONCURRENT_REVIEW_CONFLICT',
+                        message: 'Source settings were modified by another transaction or already reviewed.'
+                    });
+                }
+                if (innerErr.code === 'MAKER_CHECKER_VERIFICATION_FAILED') {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'MAKER_CHECKER_VERIFICATION_FAILED',
+                        message: innerErr.message
+                    });
+                }
+                if (innerErr.code === 'MAKER_CHECKER_APPROVAL_REJECTED' || innerErr.code === 'ACTIVATION_LOCKED_PHASE3') {
+                    return res.status(422).json({
+                        success: false,
+                        code: innerErr.code,
+                        message: innerErr.message
+                    });
+                }
+                throw innerErr;
+            } finally {
+                if (session) {
+                    await session.endSession().catch(() => {});
+                }
+            }
 
             return res.json({
                 success: true,
@@ -691,12 +911,16 @@ export const reviewSourceApproval = async (req, res) => {
                 updatedSetting._id,
                 `Authority source authorization REJECTED for ${authorityCode}`,
                 {
+                    tenantId,
                     authorityCode,
+                    targetName: authorityCode,
                     decision: 'REJECTED',
                     reviewedBy: req.user._id,
+                    reviewerId: req.user._id,
                     evidenceVersion: setting.evidenceVersion,
                     notes: notes || null
-                }
+                },
+                { actorId: req.user._id }
             );
 
             return res.json({
