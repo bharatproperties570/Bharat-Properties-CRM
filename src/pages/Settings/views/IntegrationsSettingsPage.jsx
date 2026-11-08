@@ -215,8 +215,11 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         // For Meta Graph, ensure we send a clean payload
                         const socialPayload = {
                             pageId: config.pageId,
+                            pageName: config.pageName,
                             pageAccessToken: config.pageAccessToken,
                             igUserId: config.igUserId,
+                            igUsername: config.igUsername,
+                            availablePages: config.availablePages,
                             verifyToken: config.verifyToken,
                             appId: config.appId,
                             appSecret: config.appSecret
@@ -882,30 +885,76 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
 
                                     {/* Connection status display */}
                                     {config.pageAccessToken ? (
-                                        <div style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '10px',
-                                            border: '1px solid #bbf7d0', flexWrap: 'wrap', gap: '10px'
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <i className="fas fa-check-circle" style={{ color: '#22c55e', fontSize: '18px' }}></i>
-                                                <div style={{ fontSize: '0.8rem', color: '#166534' }}>
-                                                    <div><strong>Facebook Page:</strong> {config.pageName || config.pageId || 'Connected'}</div>
-                                                    <div><strong>Instagram:</strong> {config.igUsername ? `@${config.igUsername}` : (config.igUserId ? `ID: ${config.igUserId}` : 'Linked via Page')}</div>
+                                        <>
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '10px',
+                                                border: '1px solid #bbf7d0', flexWrap: 'wrap', gap: '10px'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <i className="fas fa-check-circle" style={{ color: '#22c55e', fontSize: '18px' }}></i>
+                                                    <div style={{ fontSize: '0.8rem', color: '#166534' }}>
+                                                        <div><strong>Facebook Page:</strong> {config.pageName || config.pageId || 'Connected'}</div>
+                                                        <div><strong>Instagram:</strong> {config.igUsername ? `@${config.igUsername}` : (config.igUserId ? `ID: ${config.igUserId}` : 'Linked via Page')}</div>
+                                                    </div>
                                                 </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDisconnectMeta}
+                                                    style={{
+                                                        background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
+                                                        padding: '5px 12px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    Disconnect
+                                                </button>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={handleDisconnectMeta}
-                                                style={{
-                                                    background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
-                                                    padding: '5px 12px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                Disconnect
-                                            </button>
-                                        </div>
+
+                                            {config.availablePages && config.availablePages.length > 0 && (
+                                                <div style={{
+                                                    padding: '10px 14px', background: 'rgba(24, 119, 242, 0.05)',
+                                                    border: '1px solid rgba(24, 119, 242, 0.2)', borderRadius: '10px',
+                                                    display: 'flex', flexDirection: 'column', gap: '6px'
+                                                }}>
+                                                    <label style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <i className="fas fa-layer-group" style={{ color: '#1877F2' }}></i>
+                                                        Select Publishing Page:
+                                                    </label>
+                                                    <select
+                                                        value={config.pageId || ''}
+                                                        onChange={(e) => {
+                                                            const selected = config.availablePages.find(p => p.id === e.target.value);
+                                                            if (selected) {
+                                                                setConfig(prev => ({
+                                                                    ...prev,
+                                                                    pageId: selected.id,
+                                                                    pageName: selected.name,
+                                                                    igUsername: selected.igUsername || prev.igUsername
+                                                                }));
+                                                                toast.success(`Switched active page to "${selected.name}". Click Save below to persist.`);
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            padding: '8px 12px',
+                                                            borderRadius: '8px',
+                                                            border: '1px solid var(--border-color)',
+                                                            background: 'var(--bg-input, var(--bg-card))',
+                                                            color: 'var(--text-main)',
+                                                            fontSize: '0.82rem',
+                                                            fontWeight: 600,
+                                                            outline: 'none'
+                                                        }}
+                                                    >
+                                                        {config.availablePages.map(page => (
+                                                            <option key={page.id} value={page.id}>
+                                                                {page.name} (ID: {page.id}) {page.hasInstagram ? `• Instagram: @${page.igUsername}` : ''}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </>
                                     ) : (
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                                             💡 <strong>How it works:</strong> Click the button above to log into Facebook. Select your Page and Instagram account, and Bharat CRM will automatically configure all permanent publishing tokens.

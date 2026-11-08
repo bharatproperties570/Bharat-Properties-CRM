@@ -532,6 +532,35 @@ export const generateWithModel = async (req, res) => {
     }
 };
 
+export const generateVisualAsset = async (req, res) => {
+    try {
+        const { dealId, type = 'image', angle = 'drone', mood = 'golden_hour', format = 'post', customPrompt = '' } = req.body;
+
+        let targetEntity = null;
+        if (dealId) {
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            targetEntity = await Deal.findOne({ _id: dealId, ...visibilityFilter }).populate('pipelineStageId');
+            if (!targetEntity) {
+                targetEntity = await Project.findOne({ _id: dealId, ...visibilityFilter });
+            }
+        }
+
+        const result = await marketingService.generateVisualAsset({
+            deal: targetEntity,
+            type,
+            angle,
+            mood,
+            format,
+            customPrompt
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('[MarketingController] generateVisualAsset error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 // ── Campaign Dispatch & Audience Engine ────────────────────────────────────────
 
 /**
