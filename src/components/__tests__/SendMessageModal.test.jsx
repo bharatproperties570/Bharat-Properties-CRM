@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import SendMessageModal from '../SendMessageModal';
 import smsService from '../../services/smsService';
 import whatsappService from '../../services/whatsappService';
@@ -23,6 +23,10 @@ vi.mock('../../services/whatsappService', () => ({
 }));
 
 vi.mock('../../utils/api', () => ({
+  api: {
+    post: vi.fn(),
+    get: vi.fn()
+  },
   systemSettingsAPI: {
     getByKey: vi.fn()
   }
@@ -50,7 +54,9 @@ vi.mock('../../context/UserContext', () => ({
 vi.mock('react-hot-toast', () => ({
   default: {
     success: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn()
   }
 }));
 
@@ -63,7 +69,17 @@ describe('SendMessageModal Channel Selection & Lifecycle Stability', () => {
     ]);
 
     whatsappService.getTemplates.mockResolvedValue([
-      { id: 'wa_tpl_1', name: 'whatsapp_welcome', status: 'APPROVED', channel: 'both', body: 'Welcome {{1}}' }
+      { id: 'wa_tpl_1', name: 'whatsapp_welcome', status: 'APPROVED', channel: 'both', body: 'Welcome {{1}}' },
+      {
+        id: 'wa_media_tpl_1',
+        name: 'luxury_villa_showcase',
+        status: 'APPROVED',
+        channel: 'both',
+        headerType: 'IMAGE',
+        headerMediaUrl: '/uploads/villa_banner.jpg',
+        headerFileName: 'villa_banner.jpg',
+        body: 'Check out this stunning villa!'
+      }
     ]);
 
     whatsappService.getAccounts.mockResolvedValue({
@@ -82,6 +98,10 @@ describe('SendMessageModal Channel Selection & Lifecycle Stability', () => {
       success: true,
       data: { value: {} }
     });
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it('renders with initial SMS channel and default SMS options', async () => {
@@ -210,6 +230,65 @@ describe('SendMessageModal Channel Selection & Lifecycle Stability', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Business Account/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders Upload File and CRM Records switcher in WhatsApp mode', async () => {
+    render(
+      <SendMessageModal
+        isOpen={true}
+        onClose={vi.fn()}
+        initialRecipients={[{ name: 'Bob', phone: '9988776655' }]}
+      />
+    );
+
+    const waBtn = screen.getByRole('button', { name: /whatsapp/i });
+    fireEvent.click(waBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Attach Media \/ Documents/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /upload file/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /crm records/i })).toBeInTheDocument();
+    });
+
+    // Check WhatsApp size guidance text
+    expect(screen.getByText(/Images ≤ 5MB \(JPG\/PNG\) • Videos ≤ 16MB \(MP4\) • Documents ≤ 20MB \(PDF\)/i)).toBeInTheDocument();
+  });
+
+  it('allows attaching direct media upload conforming to WhatsApp limits', async () => {
+    const { api } = await import('../../utils/api');
+    api.post.mockResolvedValue({
+      data: {
+        success: true,
+        url: '/uploads/deal_villa_photo.jpg',
+        filename: 'deal_villa_photo.jpg'
+      }
+    });
+
+    render(
+      <SendMessageModal
+        isOpen={true}
+        onClose={vi.fn()}
+        initialRecipients={[{ name: 'Charlie', phone: '9811223344' }]}
+      />
+    );
+
+    const waBtn = screen.getByRole('button', { name: /whatsapp/i });
+    fireEvent.click(waBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /upload file/i })).toBeInTheDocument();
+    });
+
+    const fileInput = document.querySelector('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+
+    const file = new File(['dummy image content'], 'deal_villa_photo.jpg', { type: 'image/jpeg' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/deal_villa_photo\.jpg/i)).toBeInTheDocument();
+      expect(screen.getByText(/Attached/i)).toBeInTheDocument();
     });
   });
 });

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTheme } from '../../../context/ThemeContext';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
-import { systemSettingsAPI } from '../../../utils/api';
+import { api, systemSettingsAPI } from '../../../utils/api';
 import { useWhatsAppTemplatesDb, useSaveWhatsAppTemplatesMutation, useSubmitWhatsAppTemplateMutation, useSyncWhatsAppTemplatesCommand } from '../../../utils/crmHooks';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
@@ -26,6 +26,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
 
     const [step, setStep] = useState(1);
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [isUploadingMedia, setIsUploadingMedia] = useState(false);
     const [templateData, setTemplateData] = useState({
         name: '',
         channel: initialData?.channel || (channelType === 'whatsapp' ? 'web' : 'sms'),
@@ -35,6 +36,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         headerType: 'NONE',
         headerText: '',
         headerFile: null,
+        headerMediaUrl: '',
+        headerFileName: '',
         body: '',
         footer: '',
         buttons: [],
@@ -56,12 +59,17 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         if (isOpen) {
             setStep(1);
             if (initialData) {
+                const headerUrl = initialData.headerMediaUrl || initialData.mediaUrl || initialData.headerFile?.url || '';
+                const headerName = initialData.headerFileName || initialData.headerFile?.name || '';
                 setTemplateData({
                     ...initialData,
                     channel: initialData.channel || (channelType === 'whatsapp' ? 'web' : 'sms'),
                     buttons: initialData.buttons || [],
                     tags: initialData.tags || [],
                     headerType: initialData.headerType || 'NONE',
+                    headerMediaUrl: headerUrl,
+                    headerFileName: headerName,
+                    headerFile: initialData.headerFile || (headerUrl ? { name: headerName || 'Attached Media', url: headerUrl } : null),
                     subCategory: initialData.subCategory || 'DEFAULT',
                     variableMapping: initialData.variableMapping || {}
                 });
@@ -75,6 +83,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     headerType: 'NONE',
                     headerText: '',
                     headerFile: null,
+                    headerMediaUrl: '',
+                    headerFileName: '',
                     body: '',
                     footer: '',
                     buttons: [],
@@ -87,6 +97,61 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
             }
         }
     }, [isOpen, initialData, channelType]);
+
+    const handleMediaUpload = async (file) => {
+        if (!file) return;
+
+        // WhatsApp Size Recommendation Validations
+        if (templateData.headerType === 'IMAGE') {
+            if (file.size > 16 * 1024 * 1024) {
+                toast.error("Image size exceeds WhatsApp 16MB limit.");
+                return;
+            }
+        } else if (templateData.headerType === 'VIDEO') {
+            if (file.size > 16 * 1024 * 1024) {
+                toast.error("Video size exceeds WhatsApp limit (Max 16MB). Please upload a video under 16MB.");
+                return;
+            }
+        } else if (templateData.headerType === 'DOCUMENT') {
+            if (file.size > 20 * 1024 * 1024) {
+                toast.error("Document size exceeds 20MB limit.");
+                return;
+            }
+        }
+
+        setIsUploadingMedia(true);
+        const toastId = toast.loading(`Uploading sample ${templateData.headerType.toLowerCase()}...`);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('entityType', 'WhatsAppTemplate');
+            formData.append('entityName', templateData.name || 'TemplateHeader');
+
+            const res = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (res.data?.success) {
+                const uploadedUrl = res.data.url || res.data.downloadUrl;
+                setTemplateData(prev => ({
+                    ...prev,
+                    headerMediaUrl: uploadedUrl,
+                    mediaUrl: uploadedUrl,
+                    headerFileName: file.name,
+                    headerFileSize: file.size,
+                    headerFile: { name: file.name, type: file.type, url: uploadedUrl, size: file.size }
+                }));
+                toast.success(`${templateData.headerType} uploaded and linked to template!`, { id: toastId });
+            } else {
+                throw new Error(res.data?.error || 'Upload failed');
+            }
+        } catch (err) {
+            console.error("Template media upload error:", err);
+            toast.error(`Media upload failed: ${err.message}`, { id: toastId });
+        } finally {
+            setIsUploadingMedia(false);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -686,47 +751,73 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && (
                         <div style={{
                             position: 'relative',
-                            padding: '24px 16px',
+                            padding: '20px 16px',
                             border: '2px dashed #3b82f6',
                             borderRadius: '12px',
                             textAlign: 'center',
                             background: isDark ? 'rgba(59, 130, 246, 0.05)' : '#eff6ff',
-                            cursor: 'pointer',
+                            cursor: isUploadingMedia ? 'wait' : 'pointer',
                             transition: 'all 0.2s'
                         }}>
                             <input
                                 type="file"
-                                accept={templateData.headerType === 'IMAGE' ? 'image/*' : templateData.headerType === 'VIDEO' ? 'video/*' : '.pdf,.doc,.docx'}
+                                disabled={isUploadingMedia}
+                                accept={templateData.headerType === 'IMAGE' ? 'image/jpeg,image/png,image/webp' : templateData.headerType === 'VIDEO' ? 'video/mp4,video/3gpp' : '.pdf,.doc,.docx'}
                                 onChange={(e) => {
                                     const file = e.target.files[0];
-                                    if (file) {
-                                        const reader = new FileReader();
-                                        reader.onloadend = () => {
+                                    if (file) handleMediaUpload(file);
+                                }}
+                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: isUploadingMedia ? 'wait' : 'pointer' }}
+                            />
+                            {isUploadingMedia ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '10px 0' }}>
+                                    <div className="spinner-border" style={{ width: '28px', height: '28px', color: '#3b82f6', border: '3px solid #bfdbfe', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e40af' }}>
+                                        Uploading {templateData.headerType.toLowerCase()} to secure storage...
+                                    </div>
+                                </div>
+                            ) : (templateData.headerMediaUrl || templateData.headerFile) ? (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isDark ? 'rgba(255,255,255,0.08)' : '#ffffff', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        {templateData.headerType === 'IMAGE' && templateData.headerMediaUrl ? (
+                                            <img src={templateData.headerMediaUrl} alt="Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+                                        ) : (
+                                            <div style={{
+                                                width: '44px', height: '44px', borderRadius: '10px',
+                                                background: '#dbeafe', color: '#1e40af',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px'
+                                            }}>
+                                                <i className={templateData.headerType === 'VIDEO' ? 'fas fa-video' : templateData.headerType === 'DOCUMENT' ? 'fas fa-file-pdf' : 'fas fa-image'}></i>
+                                            </div>
+                                        )}
+                                        <div style={{ textAlign: 'left' }}>
+                                            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: textMain, maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {templateData.headerFileName || templateData.headerFile?.name || `${templateData.headerType} Attached`}
+                                            </div>
+                                            <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>
+                                                ✓ Ready for WhatsApp Web send • Click to replace
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             setTemplateData({
                                                 ...templateData,
-                                                headerFile: { name: file.name, type: file.type, data: reader.result, size: file.size }
+                                                headerFile: null,
+                                                headerMediaUrl: '',
+                                                mediaUrl: '',
+                                                headerFileName: ''
                                             });
-                                        };
-                                        reader.readAsDataURL(file);
-                                    }
-                                }}
-                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
-                            />
-                            {templateData.headerFile ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                                    <div style={{
-                                        width: '40px', height: '40px', borderRadius: '10px',
-                                        background: '#dbeafe', color: '#1e40af',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px'
-                                    }}>
-                                        <i className="fas fa-file-check"></i>
-                                    </div>
-                                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#1e40af' }}>
-                                        {templateData.headerFile.name}
-                                    </div>
-                                    <div style={{ fontSize: '0.72rem', color: textMuted }}>
-                                        Click or drop to replace media file
-                                    </div>
+                                        }}
+                                        style={{
+                                            padding: '4px 10px', borderRadius: '6px', border: '1px solid #fca5a5',
+                                            background: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer'
+                                        }}
+                                    >
+                                        Remove
+                                    </button>
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
@@ -739,10 +830,10 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                         <i className={templateData.headerType === 'IMAGE' ? 'fas fa-cloud-upload-alt' : templateData.headerType === 'VIDEO' ? 'fas fa-video' : 'fas fa-file-pdf'}></i>
                                     </div>
                                     <div style={{ fontSize: '0.84rem', fontWeight: 700, color: textMain }}>
-                                        Drag & drop or click to upload sample {templateData.headerType.toLowerCase()}
+                                        Drag & drop or click to upload {templateData.headerType.toLowerCase()} header
                                     </div>
                                     <div style={{ fontSize: '0.72rem', color: textMuted }}>
-                                        Supports JPG, PNG (Max 5MB) or PDF brochures (Max 100MB)
+                                        WhatsApp specs: Images (Max 5MB/16MB) • Videos (Max 16MB MP4) • Documents (Max 20MB PDF)
                                     </div>
                                 </div>
                             )}
@@ -1761,11 +1852,19 @@ Suraj Keshwar
                                             }}>
                                                 {templateData.headerType === 'TEXT' ? (
                                                     renderWhatsAppFormattedText(templateData.headerText || '🏡 AVAILABLE FOR SALE 🏡')
+                                                ) : templateData.headerType === 'IMAGE' && templateData.headerMediaUrl ? (
+                                                    <div style={{ borderRadius: '6px', overflow: 'hidden', maxHeight: '130px', background: '#000' }}>
+                                                        <img src={templateData.headerMediaUrl} alt="Header Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    </div>
+                                                ) : templateData.headerType === 'VIDEO' && templateData.headerMediaUrl ? (
+                                                    <div style={{ borderRadius: '6px', overflow: 'hidden', maxHeight: '130px', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <video src={templateData.headerMediaUrl} controls style={{ width: '100%', maxHeight: '130px' }} />
+                                                    </div>
                                                 ) : (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0284c7' }}>
                                                         <i className={templateData.headerType === 'IMAGE' ? 'fas fa-image' : templateData.headerType === 'VIDEO' ? 'fas fa-video' : 'fas fa-file-pdf'}></i>
                                                         <span style={{ fontSize: '0.72rem' }}>
-                                                            {templateData.headerFile?.name || `[${templateData.headerType} Attached]`}
+                                                            {templateData.headerFileName || templateData.headerFile?.name || `[${templateData.headerType} Attached]`}
                                                         </span>
                                                     </div>
                                                 )}
@@ -2600,9 +2699,15 @@ const MessagingSettingsPage = () => {
     };
 
     const handleEdit = (template) => {
+        const headerUrl = template.headerMediaUrl || template.mediaUrl || template.headerFile?.url || '';
+        const headerName = template.headerFileName || template.headerFile?.name || '';
         setEditingTemplate({
             ...template,
             body: template.body || template.content || '',
+            headerType: template.headerType || 'NONE',
+            headerMediaUrl: headerUrl,
+            headerFileName: headerName,
+            headerFile: template.headerFile || (headerUrl ? { name: headerName || 'Attached Media', url: headerUrl } : null),
         });
         setIsTemplateModalOpen(true);
     };
@@ -2616,9 +2721,21 @@ const MessagingSettingsPage = () => {
             } else {
                 // Keep body + content in sync for compatibility locally
                 const targetChannel = data.channel || 'web';
+                const headerUrl = data.headerMediaUrl || data.mediaUrl || data.headerFile?.url || '';
+                const headerName = data.headerFileName || data.headerFile?.name || '';
                 const savedData = {
                     ...data,
                     channel: targetChannel,
+                    headerType: data.headerType || 'NONE',
+                    headerMediaUrl: headerUrl,
+                    mediaUrl: headerUrl,
+                    headerFileName: headerName,
+                    headerFile: data.headerFile ? {
+                        name: data.headerFile.name,
+                        type: data.headerFile.type,
+                        url: headerUrl || data.headerFile.url || '',
+                        size: data.headerFile.size
+                    } : (headerUrl ? { name: headerName, url: headerUrl } : null),
                     buttons: targetChannel === 'web' ? [] : (data.buttons || []),
                     body:    data.body    || data.content || '',
                     content: data.content || data.body    || '',

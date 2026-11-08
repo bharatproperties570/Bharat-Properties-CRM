@@ -2338,27 +2338,43 @@ class WhatsAppService {
             
             let content = { text: message || '' };
             if (type !== 'text' && mediaUrl) {
-                let mimetype = 'image/jpeg';
-                if (type === 'video') mimetype = 'video/mp4';
-                else if (type === 'document') mimetype = 'application/pdf';
+                const normType = (type === 'pdf' ? 'document' : String(type || 'text').toLowerCase());
+                let mimetype = options.mimetype;
+                if (!mimetype) {
+                    if (normType === 'video') mimetype = 'video/mp4';
+                    else if (normType === 'document') mimetype = 'application/pdf';
+                    else {
+                        if (typeof mediaUrl === 'string' && mediaUrl.endsWith('.png')) mimetype = 'image/png';
+                        else if (typeof mediaUrl === 'string' && mediaUrl.endsWith('.webp')) mimetype = 'image/webp';
+                        else mimetype = 'image/jpeg';
+                    }
+                }
                 
                 let mediaSource = { url: mediaUrl };
-                if (mediaUrl.startsWith('/uploads/') || mediaUrl.startsWith('uploads/')) {
+                if (typeof mediaUrl === 'string' && mediaUrl.startsWith('data:')) {
+                    const matches = mediaUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                    if (matches && matches.length === 3) {
+                        mimetype = matches[1] || mimetype;
+                        mediaSource = Buffer.from(matches[2], 'base64');
+                    }
+                } else if (typeof mediaUrl === 'string' && (mediaUrl.startsWith('/uploads/') || mediaUrl.startsWith('uploads/') || mediaUrl.includes('/uploads/'))) {
                     const path = await import('path');
                     const fs = await import('fs');
-                    const localPath = path.resolve(process.cwd(), mediaUrl.replace(/^\//, ''));
+                    const uploadRelIndex = mediaUrl.indexOf('uploads/');
+                    const relPath = uploadRelIndex !== -1 ? mediaUrl.substring(uploadRelIndex) : mediaUrl.replace(/^\//, '');
+                    const localPath = path.resolve(process.cwd(), relPath);
                     if (fs.existsSync(localPath)) {
                         mediaSource = fs.readFileSync(localPath);
                     }
                 }
 
                 content = {
-                    [type === 'image' ? 'image' : type === 'document' ? 'document' : 'video']: mediaSource,
+                    [normType === 'image' ? 'image' : normType === 'document' ? 'document' : 'video']: mediaSource,
                     caption: message || ''
                 };
-                if (type === 'document') {
+                if (normType === 'document') {
                     content.mimetype = mimetype;
-                    if (options.filename) content.fileName = options.filename;
+                    content.fileName = options.filename || 'document.pdf';
                 }
             }
 
