@@ -418,7 +418,7 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
     next();
 });
 
-// Prohibit bulk update attempts from bypassing activation checks
+// Prohibit bulk update attempts from circumventing activation checks
 AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options) {
     if (Array.isArray(ops)) {
         for (const op of ops) {
@@ -427,7 +427,7 @@ AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options) 
                 const u = action.update || {};
                 const set = u.$set || u;
                 if (set.isEnabled === true || set.schedulingEnabled === true || set.reviewStatus === 'APPROVED') {
-                    const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Bulk update attempts cannot bypass activation checks. Direct enablement, scheduling, or approval via bulkWrite is strictly prohibited.');
+                    const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Bulk update attempts cannot circumvent activation checks. Direct enablement, scheduling, or approval via bulkWrite is strictly prohibited.');
                     err.code = 'DIRECT_BULK_WRITE_PROHIBITED';
                     throw err;
                 }
