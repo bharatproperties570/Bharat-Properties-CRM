@@ -135,7 +135,7 @@ describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () 
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
             }
         );
     }

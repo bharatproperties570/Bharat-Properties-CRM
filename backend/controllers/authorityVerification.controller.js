@@ -65,7 +65,7 @@ import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProce
 function getTenantId(req) {
     verifyCanonicalOrganizationContext();
 
-    // Check for explicit non-canonical overrides in body, query, or headers
+    // Check for explicit non-canonical overrides in body, query, headers, or request object
     if (req.body?.tenantId && String(req.body.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
         const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Body tenantId override '${req.body.tenantId}' rejected.`);
         err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
@@ -81,13 +81,18 @@ function getTenantId(req) {
         err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
         throw err;
     }
+    if (req.tenantId && String(req.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Request-level tenantId override '${req.tenantId}' rejected.`);
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
+    }
 
-    // Resolve tenant from authenticated user context (or req.tenantId fallback for unit test mocks)
-    // Note: req.user._id fallback is strictly prohibited. A user ID is not an organization ID.
-    const rawTenant = req.user?.tenantId ? String(req.user.tenantId) : (req.tenantId ? String(req.tenantId) : null);
-    if (!rawTenant) {
+    // Resolve tenant strictly from authenticated user context (req.user.tenantId)
+    // Fallbacks to req.user._id or req.tenantId are strictly prohibited.
+    if (!req.user || !req.user.tenantId) {
         return null;
     }
+    const rawTenant = String(req.user.tenantId);
     if (rawTenant !== CANONICAL_ORGANIZATION_ID_STRING) {
         const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Request tenant '${rawTenant}' does not match canonical organization '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
         err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';

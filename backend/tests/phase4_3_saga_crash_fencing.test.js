@@ -135,7 +135,7 @@ describe('Phase 4.3 — Durable Saga Crash-Safety, Compensation Integrity & Inve
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
             }
         );
     }

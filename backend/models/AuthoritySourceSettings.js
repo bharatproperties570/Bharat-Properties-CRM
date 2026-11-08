@@ -37,22 +37,36 @@ const ACCESS_METHODS = [
 const PRIVATE_INTERNAL_WORKFLOW_SECRET = crypto.randomBytes(32).toString('hex');
 export const INTERNAL_WORKFLOW_OPTION = '__internalWorkflowToken';
 
-// In-memory single-use nonce registry to prevent token replay
-const CONSUMED_WORKFLOW_NONCES = new Set();
-setInterval(() => {
-    if (CONSUMED_WORKFLOW_NONCES.size > 10000) {
-        CONSUMED_WORKFLOW_NONCES.clear();
+// Process-local, expiry-aware, bounded nonce registry to prevent token replay
+// Scope: Process-local. Internal workflow capability tokens are non-transferable across worker processes.
+const CONSUMED_WORKFLOW_NONCES = new Map(); // nonce -> expiresAt (number)
+const WORKFLOW_TOKEN_MAX_TTL_MS = 300000; // 5 minutes
+
+export function purgeExpiredNonces() {
+    const now = Date.now();
+    for (const [nonce, expiresAt] of CONSUMED_WORKFLOW_NONCES.entries()) {
+        if (expiresAt <= now) {
+            CONSUMED_WORKFLOW_NONCES.delete(nonce);
+        }
     }
-}, 600000).unref();
+}
+
+// Periodic cleanup every 60 seconds (purges ONLY expired nonces; never unexpired ones)
+setInterval(purgeExpiredNonces, 60000).unref();
+
+export function _getConsumedWorkflowNoncesCount() {
+    return CONSUMED_WORKFLOW_NONCES.size;
+}
 
 export function createAuthorizedInternalWorkflowToken(workflowName, context = {}) {
     const timestamp = Date.now();
     const nonce = crypto.randomBytes(16).toString('hex');
     const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
     const targetId = context.targetId ? String(context.targetId) : (context.authorityCode ? String(context.authorityCode) : '*');
+    const authorityCode = context.authorityCode ? String(context.authorityCode) : (context.targetId ? String(context.targetId) : '*');
     const evidenceVersion = context.evidenceVersion !== undefined ? String(context.evidenceVersion) : '*';
 
-    const payload = `${workflowName}:${tenantId}:${targetId}:${evidenceVersion}:${nonce}:${timestamp}`;
+    const payload = `${workflowName}:${tenantId}:${targetId}:${authorityCode}:${evidenceVersion}:${nonce}:${timestamp}`;
     const hmac = crypto.createHmac('sha256', PRIVATE_INTERNAL_WORKFLOW_SECRET)
         .update(payload)
         .digest('hex');
@@ -60,6 +74,7 @@ export function createAuthorizedInternalWorkflowToken(workflowName, context = {}
         workflowName,
         tenantId,
         targetId,
+        authorityCode,
         evidenceVersion,
         nonce,
         timestamp,
@@ -67,27 +82,64 @@ export function createAuthorizedInternalWorkflowToken(workflowName, context = {}
     };
 }
 
-export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['recordSourceApprover', 'reviewSourceApproval', 'ensureDefaults', 'recordOwnerConfirmation'], expectedContext = {}) {
+export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['recordSourceApprover', 'reviewSourceApproval', 'ensureDefaults', 'recordOwnerConfirmation', 'authorizedReplacement', 'internal_seed'], expectedContext = {}) {
     if (!options || typeof options !== 'object') return false;
     const token = options[INTERNAL_WORKFLOW_OPTION];
     if (!token || typeof token !== 'object') return false;
-    const { workflowName, tenantId, targetId, evidenceVersion, nonce, timestamp, hmac } = token;
+    const { workflowName, tenantId, targetId, authorityCode, evidenceVersion, nonce, timestamp, hmac } = token;
 
     if (!workflowName || !allowedWorkflows.includes(workflowName)) return false;
     if (!tenantId || tenantId !== CANONICAL_ORGANIZATION_ID_STRING) return false;
-    if (expectedContext.tenantId && String(expectedContext.tenantId) !== tenantId) return false;
-    if (expectedContext.targetId && targetId && targetId !== '*' && String(expectedContext.targetId) !== targetId) return false;
-    if (expectedContext.authorityCode && targetId && targetId !== '*' && String(expectedContext.authorityCode) !== targetId) return false;
-    if (expectedContext.evidenceVersion !== undefined && evidenceVersion && evidenceVersion !== '*' && String(expectedContext.evidenceVersion) !== String(evidenceVersion)) return false;
+    if (expectedContext.tenantId && String(expectedContext.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) return false;
+
+    // Rule 1 & 2: Do not accept wildcard targetId or wildcard evidenceVersion for individual approval workflows
+    if (workflowName === 'recordSourceApprover' || workflowName === 'reviewSourceApproval') {
+        if (!targetId || targetId === '*') return false;
+        if (evidenceVersion === undefined || evidenceVersion === '*') return false;
+    }
+
+    // Rule 3 & 4: Compare targetId and authorityCode
+    if (expectedContext.targetId && targetId && targetId !== '*') {
+        const expTarget = String(expectedContext.targetId);
+        const targetMatch = targetId === expTarget ||
+            (expectedContext.authorityCode && targetId === String(expectedContext.authorityCode)) ||
+            (authorityCode && authorityCode === expTarget);
+        if (!targetMatch) return false;
+    }
+    if (expectedContext.authorityCode) {
+        const expAuth = String(expectedContext.authorityCode);
+        const authMatch = targetId === expAuth ||
+            (authorityCode && authorityCode === expAuth) ||
+            (expectedContext.targetId && targetId === String(expectedContext.targetId));
+        if (!authMatch) return false;
+    }
+
+    // Rule 6: Verify exact evidence version
+    if (expectedContext.evidenceVersion !== undefined) {
+        if (evidenceVersion === undefined || evidenceVersion === '*') return false;
+        if (String(expectedContext.evidenceVersion) !== String(evidenceVersion)) return false;
+    }
 
     if (!nonce || typeof nonce !== 'string') return false;
-    if (CONSUMED_WORKFLOW_NONCES.has(nonce)) return false; // Replay detected!
+
+    // Single-use nonce verification: check if already consumed
+    const now = Date.now();
+    if (CONSUMED_WORKFLOW_NONCES.has(nonce)) {
+        const expiresAt = CONSUMED_WORKFLOW_NONCES.get(nonce);
+        if (expiresAt > now) {
+            // If this query options object already verified this exact nonce during this query lifecycle, allow idempotent pass
+            if (options._authorizedTokenVerified === nonce) {
+                return true;
+            }
+            return false; // Replay detected!
+        }
+    }
 
     if (!timestamp || typeof timestamp !== 'number') return false;
-    if (Math.abs(Date.now() - timestamp) > 300000) return false; // 5 min TTL
+    if (Math.abs(now - timestamp) > WORKFLOW_TOKEN_MAX_TTL_MS) return false; // Expired!
 
     try {
-        const payload = `${workflowName}:${tenantId}:${targetId || '*'}:${evidenceVersion !== undefined ? evidenceVersion : '*'}:${nonce}:${timestamp}`;
+        const payload = `${workflowName}:${tenantId}:${targetId || '*'}:${authorityCode || '*'}:${evidenceVersion !== undefined ? evidenceVersion : '*'}:${nonce}:${timestamp}`;
         const expectedHmac = crypto.createHmac('sha256', PRIVATE_INTERNAL_WORKFLOW_SECRET)
             .update(payload)
             .digest('hex');
@@ -96,7 +148,9 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
         if (hmacBuf.length !== expectedBuf.length) return false;
         const isValid = crypto.timingSafeEqual(hmacBuf, expectedBuf);
         if (isValid) {
-            CONSUMED_WORKFLOW_NONCES.add(nonce);
+            // Consume the nonce with its expiration time
+            CONSUMED_WORKFLOW_NONCES.set(nonce, timestamp + WORKFLOW_TOKEN_MAX_TTL_MS);
+            options._authorizedTokenVerified = nonce;
             return true;
         }
         return false;
@@ -549,6 +603,83 @@ function isSafeDeactivationReset(setObj) {
     });
 }
 
+export function validateOrganizationFilter(filter, { isUpsert = false, path = '' } = {}) {
+    if (!filter || typeof filter !== 'object') {
+        if (isUpsert) {
+            const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
+            err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+            throw err;
+        }
+        return;
+    }
+
+    // Check tenantId at current level
+    if ('tenantId' in filter) {
+        const val = filter.tenantId;
+        if (val === null || val === undefined) {
+            const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: tenantId cannot be null or undefined. Must be canonical '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+            err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+            throw err;
+        }
+        if (typeof val === 'object' && !val._bsontype && typeof val.toHexString !== 'function') {
+            if ('$in' in val && Array.isArray(val.$in)) {
+                for (const item of val.$in) {
+                    if (String(item) !== CANONICAL_ORGANIZATION_ID_STRING) {
+                        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Filter $in contains non-canonical organization '${item}'.`);
+                        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+                        throw err;
+                    }
+                }
+            }
+            if ('$eq' in val && String(val.$eq) !== CANONICAL_ORGANIZATION_ID_STRING) {
+                const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Filter $eq specifies non-canonical organization '${val.$eq}'.`);
+                err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+                throw err;
+            }
+            if ('$ne' in val && String(val.$ne) === CANONICAL_ORGANIZATION_ID_STRING) {
+                const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Filter $ne excludes canonical organization.`);
+                err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+                throw err;
+            }
+            if ('$nin' in val && Array.isArray(val.$nin) && val.$nin.some(x => String(x) === CANONICAL_ORGANIZATION_ID_STRING)) {
+                const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Filter $nin excludes canonical organization.`);
+                err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+                throw err;
+            }
+        } else {
+            if (String(val) !== CANONICAL_ORGANIZATION_ID_STRING) {
+                const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Filter tenantId '${val}' does not match canonical organization '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+                err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+                throw err;
+            }
+        }
+    }
+
+    // Recursively validate logical operators: $and, $or, $nor
+    for (const op of ['$and', '$or', '$nor']) {
+        if (op in filter && Array.isArray(filter[op])) {
+            for (const subFilter of filter[op]) {
+                validateOrganizationFilter(subFilter, { isUpsert: false, path: `${path}.${op}` });
+            }
+        }
+    }
+
+    if (isUpsert && !extractCanonicalTenantFromFilter(filter)) {
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
+        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+        throw err;
+    }
+}
+
+export function extractCanonicalTenantFromFilter(filter) {
+    if (!filter || typeof filter !== 'object') return false;
+    if (filter.tenantId && String(filter.tenantId) === CANONICAL_ORGANIZATION_ID_STRING) return true;
+    if (Array.isArray(filter.$and)) {
+        return filter.$and.some(sub => extractCanonicalTenantFromFilter(sub));
+    }
+    return false;
+}
+
 // Prohibit generic replaceOne and findOneAndReplace on AuthoritySourceSettings
 AuthoritySourceSettingsSchema.pre(['replaceOne', 'findOneAndReplace'], function (next) {
     const options = this.getOptions() || {};
@@ -597,10 +728,52 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
 
     // Canonical organization enforcement on query filter
     const queryFilter = this.getQuery() || {};
-    if (queryFilter.tenantId && String(queryFilter.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
-        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Operation targeted at non-canonical organization '${queryFilter.tenantId}' is prohibited.`);
-        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
-        return next(err);
+    try {
+        validateOrganizationFilter(queryFilter, { isUpsert: Boolean(options.upsert) });
+    } catch (filterErr) {
+        return next(filterErr);
+    }
+
+    if (options.upsert) {
+        const candidateInsert = { ...(update.$setOnInsert || {}), ...(update.$set || {}) };
+        for (const k of Object.keys(update)) {
+            if (!k.startsWith('$')) candidateInsert[k] = update[k];
+        }
+        const isAuth = verifyAuthorizedInternalWorkflow(options);
+        const hasProtectedActiveState = Object.keys(candidateInsert).some(k => {
+            if (isProtectedPath(k)) {
+                const v = candidateInsert[k];
+                if (k === 'isEnabled' && v === true) return true;
+                if (k === 'schedulingEnabled' && v === true) return true;
+                if (k === 'reviewStatus' && (v === 'APPROVED' || v === 'REJECTED')) return true;
+                if ((k === 'approvedBy' || k === 'reviewedBy' || k === 'submittedBy' || k === 'makerCheckerAuditLogId') && v) return true;
+                if (k === 'identityRequirements' && typeof v === 'object' && v?.verified === true) return true;
+                if (k === 'identityRequirements.verified' && v === true) return true;
+                if (k === 'permissionStatus' && v === 'GRANTED') return true;
+                if (k === 'approvalReference' && v) return true;
+            }
+            return false;
+        });
+
+        if (!isAuth && hasProtectedActiveState) {
+            const err = new Error('SECURITY_UPSERT_PROHIBITED: Cannot insert active, scheduled, approved, or protected metadata via unauthorized upsert.');
+            err.code = 'SECURITY_UPSERT_PROHIBITED';
+            return next(err);
+        }
+
+        const setOnInsert = update.$setOnInsert || {};
+        const set = update.$set || {};
+        const candidateTenant = setOnInsert.tenantId || set.tenantId || update.tenantId;
+        if (!candidateTenant) {
+            const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the update payload ($setOnInsert).`);
+            err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+            return next(err);
+        }
+        if (String(candidateTenant) !== CANONICAL_ORGANIZATION_ID_STRING) {
+            const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Upsert for non-canonical organization '${candidateTenant}' is prohibited.`);
+            err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+            return next(err);
+        }
     }
 
     // Identity immutability enforcement: tenantId and authorityCode must never be mutated
@@ -679,6 +852,50 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
         }
     }
 
+    const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
+    if (token && typeof token === 'object') {
+        const workflowName = token.workflowName;
+        if (workflowName === 'recordSourceApprover') {
+            const allowedPaths = new Set([
+                'submittedBy', 'approvedBy', 'approvedAt', 'approvalReference',
+                'permissionStatus', 'reviewStatus', 'evidenceVersion', 'approvalExpiryDate',
+                'userReportedEvidence', 'updatedAt', 'isEnabled', 'schedulingEnabled'
+            ]);
+            for (const k of Object.keys(set)) {
+                const root = k.split('.')[0];
+                if (!allowedPaths.has(root)) {
+                    const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'recordSourceApprover' attempted to modify disallowed field '${k}'.`);
+                    err.code = 'SCOPE_VIOLATION_PROHIBITED';
+                    return next(err);
+                }
+                if ((k === 'isEnabled' || k === 'schedulingEnabled') && set[k] === true) {
+                    const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'recordSourceApprover' cannot enable source or scheduling.`);
+                    err.code = 'SCOPE_VIOLATION_PROHIBITED';
+                    return next(err);
+                }
+            }
+        } else if (workflowName === 'reviewSourceApproval') {
+            const allowedPaths = new Set([
+                'reviewedBy', 'reviewedAt', 'permissionStatus', 'reviewStatus',
+                'makerCheckerAuditLogId', 'internalReviewExpiryDate', 'identityRequirements',
+                'userReportedEvidence', 'reviewNotes', 'updatedAt', 'isEnabled', 'schedulingEnabled'
+            ]);
+            for (const k of Object.keys(set)) {
+                const root = k.split('.')[0];
+                if (!allowedPaths.has(root)) {
+                    const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'reviewSourceApproval' attempted to modify disallowed field '${k}'.`);
+                    err.code = 'SCOPE_VIOLATION_PROHIBITED';
+                    return next(err);
+                }
+                if ((k === 'isEnabled' || k === 'schedulingEnabled') && set[k] === true) {
+                    const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'reviewSourceApproval' cannot enable source or scheduling.`);
+                    err.code = 'SCOPE_VIOLATION_PROHIBITED';
+                    return next(err);
+                }
+            }
+        }
+    }
+
     const query = this.getQuery();
     const docs = await this.model.find(query).setOptions(options.session ? { session: options.session } : {});
 
@@ -705,7 +922,8 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                     if ((k === 'approvedBy' || k === 'reviewedBy' || k === 'submittedBy' || k === 'makerCheckerAuditLogId') && v) return true;
                     if (k === 'identityRequirements' && typeof v === 'object' && v?.verified === true) return true;
                     if (k === 'identityRequirements.verified' && v === true) return true;
-                    if (!isAuthorized) return true; // generic upsert cannot write protected fields
+                    if (k === 'permissionStatus' && v === 'GRANTED') return true;
+                    if (k === 'approvalReference' && v) return true;
                 }
                 return false;
             });
@@ -719,6 +937,26 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
     }
 
     for (const doc of docs) {
+        if (token && typeof token === 'object') {
+            if (token.workflowName === 'recordSourceApprover' || token.workflowName === 'reviewSourceApproval') {
+                if (token.targetId && token.targetId !== '*' && String(token.targetId) !== String(doc._id) && token.targetId !== doc.authorityCode) {
+                    const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token targetId '${token.targetId}' does not match document ID '${doc._id}' or authority code '${doc.authorityCode}'.`);
+                    err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+                    return next(err);
+                }
+                if (token.authorityCode && token.authorityCode !== '*' && token.authorityCode !== doc.authorityCode) {
+                    const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
+                    err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+                    return next(err);
+                }
+                if (token.evidenceVersion !== undefined && token.evidenceVersion !== '*' && String(token.evidenceVersion) !== String(doc.evidenceVersion)) {
+                    const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token evidenceVersion '${token.evidenceVersion}' does not match document evidenceVersion '${doc.evidenceVersion}'.`);
+                    err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+                    return next(err);
+                }
+            }
+        }
+
         // Build merged candidate state taking dotted paths into account
         const merged = doc.toObject();
         for (const [k, v] of Object.entries(set)) {
@@ -882,11 +1120,7 @@ AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options =
             const action = op.updateOne || op.updateMany;
             if (action) {
                 const filter = action.filter || {};
-                if (filter.tenantId && String(filter.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
-                    const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Bulk update filter targeting non-canonical organization '${filter.tenantId}' is prohibited.`);
-                    err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
-                    throw err;
-                }
+                validateOrganizationFilter(filter, { isUpsert: Boolean(action.upsert) });
 
                 const u = action.update || {};
                 if (Array.isArray(u)) {
@@ -917,9 +1151,20 @@ AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options =
 
                 // Upsert validation
                 if (action.upsert) {
+                    if (!extractCanonicalTenantFromFilter(filter)) {
+                        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
+                        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+                        throw err;
+                    }
                     const setOnInsert = u.$setOnInsert || {};
-                    const targetTenant = setOnInsert.tenantId || filter.tenantId;
-                    if (targetTenant && String(targetTenant) !== CANONICAL_ORGANIZATION_ID_STRING) {
+                    const set = u.$set || {};
+                    const targetTenant = setOnInsert.tenantId || set.tenantId;
+                    if (!targetTenant) {
+                        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the update payload ($setOnInsert).`);
+                        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+                        throw err;
+                    }
+                    if (String(targetTenant) !== CANONICAL_ORGANIZATION_ID_STRING) {
                         const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Bulk upsert for non-canonical organization '${targetTenant}' is prohibited.`);
                         err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
                         throw err;
@@ -951,6 +1196,13 @@ AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options =
                     const setOnInsert = u.$setOnInsert || {};
                     if (u.$set && Object.keys(u.$set).length > 0) {
                         const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Initialization via bulkWrite cannot contain $set operations.');
+                        err.code = 'DIRECT_BULK_WRITE_PROHIBITED';
+                        throw err;
+                    }
+                    const filterAuth = filter.authorityCode;
+                    const setAuth = setOnInsert.authorityCode;
+                    if (!filterAuth || !AUTHORITY_CODES.includes(filterAuth) || !setAuth || !AUTHORITY_CODES.includes(setAuth)) {
+                        const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Bulk initialization is only permitted for canonical authorities (HSVP, GMADA, CHD).');
                         err.code = 'DIRECT_BULK_WRITE_PROHIBITED';
                         throw err;
                     }
@@ -1276,15 +1528,28 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
             }
         };
     });
-    return this.bulkWrite(ops, { [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('ensureDefaults', { tenantId: effectiveTenantId }) });
+    return this.bulkWrite(ops, {
+        [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('ensureDefaults', {
+            tenantId: effectiveTenantId,
+            targetId: 'ENSURE_DEFAULTS_ALL',
+            authorityCode: 'HSVP,GMADA,CHD',
+            evidenceVersion: 0
+        })
+    });
 };
 
 /**
  * Records or updates explicit owner confirmation in userReportedEvidence.
  */
 AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (tenantId, authorityCode, details = {}) {
+    if (tenantId && String(tenantId) !== String(CANONICAL_ORGANIZATION_ID)) {
+        const err = new Error('ORGANIZATION_OVERRIDE_PROHIBITED');
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
+    }
+    const effectiveTenantId = CANONICAL_ORGANIZATION_ID;
     return this.findOneAndUpdate(
-        { tenantId, authorityCode },
+        { tenantId: effectiveTenantId, authorityCode },
         {
             $set: {
                 'userReportedEvidence.reportedBy': details.reportedBy || 'Bharat Properties Owner',
@@ -1292,9 +1557,22 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
                 'userReportedEvidence.claimedAuthorityRole': details.claimedAuthorityRole || 'Authorized Broker',
                 'userReportedEvidence.notes': details.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
                 'userReportedEvidence.verificationStatus': details.verificationStatus || 'PENDING_WRITTEN_REFERENCE'
+            },
+            $setOnInsert: {
+                tenantId: effectiveTenantId,
+                authorityCode
             }
         },
-        { new: true, upsert: true, [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordOwnerConfirmation') }
+        {
+            new: true,
+            upsert: true,
+            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
+                tenantId: effectiveTenantId,
+                authorityCode,
+                targetId: authorityCode,
+                evidenceVersion: 0
+            })
+        }
     );
 };
 

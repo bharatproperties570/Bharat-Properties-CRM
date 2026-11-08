@@ -290,12 +290,16 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                         permittedFields: ['propertyId', 'sectorNumber', 'propertySize'],
                         lastRunAt: new Date(Date.now() - 100000),
                         lastRunStatus: null
+                    },
+                    $setOnInsert: {
+                        tenantId: tenantA,
+                        authorityCode: 'HSVP'
                     }
                 },
                 {
                     new: true,
                     upsert: true,
-                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
                 }
             );
         });
@@ -695,12 +699,16 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                         ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
                         identityRequirements: { verified: true },
                         permittedFields: ['propertyId', 'sectorNumber', 'propertySize']
+                    },
+                    $setOnInsert: {
+                        tenantId: tenantA,
+                        authorityCode: 'HSVP'
                     }
                 },
                 {
                     new: true,
                     upsert: true,
-                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
                 }
             );
 

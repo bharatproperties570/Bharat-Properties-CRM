@@ -183,7 +183,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
             }
         );
     }
@@ -204,7 +204,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
             }
         );
     }
