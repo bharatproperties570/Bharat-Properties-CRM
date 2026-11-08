@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { socialAPI, marketingAPI, googleSettingsAPI, api } from '../utils/api';
 import toast from 'react-hot-toast';
-import { brandifyPropertyImage, BRAND_COLORS } from '../utils/brandCanvasEngine';
+import { brandifyPropertyImage, BRAND_COLORS, isAuthoritativelyVerified } from '../utils/brandCanvasEngine';
 
 /**
  * SocialPostModal - Enterprise Promote Studio
@@ -268,11 +268,7 @@ const SocialPostModal = ({
           ? String(initialData.locationSearch).trim()
           : 'Kurukshetra, Haryana';
 
-      const isVerified = Boolean(
-        initialData?.isVerified || 
-        initialData?.titleVerified || 
-        initialData?.authorityVerification?.status === 'VERIFIED'
-      );
+      const isVerified = isAuthoritativelyVerified(initialData);
 
       const propData = {
         title: initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity',
@@ -280,7 +276,12 @@ const SocialPostModal = ({
         price: initialData?.price || 'Price on Request',
         format: format === 'story' || format === 'reel' ? '9:16' : '1:1',
         isVerified,
-        badgeText: isVerified ? '🛡️ VERIFIED PROPERTY' : '✨ FEATURED PROPERTY'
+        badgeText: isVerified ? '🛡️ VERIFIED PROPERTY' : '✨ FEATURED PROPERTY',
+        authorityVerification: initialData?.authorityVerification,
+        inventory: initialData?.inventory,
+        approvals: initialData?.approvals,
+        reraNumber: initialData?.reraNumber,
+        reraStatus: initialData?.reraStatus,
       };
 
       const result = await brandifyPropertyImage(targetImg, propData);

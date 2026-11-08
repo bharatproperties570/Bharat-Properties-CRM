@@ -3,6 +3,11 @@ import unifiedAIService from './UnifiedAIService.js';
 import AIGovernance from './ai/AIGovernance.js';
 import AiAgent from '../models/AiAgent.js';
 import Deal from '../models/Deal.js';
+import {
+    extractVerificationFacts,
+    generateCompliantFallback,
+    validateAndSanitizeCopy
+} from '../utils/propertyComplianceValidator.js';
 // Assuming CampaignEngine or a worker queue is available
 // import CampaignEngine from './CampaignEngine.js'; 
 
@@ -34,40 +39,36 @@ class MarketingService {
         const regionalPhone = isMohali ? '+91 99910 00570' : '+91 99913 33570';
         const website = 'www.bharatproperties.co';
 
-        // Verification & Compliance Validation from Property Records
-        const isReraApproved = Boolean(deal.reraId || deal.isReraApproved || deal.reraNumber || deal.project?.reraId || deal.reraStatus === 'APPROVED');
-        const isTitleVerified = Boolean(deal.isVerified || deal.authorityVerification?.status === 'VERIFIED' || deal.titleVerified || deal.isTitleVerified);
-        const verificationClaim = isTitleVerified ? 'Verified Title' : 'Clear Documentation';
-        const reraClaim = isReraApproved ? ' & RERA Compliant' : '';
-        const docBadge = isTitleVerified ? '🛡️ 100% Verified Title & Clear Registry' : '📜 Documented Property & Clear Registry';
+        // Authoritative Verification & Evidence Extraction
+        const facts = extractVerificationFacts(deal);
 
         let platformFocus = '';
         if (platform === 'linkedin') {
-            platformFocus = 'Professional, investment-focused, and industry-oriented. Emphasize capital appreciation and legal verification.';
+            platformFocus = 'Professional, commercial-focused, and industry-oriented. Emphasize location connectivity and asset specifications.';
         } else if (platform === 'youtube') {
             platformFocus = 'Engagement-heavy. Generate a catchy video Title, Description, and a 30-second Short Script.';
         } else if (platform === 'x' || platform === 'twitter') {
-            platformFocus = 'Short, punchy, highly engaging, strictly under 280 characters, use 2-3 trending hashtags.';
+            platformFocus = 'Short, punchy, strictly under 280 characters, use 2-3 trending hashtags.';
         } else if (platform === 'google_business' || platform === 'business' || platform === 'google business') {
-            platformFocus = 'Local SEO focused. Highlight location advantages, landmarks, and immediate site visit availability.';
+            platformFocus = 'Local SEO focused. Highlight location advantages, landmarks, and site visit availability by appointment.';
         } else if (platform === 'instagram') {
             platformFocus = format === 'story' || format === 'reel' 
                 ? 'High-energy Story/Reel script with visual cue, hook line, and tap-link CTA.'
-                : 'Aesthetic visual caption with luxury emojis, clean bullet points, and high-converting real estate hashtags.';
+                : 'Aesthetic visual caption with property emojis, clean bullet points, and real estate hashtags.';
         } else {
-            platformFocus = 'Persuasive social feed post with strong headline, key specs, verified badges, and direct call to action.';
+            platformFocus = 'Persuasive social feed post with strong headline, key specs, and direct call to action.';
         }
 
         let toneStrategy = '';
         if (tone === 'luxury') {
             toneStrategy = 'LUXURY & LIFESTYLE: Aspirational, tranquil, modern architecture, premium fixtures, lush surroundings, Vastu compliance. Use elegant English with subtle luxury emojis.';
         } else if (tone === 'investor') {
-            toneStrategy = 'INVESTOR ROI & CAPITAL GROWTH: Focus on high rental yield, rapid infrastructure growth, registry title guarantee, and prime connectivity. Factual, professional tone.';
+            toneStrategy = 'STRATEGIC PROPERTY ASSET: Focus on location development, infrastructure connectivity, and factual commercial/residential specs. Professional, strictly factual tone.';
         } else if (tone === 'short_hook') {
-            toneStrategy = 'SHORT HOOK: Strictly under 240 characters. Ultra-fast scroll-stopping hook sentence, property price/type, and call-to-action.';
+            toneStrategy = 'SHORT HOOK: Strictly under 240 characters. Fast scroll-stopping hook sentence, property price/type, and call-to-action.';
         } else {
             // Default: Urgent Deal (Hinglish)
-            toneStrategy = 'URGENT DEAL (HINGLISH): High FOMO and urgency! Combine natural conversational Hindi + English. Hook the buyer with scarcity ("Limited Units Left", "Ready for Possession", "Instant Site Visit Booking").';
+            toneStrategy = 'URGENT DEAL (HINGLISH): High responsiveness and prime opportunity! Combine natural conversational Hindi + English. Hook the buyer with location connectivity and site visit booking.';
         }
 
         let provider = undefined;
@@ -81,6 +82,19 @@ class MarketingService {
                 }
             }
         } catch(e) {}
+
+        // Construct Regulatory-Compliant Guidelines based on verified facts
+        const titleGuideline = facts.isTitleVerified
+            ? `- Title Status: Verified by ${facts.authorityCode || 'statutory authority'}.`
+            : `- Title Status: UNVERIFIED. DO NOT claim verified title, clear title, clear registry, clear documentation, or title guarantees. State: "Documentation status can be checked during due diligence."`;
+
+        const reraGuideline = facts.isReraApproved
+            ? `- RERA Status: Approved registration number ${facts.reraNumber || 'Verified'}.`
+            : `- RERA Status: UNVERIFIED / NOT APPROVED. DO NOT claim RERA compliance or RERA approval.`;
+
+        const possessionGuideline = facts.isReadyPossession
+            ? `- Possession: Ready possession.`
+            : `- Possession: DO NOT claim ready possession. State that possession timeline details are available on request.`;
 
         const prompt = `
             ${personaPrompt}
@@ -101,28 +115,24 @@ class MarketingService {
             PLATFORM STRATEGY:
             ${platformFocus}
             
-            GUIDELINES:
-            - Highlight: Verified Title, Prime Location, Clear Documentation.
+            STRICT REGULATORY & COMPLIANCE GUIDELINES:
+            ${titleGuideline}
+            ${reraGuideline}
+            ${possessionGuideline}
+            - NEVER claim guaranteed returns, high yields, proven appreciation, or risk-free investment.
             - Include 3-5 high-performing hashtags (e.g. #BharatProperties #KurukshetraRealEstate).
             - Format: Plain text only with appropriate formatting emojis.
             - End with: "📞 Site Visit: ${regionalPhone} | 🌐 ${website}"
         `;
 
         try {
-            return await unifiedAIService.generate(prompt, { provider, capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION });
+            const rawContent = await unifiedAIService.generate(prompt, { provider, capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION });
+            // Post-generation deterministic compliance validation
+            return validateAndSanitizeCopy(rawContent, facts, { deal, platform, tone, format });
         } catch (aiErr) {
             console.warn('[MarketingService] AI generation failed, using tailored enterprise fallback:', aiErr.message);
-            
-            // Enterprise Resilient Fallbacks based on Tone
-            if (tone === 'luxury') {
-                return `💎 EXCLUSIVE LUXURY LIVING | ${projectName}\n\nIndulge in refined architecture and serene living at ${location}. Designed for those who value timeless quality and premier lifestyle amenities.\n\n✨ Unit: ${unitNo} ${unitType} (${size})\n💰 Investment: ${price}\n📜 ${verificationClaim}${reraClaim}\n\nPrivate viewings available on prior appointment:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #LuxuryHomes #PrimeRealEstate #Kurukshetra`;
-            } else if (tone === 'investor') {
-                return `📈 HIGH-YIELD INVESTMENT OPPORTUNITY | ${projectName}\n\nPrime commercial/residential asset positioned in the high-growth corridor of ${location}. Proven capital appreciation and strong rental yield potential.\n\n🔑 Property: ${unitNo} ${unitType} (${size})\n💵 Price: ${price}\n${docBadge}${reraClaim}\n\nRequest financial breakdown & advisory:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #RealEstateInvestment #CapitalGrowth #CommercialProperty`;
-            } else if (tone === 'short_hook') {
-                return `🚨 Prime Deal Alert in ${location}! ${unitNo} at just ${price}. ${verificationClaim}. Call ${regionalPhone} to book site visit now! 🌐 ${website} #BharatProperties`;
-            } else {
-                return `🔥 URGENT DEAL ALERT: ${unitNo} ${unitType} at ${projectName}!\n\nKurukshetra ke prime location ${location} par ready possession opportunity! ${verificationClaim}${reraClaim}, aur prime connectivity.\n\n📍 Location: ${location}\n📐 Area: ${size}\n💰 Price: ${price}\n\nLimited units available — aaj hi site visit book karein!\n📞 Call/WhatsApp: ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #Kurukshetra #HotProperty #RealEstateDeals`;
-            }
+            // Deterministic compliant fallback with exact evidence-backed claims
+            return generateCompliantFallback(deal, platform, { tone, format }, facts);
         }
     }
 
