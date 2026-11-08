@@ -205,7 +205,7 @@ export async function runLiveAuthoritySmokeTest() {
             };
             console.log(' Existing temporary test database attached. Classification: TEMPORARY_TEST_DATABASE (BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE).');
         } else {
-            console.log(' Notice: STAGING_MONGODB_URI or NONPROD_MONGODB_URI not provided.');
+            console.log(' Notice: Operating under single permanent Production database architecture.');
             console.log(' Initializing temporary test database for fail-closed operational verification...');
             temporaryDbPath = path.resolve(os.tmpdir(), `bharat_crm_temp_test_db_${Date.now()}`);
             fs.mkdirSync(temporaryDbPath, { recursive: true });
@@ -615,7 +615,7 @@ export async function runLiveAuthoritySmokeTest() {
             testResults.persistenceSurvival = {
                 status: 'BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE',
                 stepsExecuted: 0,
-                reason: 'Durable non-production MongoDB URI (STAGING_MONGODB_URI / NONPROD_MONGODB_URI) is required for persistent staging survival acceptance. Temporary test database used.'
+                reason: 'CRM operates on single permanent Production database architecture; automated smoke test executes safely against isolated test database.'
             };
             console.log(' Persistence survival: BLOCKED_PERSISTENT_NON_PRODUCTION_DATABASE_UNAVAILABLE (Honest reporting).');
         }
