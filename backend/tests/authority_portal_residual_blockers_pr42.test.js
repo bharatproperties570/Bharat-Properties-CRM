@@ -818,11 +818,19 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         });
 
         await reviewSourceApproval(req, res);
-        // Should be rejected because identityRequirements.verified is NOT auto-set to true,
-        // and checkActivationEligibility requires verified identity!
-        assert.equal(res.getStatusCode(), 422);
-        assert.equal(res.getData().code, 'APPROVAL_CRITERIA_UNMET');
-        assert.ok(res.getData().blockers.some(b => {
+        // Under Phase 4.5-D PR #58, internal review is separated from external activation:
+        // Internal review succeeds (HTTP 200, reviewStatus: APPROVED), but identityRequirements.verified
+        // is NOT auto-asserted (remains false), and external activation checkActivationEligibility() fails closed.
+        assert.equal(res.getStatusCode(), 200);
+        const updatedSetting = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
+        assert.equal(updatedSetting.reviewStatus, 'APPROVED');
+        assert.equal(updatedSetting.identityRequirements.verified, false, 'Identity requirements must NOT be auto-asserted to true on review approval');
+        assert.equal(updatedSetting.isEnabled, false);
+        assert.equal(updatedSetting.schedulingEnabled, false);
+        assert.equal(updatedSetting.isEffectivelyActive(), false);
+        const check = updatedSetting.checkActivationEligibility();
+        assert.equal(check.canActivate, false);
+        assert.ok(check.blockers.some(b => {
             const msg = typeof b === 'string' ? b : (b.message || b.code || '');
             return msg.includes('identity requirements are not verified') || b.code === 'IDENTITY_NOT_VERIFIED';
         }));
@@ -2384,7 +2392,8 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 authorityCode,
                 submittedBy: submitterUser._id,
                 approvedBy: approverUser._id,
-                reviewedBy: reviewerUser._id
+                reviewedBy: reviewerUser._id,
+                evidenceVersion: gmadaSetting.evidenceVersion
             }
         });
 

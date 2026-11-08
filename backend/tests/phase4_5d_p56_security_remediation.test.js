@@ -469,7 +469,8 @@ test('Evidence 8: External approvalReference is non-ObjectId text -> Accept as e
             authorityCode: 'HSVP',
             approverId: approverUser._id,
             reviewerId: reviewerUser._id,
-            submittedBy: submitterUser._id
+            submittedBy: submitterUser._id,
+            evidenceVersion: setting.evidenceVersion
         }
     });
 
@@ -739,7 +740,8 @@ test('State 13: Internal approval while external contract/terms pending -> revie
             authorityCode: 'GMADA',
             approverId: approverUser._id,
             reviewerId: reviewerUser._id,
-            submittedBy: submitterUser._id
+            submittedBy: submitterUser._id,
+            evidenceVersion: setting.evidenceVersion
         },
         description: 'Authentic maker-checker approval'
     });
@@ -780,7 +782,8 @@ test('State 14: Internal approval attempt -> isEnabled=false and schedulingEnabl
             authorityCode: 'CHD',
             approverId: approverUser._id,
             reviewerId: reviewerUser._id,
-            submittedBy: submitterUser._id
+            submittedBy: submitterUser._id,
+            evidenceVersion: setting.evidenceVersion
         },
         description: 'Authentic maker-checker approval'
     });

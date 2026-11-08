@@ -8,7 +8,7 @@
 
 import mongoose from 'mongoose';
 import crypto from 'crypto';
-import AuthoritySourceSettings, { checkActivationEligibility } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { checkActivationEligibility, checkInternalMakerCheckerReviewEligibility } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem, {
@@ -18,9 +18,10 @@ import PropertyVerificationRunItem, {
 } from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import Inventory from '../models/Inventory.js';
-import AuditLog from '../models/AuditLog.js';
+import AuditLog, { maskScalarPII } from '../models/AuditLog.js';
 import User from '../models/User.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
+import { isProductionEnvironment } from '../services/authority/databaseEnvironmentSafety.js';
 import {
     registerOrRotateCanonicalPolicy,
     getCanonicalPolicy,
@@ -522,40 +523,143 @@ export const recordSourceApprover = async (req, res) => {
             });
         }
 
-        setting.approvedBy = req.user._id;
-        setting.approvedAt = new Date();
-        setting.reviewStatus = 'UNDER_REVIEW';
-        setting.isEnabled = false;
-        setting.schedulingEnabled = false;
+        const { expectedEvidenceVersion, notes } = req.body || {};
 
-        await setting.save();
+        if (expectedEvidenceVersion === undefined || expectedEvidenceVersion === null) {
+            if (process.env.AUTHORITY_REQUIRE_APPROVER_EVIDENCE_VERSION === 'true') {
+                return res.status(422).json({
+                    success: false,
+                    code: 'EVIDENCE_VERSION_REQUIRED',
+                    message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
+                });
+            }
+        } else {
+            if (!Number.isInteger(Number(expectedEvidenceVersion)) || Number(expectedEvidenceVersion) < 1) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'EVIDENCE_VERSION_REQUIRED',
+                    message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
+                });
+            }
 
-        await auditEvent(
-            'authority_source_approval_recorded',
-            req.user._id,
-            'authority_settings',
-            setting._id,
-            `Authority source authorization approval recorded for ${authorityCode} (v${setting.evidenceVersion})`,
-            {
-                tenantId,
-                authorityCode,
-                targetName: authorityCode,
-                submittedBy: setting.submittedBy,
-                approvedBy: req.user._id,
-                approverId: req.user._id,
-                evidenceVersion: setting.evidenceVersion,
-                notes: req.body?.notes || null
-            },
-            { actorId: req.user._id }
-        );
+            const expectedVerInput = Number(expectedEvidenceVersion);
+            if (expectedVerInput !== Number(setting.evidenceVersion)) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'STALE_EVIDENCE_VERSION',
+                    message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
+                });
+            }
+        }
+
+        const expectedVer = (expectedEvidenceVersion !== undefined && expectedEvidenceVersion !== null)
+            ? Number(expectedEvidenceVersion)
+            : Number(setting.evidenceVersion);
+
+        const topologyType = mongoose.connection?.client?.topology?.description?.type;
+        const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+
+        if (!supportsTransactions && (isProductionEnvironment() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
+            return res.status(500).json({
+                success: false,
+                code: 'TRANSACTIONS_UNAVAILABLE',
+                message: 'Database transactions are unavailable; atomic approver recording requires active transaction support.'
+            });
+        }
+
+        const sanitizedNotes = notes ? maskScalarPII(String(notes)) : null;
+
+        let session = null;
+        if (supportsTransactions) {
+            try {
+                session = await mongoose.startSession();
+            } catch (txErr) {
+                return res.status(500).json({
+                    success: false,
+                    code: 'TRANSACTIONS_UNAVAILABLE',
+                    message: 'Database transactions are unavailable; atomic approver recording requires active transaction support.'
+                });
+            }
+        }
+
+        let updatedSetting = null;
+        try {
+            const executeApprover = async (activeSession) => {
+                updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                    {
+                        _id: setting._id,
+                        tenantId,
+                        permissionStatus: 'PENDING_REVIEW',
+                        reviewStatus: 'UNDER_REVIEW',
+                        evidenceVersion: expectedVer
+                    },
+                    {
+                        $set: {
+                            approvedBy: req.user._id,
+                            approvedAt: new Date(),
+                            reviewStatus: 'UNDER_REVIEW',
+                            isEnabled: false,
+                            schedulingEnabled: false
+                        }
+                    },
+                    { new: true, ...(activeSession ? { session: activeSession } : {}) }
+                );
+
+                if (!updatedSetting) {
+                    const conflictErr = new Error('CONCURRENT_APPROVAL_CONFLICT');
+                    conflictErr.code = 'CONCURRENT_APPROVAL_CONFLICT';
+                    throw conflictErr;
+                }
+
+                await auditEvent(
+                    'authority_source_approval_recorded',
+                    req.user._id,
+                    'authority_settings',
+                    updatedSetting._id,
+                    `Authority source authorization approval recorded for ${authorityCode} (v${updatedSetting.evidenceVersion})`,
+                    {
+                        tenantId,
+                        authorityCode,
+                        targetName: authorityCode,
+                        submittedBy: updatedSetting.submittedBy,
+                        approvedBy: req.user._id,
+                        approverId: req.user._id,
+                        evidenceVersion: updatedSetting.evidenceVersion,
+                        notes: sanitizedNotes
+                    },
+                    { actorId: req.user._id, session: activeSession }
+                );
+            };
+
+            if (session) {
+                await session.withTransaction(async () => {
+                    await executeApprover(session);
+                });
+            } else {
+                await executeApprover(null);
+            }
+        } catch (innerErr) {
+            if (innerErr.code === 'CONCURRENT_APPROVAL_CONFLICT') {
+                return res.status(409).json({
+                    success: false,
+                    code: 'CONCURRENT_APPROVAL_CONFLICT',
+                    message: 'Source settings were modified by another transaction or already approved.'
+                });
+            }
+            throw innerErr;
+        } finally {
+            if (session) {
+                await session.endSession().catch(() => {});
+            }
+        }
 
         res.json({
             success: true,
-            message: `Authority authorization approval recorded for ${authorityCode} (v${setting.evidenceVersion}). Awaiting final independent review.`,
+            message: `Authority authorization approval recorded for ${authorityCode} (v${updatedSetting.evidenceVersion}). Awaiting final independent review.`,
             data: {
-                ...setting.toObject(),
-                activationCheck: setting.checkActivationEligibility(),
-                effectivelyActive: setting.isEffectivelyActive()
+                ...updatedSetting.toObject(),
+                activationCheck: updatedSetting.checkActivationEligibility(),
+                effectivelyActive: updatedSetting.isEffectivelyActive()
             }
         });
     } catch (error) {
@@ -698,12 +802,12 @@ export const reviewSourceApproval = async (req, res) => {
                 }
             };
 
-            const check = checkActivationEligibility(candidate);
-            if (!check.canActivate) {
+            const check = checkInternalMakerCheckerReviewEligibility(candidate);
+            if (!check.canApprove) {
                 return res.status(422).json({
                     success: false,
                     code: 'APPROVAL_CRITERIA_UNMET',
-                    message: 'Cannot approve authorization: approval criteria unmet',
+                    message: 'Cannot approve authorization: internal review approval criteria unmet',
                     blockers: check.blockers
                 });
             }
@@ -712,13 +816,15 @@ export const reviewSourceApproval = async (req, res) => {
             const topologyType = mongoose.connection?.client?.topology?.description?.type;
             const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
-            if (!supportsTransactions && (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true' || process.env.NODE_ENV === 'production' || process.env.STAGING_MONGODB_URI)) {
+            if (!supportsTransactions && (isProductionEnvironment() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
                 return res.status(500).json({
                     success: false,
                     code: 'TRANSACTIONS_UNAVAILABLE',
                     message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
                 });
             }
+
+            const sanitizedNotes = notes ? maskScalarPII(String(notes)) : null;
 
             let session = null;
             if (supportsTransactions) {
@@ -753,9 +859,9 @@ export const reviewSourceApproval = async (req, res) => {
                             reviewedBy: req.user._id,
                             reviewerId: req.user._id,
                             evidenceVersion: expectedVer,
-                            identityVerified: true,
+                            identityVerified: updateIdentityVerified,
                             identityContractAttestation: attestationData,
-                            notes: notes || null
+                            notes: sanitizedNotes
                         },
                         `Authority source authorization APPROVED for ${authorityCode}`,
                         {
@@ -772,9 +878,9 @@ export const reviewSourceApproval = async (req, res) => {
                                 reviewedBy: req.user._id,
                                 reviewerId: req.user._id,
                                 evidenceVersion: expectedVer,
-                                identityVerified: true,
+                                identityVerified: updateIdentityVerified,
                                 identityContractAttestation: attestationData,
-                                notes: notes || null
+                                notes: sanitizedNotes
                             }
                         }
                     );
@@ -795,7 +901,7 @@ export const reviewSourceApproval = async (req, res) => {
                                 reviewedAt: new Date(),
                                 makerCheckerAuditLogId: auditEntry._id,
                                 internalReviewExpiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                                'identityRequirements.verified': true,
+                                'identityRequirements.verified': updateIdentityVerified,
                                 'identityRequirements.attestation': attestationData
                             }
                         },
@@ -817,6 +923,7 @@ export const reviewSourceApproval = async (req, res) => {
                         authorityCode,
                         tenantId,
                         settingsId: updatedSetting._id,
+                        evidenceVersion: expectedVer,
                         ...(activeSession ? { session: activeSession } : {})
                     });
 
@@ -874,54 +981,104 @@ export const reviewSourceApproval = async (req, res) => {
             });
         } else {
             // REJECTED: atomic update with expectedEvidenceVersion guard
-            const updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
-                {
-                    _id: setting._id,
-                    tenantId,
-                    permissionStatus: 'PENDING_REVIEW',
-                    reviewStatus: 'UNDER_REVIEW',
-                    evidenceVersion: expectedVer
-                },
-                {
-                    $set: {
-                        permissionStatus: 'NOT_OBTAINED',
-                        reviewStatus: 'REJECTED',
-                        reviewedBy: req.user._id,
-                        reviewedAt: new Date(),
-                        reviewNotes: notes || 'Rejected by independent reviewer',
-                        isEnabled: false,
-                        schedulingEnabled: false
-                    }
-                },
-                { new: true }
-            );
+            const topologyType = mongoose.connection?.client?.topology?.description?.type;
+            const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
-            if (!updatedSetting) {
-                return res.status(409).json({
+            if (!supportsTransactions && (isProductionEnvironment() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
+                return res.status(500).json({
                     success: false,
-                    code: 'CONCURRENT_REVIEW_CONFLICT',
-                    message: 'Source settings were modified by another transaction or already reviewed.'
+                    code: 'TRANSACTIONS_UNAVAILABLE',
+                    message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
                 });
             }
 
-            await auditEvent(
-                'authority_source_approval_reviewed',
-                req.user._id,
-                'authority_settings',
-                updatedSetting._id,
-                `Authority source authorization REJECTED for ${authorityCode}`,
-                {
-                    tenantId,
-                    authorityCode,
-                    targetName: authorityCode,
-                    decision: 'REJECTED',
-                    reviewedBy: req.user._id,
-                    reviewerId: req.user._id,
-                    evidenceVersion: setting.evidenceVersion,
-                    notes: notes || null
-                },
-                { actorId: req.user._id }
-            );
+            const sanitizedNotes = notes ? maskScalarPII(String(notes)) : null;
+
+            let session = null;
+            if (supportsTransactions) {
+                try {
+                    session = await mongoose.startSession();
+                } catch (txErr) {
+                    return res.status(500).json({
+                        success: false,
+                        code: 'TRANSACTIONS_UNAVAILABLE',
+                        message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
+                    });
+                }
+            }
+
+            let updatedSetting = null;
+            try {
+                const executeReject = async (activeSession) => {
+                    updatedSetting = await AuthoritySourceSettings.findOneAndUpdate(
+                        {
+                            _id: setting._id,
+                            tenantId,
+                            permissionStatus: 'PENDING_REVIEW',
+                            reviewStatus: 'UNDER_REVIEW',
+                            evidenceVersion: expectedVer
+                        },
+                        {
+                            $set: {
+                                permissionStatus: 'NOT_OBTAINED',
+                                reviewStatus: 'REJECTED',
+                                reviewedBy: req.user._id,
+                                reviewedAt: new Date(),
+                                reviewNotes: sanitizedNotes || 'Rejected by independent reviewer',
+                                isEnabled: false,
+                                schedulingEnabled: false
+                            }
+                        },
+                        { new: true, ...(activeSession ? { session: activeSession } : {}) }
+                    );
+
+                    if (!updatedSetting) {
+                        const conflictErr = new Error('CONCURRENT_REVIEW_CONFLICT');
+                        conflictErr.code = 'CONCURRENT_REVIEW_CONFLICT';
+                        throw conflictErr;
+                    }
+
+                    await auditEvent(
+                        'authority_source_approval_reviewed',
+                        req.user._id,
+                        'authority_settings',
+                        updatedSetting._id,
+                        `Authority source authorization REJECTED for ${authorityCode}`,
+                        {
+                            tenantId,
+                            authorityCode,
+                            targetName: authorityCode,
+                            decision: 'REJECTED',
+                            reviewedBy: req.user._id,
+                            reviewerId: req.user._id,
+                            evidenceVersion: expectedVer,
+                            notes: sanitizedNotes
+                        },
+                        { actorId: req.user._id, session: activeSession }
+                    );
+                };
+
+                if (session) {
+                    await session.withTransaction(async () => {
+                        await executeReject(session);
+                    });
+                } else {
+                    await executeReject(null);
+                }
+            } catch (innerErr) {
+                if (innerErr.code === 'CONCURRENT_REVIEW_CONFLICT') {
+                    return res.status(409).json({
+                        success: false,
+                        code: 'CONCURRENT_REVIEW_CONFLICT',
+                        message: 'Source settings were modified by another transaction or already reviewed.'
+                    });
+                }
+                throw innerErr;
+            } finally {
+                if (session) {
+                    await session.endSession().catch(() => {});
+                }
+            }
 
             return res.json({
                 success: true,

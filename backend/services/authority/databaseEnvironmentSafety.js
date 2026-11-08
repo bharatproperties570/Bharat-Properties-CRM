@@ -92,6 +92,44 @@ export function classifyEnvironment(envValue) {
 }
 
 /**
+ * Checks whether any recognized environment indicator identifies a production environment.
+ * @returns {boolean}
+ */
+export function isProductionEnvironment() {
+    const recognizedEnvs = [
+        process.env.NODE_ENV,
+        process.env.APP_ENV,
+        process.env.APPLICATION_ENV,
+        process.env.ENVIRONMENT,
+        process.env.STAGE
+    ];
+    for (const val of recognizedEnvs) {
+        if (classifyEnvironment(val) === 'PRODUCTION') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Returns environment decision matrix for standard environment labels.
+ * Explains policy, transaction requirements, and live execution boundaries.
+ */
+export function getEnvironmentDecisionMatrix() {
+    return [
+        { label: 'production', classification: 'PRODUCTION', requiresTransactions: true, writesAllowed: false, stagingDbRequired: false },
+        { label: 'prod', classification: 'PRODUCTION', requiresTransactions: true, writesAllowed: false, stagingDbRequired: false },
+        { label: 'live', classification: 'PRODUCTION', requiresTransactions: true, writesAllowed: false, stagingDbRequired: false },
+        { label: 'development', classification: 'NON_PRODUCTION', requiresTransactions: false, writesAllowed: false, stagingDbRequired: false },
+        { label: 'dev', classification: 'NON_PRODUCTION', requiresTransactions: false, writesAllowed: false, stagingDbRequired: false },
+        { label: 'test', classification: 'NON_PRODUCTION', requiresTransactions: false, writesAllowed: false, stagingDbRequired: false },
+        { label: 'testing', classification: 'NON_PRODUCTION', requiresTransactions: false, writesAllowed: false, stagingDbRequired: false },
+        { label: 'staging', classification: 'NON_PRODUCTION', requiresTransactions: false, writesAllowed: false, stagingDbRequired: false },
+        { label: 'nonprod', classification: 'NON_PRODUCTION', requiresTransactions: false, writesAllowed: false, stagingDbRequired: false }
+    ];
+}
+
+/**
  * Redacts credentials and sensitive secrets from a MongoDB URI string.
  * Never throws; returns safely redacted string. Handles username-only,
  * special characters, URL-encoded credentials, and mixed-case query parameters.
@@ -403,7 +441,8 @@ export function compareConnectionIdentities(activeIdentity, targetDetails, optio
  * @returns {{ verified: boolean, status: string, code: string, environment: string, reason: string|null, redactedUri: string, host: string, dbName: string }}
  */
 export function verifyDatabaseEnvironmentSafety(options = {}) {
-    const rawUri = options.uri || process.env.STAGING_MONGODB_URI || process.env.NONPROD_MONGODB_URI || '';
+    // Single permanent production database architecture: no staging URI is required
+    const rawUri = options.uri || '';
     const redacted = redactMongoUri(rawUri);
 
     // 1. Comprehensive environment variable validation using normalized classification
