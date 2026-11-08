@@ -38,8 +38,19 @@ export class AuthorityRefreshScheduler {
         // Require canonical single-organization context
         const rawOrgId = options.organizationId !== undefined
             ? options.organizationId
-            : (options.tenantId !== undefined ? options.tenantId : (options.useCanonicalDefault !== false ? CANONICAL_ORGANIZATION_ID : null));
-        this.organizationId = rawOrgId ? (rawOrgId instanceof mongoose.Types.ObjectId ? rawOrgId : new mongoose.Types.ObjectId(rawOrgId)) : null;
+            : (options.tenantId !== undefined ? options.tenantId : CANONICAL_ORGANIZATION_ID);
+
+        if (rawOrgId && String(rawOrgId) !== String(CANONICAL_ORGANIZATION_ID)) {
+            const err = new Error(`BLOCKED_CANONICAL_ORGANIZATION_MISMATCH: AuthorityRefreshScheduler rejected non-canonical organization ID '${rawOrgId}'. Only canonical organization '${CANONICAL_ORGANIZATION_ID}' is permitted.`);
+            err.code = 'BLOCKED_CANONICAL_ORGANIZATION_MISMATCH';
+            throw err;
+        }
+
+        if (options.organizationId === null || options.tenantId === null || options.useCanonicalDefault === false) {
+            this.organizationId = null;
+        } else {
+            this.organizationId = CANONICAL_ORGANIZATION_ID;
+        }
     }
 
     /**
@@ -96,7 +107,18 @@ export class AuthorityRefreshScheduler {
      * @returns {Promise<object>} Cycle outcome report
      */
     async executeWeeklyCycle(options = {}) {
-        const targetTenantId = options.tenantId || this.organizationId;
+        if (options.tenantId && String(options.tenantId) !== String(this.organizationId)) {
+            const err = new Error(`BLOCKED_CANONICAL_ORGANIZATION_MISMATCH: executeWeeklyCycle rejected mismatched tenantId '${options.tenantId}'. Expected canonical organization ID '${this.organizationId}'.`);
+            err.code = 'BLOCKED_CANONICAL_ORGANIZATION_MISMATCH';
+            throw err;
+        }
+        if (options.organizationId && String(options.organizationId) !== String(this.organizationId)) {
+            const err = new Error(`BLOCKED_CANONICAL_ORGANIZATION_MISMATCH: executeWeeklyCycle rejected mismatched organizationId '${options.organizationId}'. Expected canonical organization ID '${this.organizationId}'.`);
+            err.code = 'BLOCKED_CANONICAL_ORGANIZATION_MISMATCH';
+            throw err;
+        }
+
+        const targetTenantId = this.organizationId;
         if (!targetTenantId) {
             throw new Error('SCHEDULER_ORGANIZATION_REQUIRED: executeWeeklyCycle requires an explicit organizationId.');
         }

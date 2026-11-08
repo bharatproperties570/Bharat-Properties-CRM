@@ -66,6 +66,7 @@ import { PortalAuditSink } from '../services/authority/portal/infrastructure/por
 import { RedisPortalDistributedLock } from '../services/authority/portal/infrastructure/redisPortalDistributedLock.js';
 import { RedisPortalQuotaProvider } from '../services/authority/portal/infrastructure/redisPortalQuotaProvider.js';
 import { ROLE_TEMPLATES } from '../config/roles.config.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 let mongod = null;
 let stagingDbPath = null;
@@ -89,7 +90,7 @@ test.before(async () => {
     const uri = mongod.getUri();
     await mongoose.connect(uri);
 
-    tenantId = new mongoose.Types.ObjectId();
+    tenantId = CANONICAL_ORGANIZATION_ID;
 
     // Create genuine roles from ROLE_TEMPLATES
     inventoryRole = await Role.findOneAndUpdate(
