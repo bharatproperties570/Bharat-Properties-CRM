@@ -132,7 +132,7 @@ describe('Phase 4.2 — Final Apply Reliability & Bulk Concurrency Remediation',
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
             }
         );
     }

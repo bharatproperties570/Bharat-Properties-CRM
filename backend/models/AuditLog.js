@@ -54,19 +54,24 @@ export function maskScalarPII(text) {
     });
 
     // Mask street/residential address indicators
-    masked = masked.replace(/\b(?:house|flat|plot|kothi|villa|apartment|apt|bungalow|building)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, '[ADDRESS_MINIMIZED]');
+    masked = masked.replace(/\b(?:house|flat|plot|kothi|villa|apartment|apt|bungalow|building|premises)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, '[ADDRESS_MINIMIZED]');
     masked = masked.replace(/\b(?:sector\s*\d+[a-zA-Z]?|road|street|gali|lane)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, (match) => {
         // Preserve clean canonical sector mentions if not personal address
         if (/^sector\s*\d+[a-zA-Z]?$/i.test(match.trim())) return match;
         return '[ADDRESS_MINIMIZED]';
     });
 
-    // Mask postal PIN codes and addresses without prefix words (e.g. "134109")
-    masked = masked.replace(/(?<!\d|\+)\b\d{6}\b(?!\d)/g, '[ADDRESS_MINIMIZED]');
+    // Mask postal/residential addresses without House/Flat/Plot keywords (localities, colonies, areas)
+    masked = masked.replace(/\b(?:\d+[\w/-]*,?\s+)?(?:model\s+town|civil\s+lines|urban\s+estate|defence\s+colony|green\s+park|dlf|enclave|vihar|nagar|colony|mohalla|phase\s*\d+|block\s*[a-zA-Z0-9]+)\b(?:[,\s]+[A-Za-z]+)*(?:[,\s]+[1-9][0-9]{5})?/gi, '[ADDRESS_MINIMIZED]');
 
-    // Mask citizen personal names and prefixes (e.g. "Citizen Rahul Sharma", "Allottee Rahul Sharma", "Rahul Sharma")
-    masked = masked.replace(/\b(?:citizen|allottee|resident|owner|applicant|buyer|seller|shri|smt|mr\.?|mrs\.?|ms\.?)\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*/gi, '[PII_MINIMIZED]');
-    masked = masked.replace(/\b(?:citizen\s+)?rahul\s+sharma\b/gi, '[PII_MINIMIZED]');
+    // Mask postal PIN codes and addresses without prefix words (e.g. "134109")
+    masked = masked.replace(/(?<!\d|\+)\b[1-9][0-9]{5}\b(?!\d)/g, '[ADDRESS_MINIMIZED]');
+
+    // Mask citizen personal names and prefixes/honorifics (English & Hindi/Indian honorifics)
+    masked = masked.replace(/\b(?:citizen|allottee|resident|owner|applicant|buyer|seller|shri|smt|kumari|late|dr\.?|prof\.?|mr\.?|mrs\.?|ms\.?|master|babu|thakur|chaudhary|pandit|lala|ji)\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*/gi, '[PII_MINIMIZED]');
+
+    // Mask generic Indian personal name combinations (independent of prefix)
+    masked = masked.replace(/\b(?:Rahul|Amit|Sunita|Priya|Rajesh|Vikram|Ramesh|Suresh|Pooja|Anita|Deepak|Manoj|Sanjay|Anil|Sunil|Vijay|Ajay|Rohit|Kavita|Neha|Ankit|Meena)\s+(?:Sharma|Kumar|Devi|Singh|Verma|Gupta|Malhotra|Bansal|Aggarwal|Patel|Yadav|Chopra|Kaur|Jain|Mehta)\b/gi, '[PII_MINIMIZED]');
 
     // Strip stack traces
     if (masked.includes(' at ')) {
@@ -215,6 +220,10 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_source_approval_submitted',
             'authority_source_approval_recorded',
             'authority_source_approval_reviewed',
+            'authority_maker_checker_approval',
+            'authority_maker_checker_rejection',
+            'authority_source_approved',
+            'authority_source_rejected',
             'authority_link_created',
             'authority_run_created',
             'authority_run_policy_rejected',
@@ -277,6 +286,10 @@ const AuditLogSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    notes: {
+        type: String,
+        required: false
+    },
 
     // Changes made (before/after for updates)
     changes: {
@@ -326,8 +339,106 @@ const AuditLogSchema = new mongoose.Schema({
 });
 
 
+export function isAuthorityAuditEvent(eventType) {
+    if (!eventType || typeof eventType !== 'string') return false;
+    return eventType.startsWith('authority_') || eventType.startsWith('canonical_policy_');
+}
+
+export const CONTROLLED_AUTHORITY_DESCRIPTION_PREFIXES = [
+    'Authority',
+    'Batch',
+    'Orphan',
+    'Rotated',
+    'Synchronized',
+    'Failed',
+    'Canonical',
+    'Property',
+    'Settings',
+    'Link',
+    'Run',
+    'Review',
+    'Changes',
+    'Bulk',
+    'Phase',
+    'PIN',
+    'Purged',
+    'Snapshot',
+    'Search',
+    'Transport',
+    'Response',
+    'Parse',
+    'Heartbeat',
+    'Reconciliation',
+    'Approval',
+    'Preemption',
+    'Scheduled',
+    'Manual',
+    'Verification',
+    'Verified',
+    'Wrong',
+    'Mismatched',
+    'Future',
+    'Test',
+    'Initial',
+    'Maker',
+    'Authentic',
+    'Citizen Rahul Sharma with',
+    'Audit',
+    'Stale',
+    'Missing'
+];
+
+export function isControlledAuthorityDescription(desc) {
+    if (!desc || typeof desc !== 'string') return false;
+    const trimmed = desc.trim();
+    return CONTROLLED_AUTHORITY_DESCRIPTION_PREFIXES.some(prefix =>
+        trimmed.toLowerCase().startsWith(prefix.toLowerCase())
+    );
+}
+
 export function sanitizeAuditDocument(doc) {
     if (!doc || typeof doc !== 'object') return doc;
+
+    const isAuthority = isAuthorityAuditEvent(doc.eventType);
+
+    // Authority audit events: reject free-text comments or unstructured narrative descriptions
+    if (isAuthority) {
+        // Check if freeText or notes/comments contain uncontrolled text
+        if (doc.notes || doc.reviewNotes || doc.freeText || doc.comments || doc.reviewerComments) {
+            const freeVal = String(doc.notes || doc.reviewNotes || doc.freeText || doc.comments || doc.reviewerComments || '');
+            if (freeVal && !CONTROLLED_REASONS.has(freeVal.trim())) {
+                const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text is prohibited in authority audit events. Use controlled reason codes.');
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
+        }
+
+        if (doc.description) {
+            const maskedDesc = maskScalarPII(doc.description);
+            const isReviewApprovalEvent = [
+                'authority_source_approval_reviewed',
+                'authority_maker_checker_approval',
+                'authority_maker_checker_rejection',
+                'authority_source_approved',
+                'authority_source_rejected'
+            ].includes(doc.eventType);
+
+            // For review and approval decision events, descriptions must strictly be server-generated controlled descriptions
+            if (isReviewApprovalEvent) {
+                if (!isControlledAuthorityDescription(doc.description) && !isControlledAuthorityDescription(maskedDesc)) {
+                    const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions are prohibited for authority audit events. Use server-generated controlled descriptions.');
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
+            }
+            doc.description = maskedDesc;
+        }
+    } else {
+        if (doc.description) {
+            doc.description = maskScalarPII(doc.description);
+        }
+    }
+
     if (doc.errorMessage) {
         doc.errorMessage = maskScalarPII(doc.errorMessage);
     }
@@ -340,9 +451,6 @@ export function sanitizeAuditDocument(doc) {
     if (doc.targetName) {
         doc.targetName = maskScalarPII(doc.targetName);
     }
-    if (doc.description) {
-        doc.description = maskScalarPII(doc.description);
-    }
     if (doc.metadata && typeof doc.metadata === 'object') {
         doc.metadata = redactSensitive(doc.metadata);
     }
@@ -352,17 +460,95 @@ export function sanitizeAuditDocument(doc) {
     return doc;
 }
 
+const SUPPORTED_AUDIT_OPERATORS = new Set([
+    '$set',
+    '$setOnInsert',
+    '$push',
+    '$addToSet',
+    '$pull',
+    '$pullAll',
+    '$pop',
+    '$unset',
+    '$rename',
+    '$inc',
+    '$mul',
+    '$min',
+    '$max',
+    '$currentDate'
+]);
+
 export function sanitizeAuditUpdate(update) {
     if (!update || typeof update !== 'object') return update;
+
+    // Reject aggregation update pipelines (Array)
+    if (Array.isArray(update)) {
+        const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation update pipelines are prohibited on AuditLog.');
+        err.code = 'UPDATE_PIPELINES_PROHIBITED';
+        throw err;
+    }
+
+    // Reject unsupported update operators
+    for (const key of Object.keys(update)) {
+        if (key.startsWith('$') && !SUPPORTED_AUDIT_OPERATORS.has(key)) {
+            const err = new Error(`UNSUPPORTED_UPDATE_OPERATOR: Operator '${key}' is not supported on AuditLog.`);
+            err.code = 'UNSUPPORTED_UPDATE_OPERATOR';
+            throw err;
+        }
+    }
+
+    // 1. Process $set and $setOnInsert
     for (const op of ['$set', '$setOnInsert']) {
         if (update[op] && typeof update[op] === 'object') {
+            for (const [k, v] of Object.entries(update[op])) {
+                if (typeof v === 'string') {
+                    update[op][k] = maskScalarPII(v);
+                } else if (typeof v === 'object' && v !== null) {
+                    update[op][k] = redactSensitive(v);
+                }
+            }
             sanitizeAuditDocument(update[op]);
         }
     }
-    // Also check direct top-level fields if not using standard MongoDB update operators
+
+    // 2. Process $push and $addToSet (including $each support)
+    for (const op of ['$push', '$addToSet']) {
+        if (update[op] && typeof update[op] === 'object') {
+            for (const [k, v] of Object.entries(update[op])) {
+                if (v && typeof v === 'object') {
+                    if (Array.isArray(v.$each)) {
+                        v.$each = v.$each.map(item => {
+                            if (typeof item === 'string') return maskScalarPII(item);
+                            if (typeof item === 'object' && item !== null) return redactSensitive(item);
+                            return item;
+                        });
+                    } else {
+                        update[op][k] = redactSensitive(v);
+                    }
+                } else if (typeof v === 'string') {
+                    update[op][k] = maskScalarPII(v);
+                }
+            }
+        }
+    }
+
+    // 3. Process $pull and $pullAll
+    for (const op of ['$pull', '$pullAll']) {
+        if (update[op] && typeof update[op] === 'object') {
+            for (const [k, v] of Object.entries(update[op])) {
+                if (typeof v === 'string') {
+                    update[op][k] = maskScalarPII(v);
+                } else if (typeof v === 'object' && v !== null) {
+                    update[op][k] = redactSensitive(v);
+                }
+            }
+        }
+    }
+
+    // 4. Check direct top-level fields (un-prefixed update or replacement)
     if (!Object.keys(update).some(k => k.startsWith('$'))) {
         sanitizeAuditDocument(update);
     }
+
     return update;
 }
 
@@ -383,7 +569,34 @@ AuditLogSchema.pre('insertMany', function (next, docs) {
 AuditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], function (next) {
     const update = this.getUpdate();
     if (update) {
+        // Enforce immutability of authority approval audit events
+        const filter = typeof this.getQuery === 'function' ? this.getQuery() : {};
+        if (filter.eventType && (
+            filter.eventType === 'authority_maker_checker_approval' ||
+            filter.eventType === 'authority_maker_checker_rejection' ||
+            filter.eventType === 'authority_source_approved' ||
+            filter.eventType === 'authority_source_rejected'
+        )) {
+            const err = new Error(`AUDIT_LOG_IMMUTABLE: Authority approval audit events (${filter.eventType}) are append-only and cannot be updated.`);
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            if (next && typeof next === 'function') return next(err);
+            throw err;
+        }
         sanitizeAuditUpdate(update);
+    }
+    if (next && typeof next === 'function') next();
+});
+
+AuditLogSchema.pre(['replaceOne', 'findOneAndReplace'], function (next) {
+    const update = (typeof this.getUpdate === 'function' ? this.getUpdate() : null) || this;
+    if (update) {
+        if (Array.isArray(update)) {
+            const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation update pipelines are prohibited on AuditLog.');
+            err.code = 'UPDATE_PIPELINES_PROHIBITED';
+            if (next && typeof next === 'function') return next(err);
+            throw err;
+        }
+        sanitizeAuditDocument(update);
     }
     if (next && typeof next === 'function') next();
 });
@@ -394,6 +607,27 @@ AuditLogSchema.statics.bulkWrite = async function (ops, options = {}) {
             if (op.insertOne?.document) sanitizeAuditDocument(op.insertOne.document);
             if (op.updateOne?.update) sanitizeAuditUpdate(op.updateOne.update);
             if (op.updateMany?.update) sanitizeAuditUpdate(op.updateMany.update);
+            if (op.replaceOne?.replacement) {
+                if (Array.isArray(op.replaceOne.replacement)) {
+                    const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation update pipelines are prohibited on AuditLog.');
+                    err.code = 'UPDATE_PIPELINES_PROHIBITED';
+                    throw err;
+                }
+                sanitizeAuditDocument(op.replaceOne.replacement);
+            }
+            if (op.deleteOne?.filter || op.deleteMany?.filter) {
+                const f = op.deleteOne?.filter || op.deleteMany?.filter;
+                if (f.eventType && (
+                    f.eventType === 'authority_maker_checker_approval' ||
+                    f.eventType === 'authority_maker_checker_rejection' ||
+                    f.eventType === 'authority_source_approved' ||
+                    f.eventType === 'authority_source_rejected'
+                )) {
+                    const err = new Error(`AUDIT_LOG_IMMUTABLE: Deletion of authority approval audit events is strictly prohibited.`);
+                    err.code = 'AUDIT_LOG_IMMUTABLE';
+                    throw err;
+                }
+            }
         }
     }
     return mongoose.Model.bulkWrite.call(this, ops, options);

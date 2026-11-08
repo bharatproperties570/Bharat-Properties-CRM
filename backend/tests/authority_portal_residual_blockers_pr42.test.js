@@ -28,7 +28,7 @@ import AuthoritySourceSettings, {
 } from '../models/AuthoritySourceSettings.js';
 
 const getAuthWorkflowOptions = () => ({
-    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: '000000000000000000000001' })
 });
 import AuthorityGlobalKillSwitch from '../models/AuthorityGlobalKillSwitch.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
@@ -2443,6 +2443,10 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                         minimumIntervalMs: 50,
                         policySource: 'GMADA/RACE/POL'
                     }
+                },
+                $setOnInsert: {
+                    tenantId: testTenantId,
+                    authorityCode
                 }
             },
             { upsert: true, ...getAuthWorkflowOptions() }

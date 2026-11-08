@@ -38,7 +38,7 @@
         "test:authority-portal": "node --test --test-force-exit --test-concurrency=1 tests/authority_portal_approval_gate.test.js tests/authority_portal_contract.test.js tests/authority_portal_egress_trap.test.js tests/authority_portal_golden_parsers.test.js tests/authority_portal_runtime.test.js tests/authority_portal_acceptance_pr42.test.js tests/authority_portal_residual_blockers_pr42.test.js tests/phase4_5_authority_sync.test.js",
         "test:authority-portal-acceptance": "node --test --test-force-exit --test-concurrency=1 tests/authority_portal_acceptance_pr42.test.js tests/authority_portal_residual_blockers_pr42.test.js",
         "test:authority-portal-redis": "node --test --test-force-exit tests/authority_portal_redis_integration.test.js",
-        "test:phase4.5-authority": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5_authority_sync.test.js tests/phase4_5c_persistent_authority_sync.test.js tests/phase4_5d_operational_acceptance.test.js tests/phase4_5d_correction.test.js tests/phase4_5d_final_safety_correction.test.js tests/phase4_5d_final_boundary_remediation.test.js tests/phase4_5d_p56_security_remediation.test.js tests/phase4_5d_p57_residual_hardening.test.js tests/phase4_5d_p58_final_residual_security.test.js tests/phase4_5d_p59_canonical_org_write_boundary.test.js",
+        "test:phase4.5-authority": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5_authority_sync.test.js tests/phase4_5c_persistent_authority_sync.test.js tests/phase4_5d_operational_acceptance.test.js tests/phase4_5d_correction.test.js tests/phase4_5d_final_safety_correction.test.js tests/phase4_5d_final_boundary_remediation.test.js tests/phase4_5d_p56_security_remediation.test.js tests/phase4_5d_p57_residual_hardening.test.js tests/phase4_5d_p58_final_residual_security.test.js tests/phase4_5d_p59_canonical_org_write_boundary.test.js tests/phase4_5d_p60_final_write_path_audit_closure.test.js",
         "test:phase4.5c-authority": "node --test --test-force-exit tests/phase4_5c_persistent_authority_sync.test.js",
         "test:phase4.5d-authority": "node --test --test-force-exit tests/phase4_5d_operational_acceptance.test.js",
         "test:phase4.5d-correction": "node --test --test-force-exit tests/phase4_5d_correction.test.js",
@@ -47,7 +47,8 @@
         "test:phase4.5d-p56-security-remediation": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p56_security_remediation.test.js",
         "test:phase4.5d-p57-residual-hardening": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p57_residual_hardening.test.js",
         "test:phase4.5d-p58-final-residual-security": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p58_final_residual_security.test.js",
-        "test:phase4.5d-p59-canonical-org-write-boundary": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p59_canonical_org_write_boundary.test.js"
+        "test:phase4.5d-p59-canonical-org-write-boundary": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p59_canonical_org_write_boundary.test.js",
+        "test:phase4.5d-p60-final-write-path-audit-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p60_final_write_path_audit_closure.test.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1159.0",
