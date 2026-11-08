@@ -155,6 +155,11 @@ jobs:
           cd backend
           npm run test:phase17
 
+      - name: Run Meta Facebook & Instagram OAuth Regression Tests
+        run: |
+          cd backend
+          npm run test:facebook-oauth
+
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |
           cd backend
