@@ -112,6 +112,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     let hsvpAuditLog;
 
     t.before(async () => {
+        process.env.NODE_ENV = 'test';
         mongoServer = await MongoMemoryServer.create();
         const uri = mongoServer.getUri();
         if (mongoose.connection.readyState !== 0) {
@@ -1720,9 +1721,10 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     // Finding 25: Mandatory maxConcurrent in Every Approval Submission (P1)
     // =========================================================================
     await t.test('25. Mandatory maxConcurrent in Every Approval Submission (P1)', async (t25) => {
-        const tenantId = new mongoose.Types.ObjectId();
+        const tenantId = testTenantId;
         const userId = new mongoose.Types.ObjectId();
 
+        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode: 'GMADA' });
         // Seed existing setting with maxConcurrent = 1
         await AuthoritySourceSettings.create({
             tenantId,
@@ -2027,7 +2029,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     // Finding 28: Mandatory Entire ratePolicy Object & DB Immutability on 422 (Phase 3)
     // =========================================================================
     await t.test('28. Mandatory Entire ratePolicy Object & DB Immutability on 422 (Phase 3)', async () => {
-        const tenantId = new mongoose.Types.ObjectId();
+        const tenantId = testTenantId;
         const userId = new mongoose.Types.ObjectId();
 
         await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode: 'HSVP' });
@@ -2149,7 +2151,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     // Finding 30: Deterministic Portal Lease / Persistence Race and Watermark Protection (Phase 6)
     // =========================================================================
     await t.test('30. Deterministic Portal Lease / Persistence Race and Watermark Protection (Phase 6)', async () => {
-        const tenantAlpha = new mongoose.Types.ObjectId();
+        const tenantAlpha = testTenantId;
         const tenantBeta = new mongoose.Types.ObjectId();
         const authorityCode = 'GMADA';
 

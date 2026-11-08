@@ -36,6 +36,7 @@ import AuditLog from '../models/AuditLog.js';
 import Contact from '../models/Contact.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import { applyApprovedChanges } from '../controllers/authorityVerification.controller.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT AUDIT ---', async (t) => {
 
@@ -387,7 +388,7 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
     await t.test('14. Database Setup for Integration Tests', async () => {
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
-        tenantId = new mongoose.Types.ObjectId();
+        tenantId = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         userId = new mongoose.Types.ObjectId();
     });
 

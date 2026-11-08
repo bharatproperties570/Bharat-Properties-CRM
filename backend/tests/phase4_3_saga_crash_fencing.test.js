@@ -28,6 +28,7 @@ import {
     reconcileInterruptedApplySaga,
     renewApplyClaimLease
 } from '../controllers/authorityVerification.controller.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 4.3 — Durable Saga Crash-Safety, Compensation Integrity & Inventory Claim Fencing', () => {
     let mongoServer;
@@ -43,7 +44,7 @@ describe('Phase 4.3 — Durable Saga Crash-Safety, Compensation Integrity & Inve
         const mongoUri = mongoServer.getUri();
         await mongoose.connect(mongoUri);
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         const auditorRole = await Role.create({
@@ -95,7 +96,7 @@ describe('Phase 4.3 — Durable Saga Crash-Safety, Compensation Integrity & Inve
         });
 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         await PropertyVerificationRunItem.init();
         await PropertyAuthorityLink.init();

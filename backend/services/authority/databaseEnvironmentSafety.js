@@ -112,29 +112,69 @@ export function isProductionEnvironment() {
 }
 
 /**
- * Checks whether any recognized environment indicator identifies a production or unverified/unknown environment.
+ * Checks whether any recognized environment indicator identifies a production or unverified/unknown/unset environment.
  * Enforces fail-closed safety for transactions and dangerous execution paths.
+ * All unset, unknown labels, conflicting production/non-production indicators, and production labels fail closed as unsafe.
+ * 
+ * @param {string|null|undefined} [envOverride]
  * @returns {boolean}
  */
 export function isEnvironmentProductionOrUnsafe(envOverride) {
-    if (envOverride !== undefined && envOverride !== null) {
+    if (typeof envOverride === 'string') {
         const cls = classifyEnvironment(envOverride);
-        return cls === 'PRODUCTION' || cls === 'UNKNOWN_OR_UNSAFE';
+        return cls === 'PRODUCTION' || cls === 'UNKNOWN_OR_UNSAFE' || cls === 'UNSET';
     }
+
+    const envSource = (envOverride && typeof envOverride === 'object') ? envOverride : process.env;
     const recognizedEnvs = [
-        process.env.NODE_ENV,
-        process.env.APP_ENV,
-        process.env.APPLICATION_ENV,
-        process.env.ENVIRONMENT,
-        process.env.STAGE
+        envSource.NODE_ENV,
+        envSource.APP_ENV,
+        envSource.APPLICATION_ENV,
+        envSource.ENVIRONMENT,
+        envSource.STAGE
     ];
+
+    let hasNonProd = false;
+    let hasProd = false;
+    let hasUnsafeOrUnknown = false;
+    let setVariablesCount = 0;
+
     for (const val of recognizedEnvs) {
         const cls = classifyEnvironment(val);
-        if (cls === 'PRODUCTION' || cls === 'UNKNOWN_OR_UNSAFE') {
-            return true;
+        if (cls === 'PRODUCTION') {
+            hasProd = true;
+            setVariablesCount++;
+        } else if (cls === 'NON_PRODUCTION') {
+            hasNonProd = true;
+            setVariablesCount++;
+        } else if (cls === 'UNKNOWN_OR_UNSAFE') {
+            hasUnsafeOrUnknown = true;
+            setVariablesCount++;
         }
     }
-    return false;
+
+    // 1. All environment variables unset -> classified as unsafe (fail-closed)
+    if (setVariablesCount === 0) {
+        return true;
+    }
+
+    // 2. Any explicit production indicator -> unsafe
+    if (hasProd) {
+        return true;
+    }
+
+    // 3. Any unknown or unrecognized label -> unsafe
+    if (hasUnsafeOrUnknown) {
+        return true;
+    }
+
+    // 4. Conflicting indicators (e.g. prod + non-prod) -> unsafe
+    if (hasProd && hasNonProd) {
+        return true;
+    }
+
+    // 5. Only explicitly recognized non-production environments are considered safe
+    return !hasNonProd;
 }
 
 /**

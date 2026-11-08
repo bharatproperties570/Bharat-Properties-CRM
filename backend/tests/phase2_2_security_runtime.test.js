@@ -43,6 +43,7 @@ import { SENTINEL } from '../services/authority/authorityFieldDictionary.js';
 import { hasPermission, hasApprovalRight } from '../services/permission.service.js';
 import { checkPermission, checkApprovalRight } from '../middlewares/permission.middleware.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
     let mongoServer;
@@ -50,7 +51,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
     let baseUrl;
 
     // Test tenants and users
-    const tenantA = new mongoose.Types.ObjectId();
+    const tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
     const tenantB = new mongoose.Types.ObjectId();
 
     let roleNoAccess;

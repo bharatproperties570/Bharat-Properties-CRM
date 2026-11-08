@@ -203,10 +203,9 @@ test('Phase 4.5-D — Test 4: Default operational status is strictly disabled an
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 test('Phase 4.5-D — Test 5: In unapproved state, contractVerificationStatus is NOT_VERIFIED, contractEvidenceReference is null, termsReviewed is false', async () => {
-    const freshTenantId = new mongoose.Types.ObjectId();
-    await AuthoritySourceSettings.reconcileOwnerAttestation(freshTenantId);
+    await AuthoritySourceSettings.reconcileOwnerAttestation(tenantId);
 
-    const freshSettings = await AuthoritySourceSettings.find({ tenantId: freshTenantId });
+    const freshSettings = await AuthoritySourceSettings.find({ tenantId });
     for (const s of freshSettings) {
         assert.equal(s.contractVerificationStatus, 'NOT_VERIFIED');
         assert.equal(s.contractEvidenceReference, null);
@@ -232,7 +231,7 @@ test('Phase 4.5-D — Test 6: Maker-checker review status is distinct from autho
 });
 
 test('Phase 4.5-D — Test 7: Independent maker-checker review required for activation — distinct users enforced', async () => {
-    const testTenant = new mongoose.Types.ObjectId();
+    const testTenant = tenantId;
     const settings = new AuthoritySourceSettings({
         tenantId: testTenant,
         authorityCode: 'HSVP',

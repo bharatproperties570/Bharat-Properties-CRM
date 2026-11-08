@@ -36,6 +36,7 @@ import {
     AuthorityBulkProcessor,
     safeInsertMany
 } from '../services/authority/AuthorityBulkProcessor.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 4.1 — Authority Verification Reliability & Authorization Remediation', () => {
     let mongoServer;
@@ -51,7 +52,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
         await mongoose.connect(mongoServer.getUri());
         await AuditLog.ensureIdempotencyIndex();
 
-        tenantA = new mongoose.Types.ObjectId();
+        tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         tenantB = new mongoose.Types.ObjectId();
 
         const auditorRole = await Role.create({
@@ -103,7 +104,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
         });
 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
-        await AuthoritySourceSettings.ensureDefaults(tenantB);
+        // Single-org boundary: AuthoritySourceSettings.ensureDefaults is prohibited for non-canonical tenantB
 
         await PropertyVerificationRunItem.init();
         await PropertyAuthorityLink.init();

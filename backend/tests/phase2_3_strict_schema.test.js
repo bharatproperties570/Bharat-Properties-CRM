@@ -46,13 +46,14 @@ import PropertyVerificationRunItem, {
 } from '../models/PropertyVerificationRunItem.js';
 import { SENTINEL } from '../services/authority/authorityFieldDictionary.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
     let mongoServer;
     let testServer;
     let baseUrl;
 
-    const tenantA = new mongoose.Types.ObjectId();
+    const tenantA = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
     let adminUser;
     let adminToken;
     let adminRole;

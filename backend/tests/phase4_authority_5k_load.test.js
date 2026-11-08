@@ -15,6 +15,7 @@ import User from '../models/User.js';
 import Role from '../models/Role.js';
 
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 describe('Phase 4 — 5,000+ Synthetic Inventory Bulk Verification Load Test', () => {
     let mongoServer;
@@ -27,7 +28,7 @@ describe('Phase 4 — 5,000+ Synthetic Inventory Bulk Verification Load Test', (
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
 
-        tenantId = new mongoose.Types.ObjectId();
+        tenantId = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         userId = new mongoose.Types.ObjectId();
 
         const perfRole = await Role.create({

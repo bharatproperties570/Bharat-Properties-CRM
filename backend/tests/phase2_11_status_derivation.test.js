@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 
 import {
     CANONICAL_FIELDS,
@@ -368,7 +369,7 @@ test('--- PHASE 2.11: STATUS SEMANTICS, DERIVATION SAFETY & TEST-COUNT RECONCILI
         const uri = mongoServer.getUri();
         await mongoose.connect(uri);
 
-        tenantId = new mongoose.Types.ObjectId();
+        tenantId = new mongoose.Types.ObjectId(CANONICAL_ORGANIZATION_ID);
         testUser = { _id: new mongoose.Types.ObjectId() };
     });
 

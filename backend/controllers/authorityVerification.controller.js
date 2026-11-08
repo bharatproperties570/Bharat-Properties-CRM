@@ -28,6 +28,12 @@ import User from '../models/User.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
 import { isProductionEnvironment, isEnvironmentProductionOrUnsafe } from '../services/authority/databaseEnvironmentSafety.js';
 
+import {
+    CANONICAL_ORGANIZATION_ID,
+    CANONICAL_ORGANIZATION_ID_STRING,
+    verifyCanonicalOrganizationContext
+} from '../config/canonicalOrganization.js';
+
 export const CONTROLLED_REASON_CODES = new Set([
     'EVIDENCE_REVIEWED',
     'DOCUMENT_REFERENCE_INCOMPLETE',
@@ -57,8 +63,37 @@ import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProce
 // ============================================================
 
 function getTenantId(req) {
-    // tenantId from authenticated user context
-    return req.user?.tenantId || req.user?._id?.toString() || null;
+    verifyCanonicalOrganizationContext();
+
+    // Check for explicit non-canonical overrides in body, query, or headers
+    if (req.body?.tenantId && String(req.body.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Body tenantId override '${req.body.tenantId}' rejected.`);
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
+    }
+    if (req.query?.tenantId && String(req.query.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Query tenantId override '${req.query.tenantId}' rejected.`);
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
+    }
+    if (req.headers && req.headers['x-tenant-id'] && String(req.headers['x-tenant-id']) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Header tenantId override '${req.headers['x-tenant-id']}' rejected.`);
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
+    }
+
+    // Resolve tenant from authenticated user context (or req.tenantId fallback for unit test mocks)
+    // Note: req.user._id fallback is strictly prohibited. A user ID is not an organization ID.
+    const rawTenant = req.user?.tenantId ? String(req.user.tenantId) : (req.tenantId ? String(req.tenantId) : null);
+    if (!rawTenant) {
+        return null;
+    }
+    if (rawTenant !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Request tenant '${rawTenant}' does not match canonical organization '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
+    }
+    return CANONICAL_ORGANIZATION_ID;
 }
 
 let customQuotaProvider = null;
@@ -131,6 +166,9 @@ export const getSourceSettings = async (req, res) => {
 
         res.json({ success: true, data: result });
     } catch (error) {
+        if (error.code === 'ORGANIZATION_OVERRIDE_PROHIBITED' || error.message?.includes('ORGANIZATION_OVERRIDE_PROHIBITED')) {
+            return res.status(403).json({ success: false, code: 'ORGANIZATION_OVERRIDE_PROHIBITED', message: error.message });
+        }
         console.error('getSourceSettings error:', error);
         res.status(500).json({ success: false, message: 'Failed to retrieve source settings' });
     }
@@ -167,6 +205,9 @@ export const getSourceSettingByCode = async (req, res) => {
             }
         });
     } catch (error) {
+        if (error.code === 'ORGANIZATION_OVERRIDE_PROHIBITED' || error.message?.includes('ORGANIZATION_OVERRIDE_PROHIBITED')) {
+            return res.status(403).json({ success: false, code: 'ORGANIZATION_OVERRIDE_PROHIBITED', message: error.message });
+        }
         console.error('getSourceSettingByCode error:', error);
         res.status(500).json({ success: false, message: 'Failed to retrieve source setting' });
     }
@@ -612,7 +653,12 @@ export const recordSourceApprover = async (req, res) => {
                     },
                     {
                         new: true,
-                        [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover'),
+                        [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+                            tenantId,
+                            authorityCode,
+                            targetId: setting._id,
+                            evidenceVersion: expectedVer
+                        }),
                         ...(activeSession ? { session: activeSession } : {})
                     }
                 );
@@ -963,7 +1009,12 @@ export const reviewSourceApproval = async (req, res) => {
                         },
                         {
                             new: true,
-                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval'),
+                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
+                                tenantId,
+                                authorityCode,
+                                targetId: setting._id,
+                                evidenceVersion: expectedVer
+                            }),
                             ...(activeSession ? { session: activeSession } : {})
                         }
                     );
@@ -1098,7 +1149,12 @@ export const reviewSourceApproval = async (req, res) => {
                         },
                         {
                             new: true,
-                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval'),
+                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
+                                tenantId,
+                                authorityCode,
+                                targetId: setting._id,
+                                evidenceVersion: expectedVer
+                            }),
                             ...(activeSession ? { session: activeSession } : {})
                         }
                     );
@@ -3967,7 +4023,16 @@ export const renewApplyClaimLease = async (itemId, tenantId, claimId, fenceToken
  */
 export const applyApprovedChanges = async (req, res) => {
     try {
-        const tenantId = getTenantId(req);
+        let tenantId;
+        try {
+            tenantId = getTenantId(req);
+        } catch (orgErr) {
+            if (orgErr.code === 'ORGANIZATION_OVERRIDE_PROHIBITED' || orgErr.message?.includes('ORGANIZATION_OVERRIDE_PROHIBITED')) {
+                // Prevent cross-tenant resource enumeration
+                return res.status(404).json({ success: false, message: 'Item not found' });
+            }
+            throw orgErr;
+        }
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
         // Authenticated Applier Identity Required (Phase 4.4.1 - Finding F-02 Hardening)

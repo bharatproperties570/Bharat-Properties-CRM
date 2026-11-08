@@ -77,6 +77,7 @@ import Lookup from '../models/Lookup.js';
 import Team from '../models/Team.js';
 import User from '../models/User.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 import {
     updateSourceSettings,
     createVerificationRun
@@ -584,7 +585,7 @@ describe('--- PHASE 3B: FIXTURE ADAPTER CONFORMANCE, INPUT INTEGRITY & NETWORK I
 
         test('3. Production Route Isolation: /api/authority/runs fails closed (POLICY_REJECTED)', async () => {
             // Verify that AuthoritySourceSettings is disabled and controller rejects without adapter invocation
-            const tenantId = new mongoose.Types.ObjectId();
+            const tenantId = CANONICAL_ORGANIZATION_ID;
             const userId = new mongoose.Types.ObjectId();
             const setting = await AuthoritySourceSettings.create({
                 tenantId,
