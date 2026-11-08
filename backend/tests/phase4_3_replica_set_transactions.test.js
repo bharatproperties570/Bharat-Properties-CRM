@@ -7,7 +7,10 @@ import jwt from 'jsonwebtoken';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import config from '../src/config/env.js';
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    INTERNAL_WORKFLOW_OPTION,
+    createAuthorizedInternalWorkflowToken
+} from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
@@ -129,6 +132,9 @@ describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () 
                     'ratePolicy.maxConcurrentRequests': 5,
                     'identityRequirements.verified': true
                 }
+            },
+            {
+                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
             }
         );
     }

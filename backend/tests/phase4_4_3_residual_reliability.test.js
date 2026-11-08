@@ -6,7 +6,10 @@ import http from 'http';
 import jwt from 'jsonwebtoken';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    INTERNAL_WORKFLOW_OPTION,
+    createAuthorizedInternalWorkflowToken
+} from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
@@ -345,7 +348,11 @@ describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
                         permittedFields: ['propertyId', 'sectorNumber', 'propertySize']
                     }
                 },
-                { new: true, upsert: true }
+                {
+                    new: true,
+                    upsert: true,
+                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                }
             );
 
             fixtureInventory = await Inventory.create({

@@ -27,10 +27,12 @@ function normalizeUrl(rawUrl) {
 
 const isHexObjectId = (str) => typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str);
 const isIsoDate = (str) => typeof str === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(str);
+const isUuid = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+const isHexDigest = (str) => typeof str === 'string' && /^[0-9a-fA-F]{32,64}$/.test(str);
 
 export function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
-    if (isHexObjectId(text) || isIsoDate(text)) return text;
+    if (isHexObjectId(text) || isIsoDate(text) || isUuid(text) || isHexDigest(text)) return text;
 
     // Mask emails: leave first char, mask middle, keep domain
     let masked = text.replace(/([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '$1***$2');
@@ -42,8 +44,8 @@ export function maskScalarPII(text) {
     masked = masked.replace(/(?<!\+|\d)\b\d{4}[-\s]\d{4}[-\s]\d{4}\b/g, '[AADHAAR_MINIMIZED]');
     masked = masked.replace(/(?<!\+|\d)\b\d{12}\b(?!\d)/g, '[AADHAAR_MINIMIZED]');
 
-    // Mask phones: standard international or local 10-15 digit phone patterns
-    masked = masked.replace(/(?:\+?\d{1,4}[-.\s]*)?(?:\(?\d{2,5}\)?[-.\s]*)?\d{3,5}[-.\s]*\d{4,5}/g, (match) => {
+    // Mask phones: standard international or local 10-15 digit phone patterns (must not be inside alphanumeric tokens)
+    masked = masked.replace(/(?<![a-zA-Z0-9])(?:\+?\d{1,4}[-.\s]*)?(?:\(?\d{2,5}\)?[-.\s]*)?\d{3,5}[-.\s]*\d{4,5}(?![a-zA-Z0-9])/g, (match) => {
         const digitsOnly = match.replace(/\D/g, '');
         if (digitsOnly.length >= 10 && digitsOnly.length <= 15) {
             return '[PHONE_MINIMIZED]';
@@ -70,6 +72,24 @@ export function maskScalarPII(text) {
     return masked;
 }
 
+const CONTROLLED_REASONS = new Set([
+    'EVIDENCE_REVIEWED',
+    'DOCUMENT_REFERENCE_INCOMPLETE',
+    'CONTRACT_NOT_VERIFIED',
+    'TERMS_NOT_REVIEWED',
+    'IDENTITY_EVIDENCE_MISMATCH',
+    'AUTHORIZATION_REJECTED',
+    'OTHER_CONTROLLED_REASON'
+]);
+
+const OPERATIONAL_SYSTEM_KEYS = new Set([
+    'leaseOwner', 'workerLease', 'workerLeaseToken', 'lastSyncWorkerLease',
+    'operationId', 'normalizedOpId', 'correlationId',
+    'contentHash', 'targetId', 'auditLogId', 'policyId',
+    'authorityCode', 'syncPhase', 'redisSyncStatus', 'version',
+    'leaseExpiresAt', 'lastHeartbeatAt', 'lastSyncedAt'
+]);
+
 export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
     if (obj === null || obj === undefined) return obj;
     if (typeof obj === 'function' || typeof obj === 'symbol' || Buffer.isBuffer(obj)) return '[UNSUPPORTED_TYPE]';
@@ -90,7 +110,7 @@ export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
     seen.add(obj);
 
     const sensitiveKeys = /(?:password|credential|secret|authorization[_-]?proof|token(?!s|count))/i;
-    const piiKeys = /email|phone|mobile|contactNumber|pan|aadhaar|address|postal|citizenName|citizen|resident/i;
+    const piiKeys = /email|phone|mobile|contactNumber|pan|aadhaar|address|postal|citizenName|citizen|resident|ownerName|personName/i;
 
     if (Array.isArray(obj)) {
         return obj.map(item => redactSensitive(item, currentDepth + 1, seen));
@@ -98,10 +118,19 @@ export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
 
     const redactedObj = {};
     for (const key of Object.keys(obj)) {
-        if (sensitiveKeys.test(key)) {
+        if (OPERATIONAL_SYSTEM_KEYS.has(key)) {
+            redactedObj[key] = obj[key];
+        } else if (sensitiveKeys.test(key)) {
             redactedObj[key] = '[REDACTED]';
         } else if (piiKeys.test(key)) {
             redactedObj[key] = '[PII_MINIMIZED]';
+        } else if (key === 'notes' || key === 'reviewNotes') {
+            const raw = String(obj[key] || '').trim();
+            if (CONTROLLED_REASONS.has(raw)) {
+                redactedObj[key] = raw;
+            } else {
+                redactedObj[key] = 'OTHER_CONTROLLED_REASON';
+            }
         } else {
             redactedObj[key] = redactSensitive(obj[key], currentDepth + 1, seen);
         }
@@ -305,6 +334,12 @@ AuditLogSchema.pre('save', function (next) {
     }
     if (this.description) {
         this.description = maskScalarPII(this.description);
+    }
+    if (this.metadata && typeof this.metadata === 'object') {
+        this.metadata = redactSensitive(this.metadata);
+    }
+    if (this.changes && typeof this.changes === 'object') {
+        this.changes = redactSensitive(this.changes);
     }
     next();
 });

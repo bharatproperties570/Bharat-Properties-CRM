@@ -160,7 +160,7 @@ test.after(async () => {
         await mongoose.disconnect();
     }
     if (replSet) {
-        await replSet.stop();
+        await replSet.stop({ doCleanup: true, force: true });
     }
 });
 
@@ -207,7 +207,7 @@ test('AuditLog 1: Final review audit stores metadata.tenantId and authorityCode'
     await recordSourceApprover({
         user: approverUser,
         params: { authorityCode: 'HSVP' },
-        body: { notes: 'Approver notes' }
+        body: { notes: 'Approver notes', expectedEvidenceVersion: 1 }
     }, recRes);
     assert.strictEqual(recRes.statusCode, 200);
 
@@ -248,7 +248,7 @@ test('AuditLog 2: Final review stores userId=approver, actorId=reviewer with mas
     await recordSourceApprover({
         user: approverUser,
         params: { authorityCode: 'GMADA' },
-        body: { notes: 'Approver notes for GMADA' }
+        body: { notes: 'Approver notes for GMADA', expectedEvidenceVersion: 1 }
     }, recRes);
     assert.strictEqual(recRes.statusCode, 200);
 
@@ -300,7 +300,7 @@ test('Maker-checker 3: Submitter, approver, reviewer are distinct active canonic
     await recordSourceApprover({
         user: approverUser,
         params: { authorityCode: 'CHD' },
-        body: { notes: 'Valid approver' }
+        body: { notes: 'Valid approver', expectedEvidenceVersion: 1 }
     }, recRes);
     assert.strictEqual(recRes.statusCode, 200);
 
@@ -361,7 +361,7 @@ test('Maker-checker 5: Any two identities are same -> Reject', async () => {
     await recordSourceApprover({
         user: approverUser,
         params: { authorityCode: 'HSVP' },
-        body: { notes: 'Legitimate approval' }
+        body: { notes: 'Legitimate approval', expectedEvidenceVersion: 1 }
     }, recResValid);
     assert.strictEqual(recResValid.statusCode, 200);
 
@@ -640,7 +640,7 @@ test('Atomicity 11: Transaction fails before commit -> No successful AuditLog an
     await recordSourceApprover({
         user: approverUser,
         params: { authorityCode: 'HSVP' },
-        body: { notes: 'Approver notes' }
+        body: { notes: 'Approver notes', expectedEvidenceVersion: 1 }
     }, recRes);
     assert.strictEqual(recRes.statusCode, 200);
 
@@ -687,7 +687,7 @@ test('Atomicity 12: Transaction succeeds -> AuditLog and APPROVED setting commit
     await recordSourceApprover({
         user: approverUser,
         params: { authorityCode: 'HSVP' },
-        body: { notes: 'Approver notes' }
+        body: { notes: 'Approver notes', expectedEvidenceVersion: 1 }
     }, recRes);
     assert.strictEqual(recRes.statusCode, 200);
 

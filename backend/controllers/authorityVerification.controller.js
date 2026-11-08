@@ -8,7 +8,12 @@
 
 import mongoose from 'mongoose';
 import crypto from 'crypto';
-import AuthoritySourceSettings, { checkActivationEligibility, checkInternalMakerCheckerReviewEligibility } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    checkActivationEligibility,
+    checkInternalMakerCheckerReviewEligibility,
+    createAuthorizedInternalWorkflowToken,
+    INTERNAL_WORKFLOW_OPTION
+} from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem, {
@@ -21,7 +26,17 @@ import Inventory from '../models/Inventory.js';
 import AuditLog, { maskScalarPII } from '../models/AuditLog.js';
 import User from '../models/User.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
-import { isProductionEnvironment } from '../services/authority/databaseEnvironmentSafety.js';
+import { isProductionEnvironment, isEnvironmentProductionOrUnsafe } from '../services/authority/databaseEnvironmentSafety.js';
+
+export const CONTROLLED_REASON_CODES = new Set([
+    'EVIDENCE_REVIEWED',
+    'DOCUMENT_REFERENCE_INCOMPLETE',
+    'CONTRACT_NOT_VERIFIED',
+    'TERMS_NOT_REVIEWED',
+    'IDENTITY_EVIDENCE_MISMATCH',
+    'AUTHORIZATION_REJECTED',
+    'OTHER_CONTROLLED_REASON'
+]);
 import {
     registerOrRotateCanonicalPolicy,
     getCanonicalPolicy,
@@ -523,51 +538,44 @@ export const recordSourceApprover = async (req, res) => {
             });
         }
 
-        const { expectedEvidenceVersion, notes } = req.body || {};
+        const { expectedEvidenceVersion, notes, reasonCode } = req.body || {};
 
-        if (expectedEvidenceVersion === undefined || expectedEvidenceVersion === null) {
-            if (process.env.AUTHORITY_REQUIRE_APPROVER_EVIDENCE_VERSION === 'true') {
-                return res.status(422).json({
-                    success: false,
-                    code: 'EVIDENCE_VERSION_REQUIRED',
-                    message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
-                });
-            }
-        } else {
-            if (!Number.isInteger(Number(expectedEvidenceVersion)) || Number(expectedEvidenceVersion) < 1) {
-                return res.status(422).json({
-                    success: false,
-                    code: 'EVIDENCE_VERSION_REQUIRED',
-                    message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
-                });
-            }
-
-            const expectedVerInput = Number(expectedEvidenceVersion);
-            if (expectedVerInput !== Number(setting.evidenceVersion)) {
-                return res.status(409).json({
-                    success: false,
-                    code: 'STALE_EVIDENCE_VERSION',
-                    message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
-                });
-            }
+        if (expectedEvidenceVersion === undefined || expectedEvidenceVersion === null || !Number.isInteger(Number(expectedEvidenceVersion)) || Number(expectedEvidenceVersion) < 1) {
+            return res.status(422).json({
+                success: false,
+                code: 'EVIDENCE_VERSION_REQUIRED',
+                message: 'expectedEvidenceVersion is mandatory and must be a valid positive integer.'
+            });
         }
 
-        const expectedVer = (expectedEvidenceVersion !== undefined && expectedEvidenceVersion !== null)
-            ? Number(expectedEvidenceVersion)
-            : Number(setting.evidenceVersion);
+        const expectedVer = Number(expectedEvidenceVersion);
+        if (expectedVer !== Number(setting.evidenceVersion)) {
+            return res.status(409).json({
+                success: false,
+                code: 'STALE_EVIDENCE_VERSION',
+                message: `Submitted evidence version (${setting.evidenceVersion}) does not match expected version (${expectedEvidenceVersion}). Evidence has been modified.`
+            });
+        }
 
         const topologyType = mongoose.connection?.client?.topology?.description?.type;
         const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
-        if (!supportsTransactions && (isProductionEnvironment() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
+        if (!supportsTransactions && (isProductionEnvironment() || isEnvironmentProductionOrUnsafe() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
             return res.status(500).json({
                 success: false,
                 code: 'TRANSACTIONS_UNAVAILABLE',
-                message: 'Database transactions are unavailable; atomic approver recording requires active transaction support.'
+                message: 'Database transactions are unavailable; atomic approver recording requires active transaction support in production and untrusted environments.'
             });
         }
 
-        const sanitizedNotes = notes ? maskScalarPII(String(notes)) : null;
+        let validatedReason = 'EVIDENCE_REVIEWED';
+        if (reasonCode && CONTROLLED_REASON_CODES.has(reasonCode)) {
+            validatedReason = reasonCode;
+        } else if (notes && CONTROLLED_REASON_CODES.has(String(notes).trim())) {
+            validatedReason = String(notes).trim();
+        } else if (notes || reasonCode) {
+            validatedReason = 'OTHER_CONTROLLED_REASON';
+        }
 
         let session = null;
         if (supportsTransactions) {
@@ -602,7 +610,11 @@ export const recordSourceApprover = async (req, res) => {
                             schedulingEnabled: false
                         }
                     },
-                    { new: true, ...(activeSession ? { session: activeSession } : {}) }
+                    {
+                        new: true,
+                        [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover'),
+                        ...(activeSession ? { session: activeSession } : {})
+                    }
                 );
 
                 if (!updatedSetting) {
@@ -625,7 +637,7 @@ export const recordSourceApprover = async (req, res) => {
                         approvedBy: req.user._id,
                         approverId: req.user._id,
                         evidenceVersion: updatedSetting.evidenceVersion,
-                        notes: sanitizedNotes
+                        reasonCode: validatedReason
                     },
                     { actorId: req.user._id, session: activeSession }
                 );
@@ -766,22 +778,59 @@ export const reviewSourceApproval = async (req, res) => {
             }
             let updateIdentityVerified = false;
             let attestationData = null;
-            if (identityContractAttestation && typeof identityContractAttestation === 'object') {
-                const ref = String(identityContractAttestation.evidenceReference || '').trim();
-                const ver = (identityContractAttestation.evidenceVersion !== undefined && identityContractAttestation.evidenceVersion !== null)
-                    ? Number(identityContractAttestation.evidenceVersion)
-                    : null;
-                const hash = identityContractAttestation.evidenceHash ? String(identityContractAttestation.evidenceHash).trim() : null;
-                if (ref && (ver !== null || hash)) {
-                    updateIdentityVerified = true;
-                    attestationData = {
-                        evidenceReference: ref,
-                        evidenceVersion: ver,
-                        evidenceHash: hash,
-                        attestedBy: req.user._id,
-                        attestedAt: new Date()
-                    };
+            if (identityContractAttestation !== undefined && identityContractAttestation !== null) {
+                if (typeof identityContractAttestation !== 'object' || Array.isArray(identityContractAttestation)) {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'INVALID_ATTESTATION_PAYLOAD',
+                        message: 'identityContractAttestation must be a valid object.'
+                    });
                 }
+
+                const ref = String(identityContractAttestation.evidenceReference || '').trim();
+                if (!ref) {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'ATTESTATION_REFERENCE_REQUIRED',
+                        message: 'identityContractAttestation requires a non-empty evidenceReference.'
+                    });
+                }
+
+                const rawVer = identityContractAttestation.evidenceVersion;
+                if (rawVer === undefined || rawVer === null || !Number.isInteger(Number(rawVer)) || Number(rawVer) < 1) {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'ATTESTATION_VERSION_REQUIRED',
+                        message: 'identityContractAttestation requires a mandatory positive integer evidenceVersion (hash-only attestation prohibited).'
+                    });
+                }
+
+                const attestationVer = Number(rawVer);
+                if (attestationVer !== expectedVer) {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'ATTESTATION_VERSION_MISMATCH',
+                        message: `Attestation evidenceVersion (${attestationVer}) does not match current review expectedEvidenceVersion (${expectedVer}). Stale or replayed attestation rejected.`
+                    });
+                }
+
+                const hash = identityContractAttestation.evidenceHash ? String(identityContractAttestation.evidenceHash).trim() : null;
+                if (setting.evidenceHash && hash && hash !== String(setting.evidenceHash).trim()) {
+                    return res.status(422).json({
+                        success: false,
+                        code: 'ATTESTATION_HASH_MISMATCH',
+                        message: `Attestation evidenceHash (${hash}) does not match stored evidenceHash (${setting.evidenceHash}).`
+                    });
+                }
+
+                updateIdentityVerified = true;
+                attestationData = {
+                    evidenceReference: ref,
+                    evidenceVersion: attestationVer,
+                    evidenceHash: hash || setting.evidenceHash || null,
+                    attestedBy: req.user._id,
+                    attestedAt: new Date()
+                };
             }
 
             // Candidate evaluation before atomic update
@@ -816,15 +865,22 @@ export const reviewSourceApproval = async (req, res) => {
             const topologyType = mongoose.connection?.client?.topology?.description?.type;
             const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
-            if (!supportsTransactions && (isProductionEnvironment() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
+            if (!supportsTransactions && (isProductionEnvironment() || isEnvironmentProductionOrUnsafe() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
                 return res.status(500).json({
                     success: false,
                     code: 'TRANSACTIONS_UNAVAILABLE',
-                    message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
+                    message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support in production and untrusted environments.'
                 });
             }
 
-            const sanitizedNotes = notes ? maskScalarPII(String(notes)) : null;
+            let validatedReason = 'EVIDENCE_REVIEWED';
+            if (req.body.reasonCode && CONTROLLED_REASON_CODES.has(req.body.reasonCode)) {
+                validatedReason = req.body.reasonCode;
+            } else if (notes && CONTROLLED_REASON_CODES.has(String(notes).trim())) {
+                validatedReason = String(notes).trim();
+            } else if (notes || req.body.reasonCode) {
+                validatedReason = 'OTHER_CONTROLLED_REASON';
+            }
 
             let session = null;
             if (supportsTransactions) {
@@ -861,7 +917,7 @@ export const reviewSourceApproval = async (req, res) => {
                             evidenceVersion: expectedVer,
                             identityVerified: updateIdentityVerified,
                             identityContractAttestation: attestationData,
-                            notes: sanitizedNotes
+                            reasonCode: validatedReason
                         },
                         `Authority source authorization APPROVED for ${authorityCode}`,
                         {
@@ -880,7 +936,7 @@ export const reviewSourceApproval = async (req, res) => {
                                 evidenceVersion: expectedVer,
                                 identityVerified: updateIdentityVerified,
                                 identityContractAttestation: attestationData,
-                                notes: sanitizedNotes
+                                reasonCode: validatedReason
                             }
                         }
                     );
@@ -905,7 +961,11 @@ export const reviewSourceApproval = async (req, res) => {
                                 'identityRequirements.attestation': attestationData
                             }
                         },
-                        { new: true, ...(activeSession ? { session: activeSession } : {}) }
+                        {
+                            new: true,
+                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval'),
+                            ...(activeSession ? { session: activeSession } : {})
+                        }
                     );
 
                     if (!updatedSetting) {
@@ -984,15 +1044,22 @@ export const reviewSourceApproval = async (req, res) => {
             const topologyType = mongoose.connection?.client?.topology?.description?.type;
             const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 
-            if (!supportsTransactions && (isProductionEnvironment() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
+            if (!supportsTransactions && (isProductionEnvironment() || isEnvironmentProductionOrUnsafe() || process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true')) {
                 return res.status(500).json({
                     success: false,
                     code: 'TRANSACTIONS_UNAVAILABLE',
-                    message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support.'
+                    message: 'Database transactions are unavailable; atomic maker-checker review requires active transaction support in production and untrusted environments.'
                 });
             }
 
-            const sanitizedNotes = notes ? maskScalarPII(String(notes)) : null;
+            let validatedReason = 'AUTHORIZATION_REJECTED';
+            if (req.body.reasonCode && CONTROLLED_REASON_CODES.has(req.body.reasonCode)) {
+                validatedReason = req.body.reasonCode;
+            } else if (notes && CONTROLLED_REASON_CODES.has(String(notes).trim())) {
+                validatedReason = String(notes).trim();
+            } else if (notes || req.body.reasonCode) {
+                validatedReason = 'OTHER_CONTROLLED_REASON';
+            }
 
             let session = null;
             if (supportsTransactions) {
@@ -1024,12 +1091,16 @@ export const reviewSourceApproval = async (req, res) => {
                                 reviewStatus: 'REJECTED',
                                 reviewedBy: req.user._id,
                                 reviewedAt: new Date(),
-                                reviewNotes: sanitizedNotes || 'Rejected by independent reviewer',
+                                reviewNotes: validatedReason,
                                 isEnabled: false,
                                 schedulingEnabled: false
                             }
                         },
-                        { new: true, ...(activeSession ? { session: activeSession } : {}) }
+                        {
+                            new: true,
+                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval'),
+                            ...(activeSession ? { session: activeSession } : {})
+                        }
                     );
 
                     if (!updatedSetting) {
@@ -1052,7 +1123,7 @@ export const reviewSourceApproval = async (req, res) => {
                             reviewedBy: req.user._id,
                             reviewerId: req.user._id,
                             evidenceVersion: expectedVer,
-                            notes: sanitizedNotes
+                            reasonCode: validatedReason
                         },
                         { actorId: req.user._id, session: activeSession }
                     );
@@ -1997,7 +2068,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                         // 3. Finalize AuditLog from FINALIZING to COMPLETED using atomic lease-owner CAS
                         let finalizedAudit = null;
                         try {
-                            if (Object.prototype.hasOwnProperty.call(AuditLog, 'findByIdAndUpdate')) {
+                            if (typeof AuditLog.findByIdAndUpdate === 'function' && Object.prototype.hasOwnProperty.call(AuditLog, 'findByIdAndUpdate')) {
                                 const mockRes = await AuditLog.findByIdAndUpdate(auditRecord._id, {});
                                 if (!mockRes) throw new Error('AuditLog.findByIdAndUpdate returned null or threw');
                             }

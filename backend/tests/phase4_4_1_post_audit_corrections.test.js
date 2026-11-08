@@ -18,7 +18,10 @@ import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    INTERNAL_WORKFLOW_OPTION,
+    createAuthorizedInternalWorkflowToken
+} from '../models/AuthoritySourceSettings.js';
 import { AuthorityBulkProcessor, safeInsertMany } from '../services/authority/AuthorityBulkProcessor.js';
 import { AuthorityRefreshScheduler } from '../services/authority/AuthorityRefreshScheduler.js';
 import { computeSnapshotContentHash } from '../services/authority/authorityNormalizer.js';
@@ -289,7 +292,11 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                         lastRunStatus: null
                     }
                 },
-                { new: true, upsert: true }
+                {
+                    new: true,
+                    upsert: true,
+                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                }
             );
         });
 
@@ -690,7 +697,11 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                         permittedFields: ['propertyId', 'sectorNumber', 'propertySize']
                     }
                 },
-                { new: true, upsert: true }
+                {
+                    new: true,
+                    upsert: true,
+                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover')
+                }
             );
 
             fixtureInventory = await Inventory.create({
