@@ -89,6 +89,11 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         type: String,
         default: null  // e.g. 'Letter ref: HSVP/IT/2024/1234'
     },
+    makerCheckerAuditLogId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'AuditLog',
+        default: null
+    },
     permissionArtifactUri: {
         type: String,
         default: null  // URI or reference to official written authorization document
@@ -320,9 +325,11 @@ AuthoritySourceSettingsSchema.pre('save', async function (next) {
             approverId: this.approvedBy,
             reviewerId: this.reviewedBy,
             approvalReference: this.approvalReference,
+            makerCheckerAuditLogId: this.makerCheckerAuditLogId,
             authorityCode: this.authorityCode,
             tenantId: this.tenantId,
-            settingsId: this._id
+            settingsId: this._id,
+            session: this.$session ? this.$session() : undefined
         });
         if (!userCheck.valid) {
             this.reviewStatus = 'UNDER_REVIEW';
@@ -342,8 +349,19 @@ AuthoritySourceSettingsSchema.pre('save', async function (next) {
 AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany', 'replaceOne', 'findOneAndReplace'], async function (next) {
     const update = this.getUpdate();
     if (!update) return next();
+
+    // Reject update pipelines
+    if (Array.isArray(update)) {
+        const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation pipeline updates are strictly prohibited on AuthoritySourceSettings.');
+        err.code = 'UPDATE_PIPELINES_PROHIBITED';
+        return next(err);
+    }
+
+    const options = this.getOptions() || {};
     const set = update.$set ? { ...update.$set } : {};
     const unset = update.$unset ? { ...update.$unset } : {};
+    const setOnInsert = update.$setOnInsert ? { ...update.$setOnInsert } : {};
+    const rename = update.$rename ? { ...update.$rename } : {};
 
     for (const key of Object.keys(update)) {
         if (!key.startsWith('$')) {
@@ -351,22 +369,89 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
         }
     }
 
+    const protectedFields = [
+        'reviewStatus',
+        'isEnabled',
+        'schedulingEnabled',
+        'permissionStatus',
+        'approvedAccessMethod',
+        'evidenceBasis',
+        'submittedBy',
+        'approvedBy',
+        'reviewedBy',
+        'approvalReference',
+        'makerCheckerAuditLogId',
+        'identityRequirements.verified'
+    ];
+
+    const touchesProtectedField = (obj) => {
+        if (!obj) return false;
+        return protectedFields.some(field => {
+            if (field in obj) return true;
+            if (field.includes('.')) {
+                const [parent, child] = field.split('.');
+                return obj[parent] && typeof obj[parent] === 'object' && child in obj[parent];
+            }
+            return false;
+        });
+    };
+
+    // Check $rename
+    for (const key of Object.keys(rename)) {
+        if (protectedFields.includes(key) || protectedFields.includes(rename[key])) {
+            const err = new Error(`PROTECTED_FIELD_RENAME_PROHIBITED: Renaming protected field '${key}' is prohibited.`);
+            err.code = 'PROTECTED_FIELD_RENAME_PROHIBITED';
+            return next(err);
+        }
+    }
+
+    // Check $unset for protected fields
+    for (const key of Object.keys(unset)) {
+        if (protectedFields.includes(key)) {
+            const err = new Error(`PROTECTED_FIELD_UNSET_PROHIBITED: Unsetting protected field '${key}' is prohibited.`);
+            err.code = 'PROTECTED_FIELD_UNSET_PROHIBITED';
+            return next(err);
+        }
+    }
+
     const affectsSecurity = (
-        'reviewStatus' in set ||
-        'isEnabled' in set ||
-        'schedulingEnabled' in set ||
-        'permissionStatus' in set ||
-        'approvedAccessMethod' in set ||
-        'evidenceBasis' in set ||
-        'approvalReference' in set ||
-        'reviewStatus' in unset ||
-        'isEnabled' in unset ||
-        'schedulingEnabled' in unset
+        touchesProtectedField(set) ||
+        touchesProtectedField(unset) ||
+        touchesProtectedField(setOnInsert)
     );
 
     if (!affectsSecurity) return next();
 
-    const docs = await this.model.find(this.getQuery());
+    const query = this.getQuery();
+    const docs = await this.model.find(query).setOptions(options.session ? { session: options.session } : {});
+
+    // Check upsert when no existing document matches
+    if (docs.length === 0) {
+        if (options.upsert) {
+            const candidateInsert = { ...setOnInsert, ...set };
+            if (
+                candidateInsert.isEnabled === true ||
+                candidateInsert.schedulingEnabled === true ||
+                candidateInsert.reviewStatus === 'APPROVED' ||
+                candidateInsert.reviewStatus === 'REJECTED' ||
+                candidateInsert['identityRequirements.verified'] === true
+            ) {
+                const err = new Error('SECURITY_UPSERT_PROHIBITED: Cannot insert active, scheduled, or approved document via upsert.');
+                err.code = 'SECURITY_UPSERT_PROHIBITED';
+                return next(err);
+            }
+            const { CANONICAL_ORGANIZATION_ID } = await import('../config/canonicalOrganization.js');
+            const canonStr = String(CANONICAL_ORGANIZATION_ID);
+            const targetTenantId = candidateInsert.tenantId || query.tenantId;
+            if (targetTenantId && String(targetTenantId) !== canonStr) {
+                const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Upsert for non-canonical organization ${targetTenantId} is prohibited.`);
+                err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+                return next(err);
+            }
+        }
+        return next();
+    }
+
     for (const doc of docs) {
         const merged = Object.assign(doc.toObject(), set);
         for (const k of Object.keys(unset)) {
@@ -383,9 +468,11 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                 approverId: merged.approvedBy,
                 reviewerId: merged.reviewedBy,
                 approvalReference: merged.approvalReference,
+                makerCheckerAuditLogId: merged.makerCheckerAuditLogId,
                 authorityCode: merged.authorityCode,
                 tenantId: merged.tenantId,
-                settingsId: doc._id
+                settingsId: doc._id,
+                session: options.session
             });
             if (!userCheck.valid) {
                 const err = new Error(`MAKER_CHECKER_APPROVAL_REJECTED: ${userCheck.reason}`);
@@ -422,11 +509,36 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
 AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options) {
     if (Array.isArray(ops)) {
         for (const op of ops) {
-            const action = op.updateOne || op.updateMany || op.replaceOne;
+            if (op.insertOne) {
+                const doc = op.insertOne.document || {};
+                if (doc.isEnabled === true || doc.schedulingEnabled === true || doc.reviewStatus === 'APPROVED') {
+                    const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Bulk insert attempts cannot circumvent activation checks. Direct enablement, scheduling, or approval via bulkWrite is strictly prohibited.');
+                    err.code = 'DIRECT_BULK_WRITE_PROHIBITED';
+                    throw err;
+                }
+            }
+            if (op.replaceOne) {
+                const rep = op.replaceOne.replacement || {};
+                if (rep.isEnabled === true || rep.schedulingEnabled === true || rep.reviewStatus === 'APPROVED') {
+                    const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Bulk replacement attempts cannot circumvent activation checks. Direct enablement, scheduling, or approval via bulkWrite is strictly prohibited.');
+                    err.code = 'DIRECT_BULK_WRITE_PROHIBITED';
+                    throw err;
+                }
+            }
+            const action = op.updateOne || op.updateMany;
             if (action) {
                 const u = action.update || {};
+                if (Array.isArray(u)) {
+                    const err = new Error('UPDATE_PIPELINES_PROHIBITED: Bulk update pipelines are strictly prohibited.');
+                    err.code = 'UPDATE_PIPELINES_PROHIBITED';
+                    throw err;
+                }
                 const set = u.$set || u;
-                if (set.isEnabled === true || set.schedulingEnabled === true || set.reviewStatus === 'APPROVED') {
+                const setOnInsert = u.$setOnInsert || {};
+                if (
+                    set.isEnabled === true || set.schedulingEnabled === true || set.reviewStatus === 'APPROVED' ||
+                    setOnInsert.isEnabled === true || setOnInsert.schedulingEnabled === true || setOnInsert.reviewStatus === 'APPROVED'
+                ) {
                     const err = new Error('DIRECT_BULK_WRITE_PROHIBITED: Bulk update attempts cannot circumvent activation checks. Direct enablement, scheduling, or approval via bulkWrite is strictly prohibited.');
                     err.code = 'DIRECT_BULK_WRITE_PROHIBITED';
                     throw err;
@@ -513,6 +625,9 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
     if (submitter && reviewer && submitter === reviewer && this.reviewStatus === 'APPROVED') {
         blockers.push('Independent maker-checker review required: submitter and reviewer must be distinct authenticated users');
     }
+    if (approver && reviewer && approver === reviewer && this.reviewStatus === 'APPROVED') {
+        blockers.push('Independent maker-checker review required: approver and reviewer must be distinct authenticated users');
+    }
 
     if (isOwnerAttested && (this.reviewStatus === 'APPROVED' || this.isEnabled || this.schedulingEnabled)) {
         if (!submitter || !approver) {
@@ -522,6 +637,7 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
             blockers.push('Independent maker-checker review required: submitter, approver, and reviewer must all be present.');
         }
         const hasApprovalOrAuditRef = Boolean(
+            (this.makerCheckerAuditLogId) ||
             (this.approvalReference && String(this.approvalReference).trim()) ||
             (this.contractEvidenceReference && String(this.contractEvidenceReference).trim()) ||
             (this.ownerAttestation?.scope)
@@ -712,9 +828,12 @@ AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers = async function (
     approverId,
     reviewerId,
     approvalReference,
+    makerCheckerAuditLogId,
+    auditLogId,
     authorityCode,
     tenantId,
-    settingsId
+    settingsId,
+    session
 } = {}) {
     // 1. Require connected and verified database — fail closed if disconnected
     if (!mongoose.connection || mongoose.connection.readyState !== 1) {
@@ -758,13 +877,17 @@ AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers = async function (
         return { valid: false, reason: `Invalid or unsupported authority code '${authorityCode}'. Must be HSVP, GMADA, or CHD.` };
     }
 
-    if (!approvalReference || !String(approvalReference).trim()) {
+    if (!approvalReference && !makerCheckerAuditLogId && !auditLogId) {
         return { valid: false, reason: 'Authentic approval reference or audit event record is required.' };
     }
 
     // 2. Validate User documents with exact organization membership
     const User = mongoose.model('User');
-    const users = await User.find({ _id: { $in: [submitterId, approverId, reviewerId] } }).populate('role');
+    const userQuery = User.find({ _id: { $in: [submitterId, approverId, reviewerId] } }).populate('role');
+    if (session) {
+        userQuery.setOptions({ session });
+    }
+    const users = await userQuery;
     if (users.length < 3) {
         return { valid: false, reason: `Found only ${users.length}/3 registered users in database for maker-checker roles.` };
     }
@@ -816,19 +939,25 @@ AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers = async function (
     }
 
     // 6. Verify actual AuditLog record
-    if (!mongoose.isValidObjectId(approvalReference)) {
+    const effectiveAuditLogId = makerCheckerAuditLogId || auditLogId || (mongoose.isValidObjectId(approvalReference) ? approvalReference : null);
+
+    if (!effectiveAuditLogId) {
         return {
             valid: false,
-            reason: `Approval reference '${approvalReference}' is an arbitrary string, not a valid AuditLog ObjectId reference.`
+            reason: `Approval reference '${approvalReference}' is an arbitrary string, not a valid AuditLog ObjectId reference, and makerCheckerAuditLogId is not provided.`
         };
     }
 
     const AuditLog = mongoose.model('AuditLog');
-    const auditRecord = await AuditLog.findById(approvalReference);
+    const auditQuery = AuditLog.findById(effectiveAuditLogId);
+    if (session) {
+        auditQuery.setOptions({ session });
+    }
+    const auditRecord = await auditQuery;
     if (!auditRecord) {
         return {
             valid: false,
-            reason: `Referenced AuditLog record '${approvalReference}' does not exist in database.`
+            reason: `Referenced AuditLog record '${effectiveAuditLogId}' does not exist in database.`
         };
     }
 
@@ -981,21 +1110,28 @@ AuthoritySourceSettingsSchema.statics.recordMakerCheckerApproval = async functio
     submitterId,
     approverId,
     reviewerId,
-    approvalReference
+    approvalReference,
+    makerCheckerAuditLogId,
+    auditLogId,
+    session
 }) {
-    let setting = await this.findOne({ tenantId, authorityCode });
+    let setting = await this.findOne({ tenantId, authorityCode }).setOptions(session ? { session } : {});
     if (!setting) {
         throw new Error(`SETTINGS_NOT_FOUND: Authority source settings not found for ${authorityCode}`);
     }
+
+    const effectiveAuditLogId = makerCheckerAuditLogId || auditLogId || (mongoose.isValidObjectId(approvalReference) ? approvalReference : null);
 
     const userCheck = await this.verifyMakerCheckerUsers({
         submitterId,
         approverId,
         reviewerId,
-        approvalReference,
+        approvalReference: approvalReference || effectiveAuditLogId,
+        makerCheckerAuditLogId: effectiveAuditLogId,
         authorityCode,
         tenantId,
-        settingsId: setting._id
+        settingsId: setting._id,
+        session
     });
 
     if (!userCheck.valid) {
@@ -1015,7 +1151,15 @@ AuthoritySourceSettingsSchema.statics.recordMakerCheckerApproval = async functio
     // Do not represent an application-generated 365-day value as a government approval or authority permit expiry
     setting.approvalExpiryDate = null;
     setting.internalReviewExpiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    setting.approvalReference = String(approvalReference);
+
+    if (effectiveAuditLogId) {
+        setting.makerCheckerAuditLogId = effectiveAuditLogId;
+    }
+    if (approvalReference) {
+        setting.approvalReference = String(approvalReference);
+    } else if (effectiveAuditLogId && !setting.approvalReference) {
+        setting.approvalReference = String(effectiveAuditLogId);
+    }
 
     // CRITICAL: Internal maker-checker approval MUST NEVER be converted into
     // external contract evidence or commercial-use authorization.
@@ -1027,6 +1171,9 @@ AuthoritySourceSettingsSchema.statics.recordMakerCheckerApproval = async functio
         setting.identityRequirements.verified = false;
     }
 
+    if (session) {
+        setting.$session(session);
+    }
     await setting.save();
     return setting;
 };
@@ -1180,11 +1327,15 @@ export function checkActivationEligibility(doc = {}) {
     if (doc.submittedBy && doc.reviewedBy && String(doc.submittedBy) === String(doc.reviewedBy) && doc.reviewStatus === 'APPROVED') {
         blockers.push({ code: 'SELF_APPROVAL_PROHIBITED', message: 'Self-review is prohibited' });
     }
+    if (doc.approvedBy && doc.reviewedBy && String(doc.approvedBy) === String(doc.reviewedBy) && doc.reviewStatus === 'APPROVED') {
+        blockers.push({ code: 'SELF_APPROVAL_PROHIBITED', message: 'Approver and reviewer must be distinct authenticated users' });
+    }
     if (isOwnerAttested && doc.reviewStatus === 'APPROVED') {
         if (!doc.submittedBy || !doc.approvedBy || !doc.reviewedBy) {
             blockers.push({ code: 'MAKER_CHECKER_INCOMPLETE', message: 'Independent maker-checker review required: submitter, approver, and reviewer must all be present.' });
         }
         const hasApprovalOrAuditRef = Boolean(
+            (doc.makerCheckerAuditLogId) ||
             (doc.approvalReference && String(doc.approvalReference).trim()) ||
             (doc.contractEvidenceReference && String(doc.contractEvidenceReference).trim()) ||
             (doc.ownerAttestation?.scope)

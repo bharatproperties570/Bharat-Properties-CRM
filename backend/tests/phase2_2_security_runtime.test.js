@@ -830,7 +830,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
 
         it('4.7 applyApprovedChanges applies legitimate allowed fields and creates durable audit', async () => {
             try {
-                await AuthoritySourceSettings.findOneAndUpdate(
+                await AuthoritySourceSettings.collection.updateOne(
                     { tenantId: tenantA, authorityCode: 'HSVP' },
                     {
                         $set: {

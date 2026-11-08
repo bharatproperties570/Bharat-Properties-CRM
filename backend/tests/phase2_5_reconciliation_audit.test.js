@@ -424,7 +424,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
         let snapA;
 
         beforeEach(async () => {
-            await AuthoritySourceSettings.findOneAndUpdate(
+            await AuthoritySourceSettings.collection.updateOne(
                 { tenantId: tenantA, authorityCode: 'HSVP' },
                 {
                     $set: {

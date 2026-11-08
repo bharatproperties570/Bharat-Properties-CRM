@@ -327,7 +327,7 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
     });
 
     await t.test('13. Controller applyApprovedChanges — Populates verificationSnapshotId AND rawSnapshotHash', async () => {
-        await AuthoritySourceSettings.findOneAndUpdate(
+        await AuthoritySourceSettings.collection.updateOne(
             { tenantId, authorityCode: 'HSVP' },
             {
                 $set: {

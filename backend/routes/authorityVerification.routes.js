@@ -6,6 +6,7 @@ import {
     getSourceSettingByCode,
     updateSourceSettings,
     submitSourceApproval,
+    recordSourceApprover,
     reviewSourceApproval,
     getLinksForInventory,
     createOrUpdateLink,
@@ -57,11 +58,16 @@ router.post('/settings/:authorityCode/submit-approval',
     checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
     submitSourceApproval
 );
+// Record authority authorization approval (maker-checker approver stage)
+router.post('/settings/:authorityCode/record-approval',
+    checkPermission('authorityVerification', 'edit', { skipCache: true }),
+    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
+    recordSourceApprover
+);
 // Review authority authorization (independent maker-checker)
 router.post('/settings/:authorityCode/review-approval',
     checkPermission('authorityVerification', 'edit', { skipCache: true }),
-    // checkApprovalRight('manageAuthoritySettings')
-    checkApprovalRight('manageAuthoritySettings', { skipCache: true }),
+    checkApprovalRight('approveAuthorityChanges', { skipCache: true }),
     reviewSourceApproval
 );
 
