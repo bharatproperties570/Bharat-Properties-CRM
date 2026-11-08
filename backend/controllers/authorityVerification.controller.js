@@ -68,11 +68,12 @@ export function getQuotaProvider(req = null) {
 }
 
 function auditEvent(eventType, userId, targetType, targetId, description, metadata = {}, options = {}) {
+    const targetName = metadata.targetName || metadata.authorityCode || null;
     return AuditLog.logEntityUpdate(
         eventType,
         targetType,
         targetId,
-        null,
+        targetName,
         userId,
         metadata,
         description,
@@ -626,10 +627,15 @@ export const reviewSourceApproval = async (req, res) => {
                 updatedSetting._id,
                 `Authority source authorization APPROVED for ${authorityCode}`,
                 {
+                    tenantId,
                     authorityCode,
+                    targetName: authorityCode,
                     decision: 'APPROVED',
                     submittedBy: setting.submittedBy,
-                    approvedBy: req.user._id,
+                    approvedBy: setting.approvedBy || req.user._id,
+                    approverId: setting.approvedBy || req.user._id,
+                    reviewedBy: req.user._id,
+                    reviewerId: req.user._id,
                     evidenceVersion: expectedVer,
                     identityVerified: true,
                     identityContractAttestation: attestationData,
