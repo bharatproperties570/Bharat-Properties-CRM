@@ -150,16 +150,16 @@ const SocialPostModal = ({
 
   useEffect(() => {
     if (initialData) {
-      // 🛡️ Ensure clean, human-readable location — strictly filter out raw 24-character hex ObjectIds
-      const cleanLoc = (initialData.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
-        ? String(initialData.location).trim()
-        : (initialData.locationSearch && !/^[0-9a-fA-F]{24}$/.test(String(initialData.locationSearch).trim()))
-          ? String(initialData.locationSearch).trim()
-          : 'Kurukshetra, Haryana';
+      // 🛡️ Ensure clean, human-readable location — strictly filter out raw 24-character hex ObjectIds, null, undefined
+      const rawLocStr = String(initialData.location || initialData.locationSearch || '').trim();
+      const isInvalidLoc = !rawLocStr || rawLocStr === 'null' || rawLocStr === 'undefined' || /^[0-9a-fA-F]{24}$/.test(rawLocStr);
+      const cleanLoc = !isInvalidLoc ? rawLocStr : (initialData.city && initialData.city !== 'null' ? String(initialData.city).trim() : 'Kurukshetra, Haryana');
 
       if (initialData.text) {
-        // Sanitize any accidental embedded hex ObjectIds
-        const sanitized = initialData.text.replace(/📍 Location: [0-9a-fA-F]{24}/g, `📍 Location: ${cleanLoc}`);
+        // Sanitize any accidental embedded hex ObjectIds or null / undefined in text
+        const sanitized = initialData.text
+          .replace(/📍 Location: [0-9a-fA-F]{24}/g, `📍 Location: ${cleanLoc}`)
+          .replace(/📍 Location: (null|undefined)/g, `📍 Location: ${cleanLoc}`);
         setContent(sanitized);
       } else {
         const defaultText = `🏠 ${initialData.name || initialData.title || initialData.unitNo || 'New Property Alert'}\n📍 Location: ${cleanLoc}\n💰 Price: ${initialData.price || 'Price on Request'}\n\n${initialData.description || 'Explore this prime real estate opportunity with Bharat Properties!'}`;
