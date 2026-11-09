@@ -34,9 +34,8 @@ export function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
     if (isHexObjectId(text) || isIsoDate(text) || isUuid(text) || isHexDigest(text)) return text;
 
-    // Mask emails: completely minimize to [EMAIL_MINIMIZED]
-    let masked = text.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_MINIMIZED]');
-    masked = masked.replace(/[a-zA-Z0-9._%+-]\*{3}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_MINIMIZED]');
+    // Mask emails: leave first char, mask middle, keep domain
+    let masked = text.replace(/([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '$1***$2');
 
     // Mask Indian PAN card format (5 letters, 4 digits, 1 letter)
     masked = masked.replace(/\b[a-zA-Z]{5}[0-9]{4}[a-zA-Z]\b/g, '[PAN_MINIMIZED]');
@@ -1572,7 +1571,9 @@ export function sanitizeAuditDocument(doc, targetEventContext = null) {
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
             }
-            const maskedDesc = maskScalarPII(raw.description);
+            let maskedDesc = maskScalarPII(raw.description);
+            maskedDesc = maskedDesc.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_MINIMIZED]');
+            maskedDesc = maskedDesc.replace(/[a-zA-Z0-9._%+-]\*{3}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_MINIMIZED]');
             raw.description = maskedDesc;
             if (doc._doc) doc.description = maskedDesc;
         }

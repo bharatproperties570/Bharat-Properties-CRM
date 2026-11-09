@@ -31,7 +31,7 @@ import {
 } from '../services/authority/portal/canonicalPolicyService.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
 import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
-import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings, registerVerifiedEphemeralTestDatabase } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
@@ -798,6 +798,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
 
         if (!mongoServer) {
             mongoServer = await MongoMemoryServer.create();
+            registerVerifiedEphemeralTestDatabase(mongoServer);
             const uri = mongoServer.getUri();
             if (mongoose.connection.readyState !== 0) {
                 await mongoose.disconnect();
@@ -1214,6 +1215,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
 
         if (!mongoServer) {
             mongoServer = await MongoMemoryServer.create();
+            registerVerifiedEphemeralTestDatabase(mongoServer);
             const uri = mongoServer.getUri();
             if (mongoose.connection.readyState !== 0) {
                 await mongoose.disconnect();
@@ -1746,6 +1748,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
 
         if (!mongoServer) {
             mongoServer = await MongoMemoryServer.create();
+            registerVerifiedEphemeralTestDatabase(mongoServer);
             const uri = mongoServer.getUri();
             if (mongoose.connection.readyState !== 0) {
                 await mongoose.disconnect();
