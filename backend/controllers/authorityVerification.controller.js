@@ -1408,9 +1408,9 @@ export const rotateCanonicalPolicy = async (req, res) => {
                 newContentHash: savedDoc.contentHash,
                 policyReference: savedDoc.policyReference,
                 reviewerId: String(reviewerUser._id),
-                reviewerName: reviewerUser.fullName || reviewerUser.name || 'Reviewer',
+                reviewerName: (reviewerUser.username && /^[A-Z0-9_]{3,40}$/.test(reviewerUser.username)) ? reviewerUser.username : String(reviewerUser._id),
                 approverId: String(approverUser._id),
-                approverName: approverUser.fullName || approverUser.name || 'Approver',
+                approverName: (approverUser.username && /^[A-Z0-9_]{3,40}$/.test(approverUser.username)) ? approverUser.username : String(approverUser._id),
                 minIntervalMs: savedDoc.minIntervalMs,
                 maxRequestsPerMinute: savedDoc.maxRequestsPerMinute,
                 maxRequestsPerHour: savedDoc.maxRequestsPerHour,
@@ -3792,12 +3792,12 @@ export const compensateApplySaga = async ({
             if (targetAuditId) {
                 try {
                     await AuditLog.updateOne(
-                        { _id: targetAuditId },
+                        { _id: targetAuditId, eventType: 'authority_changes_applied' },
                         {
                             $set: {
                                 status: 'compensated',
                                 'metadata.compensated': true,
-                                'metadata.compensationClaimId': claimId ? claimId.toString() : null
+                                'metadata.compensationClaimId': claimId ? claimId.toString() : (targetAuditId ? targetAuditId.toString() : 'compensation_claim_id')
                             }
                         },
                         session ? { session } : {}
