@@ -494,7 +494,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -523,7 +524,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -557,7 +559,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -592,7 +595,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -626,7 +630,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
