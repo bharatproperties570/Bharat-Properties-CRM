@@ -116,12 +116,15 @@ async function startServer() {
         const { default: automationWorker } = await import("../services/automationQueue/automationWorker.js");
         const { baileysWorker, baileysInboundWorker } = await import("../services/baileysQueue/baileysWorker.js");
         const { default: autoVerificationDispatcher } = await import("../services/intakeVerification/AutoVerificationDispatcher.js");
+        const { importWorker } = await import("./workers/importWorker.js");
+        const { exportWorker } = await import("./workers/exportWorker.js");
 
         const activeWorkers = [
             enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,
             distributionWorker, domainEventWorker, notificationWorker,
             intakeWorker, automationWorker, baileysWorker, baileysInboundWorker,
-            autoVerificationDispatcher._worker
+            autoVerificationDispatcher._worker,
+            importWorker, exportWorker
         ].filter(Boolean);
 
         const { outboxPublisher } = await import("../services/OutboxPublisher.js");
@@ -134,6 +137,7 @@ async function startServer() {
             cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
             cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
             cronQueue.add('recoverSiteVisitDispatches', {}, { repeat: { pattern: '* * * * *' } }).catch(() => {});
+            cronQueue.add('autonomousMarketingCycle', {}, { repeat: { pattern: '0 8 * * *' } }).catch(() => {});
             googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
         } catch (queueErr) {}
 

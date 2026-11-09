@@ -548,6 +548,14 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         return recoveryResult;
     }
 
+    if (job.name === 'autonomousMarketingCycle') {
+        console.log('[Cron Worker] Executing autonomousMarketingCycle...');
+        const { default: marketingService } = await import('../../services/MarketingService.js');
+        const result = await marketingService.runAutonomousMarketingCycle();
+        console.log('[Cron Worker] autonomousMarketingCycle completed:', result?.pillar || 'Done');
+        return result;
+    }
+
 }, workerOptions);
 
 cronWorker.on('failed', async (job, err) => {

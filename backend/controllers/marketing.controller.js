@@ -509,18 +509,34 @@ export const runMarketingAgent = async (req, res) => {
 
 export const generateWithModel = async (req, res) => {
     try {
-        const { agentName, provider, model, prompt, systemPrompt, context } = req.body;
-        if (!prompt) return res.status(400).json({ success: false, error: 'prompt is required' });
+        const { agentName, provider, model, prompt, systemPrompt, context, agentId } = req.body;
+        
+        // If prompt is missing, dynamically craft rich enterprise prompt based on agentId/agentName
+        let resolvedPrompt = prompt;
+        if (!resolvedPrompt) {
+            const targetId = (agentId || agentName || 'social').toLowerCase();
+            if (targetId.includes('metric')) {
+                resolvedPrompt = `Analyze the current real estate marketing performance and lead conversion velocity for Bharat Properties Kurukshetra. Provide clear metrics, engagement trends across Reels/Posts, and 5 actionable growth recommendations for the next 7 days based on the provided CRM context.`;
+            } else if (targetId.includes('social') || targetId.includes('content')) {
+                resolvedPrompt = `Generate a high-converting weekly social media content strategy for Bharat Properties across 4 content pillars: 80% Project Deals, 10% Educational, 7% Trust & Social Proof, and 3% Festivals. Detail daily platform, time, post hook, and hashtags for Instagram, Facebook, and WhatsApp.`;
+            } else if (targetId.includes('designer') || targetId.includes('visual')) {
+                resolvedPrompt = `Generate 2 photorealistic architectural visual prompts (DALL-E 3 / Flux) and 1 drone reel concept for prime luxury real estate in Kurukshetra. Incorporate Bharat Properties brand aesthetic: Deep Navy Blue (#1a2744), Warm Gold (#C9921A), and clear sky / golden hour lighting.`;
+            } else if (targetId.includes('schedul')) {
+                resolvedPrompt = `Formulate an optimal BullMQ multi-platform publishing schedule for Bharat Properties. Determine peak engagement windows (Instagram 7:00-8:30 PM, WhatsApp 9:00 AM & 6:00 PM, Facebook morning) and explain how anti-spam frequency capping and 14-day anti-cannibalization rules protect reach.`;
+            } else {
+                resolvedPrompt = `Provide strategic real estate marketing analysis and actionable execution steps for Bharat Properties based on the CRM context.`;
+            }
+        }
 
         const userPrompt = context && Object.keys(context).length > 0
-            ? `${prompt}\n\nContext Data:\n${JSON.stringify(context, null, 2)}`
-            : prompt;
+            ? `${resolvedPrompt}\n\nCRM Context Data:\n${JSON.stringify(context, null, 2)}`
+            : resolvedPrompt;
 
         // Use UnifiedAIService with central AI Governance capability
         const result = await unifiedAIService.generate(userPrompt, {
             provider: provider || 'google',
             model: model,
-            systemPrompt: systemPrompt,
+            systemPrompt: systemPrompt || 'You are an enterprise AI marketing director for Bharat Properties, the premier real estate agency in Kurukshetra & North India. Provide authoritative, data-backed, highly professional strategies.',
             capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION
         });
 
@@ -2776,5 +2792,39 @@ export const retryFailedBroadcastRecipients = async (req, res) => {
         console.error('[retryFailedBroadcastRecipients] Error:', err);
         const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONCURRENT') ? 409 : 400);
         return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * ── 🧠 AUTONOMOUS MARKETING OS CONTROLLERS ──────────────────────────────────────
+ */
+
+export const triggerAutonomousCycle = async (req, res) => {
+    try {
+        const options = req.body || {};
+        const result = await marketingService.runAutonomousMarketingCycle(options);
+        res.json(result);
+    } catch (error) {
+        console.error('[MarketingController] triggerAutonomousCycle Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getAutopilotConfig = async (req, res) => {
+    try {
+        const config = await marketingService.getAutopilotConfig();
+        res.json({ success: true, config });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const saveAutopilotConfig = async (req, res) => {
+    try {
+        const { config } = req.body;
+        const result = await marketingService.saveAutopilotConfig(config || {});
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };

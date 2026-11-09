@@ -41,7 +41,10 @@ import {
     savePortalConfig,
     testPortalConnection,
     syndicateToPortals,
-    generateVisualAsset
+    generateVisualAsset,
+    triggerAutonomousCycle,
+    getAutopilotConfig,
+    saveAutopilotConfig
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -128,6 +131,11 @@ router.post('/linkedin/sync-leads',  triggerLeadSync);
 // ── Orchestration & Scheduling Monitor ────────────────────────────────────────
 router.get('/scheduled', getScheduledCampaigns);
 router.delete('/scheduled/:id', deleteScheduledCampaign);
+
+// ── Autonomous Marketing OS Autopilot ─────────────────────────────────────────
+router.post('/autonomous-cycle', triggerAutonomousCycle);
+router.get('/autopilot-config', getAutopilotConfig);
+router.post('/autopilot-config', saveAutopilotConfig);
 
 export default router;
 
