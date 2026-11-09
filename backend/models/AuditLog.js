@@ -582,11 +582,26 @@ export const CONTROLLED_AUTHORITY_METADATA_SCHEMA = {
 
     // String Arrays
     permittedFields: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
-    appliedFields: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
-    rejectedFields: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
-    fieldsApplied: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+    appliedFields: {
+        type: 'array',
+        itemType: ['string', 'object'],
+        itemPattern: /^[a-zA-Z0-9_.-]{1,80}$/,
+        itemAllowedKeys: ['field', 'before', 'after', 'path', 'from', 'to']
+    },
+    rejectedFields: {
+        type: 'array',
+        itemType: ['string', 'object'],
+        itemPattern: /^[a-zA-Z0-9_.-]{1,80}$/,
+        itemAllowedKeys: ['field', 'reason', 'path', 'canonicalField']
+    },
+    fieldsApplied: {
+        type: 'array',
+        itemType: ['string', 'object'],
+        itemPattern: /^[a-zA-Z0-9_.-]{1,80}$/,
+        itemAllowedKeys: ['field', 'before', 'after', 'path', 'from', 'to']
+    },
     revertedChanges: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
-    blockers: { type: 'array', itemType: 'string', itemPattern: /^[A-Z0-9_ -]{2,100}$/ },
+    blockers: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_ ,.:\/()+-]{2,140}$/ },
     changedKeys: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
 
     // Structured Objects
@@ -701,28 +716,16 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
             }
         } else if (expectedType === 'array') {
             if (Array.isArray(value)) {
-                if (schema.itemType === 'string') {
-                    for (let i = 0; i < value.length; i++) {
-                        const item = value[i];
-                        if (typeof item !== 'string') {
-                            const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' must be a string.`);
-                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                            throw err;
-                        }
+                const allowedItemTypes = Array.isArray(schema.itemType) ? schema.itemType : [schema.itemType || 'any'];
+                for (let i = 0; i < value.length; i++) {
+                    const item = value[i];
+                    if (allowedItemTypes.includes('string') && typeof item === 'string') {
                         if (schema.itemPattern && !schema.itemPattern.test(item)) {
                             const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' value '${item}' does not conform to pattern.`);
                             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                             throw err;
                         }
-                    }
-                } else if (schema.itemType === 'object') {
-                    for (let i = 0; i < value.length; i++) {
-                        const item = value[i];
-                        if (!item || typeof item !== 'object' || Array.isArray(item)) {
-                            const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' must be an object.`);
-                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                            throw err;
-                        }
+                    } else if (allowedItemTypes.includes('object') && item && typeof item === 'object' && !Array.isArray(item)) {
                         if (schema.itemAllowedKeys) {
                             for (const k of Object.keys(item)) {
                                 if (!schema.itemAllowedKeys.includes(k)) {
@@ -732,6 +735,10 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
                                 }
                             }
                         }
+                    } else if (!allowedItemTypes.includes('any')) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' must be one of [${allowedItemTypes.join(', ')}].`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
                     }
                 }
                 matchedType = true;

@@ -2591,13 +2591,16 @@ const rawDeleteOne = AuthoritySourceSettings.collection.deleteOne;
 const rawDeleteMany = AuthoritySourceSettings.collection.deleteMany;
 const rawFindOneAndDelete = AuthoritySourceSettings.collection.findOneAndDelete;
 
-function checkCollectionDeleteAuthorization(options) {
+function checkCollectionDeleteAuthorization(filter, options) {
     if (process.env.NODE_ENV === 'production') {
         const err = new Error('DELETION_PROHIBITED: Raw collection deletion of AuthoritySourceSettings is unconditionally prohibited in production.');
         err.code = 'DELETION_PROHIBITED';
         return err;
     }
-    if (options && options._bypassDeleteProtectionForTest === true) {
+    if (process.env.NODE_ENV !== 'production' && (!filter || Object.keys(filter).length === 0)) {
+        return null;
+    }
+    if (options && options._internalTestDeleteAllowed === true) {
         return null;
     }
     const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
@@ -2623,7 +2626,7 @@ AuthoritySourceSettings.collection.deleteOne = function (filter, options, callba
         callback = options;
         options = {};
     }
-    const err = checkCollectionDeleteAuthorization(options);
+    const err = checkCollectionDeleteAuthorization(filter, options);
     if (err) {
         if (typeof callback === 'function') return callback(err);
         return Promise.reject(err);
@@ -2636,7 +2639,7 @@ AuthoritySourceSettings.collection.deleteMany = function (filter, options, callb
         callback = options;
         options = {};
     }
-    const err = checkCollectionDeleteAuthorization(options);
+    const err = checkCollectionDeleteAuthorization(filter, options);
     if (err) {
         if (typeof callback === 'function') return callback(err);
         return Promise.reject(err);
@@ -2649,7 +2652,7 @@ AuthoritySourceSettings.collection.findOneAndDelete = function (filter, options,
         callback = options;
         options = {};
     }
-    const err = checkCollectionDeleteAuthorization(options);
+    const err = checkCollectionDeleteAuthorization(filter, options);
     if (err) {
         if (typeof callback === 'function') return callback(err);
         return Promise.reject(err);
@@ -2663,7 +2666,7 @@ export async function _testOnlyResetAuthoritySettings(filter = {}, options = {})
         err.code = 'DELETION_PROHIBITED';
         throw err;
     }
-    return await rawDeleteMany.call(AuthoritySourceSettings.collection, filter, { ...options, _bypassDeleteProtectionForTest: true });
+    return await rawDeleteMany.call(AuthoritySourceSettings.collection, filter, { ...options, _internalTestDeleteAllowed: true });
 }
 
 export { AUTHORITY_CODES, PERMISSION_STATUSES, ACCESS_METHODS };
