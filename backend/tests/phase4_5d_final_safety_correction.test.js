@@ -1,3 +1,5 @@
+process.env.NODE_ENV = 'test';
+
 /**
  * ============================================================================
  *  BHARAT PROPERTIES CRM — PHASE 4.5-D FINAL SAFETY CORRECTION TEST SUITE
@@ -47,7 +49,11 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
+} from '../models/AuthoritySourceSettings.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import Inventory from '../models/Inventory.js';
@@ -99,10 +105,14 @@ test.before(async () => {
         }
     });
     await mongoose.connect(mongod.getUri());
+    registerVerifiedEphemeralTestDatabase(mongod);
     testTenantId = CANONICAL_ORGANIZATION_ID;
 });
 
 test.after(async () => {
+    if (mongod) {
+        unregisterVerifiedEphemeralTestDatabase(mongod);
+    }
     if (mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
     }
@@ -127,7 +137,7 @@ test('P0 Safety: verifyDatabaseEnvironmentSafety rejects execution in production
         assert.strictEqual(result.code, 'PRODUCTION_ENVIRONMENT_DETECTED');
         assert.ok(result.reason.includes('Production environment detected'));
     } finally {
-        process.env.NODE_ENV = origNodeEnv;
+        process.env.NODE_ENV = origNodeEnv || 'test';
     }
 });
 
@@ -176,7 +186,7 @@ test('P0 Safety: Live smoke test aborts fail-closed on production environment wi
         assert.strictEqual(res.persistenceSurvival.status, 'BLOCKED_DATABASE_ENVIRONMENT_NOT_VERIFIED');
         assert.strictEqual(res.persistenceSurvival.stepsExecuted, 0);
     } finally {
-        process.env.NODE_ENV = origNodeEnv;
+        process.env.NODE_ENV = origNodeEnv || 'test';
     }
 });
 

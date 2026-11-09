@@ -772,7 +772,10 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
                 description: 'Authority changes applied for property prop_123',
                 status: 'success',
                 targetType: 'authority_settings',
-                targetId: new mongoose.Types.ObjectId()
+                targetId: new mongoose.Types.ObjectId(),
+                metadata: {
+                    claimId: 'claim_recovery_101'
+                }
             });
 
             // Attempting to update a non-status field fails

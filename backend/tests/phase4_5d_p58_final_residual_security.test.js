@@ -9,7 +9,9 @@ import AuthoritySourceSettings, {
     checkActivationEligibility,
     checkInternalMakerCheckerReviewEligibility,
     INTERNAL_WORKFLOW_OPTION,
-    _testOnlyResetAuthoritySettings
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
 } from '../models/AuthoritySourceSettings.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
@@ -64,6 +66,7 @@ test.before(async () => {
     });
     const uri = replSet.getUri('phase45d_p58_final_residual_security_test');
     await mongoose.connect(uri);
+    registerVerifiedEphemeralTestDatabase(replSet);
 
     // Pre-create collections for transaction safety
     await User.createCollection();
@@ -171,6 +174,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
+    if (replSet) {
+        unregisterVerifiedEphemeralTestDatabase(replSet);
+    }
     if (mongoose.connection && mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
     }
@@ -962,7 +968,7 @@ test('Area 12.1: Free-text containing raw citizen PII is rejected; minimized pla
     );
 
     // 2. Controlled minimized placeholder description with controlled metadata succeeds
-    const minimizedDescription = '[PII_MINIMIZED] with PAN [PAN_MINIMIZED], Aadhaar [AADHAAR_MINIMIZED], phone [PHONE_MINIMIZED], email rahul@example.com living at [ADDRESS_MINIMIZED]';
+    const minimizedDescription = '[PII_MINIMIZED] with PAN [PAN_MINIMIZED], Aadhaar [AADHAAR_MINIMIZED], phone [PHONE_MINIMIZED], email [EMAIL_MINIMIZED] living at [ADDRESS_MINIMIZED]';
     const audit = await AuditLog.create({
         eventType: 'authority_source_approval_reviewed',
         targetType: 'authority_settings',
@@ -983,7 +989,7 @@ test('Area 12.1: Free-text containing raw citizen PII is rejected; minimized pla
     assert.ok(retrieved.description.includes('[AADHAAR_MINIMIZED]'));
     assert.ok(retrieved.description.includes('[PHONE_MINIMIZED]'));
     assert.ok(retrieved.description.includes('[ADDRESS_MINIMIZED]'));
-    assert.ok(retrieved.description.includes('r***@example.com'));
+    assert.ok(retrieved.description.includes('[EMAIL_MINIMIZED]'));
 });
 
 // ============================================================

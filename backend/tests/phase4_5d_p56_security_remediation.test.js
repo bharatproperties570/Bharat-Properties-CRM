@@ -5,7 +5,11 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
-import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
+} from '../models/AuthoritySourceSettings.js';
 import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
@@ -54,6 +58,7 @@ test.before(async () => {
     });
     const uri = replSet.getUri('phase45d_p56_remediation_test');
     await mongoose.connect(uri);
+    registerVerifiedEphemeralTestDatabase(replSet);
 
     // Pre-create collections for transaction safety
     await User.createCollection();
@@ -156,6 +161,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
+    if (replSet) {
+        unregisterVerifiedEphemeralTestDatabase(replSet);
+    }
     if (mongoose.connection && mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
     }
