@@ -8,6 +8,7 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
 import axios from 'axios';
+import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
 
 /**
  * PublishService.js
@@ -34,9 +35,14 @@ class PublishService {
             portals: null
         };
 
-        // 1. Prepare Masked Content for Privacy
+        // 1. Prepare Masked Content for Privacy & Server-Side Compliance
         const processedData = this._applyPrivacyMasking(data, privacy);
-        const postText = this._generateCaption(processedData, itemType, privacy);
+        const rawPostText = this._generateCaption(processedData, itemType, privacy);
+        const { sanitizedText: postText } = marketingComplianceEnforcementService.enforceCompliance(
+            rawPostText,
+            data,
+            'facebook'
+        );
 
         // 2. Distribute to Social Platforms
         const tasks = [];

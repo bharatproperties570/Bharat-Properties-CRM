@@ -164,6 +164,7 @@ jobs:
         run: |
           cd backend
           npm run test:marketing-studio
+          npm run test:social-compliance
 
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |

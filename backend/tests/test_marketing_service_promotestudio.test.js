@@ -308,12 +308,14 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     });
 
     // ─────────────────────────────────────────────────────────────
-    // RERA REQUIREMENT 13: Valid explicitly approved registration -> VERIFIED
+    // RERA REQUIREMENT 13: Valid explicitly approved registration with authoritative provenance -> VERIFIED
     // ─────────────────────────────────────────────────────────────
-    await t.test('RERA Requirement 13: Valid explicitly approved registration passes', async () => {
+    await t.test('RERA Requirement 13: Valid explicitly approved registration with authoritative provenance passes', async () => {
         const approvedDirect = {
             reraNumber: 'PBRERA-SAS80-PR0456',
-            reraStatus: 'APPROVED'
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            verificationSnapshotId: 'snap-rera-456'
         };
         assert.equal(hasAuthoritativeReraApproval(approvedDirect), true);
 
@@ -323,11 +325,28 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                     approvalAuthority: 'RERA',
                     registrationNo: 'HRERA-PKL-KUK-2024-88',
                     status: 'APPROVED',
-                    date: new Date()
+                    date: new Date(),
+                    source: 'GOVERNMENT_PORTAL',
+                    documentId: 'doc-hrera-88'
                 }
             ]
         };
         assert.equal(hasAuthoritativeReraApproval(approvedArray), true);
+
+        // Gate 4: Unprovenanced or manual registration without evidence must fail closed
+        const unprovenanced = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED'
+            // Missing source/provenance
+        };
+        assert.equal(hasAuthoritativeReraApproval(unprovenanced), false, 'Missing source provenance must fail closed');
+
+        const manualInput = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'MANUAL'
+        };
+        assert.equal(hasAuthoritativeReraApproval(manualInput), false, 'Manual source must fail closed');
     });
 
     // ─────────────────────────────────────────────────────────────

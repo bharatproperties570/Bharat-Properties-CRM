@@ -32,6 +32,35 @@ export const DISALLOWED_RERA_STATUSES = Object.freeze([
     'IN_PROCESS'
 ]);
 
+export const AUTHORITATIVE_RERA_SOURCES = Object.freeze([
+    'RERA_PORTAL',
+    'GOVERNMENT_PORTAL',
+    'OFFICIAL_REGISTRY',
+    'STATE_RERA',
+    'HARERA',
+    'PBRERA',
+    'HRERA',
+    'AUTHORITY_SYNC',
+    'DOCUMENT_VERIFIED',
+    'OFFICIAL'
+]);
+
+export const RECOGNIZED_FINANCIAL_INSTITUTIONS = Object.freeze([
+    'SBI', 'STATE BANK OF INDIA',
+    'HDFC', 'HDFC BANK',
+    'ICICI', 'ICICI BANK',
+    'AXIS', 'AXIS BANK',
+    'PNB', 'PUNJAB NATIONAL BANK',
+    'BANK OF BARODA', 'BOB',
+    'KOTAK', 'KOTAK MAHINDRA', 'KOTAK MAHINDRA BANK',
+    'CANARA BANK', 'UNION BANK', 'UNION BANK OF INDIA',
+    'LIC HOUSING FINANCE', 'LIC_HFL', 'LICHFL',
+    'PNB HOUSING FINANCE', 'PNB_HFL',
+    'BAJAJ HOUSING FINANCE', 'TATA CAPITAL',
+    'IDFC FIRST', 'IDFC FIRST BANK',
+    'INDUSIND BANK', 'YES BANK'
+]);
+
 export const CLEAN_LITIGATION_STATUSES = Object.freeze([
     'CLEAN',
     'NONE',
@@ -163,6 +192,30 @@ export function hasAuthoritativeTitleVerification(entity) {
 export const isAuthoritativelyVerified = hasAuthoritativeTitleVerification;
 
 /**
+ * Validates generic evidence reference string (sanction letter, document number, etc.)
+ */
+function isValidEvidenceReference(ref) {
+    if (!ref || typeof ref !== 'string') return false;
+    const s = ref.trim();
+    if (s.length < 3) return false;
+    if (['null', 'undefined', 'pending', 'applied', 'none', 'n/a', 'false', '0'].includes(s.toLowerCase())) return false;
+    return true;
+}
+
+/**
+ * Validates whether an institution name is a recognized financial institution.
+ * Strictly rejects generic placeholders: 'any bank', 'all banks', 'nationalized', 'bank finance', etc.
+ */
+function isRecognizedFinancialInstitution(rawName) {
+    if (!rawName || typeof rawName !== 'string') return false;
+    const norm = rawName.trim().toUpperCase();
+    if (['ANY BANK', 'ALL BANKS', 'ALL MAJOR BANKS', 'NATIONALIZED', 'PRIVATE', 'BANK FINANCE', 'LOAN', 'FINANCE', 'UNKNOWN', 'N/A', 'NONE'].includes(norm)) {
+        return false;
+    }
+    return RECOGNIZED_FINANCIAL_INSTITUTIONS.some(inst => norm === inst || norm.startsWith(`${inst} `) || norm.endsWith(` ${inst}`));
+}
+
+/**
  * Validates RERA registration reference string.
  */
 function isValidReraReference(ref) {
@@ -174,11 +227,54 @@ function isValidReraReference(ref) {
 }
 
 /**
+ * Validates whether an RERA record or approval entry has authoritative source provenance.
+ * A manually entered registration number and status without independent source record or verification
+ * metadata must NEVER be described as independently authority-verified.
+ */
+function hasReraProvenance(item, parentEntity = null) {
+    if (!item || typeof item !== 'object') return false;
+
+    // Explicit manual indicators immediately disqualify
+    const rawSource = String(item.source || item.sourceType || item.provenance?.source || parentEntity?.source || parentEntity?.provenance?.source || '').trim().toUpperCase();
+    if (['MANUAL', 'USER_INPUT', 'AGENT_INPUT', 'SELF_REPORTED'].includes(rawSource) || item.isManual === true || parentEntity?.isManual === true) {
+        return false;
+    }
+
+    // Check authoritative sources
+    if (AUTHORITATIVE_RERA_SOURCES.includes(rawSource)) {
+        return true;
+    }
+
+    // Check structural snapshot ID or verified document ID
+    const snapshotId = item.verificationSnapshotId || item.snapshotId || parentEntity?.reraVerificationSnapshotId;
+    if (isValidSnapshotId(snapshotId)) {
+        return true;
+    }
+
+    const docId = item.documentId || item.documentNumber || item.certificateUrl;
+    if (isValidEvidenceReference(docId)) {
+        return true;
+    }
+
+    // Check statutory authority link
+    const av = parentEntity?.authorityVerification || parentEntity?.inventory?.authorityVerification;
+    if (av && evaluateAuthoritativeEvidence(av)) {
+        return true;
+    }
+
+    if (item.verifiedByAuthority === true || item.isSourceVerified === true) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * 2. Authoritative RERA Compliance Contract
  * 
- * Requires a valid, explicitly approved registration status backed by source record.
+ * Requires a valid, explicitly approved registration status backed by authoritative source record/provenance.
  * The mere presence of an RERA ID or number must never imply approval.
- * If status is missing, pending, expired, rejected, under review, or unknown -> UNVERIFIED.
+ * If status is missing, pending, expired, rejected, under review, unknown, or lacks independent provenance -> UNVERIFIED.
  * 
  * @param {Object} entity - Deal, Inventory, or Project record
  * @returns {boolean}
@@ -198,7 +294,7 @@ export function hasAuthoritativeReraApproval(entity) {
     const regNumber = entity.reraNumber || entity.reraRegistrationNumber || entity.project?.reraNumber || entity.project?.reraRegistrationNumber || entity.reraId;
     const hasValidRegNumber = isValidReraReference(regNumber);
 
-    // Direct status must be explicitly approved AND have valid registration reference
+    // Direct status must be explicitly approved AND have valid registration reference AND authoritative provenance
     if (directStatus && APPROVED_RERA_STATUSES.includes(directStatus) && hasValidRegNumber) {
         // Check if expiry date is present
         const expiry = entity.reraValidUntil || entity.reraExpiryDate || entity.project?.reraValidUntil || entity.project?.reraExpiryDate;
@@ -208,7 +304,10 @@ export function hasAuthoritativeReraApproval(entity) {
                 return false; // Expired or malformed expiry date
             }
         }
-        return true;
+        // Gate 4: Require Authoritative Source Provenance
+        if (hasReraProvenance(entity, entity)) {
+            return true;
+        }
     }
 
     // Check project approvals array
@@ -250,7 +349,10 @@ export function hasAuthoritativeReraApproval(entity) {
             }
         }
 
-        return true;
+        // Gate 4: Require Authoritative Source Provenance
+        if (hasReraProvenance(a, entity)) {
+            return true;
+        }
     }
 
     return false;
@@ -260,41 +362,146 @@ export function hasAuthoritativeReraApproval(entity) {
  * 3. Authoritative Bank Loan Approval Contract
  * 
  * Requires verified bank approval evidence backed by recognized financial institution.
+ * Requires:
+ * - Identifiable supporting approval record (not generic boolean)
+ * - Recognized financial institution (e.g. SBI, HDFC, ICICI, AXIS, PNB, etc.)
+ * - Explicit approved status ('APPROVED', 'SANCTIONED', 'VALID')
+ * - Valid evidence/document reference (sanction letter number, approval ref >= 3 chars)
+ * - Non-expired validity
+ * 
+ * Generic booleans, bank names alone, loan eligibility, or loan assistance NEVER qualify.
  * 
  * @param {Object} entity
  * @returns {boolean}
  */
 export function hasAuthoritativeBankApproval(entity) {
     if (!entity || typeof entity !== 'object') return false;
-    const status = String(entity.bankApprovalStatus || entity.project?.bankApprovalStatus || '').trim().toUpperCase();
-    const bank = entity.approvedBank || entity.project?.approvedBank || entity.bankName;
-    return Boolean(status === 'APPROVED' && bank);
+
+    // Collect candidate bank approval records
+    const bankApprovalDocs = [];
+    if (entity.bankApproval && typeof entity.bankApproval === 'object') bankApprovalDocs.push(entity.bankApproval);
+    if (Array.isArray(entity.bankApprovals)) bankApprovalDocs.push(...entity.bankApprovals);
+    if (entity.project?.bankApproval && typeof entity.project.bankApproval === 'object') bankApprovalDocs.push(entity.project.bankApproval);
+    if (Array.isArray(entity.project?.bankApprovals)) bankApprovalDocs.push(...entity.project.bankApprovals);
+
+    // Also check approvals array for bank approval documents
+    const approvals = Array.isArray(entity.approvals) 
+        ? entity.approvals 
+        : (Array.isArray(entity.project?.approvals) ? entity.project.approvals : []);
+
+    for (const a of approvals) {
+        if (!a || typeof a !== 'object') continue;
+        const cat = String(a.category || a.documentType || a.approvalAuthority || '').trim().toUpperCase();
+        if (cat.includes('BANK') || cat.includes('LOAN') || cat.includes('MORTGAGE') || cat.includes('FINANCE')) {
+            bankApprovalDocs.push(a);
+        }
+    }
+
+    for (const doc of bankApprovalDocs) {
+        if (!doc || typeof doc !== 'object') continue;
+
+        const bankName = doc.bankName || doc.institution || doc.financialInstitution || doc.lender || doc.approvedBank;
+        if (!isRecognizedFinancialInstitution(bankName)) continue;
+
+        const status = String(doc.status || doc.approvalStatus || doc.sanctionStatus || '').trim().toUpperCase();
+        if (!['APPROVED', 'SANCTIONED', 'VALID'].includes(status)) continue;
+
+        const ref = doc.sanctionLetterNumber || doc.approvalRef || doc.documentNumber || doc.referenceNo || doc.documentId || doc.sanctionNo || doc.approvalNumber;
+        if (!isValidEvidenceReference(ref)) continue;
+
+        if (doc.expiryDate || doc.validUntil) {
+            const exp = new Date(doc.expiryDate || doc.validUntil);
+            if (isNaN(exp.getTime()) || exp.getTime() <= Date.now()) continue;
+        }
+
+        if (doc.sanctionDate || doc.approvalDate) {
+            const d = new Date(doc.sanctionDate || doc.approvalDate);
+            if (isNaN(d.getTime()) || d.getTime() > Date.now() + CLOCK_SKEW_TOLERANCE_MS) continue;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 /**
  * 4. Authoritative Ready Possession Contract
  * 
- * Requires verified ready possession evidence or past possession date with completion.
+ * Requires verified ready possession evidence or occupancy/completion certificate.
+ * - Consistent possession status (must not be UNDER_CONSTRUCTION, PLANNED, DELAYED, etc.)
+ * - Supporting completion/occupancy certificate evidence with valid reference and non-future issue date
+ * - Or statutory authority verified possession with fileNumber/snapshot evidence
+ * 
+ * Bare status strings, generic booleans, or past dates alone NEVER qualify.
  * 
  * @param {Object} entity
  * @returns {boolean}
  */
 export function hasAuthoritativeReadyPossession(entity) {
     if (!entity || typeof entity !== 'object') return false;
+
+    // Reject contradictory or under-construction status
+    const constStatus = String(entity.constructionStatus || entity.stage || entity.project?.constructionStatus || '').trim().toUpperCase();
+    if (['UNDER_CONSTRUCTION', 'PLANNED', 'DELAYED', 'PENDING'].includes(constStatus)) {
+        return false;
+    }
+    if (typeof entity.progressPercentage === 'number' && entity.progressPercentage < 100) {
+        return false;
+    }
+
     const posStatus = String(entity.possessionStatus || entity.authorityVerification?.possessionStatus || '').trim().toUpperCase();
-    if (['READY', 'READY_TO_MOVE', 'IMMEDIATE', 'COMPLETED'].includes(posStatus)) {
+    if (['UNDER_CONSTRUCTION', 'PLANNED', 'DELAYED', 'PENDING', 'FUTURE'].includes(posStatus)) {
+        return false;
+    }
+
+    // 1. Check Occupancy Certificate (OC) or Completion Certificate (CC)
+    const ocDocs = [];
+    if (entity.occupancyCertificate && typeof entity.occupancyCertificate === 'object') ocDocs.push(entity.occupancyCertificate);
+    if (entity.completionCertificate && typeof entity.completionCertificate === 'object') ocDocs.push(entity.completionCertificate);
+    if (entity.project?.occupancyCertificate && typeof entity.project.occupancyCertificate === 'object') ocDocs.push(entity.project.occupancyCertificate);
+    if (entity.project?.completionCertificate && typeof entity.project.completionCertificate === 'object') ocDocs.push(entity.project.completionCertificate);
+
+    const approvals = Array.isArray(entity.approvals) 
+        ? entity.approvals 
+        : (Array.isArray(entity.project?.approvals) ? entity.project.approvals : []);
+
+    for (const a of approvals) {
+        if (!a || typeof a !== 'object') continue;
+        const type = String(a.documentType || a.approvalAuthority || a.category || '').trim().toUpperCase();
+        if (['OC', 'CC', 'OCCUPANCY_CERTIFICATE', 'COMPLETION_CERTIFICATE', 'OCCUPANCY', 'COMPLETION'].includes(type)) {
+            ocDocs.push(a);
+        }
+    }
+
+    for (const doc of ocDocs) {
+        if (!doc || typeof doc !== 'object') continue;
+        const status = String(doc.status || doc.approvalStatus || 'APPROVED').trim().toUpperCase();
+        if (!['APPROVED', 'ISSUED', 'VALID', 'ACTIVE'].includes(status)) continue;
+
+        const ref = doc.certificateNumber || doc.documentNumber || doc.referenceNo || doc.registrationNo || doc.documentId;
+        if (!isValidEvidenceReference(ref)) continue;
+
+        if (doc.issueDate || doc.verifiedAt) {
+            const d = new Date(doc.issueDate || doc.verifiedAt);
+            if (isNaN(d.getTime()) || d.getTime() > Date.now() + CLOCK_SKEW_TOLERANCE_MS) continue;
+        }
+
         return true;
     }
-    if (entity.authorityVerification?.occupancyCertificate === true || entity.occupancyCertificate === true) {
-        return true;
-    }
-    const posDate = entity.possessionDate || entity.authorityVerification?.possessionDate;
-    if (posDate) {
-        const d = new Date(posDate);
-        if (!isNaN(d.getTime()) && d.getTime() <= Date.now() && posStatus !== 'UNDER_CONSTRUCTION') {
+
+    // 2. Check statutory authority verification with explicit OC or verified completed possession
+    const av = entity.authorityVerification || entity.inventory?.authorityVerification;
+    if (av && evaluateAuthoritativeEvidence(av)) {
+        if (av.occupancyCertificate === true && isValidEvidenceReference(av.occupancyCertificateRef || av.fileNumber || av.verificationSnapshotId?.toString())) {
+            return true;
+        }
+        if (['COMPLETED', 'READY'].includes(String(av.possessionStatus).trim().toUpperCase()) && isValidEvidenceReference(av.fileNumber || av.verificationSnapshotId?.toString())) {
             return true;
         }
     }
+
+    // Generic boolean, bare status string, or past date alone without OC/CC evidence must fail closed
     return false;
 }
 
@@ -432,16 +639,16 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
 
     // A. PROHIBITED INVESTMENT CLAIMS (Strictly prohibited regardless of verification status)
     const prohibitedGuarantees = [
-        /\bguaranteed\s+(returns?|yield|appreciation|growth|rental)\b/gi,
-        /\bproven\s+capital\s+appreciation\b/gi,
-        /\bstrong\s+rental\s+yield(\s+potential)?\b/gi,
-        /\b(high-yield|high\s+yield)\s+(investment|opportunity|asset|returns?)\b/gi,
-        /\b(high-yield|high\s+yield)\b/gi,
-        /\bassured\s+(returns?|appreciation|growth|rental)\b/gi,
-        /\brisk-free\s+(investment|asset)?\b/gi,
-        /\bzero\s+risk\s+(investment|asset)?\b/gi,
-        /\b100%\s+guaranteed\b/gi,
-        /\b100%\s+safe\s+investment\b/gi
+        /\b(guaranteed|assured|fixed|promised|committed)[\s\-_/]+(returns?|roi|yield|income|profit|growth|rental|appreciation)\b/gi,
+        /\b(returns?|roi|yield|income|rental)[\s\-_/]+(guarantee[d]?|assured|fixed)\b/gi,
+        /\b(proven|guaranteed|assured|exponential)[\s\-_/]+(capital[\s\-_/]+)?appreciation\b/gi,
+        /\bstrong[\s\-_/]+rental[\s\-_/]+yield([\s\-_/]+potential)?\b/gi,
+        /\b(high[\s\-_/]*yield)[\s\-_/]+(investment|opportunity|asset|returns?|property)?\b/gi,
+        /\b(high[\s\-_/]*yield)\b/gi,
+        /\b(risk[\s\-_/]*free|zero[\s\-_/]*risk|no[\s\-_/]*risk|100%[\s\-_/]*safe)[\s\-_/]+(investment|opportunity|asset|property)?\b/gi,
+        /\b(risk[\s\-_/]*free|zero[\s\-_/]*risk|no[\s\-_/]*risk)\b/gi,
+        /\b100%[\s\-_/]+(guaranteed|safe|secure)[\s\-_/]+(investment|returns?)?\b/gi,
+        /\b(doubl(e|ing)|tripl(e|ing))[\s\-_/]+(your[\s\-_/]+)?(money|investment|capital)\b/gi
     ];
 
     for (const pat of prohibitedGuarantees) {
@@ -449,22 +656,23 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     }
 
     // Replace "HIGH-YIELD INVESTMENT OPPORTUNITY"
-    sanitized = sanitized.replace(/\bHIGH-YIELD\s+INVESTMENT\s+OPPORTUNITY\b/gi, 'STRATEGIC PROPERTY OPPORTUNITY');
-    sanitized = sanitized.replace(/\bhigh-yield\s+investment\s+opportunity\b/gi, 'strategic property opportunity');
-    sanitized = sanitized.replace(/\bhigh-yield\s+(investment|asset)\b/gi, 'property asset');
+    sanitized = sanitized.replace(/\bHIGH[\s\-_/]*YIELD[\s\-_/]+INVESTMENT[\s\-_/]+OPPORTUNITY\b/gi, 'STRATEGIC PROPERTY OPPORTUNITY');
+    sanitized = sanitized.replace(/\bhigh[\s\-_/]*yield[\s\-_/]+investment[\s\-_/]+opportunity\b/gi, 'strategic property opportunity');
+    sanitized = sanitized.replace(/\bhigh[\s\-_/]*yield[\s\-_/]+(investment|asset)\b/gi, 'property asset');
 
     // B. TITLE & REGISTRY CLAIMS
     const titlePatterns = [
-        /\b100%\s+verified\s+(registry\s+)?title\s*(&\s*clear\s+registry)?\b/gi,
-        /\b100%\s+verified\s+registry\s+title\b/gi,
-        /\bverified\s+title\s*(&\s*clear\s+registry)?\b/gi,
-        /\bclear\s+registry\b/gi,
-        /\bclear\s+title\b/gi,
-        /\bclear\s+documentation\b/gi,
-        /\bdocumented\s+property\s*(&\s*clear\s+registry)?\b/gi,
-        /\bdocumented\s+property\b/gi,
-        /\btitle\s+guarantee[d]?\b/gi,
-        /\blegal\s+verification\s+guaranteed\b/gi
+        /\b100%[\s\-_/]*verified[\s\-_/]+(registry[\s\-_/]+)?title([\s\-_/]*&[\s\-_/]*clear[\s\-_/]+registry)?\b/gi,
+        /\b100%[\s\-_/]*verified[\s\-_/]+registry[\s\-_/]+title\b/gi,
+        /\bverified[\s\-_/]+title([\s\-_/]*&[\s\-_/]*clear[\s\-_/]+registry)?\b/gi,
+        /\bclear[\s\-_/]+registry\b/gi,
+        /\bclear[\s\-_/]+title\b/gi,
+        /\bclear[\s\-_/]+documentation\b/gi,
+        /\bdocumented[\s\-_/]+property([\s\-_/]*&[\s\-_/]*clear[\s\-_/]+registry)?\b/gi,
+        /\bdocumented[\s\-_/]+property\b/gi,
+        /\btitle[\s\-_/]+guarantee[d]?\b/gi,
+        /\blegal[\s\-_/]+verification[\s\-_/]+guaranteed\b/gi,
+        /\b(government|govt)[\s\-_/]+(approved|verified)[\s\-_/]+title\b/gi
     ];
 
     if (!facts?.isTitleVerified) {
@@ -474,15 +682,16 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
         }
     } else {
         // If title IS verified, permit "Verified Title", but sanitize unverified "Clear Registry", "Clear Documentation", "Documented Property"
-        sanitized = sanitized.replace(/\bclear\s+registry\b/gi, 'Authoritative Record');
-        sanitized = sanitized.replace(/\bclear\s+documentation\b/gi, 'Verified Documentation');
-        sanitized = sanitized.replace(/\bdocumented\s+property\b/gi, 'Verified Property');
+        sanitized = sanitized.replace(/\bclear[\s\-_/]+registry\b/gi, 'Authoritative Record');
+        sanitized = sanitized.replace(/\bclear[\s\-_/]+documentation\b/gi, 'Verified Documentation');
+        sanitized = sanitized.replace(/\bdocumented[\s\-_/]+property\b/gi, 'Verified Property');
     }
 
     // C. RERA COMPLIANCE CLAIMS
     const reraPatterns = [
-        /&\s*rera\s+(compliant|approved|registered|verified|guaranteed)/gi,
-        /\brera\s+(compliant|approved|registered|verified|guaranteed)\b/gi
+        /&[\s\-_/]*rera[\s\-_/]+(compliant|approved|registered|verified|guaranteed|certified)/gi,
+        /\brera[\s\-_/]+(compliant|approved|registered|verified|guaranteed|certified)\b/gi,
+        /\b(approved|compliant|registered|verified)[\s\-_/]+(by[\s\-_/]+)?rera\b/gi
     ];
 
     if (!facts?.isReraApproved) {
@@ -494,10 +703,10 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
 
     // D. BANK LOAN CLAIMS
     const loanPatterns = [
-        /\bbank\s+loan\s+approved\b/gi,
-        /\bbank\s+loan\s+approval\b/gi,
-        /\bpre-approved\s+loan[s]?\b/gi,
-        /\bloan\s+approved\b/gi
+        /\b(bank[\s\-_/]*loan|bank|home[\s\-_/]*loan|loan)[\s\-_/]+(approved|sanctioned|pre[\s\-_/]*approved)\b/gi,
+        /\b(approved|sanctioned)[\s\-_/]+(bank|home)?[\s\-_/]*loan[s]?\b/gi,
+        /\b100%[\s\-_/]+(bank[\s\-_/]+)?(finance|loan)[\s\-_/]+(available|approved)\b/gi,
+        /\bpre[\s\-_/]*approved[\s\-_/]+(bank[\s\-_/]+)?loan[s]?\b/gi
     ];
 
     if (!facts?.isBankApproved) {
@@ -508,9 +717,9 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
 
     // E. READY POSSESSION CLAIMS
     const possessionPatterns = [
-        /\bready\s+possession(\s+opportunity)?\b/gi,
-        /\bready\s+to\s+move\b/gi,
-        /\bimmediate\s+possession\b/gi
+        /\b(ready)[\s\-_/]+(possession|to[\s\-_/]+move)[\s\-_]*(opportunity)?\b/gi,
+        /\b(immediate)[\s\-_/]+(possession|handover)\b/gi,
+        /\bpossession[\s\-_/]+(ready|immediate|guaranteed)\b/gi
     ];
 
     if (!facts?.isReadyPossession) {
@@ -527,19 +736,29 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
                          .trim();
 
     // F. STRICT POST-SANITIZATION AUDIT PASS
-    // Check if any unsupported claim stubbornly remains
+    // Check if any prohibited or unsupported claim stubbornly remains
     let hasRemainingViolations = false;
     if (!facts?.isTitleVerified) {
-        if (/verified title|clear registry|clear documentation|documented property|verified registry/i.test(sanitized)) {
+        if (/verified[\s\-_/]+title|clear[\s\-_/]+registry|clear[\s\-_/]+documentation|documented[\s\-_/]+property|verified[\s\-_/]+registry/i.test(sanitized)) {
             hasRemainingViolations = true;
         }
     }
     if (!facts?.isReraApproved) {
-        if (/rera (compliant|approved|registered)/i.test(sanitized)) {
+        if (/rera[\s\-_/]+(compliant|approved|registered|verified|certified)/i.test(sanitized)) {
             hasRemainingViolations = true;
         }
     }
-    if (/guaranteed (returns?|yield|appreciation)|proven capital appreciation|strong rental yield|high-yield/i.test(sanitized)) {
+    if (!facts?.isBankApproved) {
+        if (/bank[\s\-_/]*loan[\s\-_/]+approved|approved[\s\-_/]+loan|pre[\s\-_/]*approved[\s\-_/]+loan/i.test(sanitized)) {
+            hasRemainingViolations = true;
+        }
+    }
+    if (!facts?.isReadyPossession) {
+        if (/ready[\s\-_/]+possession|immediate[\s\-_/]+possession|ready[\s\-_/]+to[\s\-_/]+move/i.test(sanitized)) {
+            hasRemainingViolations = true;
+        }
+    }
+    if (/guaranteed[\s\-_/]+(returns?|yield|appreciation|roi|rental)|assured[\s\-_/]+(returns?|roi|yield|growth)|risk[\s\-_/]*free|zero[\s\-_/]*risk|proven[\s\-_/]+capital[\s\-_/]+appreciation|strong[\s\-_/]+rental[\s\-_/]+yield|high[\s\-_/]*yield/i.test(sanitized)) {
         hasRemainingViolations = true;
     }
 

@@ -1206,6 +1206,12 @@ const processMarketingJob = async (job) => {
         const { platform, text, imageUrl, format, entityId, entityType } = data;
         await job.log(`Dispatching scheduled ${platform} post for ${entityType} ${entityId}`);
 
+        // 🛡️ Enterprise Worker Revalidation Gate:
+        // Re-evaluate canonical entity record at worker execution time to fence against
+        // verification expiry, revocation, or status alteration between scheduling and execution.
+        const { default: complianceService } = await import('../../services/MarketingComplianceEnforcementService.js');
+        const { sanitizedText, facts } = await complianceService.revalidateScheduledPost(data);
+
         const { default: fbService } = await import('../../services/FacebookService.js');
         const { default: liService } = await import('../../services/LinkedInService.js');
         const { default: twService } = await import('../../services/TwitterService.js');
@@ -1218,19 +1224,19 @@ const processMarketingJob = async (job) => {
 
         try {
             if (targetPlatform === 'facebook') {
-                result = await fbService.postToPage(text, imageUrl, format);
+                result = await fbService.postToPage(sanitizedText, imageUrl, format);
             } else if (targetPlatform === 'instagram') {
-                result = await fbService.postToInstagram(text, imageUrl, format);
+                result = await fbService.postToInstagram(sanitizedText, imageUrl, format);
             } else if (targetPlatform === 'linkedin') {
-                result = await liService.postToOrganization(text, null, null);
+                result = await liService.postToOrganization(sanitizedText, null, null);
             } else if (targetPlatform === 'twitter') {
-                result = await twService.postTweet(text, imageUrl);
+                result = await twService.postTweet(sanitizedText, imageUrl);
             } else if (targetPlatform === 'google_business') {
-                result = await gbpService.createPost(text, null, imageUrl);
+                result = await gbpService.createPost(sanitizedText, null, imageUrl);
             } else if (targetPlatform === 'youtube') {
                 const videoPath = data.videoPath || data.filePath;
                 if (videoPath) {
-                    result = await ytService.uploadVideo(text.slice(0, 70), text, videoPath);
+                    result = await ytService.uploadVideo(sanitizedText.slice(0, 70), sanitizedText, videoPath);
                 } else {
                     await job.log('YouTube scheduled dispatch skipped: no video asset attached');
                     result = { success: false, reason: 'Video asset missing' };
@@ -1246,7 +1252,7 @@ const processMarketingJob = async (job) => {
                 subject: `Scheduled Share to ${platform}`,
                 entityType: entityType || 'System',
                 entityId: entityId || null,
-                description: text,
+                description: sanitizedText,
                 status: 'Completed',
                 performedBy: 'CRM Scheduler',
                 details: {

@@ -3,6 +3,7 @@ import MarketingContent from '../models/MarketingContent.js';
 import * as driveService from './drive.service.js';
 import linkedInService from './LinkedInService.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
 
 /**
  * MarketingPublishingService.js
@@ -20,6 +21,17 @@ class MarketingPublishingService {
     async publishToSocial(contentId) {
         const content = await MarketingContent.findById(contentId);
         if (!content) throw new Error('Content not found');
+
+        // 🛡️ Enterprise Server-Side Compliance Enforcement
+        // Re-extract authoritative facts and sanitize copy before dispatch
+        const entityId = content.dealId || content.metadata?.dealId || content.metadata?.projectId || content.metadata?.inventoryId;
+        const entityType = content.metadata?.projectId ? 'project' : (content.metadata?.inventoryId ? 'inventory' : 'deal');
+        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType);
+        const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
+            content.content,
+            canonicalEntity,
+            content.platform
+        );
 
         console.log(`[PUBLISHING] Deploying to ${content.platform}...`);
         const platform = content.platform?.toLowerCase();
@@ -64,8 +76,8 @@ class MarketingPublishingService {
                     }
                 }
 
-                // 5. Finalize Post
-                await linkedInService.postToOrganization(content.content, null, assetUrn);
+                // 5. Finalize Post with Server-Sanitized Text
+                await linkedInService.postToOrganization(sanitizedText, null, assetUrn);
                 await this._markAsPublished(contentId);
                 return { success: true, message: 'Successfully published to LinkedIn' };
             } catch (err) {
@@ -83,18 +95,6 @@ class MarketingPublishingService {
         }
 
         try {
-            // Real Graph API Implementation (simplified)
-            // 1. Create Media Container
-            // 2. Publish Media Container
-            // 3. Handle status
-            
-            // Example for Instagram:
-            // const container = await axios.post(`${this.fbApiBase}/${process.env.IG_USER_ID}/media`, {
-            //     caption: content.content,
-            //     image_url: content.metadata?.imageUrl || 'https://placehold.co/600x400/png?text=Bharat+Properties',
-            //     access_token: process.env.FACEBOOK_ACCESS_TOKEN
-            // });
-            
             await this._markAsPublished(contentId);
             return { success: true, message: `Successfully deployed to ${content.platform}` };
         } catch (error) {
@@ -110,23 +110,24 @@ class MarketingPublishingService {
         const content = await MarketingContent.findById(contentId);
         if (!content) throw new Error('Content not found');
 
+        // 🛡️ Enterprise Server-Side Compliance Enforcement
+        const entityId = content.dealId || content.metadata?.dealId || content.metadata?.projectId || content.metadata?.inventoryId;
+        const entityType = content.metadata?.projectId ? 'project' : (content.metadata?.inventoryId ? 'inventory' : 'deal');
+        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType);
+        const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
+            content.content,
+            canonicalEntity,
+            'whatsapp'
+        );
+
         const isDryRun = process.env.MARKETING_DRY_RUN === 'true';
         if (isDryRun || !process.env.WHATSAPP_TOKEN) {
-            console.log(`[WA_PUBLISH] DRY RUN to ${phoneNumber}: ${content.content.substring(0, 30)}...`);
+            console.log(`[WA_PUBLISH] DRY RUN to ${phoneNumber}: ${sanitizedText.substring(0, 30)}...`);
             await this._markAsPublished(contentId);
             return { success: true, mode: 'dry_run' };
         }
 
         try {
-            // Real WhatsApp Business API Call
-            // await axios.post(`https://graph.facebook.com/v19.0/${process.env.WA_PHONE_NUMBER_ID}/messages`, {
-            //     messaging_product: 'whatsapp',
-            //     to: phoneNumber,
-            //     type: 'text',
-            //     text: { body: content.content },
-            //     access_token: process.env.WHATSAPP_TOKEN
-            // });
-
             await this._markAsPublished(contentId);
             return { success: true, message: 'Message sent' };
         } catch (error) {
