@@ -19,11 +19,14 @@
  */
 
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import '../models/Document.js';
 import '../models/DocumentVersion.js';
 import '../models/Deal.js';
 import '../models/Project.js';
 import '../models/Inventory.js';
+import '../models/User.js';
+import '../models/Role.js';
 import '../models/PropertyVerificationSnapshot.js';
 import '../models/PropertyAuthorityLink.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
@@ -34,8 +37,45 @@ import {
     hasAuthoritativeReadyPossession,
     extractVerificationFacts,
     validateAndSanitizeCopy,
-    generateCompliantFallback
+    generateCompliantFallback,
+    TRUSTED_VERIFIER_ROLES,
+    TRUSTED_SYSTEM_SERVICES
 } from '../utils/propertyComplianceValidator.js';
+
+const SYSTEM_SERVICE_SECRET = process.env.SYSTEM_SERVICE_SECRET || 'crm-system-service-internal-secret-phase6-compliance';
+
+/**
+ * Generates an HMAC-SHA256 signature for trusted system services.
+ * @param {string} serviceId
+ * @param {Date|string} verifiedAt
+ * @param {string} [secret]
+ * @returns {string}
+ */
+export function generateSystemServiceSignature(serviceId, verifiedAt, secret = SYSTEM_SERVICE_SECRET) {
+    const timeStr = verifiedAt instanceof Date ? verifiedAt.toISOString() : String(verifiedAt);
+    return crypto.createHmac('sha256', secret).update(`${serviceId}:${timeStr}`).digest('hex');
+}
+
+/**
+ * Verifies an HMAC-SHA256 signature for trusted system services.
+ * @param {string} serviceId
+ * @param {Date|string} verifiedAt
+ * @param {string} signature
+ * @param {string} [secret]
+ * @returns {boolean}
+ */
+export function verifySystemServiceSignature(serviceId, verifiedAt, signature, secret = SYSTEM_SERVICE_SECRET) {
+    if (!serviceId || !verifiedAt || !signature) return false;
+    try {
+        const expected = generateSystemServiceSignature(serviceId, verifiedAt, secret);
+        const sigBuf = Buffer.from(signature, 'hex');
+        const expBuf = Buffer.from(expected, 'hex');
+        if (sigBuf.length !== expBuf.length) return false;
+        return crypto.timingSafeEqual(sigBuf, expBuf);
+    } catch (_) {
+        return false;
+    }
+}
 
 class MarketingComplianceEnforcementService {
     /**
@@ -325,12 +365,110 @@ class MarketingComplianceEnforcementService {
                     return;
                 }
 
+                // 10. Mandatory Audit Linkage & Real Verifier Authorization (P0 - Round 6)
+                // Accept audit evidence ONLY from resolved CRM Document record
+                const audit = docRecord.verificationAudit || docRecord.metadata?.verificationAudit;
+                if (!audit || typeof audit !== 'object') {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // Required 7 core fields: documentId, versionId, entityId, entityType, verifierId, verifiedAt, outcome
+                const auditDocId = String(audit.documentId || '').trim();
+                const auditVerId = String(audit.versionId?._id || audit.versionId || '').trim();
+                const auditEntId = String(audit.entityId?._id || audit.entityId || '').trim();
+                const auditEntType = String(audit.entityType || '').trim();
+                const verifierId = audit.verifierId || audit.verifiedBy;
+                const verifiedAt = audit.verifiedAt || audit.timestamp;
+                const outcome = String(audit.outcome || audit.verificationOutcome || '').trim().toUpperCase();
+
+                if (!auditDocId || auditDocId !== String(docRecord.documentId).trim()) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+                if (!auditVerId || (auditVerId !== String(docRecord.currentVersionId) && auditVerId !== String(versionRecord._id))) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+                if (!auditEntId || (auditEntId !== entityIdStr && auditEntId !== projIdStr && auditEntId !== invIdStr)) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+                if (!auditEntType || !['Deal', 'Project', 'Inventory'].includes(auditEntType)) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+                if (!verifierId || !verifiedAt || !['VERIFIED', 'APPROVED'].includes(outcome)) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+                if (audit.isRevoked === true || audit.isSuperseded === true) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // Resolve verifier against trusted persisted source (User collection or authentic system service)
+                const verifierStr = String(verifierId).trim();
+                let verifierAuthorized = false;
+
+                if (mongoose.Types.ObjectId.isValid(verifierStr)) {
+                    const User = mongoose.model('User');
+                    const userDoc = await User.findById(verifierStr).populate('role').lean();
+                    if (userDoc && userDoc.isActive === true && userDoc.status === 'active' && !userDoc.isDeleted && !userDoc.deletedAt) {
+                        const roleName = String(userDoc.role?.name || userDoc.roleName || '').trim().toUpperCase().replace(/\s+/g, '_');
+                        const roleObj = (userDoc.role && typeof userDoc.role === 'object') ? userDoc.role : {};
+                        const hasRole = TRUSTED_VERIFIER_ROLES.includes(roleName) || roleName === 'COMPLIANCE_OFFICER' || roleName === 'COMPLIANCE_ADMIN' || roleName === 'BANK_OFFICER';
+                        const hasModule = Boolean(roleObj.moduleAccess?.authorityVerification?.view && (roleObj.moduleAccess?.authorityVerification?.create || roleObj.moduleAccess?.authorityVerification?.edit));
+                        const hasApproval = Boolean(roleObj.approvalRights?.approveAuthorityChanges || roleObj.approvalRights?.manageAuthoritySettings || userDoc.approvalRights?.approveAuthorityChanges || userDoc.approvalRights?.manageAuthoritySettings);
+                        const hasDealApprove = Boolean(userDoc.financialPermissions?.canApproveDeal || roleObj.approvalRights?.approveDeal);
+
+                        if (hasRole || hasModule || hasApproval || hasDealApprove) {
+                            audit._verifierAuthorized = true;
+                            audit._authorizedVerifierType = 'USER';
+                            audit._verifierUser = {
+                                _id: String(userDoc._id),
+                                fullName: userDoc.fullName,
+                                roleName: userDoc.role?.name,
+                                isActive: userDoc.isActive,
+                                status: userDoc.status,
+                                role: userDoc.role
+                            };
+                            verifierAuthorized = true;
+                        }
+                    }
+                } else if (TRUSTED_SYSTEM_SERVICES.includes(verifierStr.toUpperCase())) {
+                    const isSystemAuth = (audit.systemSignature && verifySystemServiceSignature(verifierStr.toUpperCase(), verifiedAt, audit.systemSignature)) ||
+                                         (user && user.isSystem === true && user.serviceId === verifierStr.toUpperCase());
+                    if (isSystemAuth) {
+                        audit._verifierAuthorized = true;
+                        audit._authorizedVerifierType = 'SYSTEM';
+                        audit._systemAuthenticated = true;
+                        verifierAuthorized = true;
+                    }
+                }
+
+                if (!verifierAuthorized) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
                 // Successfully verified authentic CRM document record
+                docRecord._isResolverVerified = true;
+                docCandidate._isResolverVerified = true;
+                docCandidate._isVerifiedRecord = true;
                 docCandidate.documentRecord = {
                     ...docRecord,
-                    currentVersion: versionRecord
+                    currentVersion: versionRecord,
+                    verificationAudit: audit
                 };
-                docCandidate._isVerifiedRecord = true;
             };
 
             // 1. Resolve Bank Approval candidate documents
@@ -393,6 +531,11 @@ class MarketingComplianceEnforcementService {
 
             // 4. Resolve RERA Snapshots via verified relationship chain:
             // PropertyVerificationSnapshot -> PropertyAuthorityLink -> canonical property entity
+            // P0: Clear client-supplied embedded snapshot/link fields before database resolution
+            entity._resolvedSnapshot = null;
+            if (entity.authorityVerification) entity.authorityVerification.snapshotRecord = null;
+            if (entity.inventory?.authorityVerification) entity.inventory.authorityVerification.snapshotRecord = null;
+
             const snapshotId = entity.reraVerificationSnapshotId || entity.verificationSnapshotId || entity.authorityVerification?.verificationSnapshotId;
             if (snapshotId && mongoose.modelNames().includes('PropertyVerificationSnapshot')) {
                 const PropertyVerificationSnapshot = mongoose.model('PropertyVerificationSnapshot');
@@ -420,36 +563,50 @@ class MarketingComplianceEnforcementService {
                     if (!linkDoc) {
                         // Missing PropertyAuthorityLink -> relationship chain broken -> fail closed
                         snapDoc = null;
-                    } else if (linkDoc.isActive === false || linkDoc.matchEligibility === 'AMBIGUOUS' || linkDoc.matchEligibility === 'INELIGIBLE') {
-                        // Link deactivated or ambiguous -> reject
+                    } else if (linkDoc.isActive === false || linkDoc.identityVerified !== true || linkDoc.matchEligibility !== 'ELIGIBLE') {
+                        // Link deactivated, unverified identity, or not strictly ELIGIBLE -> reject
+                        snapDoc = null;
+                    } else if (!snapDoc.tenantId || !linkDoc.tenantId || String(snapDoc.tenantId) !== String(linkDoc.tenantId)) {
+                        // Tenant mismatch between snapshot and link -> fail closed
+                        snapDoc = null;
+                    } else if (String(snapDoc.authorityCode).toUpperCase() !== String(linkDoc.authorityCode).toUpperCase()) {
+                        // Authority code mismatch -> fail closed
                         snapDoc = null;
                     } else {
-                        // Verify link ownership against canonical property entity or linked Project/Inventory
+                        // Verify link ownership using actual PropertyAuthorityLink schema:
+                        // - PropertyAuthorityLink ONLY has inventoryId (ObjectId ref Inventory)
+                        // - propertyId is a String authority plot/file code (NEVER treated as Mongo entity ID)
+                        // - projectId and dealId are undeclared schema fields and not relationships
                         const entityIdStr = String(entity._id || entity.id || '');
-                        const projIdStr = String(entity.projectId?._id || entity.projectId || (entity.project?._id) || '');
-                        const invIdStr = String(entity.inventoryId?._id || entity.inventoryId || (entity.inventory?._id) || '');
-
+                        const canonicalType = String(entity._entityType || '').toLowerCase();
                         const linkInventoryId = String(linkDoc.inventoryId?._id || linkDoc.inventoryId || '');
-                        const linkPropertyId = String(linkDoc.propertyId?._id || linkDoc.propertyId || linkDoc.entityId || '');
-                        const linkProjectId = String(linkDoc.projectId?._id || linkDoc.projectId || '');
 
-                        if (!linkInventoryId && !linkPropertyId && !linkProjectId && !linkDoc.dealId) {
-                            // Missing property identity on link -> fail closed
+                        if (!linkInventoryId) {
+                            // Missing inventoryId on link -> fail closed
                             snapDoc = null;
                         } else {
                             let matchesProperty = false;
-                            const canonicalType = String(entity._entityType || '').toLowerCase();
 
                             if (canonicalType === 'inventory') {
-                                matchesProperty = (linkInventoryId === entityIdStr || linkPropertyId === entityIdStr);
+                                matchesProperty = (linkInventoryId === entityIdStr);
+                            } else if (canonicalType === 'deal') {
+                                // Deal: must resolve through Deal's linked Inventory
+                                const dealInvId = String(entity.inventoryId?._id || entity.inventoryId || (entity.inventory?._id) || '');
+                                if (dealInvId && linkInventoryId === dealInvId) {
+                                    matchesProperty = true;
+                                }
                             } else if (canonicalType === 'project') {
-                                matchesProperty = (linkProjectId === entityIdStr || linkPropertyId === entityIdStr);
-                            } else {
-                                // Default: Deal
-                                matchesProperty = (invIdStr && linkInventoryId === invIdStr) ||
-                                                  (projIdStr && linkProjectId === projIdStr) ||
-                                                  (linkPropertyId && (linkPropertyId === entityIdStr || linkPropertyId === invIdStr || linkPropertyId === projIdStr)) ||
-                                                  (linkDoc.dealId && String(linkDoc.dealId) === entityIdStr);
+                                // Project: resolve genuine schema-supported Project-to-Inventory relationship
+                                const Inventory = mongoose.model('Inventory');
+                                const projectInventory = await Inventory.findOne({
+                                    _id: linkDoc.inventoryId,
+                                    projectId: entity._id,
+                                    isDeleted: false
+                                }).lean();
+                                if (projectInventory) {
+                                    linkDoc._resolvedProjectInventory = projectInventory;
+                                    matchesProperty = true;
+                                }
                             }
 
                             if (!matchesProperty) {
@@ -464,7 +621,9 @@ class MarketingComplianceEnforcementService {
                                 if (!permittedAuthorities.includes(snapAuth) || (linkAuth && !permittedAuthorities.includes(linkAuth))) {
                                     snapDoc = null;
                                 } else {
-                                    // Verified relationship chain confirmed: attach linkDoc to snapDoc
+                                    // Verified relationship chain confirmed: attach linkDoc to snapDoc with resolver proof
+                                    snapDoc._isResolverVerified = true;
+                                    linkDoc._isResolverVerified = true;
                                     snapDoc._resolvedLink = linkDoc;
                                     snapDoc.linkRecord = linkDoc;
                                 }

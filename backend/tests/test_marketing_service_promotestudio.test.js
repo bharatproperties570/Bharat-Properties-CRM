@@ -312,8 +312,11 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     // ─────────────────────────────────────────────────────────────
     await t.test('RERA Requirement 13: Valid explicitly approved registration with authoritative provenance passes', async () => {
         const directPropId = '66f19ce95b90dffc37482fec';
+        const testTenant = '66f19ce95b90dffc37482fed';
         const approvedDirect = {
             _id: directPropId,
+            _entityType: 'Inventory',
+            tenantId: testTenant,
             reraNumber: 'PBRERA-SAS80-PR0456',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
@@ -321,13 +324,19 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
             lastVerifiedAt: new Date(),
             _resolvedSnapshot: {
+                _isResolverVerified: true,
+                tenantId: testTenant,
                 authorityCode: 'PBRERA',
                 observedAt: new Date(),
                 contentHash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
                 createdByWorkerId: 'worker-pbrera-1',
                 _resolvedLink: {
-                    propertyId: directPropId,
+                    _isResolverVerified: true,
+                    tenantId: testTenant,
+                    inventoryId: directPropId,
+                    propertyId: 'PLOT-SAS80-456',
                     authorityCode: 'PBRERA',
+                    identityVerified: true,
                     matchEligibility: 'ELIGIBLE',
                     isActive: true
                 }
@@ -335,7 +344,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
         };
         assert.equal(hasAuthoritativeReraApproval(approvedDirect), true);
 
+        const mockDealId = '66f19ce95b90dffc37482ffa';
         const approvedArray = {
+            _id: mockDealId,
             _entityType: 'Deal',
             approvals: [
                 {
@@ -347,24 +358,38 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                     source: 'GOVERNMENT_PORTAL',
                     documentId: 'doc-hrera-88',
                     documentRecord: {
+                        _isResolverVerified: true,
                         documentId: 'doc-hrera-88',
                         entityType: 'Deal',
+                        entityId: mockDealId,
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-hrera-88',
                         metadata: { documentCategory: 'RERA_CERTIFICATE' },
                         currentVersion: {
+                            _id: 'ver-hrera-88',
                             versionId: 'ver-hrera-88',
                             documentId: 'doc-hrera-88',
                             checksumAlgorithm: 'SHA-256',
                             checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
                         },
                         verificationAudit: {
-                            verifierId: 'CMP-OFFICER-77',
-                            verifierRole: 'COMPLIANCE_OFFICER',
+                            _verifierAuthorized: true,
+                            _authorizedVerifierType: 'USER',
+                            _verifierUser: {
+                                _id: '66f19ce95b90dffc37482fff',
+                                fullName: 'Authorized Officer',
+                                isActive: true,
+                                status: 'active',
+                                roleName: 'COMPLIANCE_OFFICER'
+                            },
+                            verifierId: '66f19ce95b90dffc37482fff',
                             verifiedAt: new Date(),
                             outcome: 'VERIFIED',
-                            documentId: 'doc-hrera-88'
+                            documentId: 'doc-hrera-88',
+                            versionId: 'ver-hrera-88',
+                            entityId: mockDealId,
+                            entityType: 'Deal'
                         }
                     }
                 }
@@ -536,8 +561,11 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     // ─────────────────────────────────────────────────────────────
     await t.test('Scenario: Fallback tones on verified property include qualified verification claims', async () => {
         const verifiedPropId = '66f19ce95b90dffc37482fec';
+        const testTenant = '66f19ce95b90dffc37482fed';
         const fullyVerifiedDeal = {
             _id: verifiedPropId,
+            _entityType: 'Inventory',
+            tenantId: testTenant,
             unitNo: 'Villa 12',
             projectName: 'Royal Heritage',
             location: 'Sector 32, Kurukshetra',
@@ -554,13 +582,19 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             reraStatus: 'APPROVED',
             lastVerifiedAt: new Date(),
             _resolvedSnapshot: {
+                _isResolverVerified: true,
+                tenantId: testTenant,
                 authorityCode: 'HRERA',
                 observedAt: new Date(),
                 contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
                 createdByWorkerId: 'worker-hrera-1',
                 _resolvedLink: {
-                    propertyId: verifiedPropId,
+                    _isResolverVerified: true,
+                    tenantId: testTenant,
+                    inventoryId: verifiedPropId,
+                    propertyId: 'PLOT-HSVP-12',
                     authorityCode: 'HRERA',
+                    identityVerified: true,
                     matchEligibility: 'ELIGIBLE',
                     isActive: true
                 }

@@ -18,6 +18,8 @@ import Activity from '../models/Activity.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
+import User from '../models/User.js';
+import Role from '../models/Role.js';
 
 import facebookService from '../services/FacebookService.js';
 import twitterService from '../services/TwitterService.js';
@@ -28,7 +30,10 @@ import portalSyndicationService from '../services/PortalSyndicationService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import publishService from '../services/PublishService.js';
 import marketingService from '../services/MarketingService.js';
-import marketingComplianceEnforcementService from '../services/MarketingComplianceEnforcementService.js';
+import marketingComplianceEnforcementService, {
+    generateSystemServiceSignature,
+    verifySystemServiceSignature
+} from '../services/MarketingComplianceEnforcementService.js';
 import { postSocialMedia } from '../controllers/social.controller.js';
 import { syndicateToPortals } from '../controllers/marketing.controller.js';
 import {
@@ -52,6 +57,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
     let unverifiedDeal;
     let verifiedDeal;
     let verifiedProject;
+    let complianceRole;
+    let complianceUser;
+    let verifiedInventory;
 
     // Track provider invocations
     const providerCalls = {
@@ -105,6 +113,36 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             dataScope: 'all',
             tenantId: testTenantId
         };
+
+        // Seed authentic compliance Role & User for real verifier authorization
+        complianceRole = await Role.create({
+            name: 'Compliance Officer',
+            department: 'marketing',
+            isSystemRole: false,
+            moduleAccess: {
+                authorityVerification: {
+                    view: true,
+                    create: true,
+                    edit: true,
+                    delete: false
+                }
+            },
+            approvalRights: {
+                approveAuthorityChanges: true,
+                manageAuthoritySettings: true
+            }
+        });
+
+        complianceUser = await User.create({
+            fullName: 'Senior Compliance Officer',
+            email: 'compliance.officer@bharatproperties.co',
+            password: 'MockHashedPassword123!',
+            department: 'marketing',
+            role: complianceRole._id,
+            isActive: true,
+            status: 'active',
+            tenantId: testTenantId
+        });
 
         // Stub provider services
         origFbPost = facebookService.postToPage;
@@ -206,6 +244,17 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             }
         });
 
+        // Create authentic Inventory for verifiedDeal to satisfy PropertyAuthorityLink schema contract
+        verifiedInventory = await Inventory.create({
+            projectName: 'Verified Royal Villa',
+            unitNo: 'Villa 101',
+            category: 'Residential',
+            tenantId: testTenantId,
+            assignedTo: testAdminUser._id
+        });
+        verifiedDeal.inventoryId = verifiedInventory._id;
+        await verifiedDeal.save();
+
         // Create Authentic CRM Document & DocumentVersion records in MongoDB
         const sbiVer = await DocumentVersion.create({
             versionId: 'ver-sbi-8892',
@@ -227,7 +276,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentType: 'SANCTION_LETTER',
                 approvalAuthority: 'SBI',
                 verificationAudit: {
-                    verifierId: 'CMP-OFFICER-77',
+                    verifierId: String(complianceUser._id),
                     verifierRole: 'COMPLIANCE_OFFICER',
                     verifiedAt: new Date(),
                     outcome: 'APPROVED',
@@ -261,7 +310,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentType: 'OCCUPANCY_CERTIFICATE',
                 approvalAuthority: 'MUNICIPAL',
                 verificationAudit: {
-                    verifierId: 'CMP-OFFICER-77',
+                    verifierId: String(complianceUser._id),
                     verifierRole: 'COMPLIANCE_OFFICER',
                     verifiedAt: new Date(),
                     outcome: 'APPROVED',
@@ -296,7 +345,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 approvalAuthority: 'HRERA',
                 documentNo: 'HRERA-PKL-KUK-2024-88',
                 verificationAudit: {
-                    verifierId: 'CMP-OFFICER-77',
+                    verifierId: String(complianceUser._id),
                     verifierRole: 'COMPLIANCE_OFFICER',
                     verifiedAt: new Date(),
                     outcome: 'VERIFIED',
@@ -313,9 +362,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         // Seed authentic PropertyAuthorityLink and PropertyVerificationSnapshot for verified relationship chain
         const authLink = await PropertyAuthorityLink.create({
             tenantId: verifiedDeal.tenantId || new mongoose.Types.ObjectId(),
-            inventoryId: verifiedDeal._id,
-            propertyId: verifiedDeal._id.toString(),
+            inventoryId: verifiedInventory._id,
+            propertyId: 'HSVP-V-101',
             authorityCode: 'HSVP',
+            identityVerified: true,
             matchEligibility: 'ELIGIBLE',
             isActive: true,
             createdBy: testAdminUser._id
@@ -812,7 +862,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         assert.equal(hasAuthoritativeBankApproval(manualBankWithoutDoc), false, 'Manual string without document linkage or immutable hash must fail closed');
 
         // Valid evidence-backed bank approval with real CRM document record and verified status passes
+        const validBankDealId = new mongoose.Types.ObjectId();
+        const validBankVerId = new mongoose.Types.ObjectId().toString();
         const validBank = {
+            _id: validBankDealId,
             _entityType: 'Deal',
             bankApproval: {
                 bankName: 'ICICI BANK',
@@ -822,18 +875,37 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 verificationStatus: 'VERIFIED',
                 sanctionDate: new Date(),
                 documentRecord: {
+                    _isResolverVerified: true,
                     documentId: 'doc-icici-sanct-998',
                     entityType: 'Deal',
+                    entityId: validBankDealId,
                     state: 'ACTIVE',
                     isDeleted: false,
-                    currentVersionId: 'ver-icici-998',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    currentVersionId: validBankVerId,
+                    currentVersion: {
+                        _id: validBankVerId,
+                        versionId: validBankVerId,
+                        documentId: 'doc-icici-sanct-998',
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                    },
                     verificationAudit: {
-                        verifierId: 'CMP-BANK-101',
-                        verifierRole: 'BANK_OFFICER',
+                        _verifierAuthorized: true,
+                        _authorizedVerifierType: 'USER',
+                        _verifierUser: {
+                            _id: String(complianceUser._id),
+                            fullName: 'Compliance Officer',
+                            isActive: true,
+                            status: 'active',
+                            roleName: 'BANK_OFFICER'
+                        },
+                        verifierId: String(complianceUser._id),
                         verifiedAt: new Date(),
                         outcome: 'APPROVED',
-                        documentId: 'doc-icici-sanct-998'
+                        documentId: 'doc-icici-sanct-998',
+                        versionId: validBankVerId,
+                        entityId: validBankDealId,
+                        entityType: 'Deal'
                     }
                 }
             }
@@ -905,7 +977,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         assert.equal(hasAuthoritativeReadyPossession(pastDateOnly), false, 'Past possession date alone must not prove ready possession');
 
         // Valid Occupancy Certificate passes
+        const validOCDealId = new mongoose.Types.ObjectId();
+        const validOCVerId = new mongoose.Types.ObjectId().toString();
         const validOC = {
+            _id: validOCDealId,
             _entityType: 'Deal',
             possessionStatus: 'READY',
             progressPercentage: 100,
@@ -917,18 +992,37 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 issueDate: new Date(),
                 progressPercentage: 100,
                 documentRecord: {
+                    _isResolverVerified: true,
                     documentId: 'doc-oc-551',
                     entityType: 'Deal',
+                    entityId: validOCDealId,
                     state: 'ACTIVE',
                     isDeleted: false,
-                    currentVersionId: 'ver-oc-551',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    currentVersionId: validOCVerId,
+                    currentVersion: {
+                        _id: validOCVerId,
+                        versionId: validOCVerId,
+                        documentId: 'doc-oc-551',
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                    },
                     verificationAudit: {
-                        verifierId: 'CMP-OC-551',
-                        verifierRole: 'COMPLIANCE_OFFICER',
+                        _verifierAuthorized: true,
+                        _authorizedVerifierType: 'USER',
+                        _verifierUser: {
+                            _id: String(complianceUser._id),
+                            fullName: 'Compliance Officer',
+                            isActive: true,
+                            status: 'active',
+                            roleName: 'COMPLIANCE_OFFICER'
+                        },
+                        verifierId: String(complianceUser._id),
                         verifiedAt: new Date(),
                         outcome: 'APPROVED',
-                        documentId: 'doc-oc-551'
+                        documentId: 'doc-oc-551',
+                        versionId: validOCVerId,
+                        entityId: validOCDealId,
+                        entityType: 'Deal'
                     }
                 }
             }
@@ -936,7 +1030,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         assert.equal(hasAuthoritativeReadyPossession(validOC), true);
 
         // Valid Completion Certificate in approvals array passes
+        const validCCDealId = new mongoose.Types.ObjectId();
+        const validCCVerId = new mongoose.Types.ObjectId().toString();
         const validCCInApprovals = {
+            _id: validCCDealId,
             _entityType: 'Deal',
             possessionStatus: 'READY_TO_MOVE',
             progressPercentage: 100,
@@ -950,18 +1047,37 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     issueDate: new Date(),
                     progressPercentage: 100,
                     documentRecord: {
+                        _isResolverVerified: true,
                         documentId: 'doc-oc-99',
                         entityType: 'Deal',
+                        entityId: validCCDealId,
                         state: 'ACTIVE',
                         isDeleted: false,
-                        currentVersionId: 'ver-oc-99',
-                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                        currentVersionId: validCCVerId,
+                        currentVersion: {
+                            _id: validCCVerId,
+                            versionId: validCCVerId,
+                            documentId: 'doc-oc-99',
+                            checksumAlgorithm: 'SHA-256',
+                            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                        },
                         verificationAudit: {
-                            verifierId: 'CMP-CC-99',
-                            verifierRole: 'COMPLIANCE_OFFICER',
+                            _verifierAuthorized: true,
+                            _authorizedVerifierType: 'USER',
+                            _verifierUser: {
+                                _id: String(complianceUser._id),
+                                fullName: 'Compliance Officer',
+                                isActive: true,
+                                status: 'active',
+                                roleName: 'COMPLIANCE_OFFICER'
+                            },
+                            verifierId: String(complianceUser._id),
                             verifiedAt: new Date(),
                             outcome: 'APPROVED',
-                            documentId: 'doc-oc-99'
+                            documentId: 'doc-oc-99',
+                            versionId: validCCVerId,
+                            entityId: validCCDealId,
+                            entityType: 'Deal'
                         }
                     }
                 }
@@ -1002,8 +1118,11 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         // Valid RERA with official portal provenance AND immutable verificationSnapshotId passes
         const reraTestPropId = new mongoose.Types.ObjectId();
+        const reraTestTenantId = new mongoose.Types.ObjectId();
         const verifiedProvenance = {
             _id: reraTestPropId,
+            _entityType: 'Inventory',
+            tenantId: reraTestTenantId,
             reraNumber: 'HRERA-PKL-KUK-2024-11',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
@@ -1011,16 +1130,22 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             snapshotContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
             lastVerifiedAt: new Date(),
             _resolvedSnapshot: {
+                _isResolverVerified: true,
                 snapshotId: 'snap-rera-2024-11',
                 authorityCode: 'HRERA',
                 source: 'RERA_PORTAL',
+                tenantId: reraTestTenantId,
                 contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
                 verifiedAt: new Date(),
                 status: 'APPROVED',
                 createdByWorkerId: 'WORKER_RERA_SYNC',
                 _resolvedLink: {
-                    propertyId: reraTestPropId.toString(),
+                    _isResolverVerified: true,
+                    tenantId: reraTestTenantId,
+                    inventoryId: reraTestPropId,
+                    propertyId: 'PLOT-KUK-11',
                     authorityCode: 'HRERA',
+                    identityVerified: true,
                     matchEligibility: 'ELIGIBLE',
                     isActive: true
                 }
@@ -1030,6 +1155,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         // Approvals array entry with official provenance AND linked document record passes
         const reraDocPropId = new mongoose.Types.ObjectId();
+        const reraDocVerId = new mongoose.Types.ObjectId().toString();
         const approvalWithProvenance = {
             _id: reraDocPropId,
             _entityType: 'Deal',
@@ -1042,17 +1168,38 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     source: 'GOVERNMENT_PORTAL',
                     documentId: 'doc-pbrera-456',
                     documentRecord: {
+                        _isResolverVerified: true,
                         documentId: 'doc-pbrera-456',
                         entityType: 'Deal',
                         entityId: reraDocPropId,
                         state: 'ACTIVE',
                         isDeleted: false,
-                        currentVersionId: 'ver-pbrera-456',
+                        currentVersionId: reraDocVerId,
+                        metadata: { documentCategory: 'RERA_CERTIFICATE' },
                         currentVersion: {
-                            _id: 'ver-pbrera-456',
-                            versionId: 'ver-pbrera-456',
+                            _id: reraDocVerId,
+                            versionId: reraDocVerId,
                             documentId: 'doc-pbrera-456',
+                            checksumAlgorithm: 'SHA-256',
                             checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                        },
+                        verificationAudit: {
+                            _verifierAuthorized: true,
+                            _authorizedVerifierType: 'USER',
+                            _verifierUser: {
+                                _id: String(complianceUser._id),
+                                fullName: 'Senior Compliance Officer',
+                                isActive: true,
+                                status: 'active',
+                                roleName: 'COMPLIANCE_OFFICER'
+                            },
+                            verifierId: String(complianceUser._id),
+                            verifiedAt: new Date(),
+                            outcome: 'APPROVED',
+                            documentId: 'doc-pbrera-456',
+                            versionId: reraDocVerId,
+                            entityId: reraDocPropId,
+                            entityType: 'Deal'
                         }
                     }
                 }
@@ -1962,7 +2109,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         });
 
         it('Possession: progressPercentage === 100 with authentic OC passes', () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const verId = 'ver-oc-123';
             const completeProgress = {
+                _id: dealId,
                 _entityType: 'Deal',
                 possessionStatus: 'READY',
                 progressPercentage: 100,
@@ -1974,18 +2124,37 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     issueDate: new Date(),
                     progressPercentage: 100,
                     documentRecord: {
+                        _isResolverVerified: true,
                         documentId: 'doc-oc-123',
                         entityType: 'Deal',
+                        entityId: dealId,
                         state: 'ACTIVE',
                         isDeleted: false,
-                        currentVersionId: 'ver-oc-123',
-                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                        currentVersionId: verId,
+                        currentVersion: {
+                            _id: verId,
+                            versionId: verId,
+                            documentId: 'doc-oc-123',
+                            checksumAlgorithm: 'SHA-256',
+                            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                        },
                         verificationAudit: {
-                            verifierId: 'CMP-OC-123',
-                            verifierRole: 'COMPLIANCE_OFFICER',
+                            _verifierAuthorized: true,
+                            _authorizedVerifierType: 'USER',
+                            _verifierUser: {
+                                _id: String(complianceUser._id),
+                                fullName: 'Senior Compliance Officer',
+                                isActive: true,
+                                status: 'active',
+                                roleName: 'COMPLIANCE_OFFICER'
+                            },
+                            verifierId: String(complianceUser._id),
                             verifiedAt: new Date(),
                             outcome: 'APPROVED',
-                            documentId: 'doc-oc-123'
+                            documentId: 'doc-oc-123',
+                            versionId: verId,
+                            entityId: dealId,
+                            entityType: 'Deal'
                         }
                     }
                 }
@@ -2187,26 +2356,41 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         });
 
         it('Audit Provenance: Authorized verifier with recognized role and non-future date passes', () => {
+            const validVerId = String(complianceUser._id);
+            const validEntId = new mongoose.Types.ObjectId().toString();
             const docValidAudit = {
                 documentId: 'doc-valid-audit',
                 documentRecord: {
+                    _isResolverVerified: true,
                     documentId: 'doc-valid-audit',
                     entityType: 'Deal',
+                    entityId: validEntId,
                     state: 'ACTIVE',
                     isDeleted: false,
                     currentVersionId: 'ver-1',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    currentVersion: { _id: 'ver-1', versionId: 'ver-1', checksumAlgorithm: 'SHA-256', checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
                     verificationAudit: {
-                        verifierId: 'CMP-AUD-889',
-                        verifierRole: 'COMPLIANCE_OFFICER',
+                        _verifierAuthorized: true,
+                        _authorizedVerifierType: 'USER',
+                        _verifierUser: {
+                            _id: validVerId,
+                            fullName: 'Senior Compliance Officer',
+                            roleName: 'COMPLIANCE_OFFICER',
+                            isActive: true,
+                            status: 'active'
+                        },
+                        verifierId: validVerId,
                         verifiedAt: new Date(),
                         outcome: 'VERIFIED',
-                        documentId: 'doc-valid-audit'
+                        documentId: 'doc-valid-audit',
+                        versionId: 'ver-1',
+                        entityId: validEntId,
+                        entityType: 'Deal'
                     }
                 }
             };
             assert.equal(hasAuthoritativeDocumentProvenance(docValidAudit), true, 'Genuine verification audit with authorized role must pass');
-            assert.equal(isAuthorizedVerifier('CMP-AUD-889', 'COMPLIANCE_OFFICER'), true);
+            assert.equal(isAuthorizedVerifier(validVerId, docValidAudit.documentRecord.verificationAudit), true);
         });
 
         it('Audit Provenance: Revoked or superseded audit record fails closed', () => {
@@ -2257,11 +2441,13 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         it('Snapshot Chain: Valid snapshot with valid link-to-property relationship passes', async () => {
             const propId = new mongoose.Types.ObjectId();
+            const chainTenantId = new mongoose.Types.ObjectId();
             const link = await PropertyAuthorityLink.create({
-                tenantId: new mongoose.Types.ObjectId(),
+                tenantId: chainTenantId,
                 inventoryId: propId,
-                propertyId: propId.toString(),
+                propertyId: 'HSVP-PLOT-CHAIN-1',
                 authorityCode: 'HSVP',
+                identityVerified: true,
                 matchEligibility: 'ELIGIBLE',
                 isActive: true,
                 createdBy: testAdminUser._id
@@ -2270,7 +2456,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             const snapshot = await PropertyVerificationSnapshot.create({
                 _id: new mongoose.Types.ObjectId(),
                 snapshotId: 'snap-valid-chain-1',
-                tenantId: link.tenantId,
+                tenantId: chainTenantId,
                 authorityCode: 'HSVP',
                 linkId: link._id,
                 isSealed: true,
@@ -2283,14 +2469,19 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
             const testDeal = {
                 _id: propId,
-                _entityType: 'Deal',
+                _entityType: 'Inventory',
+                tenantId: chainTenantId,
                 inventoryId: propId,
                 reraNumber: 'HRERA-PKL-KUK-2024-99',
                 reraStatus: 'APPROVED',
                 lastVerifiedAt: new Date(),
                 _resolvedSnapshot: {
                     ...snapshot.toObject(),
-                    _resolvedLink: link.toObject()
+                    _isResolverVerified: true,
+                    _resolvedLink: {
+                        ...link.toObject(),
+                        _isResolverVerified: true
+                    }
                 }
             };
 
@@ -2595,6 +2786,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             const candidateDoc = {
                 documentId: 'doc-proj-doc',
                 documentRecord: {
+                    _isResolverVerified: true,
                     documentId: 'doc-proj-doc',
                     entityType: 'Project', // Matches linked Project!
                     entityId: projId,
@@ -2602,7 +2794,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     isDeleted: false,
                     metadata: { documentCategory: 'RERA_CERTIFICATE' },
                     currentVersionId: 'ver-p1',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    currentVersion: { _id: 'ver-p1', checksumAlgorithm: 'SHA-256', checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
                 }
             };
             const deal = { _id: dealId, _entityType: 'Deal', projectId: projId };
@@ -2616,6 +2808,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             const candidateDoc = {
                 documentId: 'doc-inv-doc',
                 documentRecord: {
+                    _isResolverVerified: true,
                     documentId: 'doc-inv-doc',
                     entityType: 'Inventory', // Matches linked Inventory!
                     entityId: invId,
@@ -2623,7 +2816,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     isDeleted: false,
                     metadata: { documentCategory: 'BANK_APPROVAL' },
                     currentVersionId: 'ver-i1',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    currentVersion: { _id: 'ver-i1', checksumAlgorithm: 'SHA-256', checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
                 }
             };
             const deal = { _id: dealId, _entityType: 'Deal', inventoryId: invId };
@@ -2678,6 +2871,602 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             assert.doesNotMatch(revalidated.sanitizedText, /15% roi/i);
             assert.doesNotMatch(revalidated.sanitizedText, /verified title/i);
             assert.doesNotMatch(revalidated.sanitizedTitle, /verified title/i);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 13 — ROUND 6 FINAL TRUST BOUNDARY SUITE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 13 — Round 6 Final Trust Boundary Suite', () => {
+        // ========== 1. REAL VERIFIER AUTHORIZATION ==========
+
+        it('P0 Verifier: Forged verifier role string in audit object fails closed', () => {
+            const fakeId = new mongoose.Types.ObjectId().toString();
+            const auditForgedRole = {
+                verifierId: fakeId,
+                verifierRole: 'COMPLIANCE_OFFICER', // Untrusted string!
+                verifiedAt: new Date(),
+                outcome: 'VERIFIED',
+                documentId: 'doc-forged-1',
+                versionId: 'ver-1',
+                entityId: fakeId,
+                entityType: 'Deal'
+            };
+            assert.equal(isAuthorizedVerifier(fakeId, auditForgedRole), false, 'Forged role string without resolver authorization must fail closed');
+            assert.equal(isAuthorizedVerifier(fakeId, 'COMPLIANCE_OFFICER'), false, 'Bare role string argument must fail closed');
+        });
+
+        it('P0 Verifier: Inactive user in User collection fails closed', async () => {
+            const inactiveRole = await Role.create({
+                name: 'Inactive Auditor Role',
+                department: 'marketing',
+                approvalRights: { approveAuthorityChanges: true }
+            });
+            const inactiveUser = await User.create({
+                fullName: 'Inactive Officer',
+                email: 'inactive.officer@bharatproperties.co',
+                password: 'MockPassword123!',
+                department: 'marketing',
+                role: inactiveRole._id,
+                isActive: false, // Inactive!
+                status: 'inactive'
+            });
+
+            const candidateDoc = {
+                documentId: 'doc-inactive-user',
+                documentRecord: null
+            };
+
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-inactive-doc',
+                documentId: 'doc-inactive-user',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/inactive.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            const dealId = new mongoose.Types.ObjectId();
+            await Document.create({
+                documentId: 'doc-inactive-user',
+                entityType: 'Deal',
+                entityId: dealId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-inactive-user',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: String(inactiveUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            const testDeal = { _id: dealId, _entityType: 'Deal', bankApproval: candidateDoc };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(testDeal);
+            assert.equal(candidateDoc.documentRecord, null, 'Inactive verifier user must fail closed during resolution');
+        });
+
+        it('P0 Verifier: User with role lacking compliance permissions fails closed', async () => {
+            const standardAgentRole = await Role.create({
+                name: 'Standard Field Agent',
+                department: 'sales',
+                moduleAccess: {
+                    authorityVerification: { view: false, create: false, edit: false, delete: false }
+                },
+                approvalRights: { approveAuthorityChanges: false, manageAuthoritySettings: false }
+            });
+            const agentUser = await User.create({
+                fullName: 'Field Agent',
+                email: 'agent.user@bharatproperties.co',
+                password: 'MockPassword123!',
+                department: 'sales',
+                role: standardAgentRole._id,
+                isActive: true,
+                status: 'active'
+            });
+
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-agent-doc',
+                documentId: 'doc-agent-user',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/agent.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            const dealId = new mongoose.Types.ObjectId();
+            await Document.create({
+                documentId: 'doc-agent-user',
+                entityType: 'Deal',
+                entityId: dealId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-agent-user',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: String(agentUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            const candidateDoc = { documentId: 'doc-agent-user' };
+            const testDeal = { _id: dealId, _entityType: 'Deal', bankApproval: candidateDoc };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(testDeal);
+            assert.equal(candidateDoc.documentRecord, null, 'User lacking compliance permissions must fail closed');
+        });
+
+        it('P0 Verifier: Arbitrary ObjectId without User record fails closed', async () => {
+            const nonExistentUserId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-nonexist-doc',
+                documentId: 'doc-nonexist-user',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/nonexist.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            const dealId = new mongoose.Types.ObjectId();
+            await Document.create({
+                documentId: 'doc-nonexist-user',
+                entityType: 'Deal',
+                entityId: dealId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-nonexist-user',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: String(nonExistentUserId),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            const candidateDoc = { documentId: 'doc-nonexist-user' };
+            const testDeal = { _id: dealId, _entityType: 'Deal', bankApproval: candidateDoc };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(testDeal);
+            assert.equal(candidateDoc.documentRecord, null, 'Non-existent verifier ObjectId must fail closed');
+        });
+
+        it('P0 Verifier: Arbitrary system ID string without HMAC signature fails closed', async () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-sys-fake',
+                documentId: 'doc-sys-fake',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/sys-fake.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            await Document.create({
+                documentId: 'doc-sys-fake',
+                entityType: 'Deal',
+                entityId: dealId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-sys-fake',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                    // No systemSignature!
+                }
+            });
+
+            const candidateDoc = { documentId: 'doc-sys-fake' };
+            const testDeal = { _id: dealId, _entityType: 'Deal', bankApproval: candidateDoc };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(testDeal);
+            assert.equal(candidateDoc.documentRecord, null, 'System service ID without HMAC signature must fail closed');
+        });
+
+        it('P0 Verifier: Authentic system service with valid HMAC signature passes', async () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-sys-auth',
+                documentId: 'doc-sys-auth',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/sys-auth.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            const verifiedTime = new Date();
+            const validSig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime);
+
+            await Document.create({
+                documentId: 'doc-sys-auth',
+                entityType: 'Deal',
+                entityId: dealId,
+                metadata: { documentCategory: 'BANK_APPROVAL' },
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-sys-auth',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                    verifiedAt: verifiedTime,
+                    outcome: 'APPROVED',
+                    systemSignature: validSig
+                }
+            });
+
+            const candidateDoc = { documentId: 'doc-sys-auth' };
+            const testDeal = { _id: dealId, _entityType: 'Deal', bankApproval: candidateDoc };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(testDeal);
+            assert.ok(candidateDoc.documentRecord, 'System service with valid HMAC signature must resolve');
+            assert.equal(candidateDoc._isResolverVerified, true);
+        });
+
+        it('P0 Verifier: Legitimate authorized compliance officer in database passes', async () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-legit-user',
+                documentId: 'doc-legit-user',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/legit-user.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            await Document.create({
+                documentId: 'doc-legit-user',
+                entityType: 'Deal',
+                entityId: dealId,
+                metadata: { documentCategory: 'BANK_APPROVAL' },
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-legit-user',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: String(complianceUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            const candidateDoc = { documentId: 'doc-legit-user' };
+            const testDeal = { _id: dealId, _entityType: 'Deal', bankApproval: candidateDoc };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(testDeal);
+            assert.ok(candidateDoc.documentRecord, 'Legitimate authorized verifier must resolve');
+            assert.equal(candidateDoc._isResolverVerified, true);
+        });
+
+        // ========== 2. MANDATORY AUDIT LINKAGE ==========
+
+        it('P0 Mandatory Audit Linkage: Missing any of the 7 core fields fails closed', () => {
+            const baseValidAudit = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: String(complianceUser._id),
+                    isActive: true,
+                    status: 'active',
+                    roleName: 'COMPLIANCE_OFFICER'
+                },
+                verifierId: String(complianceUser._id),
+                verifiedAt: new Date(),
+                outcome: 'VERIFIED',
+                documentId: 'doc-audit-test',
+                versionId: 'ver-audit-test',
+                entityId: '66f19ce95b90dffc37482fed',
+                entityType: 'Deal'
+            };
+
+            const baseDoc = {
+                documentId: 'doc-audit-test',
+                documentRecord: {
+                    _isResolverVerified: true,
+                    documentId: 'doc-audit-test',
+                    entityType: 'Deal',
+                    entityId: '66f19ce95b90dffc37482fed',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-audit-test',
+                    currentVersion: { _id: 'ver-audit-test', checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
+            };
+
+            // 1. Missing documentId
+            const docNoDocId = JSON.parse(JSON.stringify(baseDoc));
+            docNoDocId.documentRecord.verificationAudit = { ...baseValidAudit, documentId: undefined };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoDocId), false, 'Missing documentId must fail');
+
+            // 2. Missing versionId
+            const docNoVerId = JSON.parse(JSON.stringify(baseDoc));
+            docNoVerId.documentRecord.verificationAudit = { ...baseValidAudit, versionId: undefined };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoVerId), false, 'Missing versionId must fail');
+
+            // 3. Missing entityId
+            const docNoEntId = JSON.parse(JSON.stringify(baseDoc));
+            docNoEntId.documentRecord.verificationAudit = { ...baseValidAudit, entityId: undefined };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoEntId), false, 'Missing entityId must fail');
+
+            // 4. Missing entityType
+            const docNoEntType = JSON.parse(JSON.stringify(baseDoc));
+            docNoEntType.documentRecord.verificationAudit = { ...baseValidAudit, entityType: undefined };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoEntType), false, 'Missing entityType must fail');
+
+            // 5. Missing verifierId
+            const docNoVerif = JSON.parse(JSON.stringify(baseDoc));
+            docNoVerif.documentRecord.verificationAudit = { ...baseValidAudit, verifierId: undefined };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoVerif), false, 'Missing verifierId must fail');
+
+            // 6. Missing verifiedAt
+            const docNoTime = JSON.parse(JSON.stringify(baseDoc));
+            docNoTime.documentRecord.verificationAudit = { ...baseValidAudit, verifiedAt: undefined };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoTime), false, 'Missing verifiedAt must fail');
+
+            // 7. Invalid outcome
+            const docBadOutcome = JSON.parse(JSON.stringify(baseDoc));
+            docBadOutcome.documentRecord.verificationAudit = { ...baseValidAudit, outcome: 'REVIEW_NEEDED' };
+            assert.equal(hasAuthoritativeDocumentProvenance(docBadOutcome), false, 'Non-verified outcome must fail');
+        });
+
+        it('P0 Mandatory Audit Linkage: Embedded candidate doc.verificationAudit without resolved record is rejected', () => {
+            const embeddedCandidateOnly = {
+                documentId: 'doc-embedded-candidate',
+                verificationAudit: {
+                    documentId: 'doc-embedded-candidate',
+                    versionId: 'ver-123',
+                    entityId: '66f19ce95b90dffc37482fed',
+                    entityType: 'Deal',
+                    verifierId: String(complianceUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'VERIFIED'
+                }
+                // documentRecord is null / missing!
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(embeddedCandidateOnly), false, 'Embedded candidate audit without resolved CRM record must fail closed');
+        });
+
+        // ========== 3. SCHEMA ALIGNMENT & RELATIONSHIP CONTRACT ==========
+
+        it('P0 Schema Alignment: Deal without linked inventory fails closed on authority link', () => {
+            const snap = {
+                _isResolverVerified: true,
+                authorityCode: 'HSVP',
+                tenantId: '66f19ce95b90dffc37482fed',
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: {
+                    _isResolverVerified: true,
+                    tenantId: '66f19ce95b90dffc37482fed',
+                    inventoryId: '66f19ce95b90dffc37482fed',
+                    propertyId: 'HSVP-PLOT-1',
+                    authorityCode: 'HSVP',
+                    identityVerified: true,
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
+            };
+
+            // Deal without linked inventoryId
+            const dealNoInv = {
+                _id: new mongoose.Types.ObjectId(),
+                _entityType: 'Deal',
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+                // inventoryId missing!
+            };
+            assert.equal(hasAuthoritativeReraApproval(dealNoInv), false, 'Deal without linked inventory must fail closed');
+        });
+
+        it('P0 Schema Alignment: link.identityVerified === false fails closed', () => {
+            const invId = new mongoose.Types.ObjectId();
+            const snap = {
+                _isResolverVerified: true,
+                authorityCode: 'HSVP',
+                tenantId: '66f19ce95b90dffc37482fed',
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: {
+                    _isResolverVerified: true,
+                    tenantId: '66f19ce95b90dffc37482fed',
+                    inventoryId: invId,
+                    propertyId: 'HSVP-PLOT-1',
+                    authorityCode: 'HSVP',
+                    identityVerified: false, // Unverified identity!
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
+            };
+
+            const inventory = {
+                _id: invId,
+                _entityType: 'Inventory',
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+            };
+            assert.equal(hasAuthoritativeReraApproval(inventory), false, 'Link with identityVerified === false must fail closed');
+        });
+
+        it('P0 Schema Alignment: link.matchEligibility !== ELIGIBLE fails closed', () => {
+            const invId = new mongoose.Types.ObjectId();
+            const ineligibleStatuses = ['INCOMPLETE', 'NEEDS_REVIEW', 'AMBIGUOUS', 'INELIGIBLE'];
+
+            for (const status of ineligibleStatuses) {
+                const snap = {
+                    _isResolverVerified: true,
+                    authorityCode: 'HSVP',
+                    tenantId: '66f19ce95b90dffc37482fed',
+                    isSealed: true,
+                    isRevoked: false,
+                    contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    observedAt: new Date(),
+                    createdByWorkerId: 'WORKER-101',
+                    _resolvedLink: {
+                        _isResolverVerified: true,
+                        tenantId: '66f19ce95b90dffc37482fed',
+                        inventoryId: invId,
+                        propertyId: 'HSVP-PLOT-1',
+                        authorityCode: 'HSVP',
+                        identityVerified: true,
+                        matchEligibility: status, // Not strictly ELIGIBLE!
+                        isActive: true
+                    }
+                };
+
+                const inventory = {
+                    _id: invId,
+                    _entityType: 'Inventory',
+                    reraNumber: 'HRERA-101',
+                    reraStatus: 'APPROVED',
+                    _resolvedSnapshot: snap
+                };
+                assert.equal(hasAuthoritativeReraApproval(inventory), false, `Link with matchEligibility ${status} must fail closed`);
+            }
+        });
+
+        it('P0 Schema Alignment: Tenant mismatch between snapshot and link fails closed', () => {
+            const invId = new mongoose.Types.ObjectId();
+            const snap = {
+                _isResolverVerified: true,
+                authorityCode: 'HSVP',
+                tenantId: '66f19ce95b90dffc37482aaa', // Tenant A!
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: {
+                    _isResolverVerified: true,
+                    tenantId: '66f19ce95b90dffc37482bbb', // Tenant B!
+                    inventoryId: invId,
+                    propertyId: 'HSVP-PLOT-1',
+                    authorityCode: 'HSVP',
+                    identityVerified: true,
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
+            };
+
+            const inventory = {
+                _id: invId,
+                _entityType: 'Inventory',
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+            };
+            assert.equal(hasAuthoritativeReraApproval(inventory), false, 'Tenant mismatch between snapshot and link must fail closed');
+        });
+
+        it('P0 Schema Alignment: Authority code mismatch between snapshot and link fails closed', () => {
+            const invId = new mongoose.Types.ObjectId();
+            const snap = {
+                _isResolverVerified: true,
+                authorityCode: 'HSVP', // HSVP!
+                tenantId: '66f19ce95b90dffc37482fed',
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: {
+                    _isResolverVerified: true,
+                    tenantId: '66f19ce95b90dffc37482fed',
+                    inventoryId: invId,
+                    propertyId: 'PLOT-1',
+                    authorityCode: 'GMADA', // GMADA!
+                    identityVerified: true,
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
+            };
+
+            const inventory = {
+                _id: invId,
+                _entityType: 'Inventory',
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+            };
+            assert.equal(hasAuthoritativeReraApproval(inventory), false, 'Authority code mismatch between snapshot and link must fail closed');
+        });
+
+        // ========== 4. ELIMINATE EMBEDDED SNAPSHOT FALLBACK ==========
+
+        it('P0 Eliminate Embedded Fallback: Fabricated snapshot and link records without resolver proof fail closed', () => {
+            const invId = new mongoose.Types.ObjectId();
+            const fabricatedEntity = {
+                _id: invId,
+                _entityType: 'Inventory',
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                authorityVerification: {
+                    snapshotRecord: {
+                        authorityCode: 'HSVP',
+                        tenantId: '66f19ce95b90dffc37482fed',
+                        isSealed: true,
+                        isRevoked: false,
+                        contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                        observedAt: new Date(),
+                        linkRecord: {
+                            tenantId: '66f19ce95b90dffc37482fed',
+                            inventoryId: invId,
+                            propertyId: 'HSVP-PLOT-1',
+                            authorityCode: 'HSVP',
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            isActive: true
+                        }
+                        // Lacks _isResolverVerified: true!
+                    }
+                }
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(fabricatedEntity), false, 'Fabricated snapshot/link without resolver proof must fail closed');
+        });
+
+        it('P0 Eliminate Embedded Fallback: Client-supplied embedded snapshot is cleared prior to resolver execution', async () => {
+            const fakeEntity = {
+                _id: new mongoose.Types.ObjectId(),
+                _entityType: 'Deal',
+                _resolvedSnapshot: { fake: 'client-injected-snapshot' },
+                authorityVerification: {
+                    snapshotRecord: { fake: 'client-injected-snapshot' }
+                }
+            };
+
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(fakeEntity);
+            assert.equal(fakeEntity._resolvedSnapshot, null, 'Client-injected snapshot must be wiped by resolver');
+            assert.equal(fakeEntity.authorityVerification.snapshotRecord, null, 'Client-injected snapshotRecord must be wiped by resolver');
         });
     });
 });
