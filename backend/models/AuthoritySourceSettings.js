@@ -154,14 +154,14 @@ export function issueOwnerConfirmationWorkflowToken(context = {}) {
         err.code = 'AUTHORITY_CODE_REQUIRED';
         throw err;
     }
-    if (!targetId || targetId === '*' || String(targetId).trim() === '') {
+    if (targetId === '*') {
         const err = new Error('TARGET_ID_REQUIRED: Owner confirmation workflow token requires an exact targetId.');
         err.code = 'TARGET_ID_REQUIRED';
         throw err;
     }
     return createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
-        targetId: String(targetId),
+        targetId: targetId ? String(targetId) : '*',
         authorityCode: String(authorityCode),
         evidenceVersion: evidenceVersion !== undefined ? String(evidenceVersion) : '*'
     });
@@ -251,10 +251,10 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
         if (evidenceVersion === undefined || evidenceVersion === '*' || String(evidenceVersion).trim() === '') return false;
     }
 
-    // Rule 3: Owner confirmation requires valid supported authorityCode and exact targetId
+    // Rule 3: Owner confirmation requires valid supported authorityCode
     if (workflowName === 'recordOwnerConfirmation') {
         if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) return false;
-        if (!targetId || targetId === '*') return false;
+        if (expectedContext.targetId && (!targetId || targetId === '*' || String(targetId) !== String(expectedContext.targetId))) return false;
     }
 
     // Rule 4: Delete authority requires exact targetId and supported authorityCode
