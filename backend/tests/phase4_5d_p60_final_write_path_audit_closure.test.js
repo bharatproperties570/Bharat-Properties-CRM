@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
@@ -19,7 +20,10 @@ import AuthoritySourceSettings, {
     validateOrganizationFilter,
     extractCanonicalTenantFromFilter,
     purgeExpiredNonces,
-    _getConsumedWorkflowNoncesCount
+    _getConsumedWorkflowNoncesCount,
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
 } from '../models/AuthoritySourceSettings.js';
 import {
     CANONICAL_ORGANIZATION_ID,
@@ -30,6 +34,7 @@ let mongoServer;
 
 before(async () => {
     mongoServer = await MongoMemoryServer.create();
+    registerVerifiedEphemeralTestDatabase(mongoServer);
     const uri = mongoServer.getUri();
     await mongoose.connect(uri);
 });
@@ -37,15 +42,19 @@ before(async () => {
 after(async () => {
     await mongoose.disconnect();
     if (mongoServer) {
+        unregisterVerifiedEphemeralTestDatabase(mongoServer);
         await mongoServer.stop();
     }
 });
 
 beforeEach(async () => {
     if (mongoose.connection.readyState === 1) {
+        await _testOnlyResetAuthoritySettings({});
         const collections = mongoose.connection.collections;
         for (const key of Object.keys(collections)) {
-            await collections[key].deleteMany({}, { _bypassDeleteProtectionForTest: true });
+            if (!key.toLowerCase().includes('authority')) {
+                await collections[key].deleteMany({});
+            }
         }
     }
 });
@@ -211,7 +220,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
 
             const updated = await AuditLog.findById(auditToUpdate._id).lean();
             assert.ok(updated.description.includes('[PII_MINIMIZED]'));
-            assert.ok(updated.metadata.email === '[PII_MINIMIZED]' || updated.metadata.email === 'c***@gov.in');
+            assert.ok(updated.metadata.email === '[EMAIL_MINIMIZED]' || updated.metadata.email === '[PII_MINIMIZED]' || updated.metadata.email === 'c***@gov.in');
         });
 
         test('1.7 Immutability of authority approval audit events rejects updates and deletions', async () => {

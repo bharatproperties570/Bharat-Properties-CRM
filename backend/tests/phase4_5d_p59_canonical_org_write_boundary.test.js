@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 /**
  * Phase 4.5-D PR #60 Regression Test Suite:
  * Canonical Organization Enforcement, Database Write-Path Closure & Audit Privacy Finalization

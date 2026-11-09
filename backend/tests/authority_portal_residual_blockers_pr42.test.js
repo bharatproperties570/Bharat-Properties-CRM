@@ -25,6 +25,8 @@ import AuthoritySourceSettings, {
     checkActivationEligibility,
     INTERNAL_WORKFLOW_OPTION,
     issueInternalSeedWorkflowToken,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase,
     _testOnlyResetAuthoritySettings
 } from '../models/AuthoritySourceSettings.js';
 
@@ -115,6 +117,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     t.before(async () => {
         process.env.NODE_ENV = 'test';
         mongoServer = await MongoMemoryServer.create();
+        registerVerifiedEphemeralTestDatabase(mongoServer);
         const uri = mongoServer.getUri();
         if (mongoose.connection.readyState !== 0) {
             await mongoose.disconnect();
@@ -204,6 +207,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
     });
 
     t.after(async () => {
+        if (mongoServer) unregisterVerifiedEphemeralTestDatabase(mongoServer);
         await mongoose.disconnect();
         if (mongoServer) await mongoServer.stop();
     });

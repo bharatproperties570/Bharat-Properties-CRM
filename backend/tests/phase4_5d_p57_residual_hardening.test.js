@@ -8,7 +8,9 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import AuthoritySourceSettings, {
     checkActivationEligibility,
     checkInternalMakerCheckerReviewEligibility,
-    _testOnlyResetAuthoritySettings
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
 } from '../models/AuthoritySourceSettings.js';
 import AuditLog, { maskScalarPII, redactSensitive } from '../models/AuditLog.js';
 import User from '../models/User.js';
@@ -63,6 +65,7 @@ test.before(async () => {
     });
     const uri = replSet.getUri('phase45d_p57_residual_hardening_test');
     await mongoose.connect(uri);
+    registerVerifiedEphemeralTestDatabase(replSet);
 
     // Pre-create collections for transaction safety
     await User.createCollection();
@@ -170,6 +173,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
+    if (replSet) {
+        unregisterVerifiedEphemeralTestDatabase(replSet);
+    }
     if (mongoose.connection && mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
     }

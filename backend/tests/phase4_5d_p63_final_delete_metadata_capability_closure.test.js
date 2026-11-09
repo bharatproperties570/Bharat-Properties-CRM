@@ -41,6 +41,8 @@ import AuthoritySourceSettings, {
     issueTestCleanupWorkflowToken,
     verifyAuthorizedInternalWorkflow,
     validateOrganizationFilter,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase,
     _testOnlyResetAuthoritySettings
 } from '../models/AuthoritySourceSettings.js';
 
@@ -56,6 +58,7 @@ const NON_CANONICAL_ORG_ID = new mongoose.Types.ObjectId('1111111111111111111111
 
 before(async () => {
     mongoServer = await MongoMemoryServer.create();
+    registerVerifiedEphemeralTestDatabase(mongoServer);
     const uri = mongoServer.getUri();
     await mongoose.connect(uri);
 });
@@ -65,6 +68,7 @@ after(async () => {
         await mongoose.disconnect();
     }
     if (mongoServer) {
+        unregisterVerifiedEphemeralTestDatabase(mongoServer);
         await mongoServer.stop();
     }
 });
@@ -490,7 +494,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -519,7 +524,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -553,7 +559,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -588,7 +595,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -622,7 +630,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -730,7 +739,7 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
 
             const validToken = issueOwnerConfirmationWorkflowToken({
                 authorityCode: 'HSVP',
-                targetId: 'doc_123',
+                targetId: new mongoose.Types.ObjectId().toHexString(),
                 evidenceVersion: 1
             });
             assert.strictEqual(validToken.workflowName, 'recordOwnerConfirmation');

@@ -52,7 +52,8 @@
         "test:phase4.5d-p61-final-security-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p61_final_security_closure.test.js",
         "test:phase4.5d-p62-final-privacy-tenant-scope-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p62_final_privacy_tenant_scope_closure.test.js",
         "test:phase4.5d-p63-final-delete-metadata-capability-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p63_final_delete_metadata_capability_closure.test.js",
-        "test:phase4.5d-p64-final-write-privacy-capability-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p64_final_write_privacy_capability_closure.test.js"
+        "test:phase4.5d-p64-final-write-privacy-capability-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p64_final_write_privacy_capability_closure.test.js",
+        "test:phase4.5d-p65-final-test-reset-metadata-claim-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p65_final_test_reset_metadata_claim_closure.test.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1159.0",

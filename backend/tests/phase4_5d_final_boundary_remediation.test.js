@@ -1,3 +1,5 @@
+process.env.NODE_ENV = 'test';
+
 /**
  * ============================================================================
  *  BHARAT PROPERTIES CRM — PHASE 4.5-D FINAL BOUNDARY HARDENING TEST SUITE
@@ -83,7 +85,11 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, {
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
+} from '../models/AuthoritySourceSettings.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import Inventory from '../models/Inventory.js';
@@ -135,9 +141,13 @@ test.before(async () => {
     });
     // Connect explicitly with non-generic test database name
     await mongoose.connect(`${mongod.getUri()}phase45d_test_db`);
+    registerVerifiedEphemeralTestDatabase(mongod);
 });
 
 test.after(async () => {
+    if (mongod) {
+        unregisterVerifiedEphemeralTestDatabase(mongod);
+    }
     if (mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
     }
@@ -290,7 +300,7 @@ test('DB Safety Neg 10: Zero ensureDefaults() calls and zero writes for rejected
         const docCountAfter = await AuthoritySourceSettings.countDocuments();
         assert.strictEqual(docCountAfter, docCountBefore);
     } finally {
-        if (orig === undefined) delete process.env.NODE_ENV;
+        if (orig === undefined) process.env.NODE_ENV = 'test';
         else process.env.NODE_ENV = orig;
     }
 });

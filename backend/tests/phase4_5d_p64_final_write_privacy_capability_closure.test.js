@@ -11,7 +11,9 @@ import AuthoritySourceSettings, {
     issueDeleteWorkflowToken,
     issueOwnerConfirmationWorkflowToken,
     issueInternalSeedWorkflowToken,
-    _testOnlyResetAuthoritySettings
+    _testOnlyResetAuthoritySettings,
+    registerVerifiedEphemeralTestDatabase,
+    unregisterVerifiedEphemeralTestDatabase
 } from '../models/AuthoritySourceSettings.js';
 import AuditLog, {
     validateAuthorityMetadataValue,
@@ -29,6 +31,7 @@ before(async () => {
     replSet = await MongoMemoryReplSet.create({
         replSet: { count: 1, storageEngine: 'wiredTiger' }
     });
+    registerVerifiedEphemeralTestDatabase(replSet);
     const uri = replSet.getUri();
     await mongoose.connect(uri);
 });
@@ -38,6 +41,7 @@ after(async () => {
         await mongoose.disconnect();
     }
     if (replSet) {
+        unregisterVerifiedEphemeralTestDatabase(replSet);
         await replSet.stop();
     }
 });
@@ -490,7 +494,7 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
         });
 
         test('3.2: Controlled minimized placeholder description is accepted', async () => {
-            const minimizedDescription = '[PII_MINIMIZED] with PAN [PAN_MINIMIZED], Aadhaar [AADHAAR_MINIMIZED], phone [PHONE_MINIMIZED], email rahul@example.com living at [ADDRESS_MINIMIZED]';
+            const minimizedDescription = '[PII_MINIMIZED] with PAN [PAN_MINIMIZED], Aadhaar [AADHAAR_MINIMIZED], phone [PHONE_MINIMIZED], email [EMAIL_MINIMIZED] living at [ADDRESS_MINIMIZED]';
 
             const audit = await AuditLog.create({
                 eventType: 'authority_source_approval_reviewed',
@@ -511,6 +515,7 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
             assert.ok(retrieved.description.includes('[PAN_MINIMIZED]'));
             assert.ok(retrieved.description.includes('[AADHAAR_MINIMIZED]'));
             assert.ok(retrieved.description.includes('[PHONE_MINIMIZED]'));
+            assert.ok(retrieved.description.includes('[EMAIL_MINIMIZED]'));
         });
 
         test('3.3: Cross-event description template mismatch throws FREE_TEXT_AUDIT_PROHIBITED', async () => {
@@ -552,7 +557,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -586,7 +592,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -615,7 +622,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -649,7 +657,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -685,7 +694,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 
@@ -720,7 +730,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 description: 'Authority changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
-                    authorityCode: 'HSVP'
+                    authorityCode: 'HSVP',
+                    claimId: 'claim_recovery_101'
                 }
             });
 

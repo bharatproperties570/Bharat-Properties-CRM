@@ -182,6 +182,7 @@ jobs:
           npm run test:phase4.5d-p62-final-privacy-tenant-scope-closure
           npm run test:phase4.5d-p63-final-delete-metadata-capability-closure
           npm run test:phase4.5d-p64-final-write-privacy-capability-closure
+          npm run test:phase4.5d-p65-final-test-reset-metadata-claim-closure
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |

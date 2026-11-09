@@ -110,7 +110,36 @@ export const CONTROLLED_AUDIT_REASONS = new Set([
     'Maintenance pause requested',
     'USER_PAUSED',
     'USER_CANCELLED',
-    'SCHEDULE_TRIGGERED'
+    'SCHEDULE_TRIGGERED',
+    'PAUSED',
+    'REJECTED'
+]);
+
+export const CONTROLLED_ROLE_CODES = new Set([
+    'SYSTEM',
+    'MAKER',
+    'CHECKER',
+    'COMPLIANCE_OFFICER',
+    'COMPLIANCE_OFFICER_1',
+    'COMPLIANCE_REVIEWER',
+    'SYSTEM_ADMIN',
+    'PORTAL_OPERATOR',
+    'BATCH_WORKER'
+]);
+
+export const CONTROLLED_TARGET_NAMES = new Set([
+    'AuthoritySourceSettings',
+    'PropertyVerificationRun',
+    'PropertyVerificationRunItem',
+    'PropertyVerificationSnapshot',
+    'PropertyAuthorityLink',
+    'AuthorityReconciliationAudit',
+    'SYSTEM',
+    'AUTHORITY_PORTAL',
+    'HSVP',
+    'GMADA',
+    'CHD',
+    'CHANDIGARH_EO'
 ]);
 
 const CONTROLLED_REASONS = CONTROLLED_AUDIT_REASONS;
@@ -686,16 +715,44 @@ export function validateControlledScalarValue(val, pathStr) {
     if (t === 'boolean' || t === 'number') return;
     if (val instanceof Date) return;
     if (t === 'string') {
-        if (val.length > 120 || !/^[a-zA-Z0-9_ ,.:\/()+\-[\]]{0,120}$/.test(val)) {
+        const trimmed = val.trim();
+        if (trimmed.length > 120 || !/^[a-zA-Z0-9_ ,.:\/()+\-[\]]{0,120}$/.test(trimmed)) {
             const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' does not conform to the controlled metadata value contract.`);
             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
             throw err;
         }
         for (const p of NARRATIVE_PII_PATTERNS) {
-            if (p.test(val)) {
+            if (p.test(trimmed)) {
                 const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' does not conform to the controlled metadata value contract.`);
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
+            }
+        }
+        // Reject raw and partially masked emails
+        if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed) || /[a-zA-Z0-9._%+-]\*{3}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed)) {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains prohibited email address.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        // Reject personal human names (e.g. "Rajesh Kumar", "Amit Sharma", "Priya Devi")
+        const nameMatches = trimmed.match(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g);
+        if (nameMatches) {
+            const NON_HUMAN_WORDS = new Set([
+                'high', 'court', 'sq', 'yards', 'yard', 'feet', 'foot', 'meter', 'meters',
+                'floor', 'first', 'second', 'third', 'ground', 'sector', 'plot', 'phase',
+                'urban', 'estate', 'civil', 'suit', 'state', 'bank', 'india', 'punjab',
+                'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali',
+                'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim'
+            ]);
+            for (const nm of nameMatches) {
+                const parts = nm.split(/\s+/);
+                const w1 = parts[0].toLowerCase();
+                const w2 = parts[1].toLowerCase();
+                if (!NON_HUMAN_WORDS.has(w1) && !NON_HUMAN_WORDS.has(w2)) {
+                    const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
             }
         }
         return;
@@ -754,25 +811,191 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
         }
     }
 
+    if (key === 'reviewerName' || key === 'approverName') {
+        if (typeof value !== 'string') {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a string.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        const strVal = value.trim();
+        const isObjectId = /^[0-9a-fA-F]{24}$/.test(strVal);
+        const isControlledRole = CONTROLLED_ROLE_CODES.has(strVal);
+        if (!isObjectId && !isControlledRole) {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a valid ObjectId or controlled role code.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        return;
+    }
+
+    if (key === 'targetName') {
+        if (typeof value !== 'string') {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a string.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        const strVal = value.trim();
+        const isObjectId = /^[0-9a-fA-F]{24}$/.test(strVal);
+        const isControlledTarget = CONTROLLED_TARGET_NAMES.has(strVal);
+        if (!isObjectId && !isControlledTarget) {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a valid ObjectId or controlled target name.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        return;
+    }
+
     if (key === 'reason') {
-        if (typeof value === 'string') {
-            const trimmed = value.trim();
-            if (CONTROLLED_AUDIT_REASONS.has(trimmed)) {
-                return;
-            }
-            if (!/^[a-zA-Z0-9_ -]{2,80}$/.test(trimmed)) {
-                const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
-                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                throw err;
-            }
-            for (const p of NARRATIVE_PII_PATTERNS) {
-                if (p.test(trimmed)) {
-                    const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
+        if (typeof value !== 'string') {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a string.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        const trimmed = value.trim();
+        if (CONTROLLED_AUDIT_REASONS.has(trimmed)) {
+            return;
+        }
+        validateControlledScalarValue(trimmed, fullPath);
+        return;
+    }
+
+    if (key === 'identityContractAttestation') {
+        if (typeof value === 'boolean') return;
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            const allowed = new Set(['evidenceReference', 'evidenceVersion', 'evidenceHash', 'attestedAt', 'attestedBy', 'status', 'verified']);
+            for (const [k, v] of Object.entries(value)) {
+                if (!allowed.has(k)) {
+                    const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled key '${fullPath}.${k}' in identityContractAttestation.`);
                     err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                     throw err;
                 }
+                if (k === 'attestedBy') {
+                    const str = (v && typeof v.toHexString === 'function') ? v.toHexString() : (typeof v === 'string' ? v.trim() : '');
+                    if (!str || (!/^[0-9a-fA-F]{24}$/.test(str) && !CONTROLLED_ROLE_CODES.has(str))) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.attestedBy' must be a valid ObjectId or controlled role.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'evidenceReference') {
+                    if (typeof v !== 'string' || !/^[a-zA-Z0-9_/:.-]{2,100}$/.test(v.trim())) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidenceReference' must be a controlled reference.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'evidenceVersion') {
+                    if (typeof v !== 'number' && !(typeof v === 'string' && /^\d+$/.test(v))) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidenceVersion' must be a positive integer.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'evidenceHash') {
+                    if (typeof v !== 'string' || !/^[a-zA-Z0-9_:.-]{3,128}$/.test(v.trim())) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidenceHash' must be a valid hash.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'attestedAt') {
+                    if (!(v instanceof Date) && (typeof v !== 'string' || isNaN(Date.parse(v)))) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.attestedAt' must be a date.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'status') {
+                    if (typeof v !== 'string' || !/^[A-Z0-9_]{2,40}$/.test(v.trim())) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.status' must be a controlled status code.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'verified') {
+                    if (typeof v !== 'boolean') {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.verified' must be a boolean.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                }
             }
+            return;
         }
+        const err = new Error(`METADATA_TYPE_INVALID: Field '${fullPath}' must be boolean or object.`);
+        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+        throw err;
+    }
+
+    if (key === 'ownerAttestation') {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            const allowed = new Set(['confirmed', 'confirmedAt', 'confirmedBy', 'evidence', 'status']);
+            for (const [k, v] of Object.entries(value)) {
+                if (!allowed.has(k)) {
+                    const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled key '${fullPath}.${k}' in ownerAttestation.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
+                if (k === 'confirmed') {
+                    if (typeof v !== 'boolean') {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.confirmed' must be boolean.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'confirmedAt') {
+                    if (!(v instanceof Date) && (typeof v !== 'string' || isNaN(Date.parse(v)))) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.confirmedAt' must be a date.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'confirmedBy') {
+                    const str = (v && typeof v.toHexString === 'function') ? v.toHexString() : (typeof v === 'string' ? v.trim() : '');
+                    if (!str || (!/^[0-9a-fA-F]{24}$/.test(str) && !CONTROLLED_ROLE_CODES.has(str))) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.confirmedBy' must be a valid ObjectId or controlled role.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (k === 'evidence') {
+                    if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidence' must be an object.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                    const evidenceAllowed = new Set(['reference', 'hash', 'version', 'type']);
+                    for (const [ek, ev] of Object.entries(v)) {
+                        if (!evidenceAllowed.has(ek)) {
+                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled key '${fullPath}.evidence.${ek}'.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (ek === 'reference' && (typeof ev !== 'string' || !/^[a-zA-Z0-9_/:.-]{2,100}$/.test(ev.trim()))) {
+                            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidence.reference' must be controlled.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (ek === 'hash' && (typeof ev !== 'string' || !/^[a-zA-Z0-9_.-]{3,128}$/.test(ev.trim()))) {
+                            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidence.hash' must be a hash.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (ek === 'version' && typeof ev !== 'number' && !(typeof ev === 'string' && /^\d+$/.test(ev))) {
+                            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidence.version' must be a number.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (ek === 'type' && (typeof ev !== 'string' || !/^[A-Z0-9_]{2,40}$/.test(ev.trim()))) {
+                            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.evidence.type' must be a controlled type.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                    }
+                } else if (k === 'status') {
+                    if (typeof v !== 'string' || !/^[A-Z0-9_]{2,40}$/.test(v.trim())) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}.status' must be a controlled status code.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                }
+            }
+            return;
+        }
+        const err = new Error(`METADATA_TYPE_INVALID: Field '${fullPath}' must be an object.`);
+        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+        throw err;
     }
 
     // Type check
@@ -969,7 +1192,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^Audit without evidence version$/i,
         /^Stale version \d+ audit$/i,
         /^Missing (?:actorId|userId|submittedBy in metadata)$/i,
-        /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email [^\s]+ living at \[ADDRESS_MINIMIZED\]$/i
+        /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email \[EMAIL_MINIMIZED\] living at \[ADDRESS_MINIMIZED\]$/i
     ],
     authority_maker_checker_approval: [
         /^Authority source authorization APPROVED(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
@@ -1174,14 +1397,16 @@ export const REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS = [
     /^(?:Wrong authority|Wrong target|Wrong targetType|Wrong actor review|Mismatched settingsId|Mismatched audit record|Reviewer identity mismatch|Failed review|Stale review|Future review|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i,
     /^Test (?:run created|audit event|settings created|policy rotation|event for [a-zA-Z0-9_-]+)$/i,
     /^Initial settings created$/i,
-    // Exact PII test fixture pattern
-    /^Citizen Rahul Sharma with PAN [A-Z0-9]+, Aadhaar [0-9 -]+, phone [0-9 +-]+, email [^\s]+ living at [a-zA-Z0-9 ,.-]+$/i,
-    /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email [^\s]+ living at \[ADDRESS_MINIMIZED\]$/i
+    // Minimized PII template
+    /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email \[EMAIL_MINIMIZED\] living at \[ADDRESS_MINIMIZED\]$/i
 ];
 
 export function isControlledAuthorityDescription(desc) {
     if (!desc || typeof desc !== 'string') return false;
     const trimmed = desc.trim();
+    if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed) || /[a-zA-Z0-9._%+-]\*{3}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed)) {
+        return false;
+    }
     if (REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS.some(regex => regex.test(trimmed))) return true;
     for (const templates of Object.values(EVENT_DESCRIPTION_TEMPLATES_REGISTRY)) {
         if (templates.some(regex => regex.test(trimmed))) return true;
@@ -1192,6 +1417,9 @@ export function isControlledAuthorityDescription(desc) {
 export function isControlledAuthorityDescriptionForEvent(eventType, desc) {
     if (!desc || typeof desc !== 'string') return false;
     const trimmed = desc.trim();
+    if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed) || /[a-zA-Z0-9._%+-]\*{3}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed)) {
+        return false;
+    }
     if (isAuthorityAuditEvent(eventType)) {
         const templates = EVENT_DESCRIPTION_TEMPLATES_REGISTRY[eventType];
         if (!templates || !Array.isArray(templates) || templates.length === 0) {
@@ -1348,7 +1576,9 @@ export function sanitizeAuditDocument(doc, targetEventContext = null) {
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
             }
-            const maskedDesc = maskScalarPII(raw.description);
+            let maskedDesc = maskScalarPII(raw.description);
+            maskedDesc = maskedDesc.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_MINIMIZED]');
+            maskedDesc = maskedDesc.replace(/[a-zA-Z0-9._%+-]\*{3}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_MINIMIZED]');
             raw.description = maskedDesc;
             if (doc._doc) doc.description = maskedDesc;
         }
@@ -1642,15 +1872,47 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
         }
     }
 
+    const isSagaCompensation = Boolean(
+        update?.$set?.['metadata.compensated'] !== undefined ||
+        update?.$set?.['metadata.compensationClaimId'] !== undefined ||
+        update?.$set?.status === 'compensated' ||
+        filter?.eventType === 'authority_changes_applied'
+    );
+
+    if (isSagaCompensation) {
+        if (opType === 'updateMany') {
+            const err = new Error('AUDIT_LOG_IMMUTABLE: updateMany is strictly prohibited for saga compensation.');
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
+        }
+        if (isUpsert) {
+            const err = new Error('AUDIT_LOG_IMMUTABLE: Upsert is strictly prohibited during saga compensation.');
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
+        }
+        if (isDelete || isReplace) {
+            const err = new Error("AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' is append-only and cannot be deleted, replaced, or upserted.");
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
+        }
+    }
+
     // 4. If filter does not explicitly specify eventType or uses operators (_id, targetId, etc.),
     // inspect matching documents in database
     if (effectiveModel && typeof effectiveModel.find === 'function') {
         try {
-            let findQuery = effectiveModel.find(filter).select('eventType status');
+            let findQuery = effectiveModel.find(filter).select('eventType status targetId metadata changes');
             if (session) {
                 findQuery = findQuery.session(session);
             }
             const matchingDocs = await findQuery.lean();
+            if (!matchingDocs || matchingDocs.length === 0) {
+                if (isSagaCompensation) {
+                    const err = new Error('AUDIT_LOG_IMMUTABLE: Target audit document does not exist for saga compensation.');
+                    err.code = 'AUDIT_LOG_IMMUTABLE';
+                    throw err;
+                }
+            }
             if (Array.isArray(matchingDocs)) {
                 for (const doc of matchingDocs) {
                     if (!doc) continue;
@@ -1660,8 +1922,13 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                         throw err;
                     }
                     if (doc.eventType === 'authority_changes_applied') {
-                        if (isDelete || isReplace) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' is append-only and cannot be deleted or replaced.`);
+                        if (opType === 'updateMany') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: updateMany is strictly prohibited for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        if (isDelete || isReplace || isUpsert) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' is append-only and cannot be deleted, replaced, or upserted.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
@@ -1688,11 +1955,16 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                                 throw err;
                             }
                         }
+                        if (ops.length === 0) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Operator in update is strictly limited to '$set' during saga compensation on 'authority_changes_applied'. Only '$set' is permitted.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
 
-                        // Check $set or direct fields
-                        const setPayload = update.$set || update;
+                        // Check $set
+                        const setPayload = update.$set;
                         if (!setPayload || typeof setPayload !== 'object') {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Saga compensation requires valid update payload.`);
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Saga compensation requires valid update payload with $set.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
@@ -1723,25 +1995,62 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                         }
 
                         // Status MUST be 'compensated'
-                        const candidateStatus = setPayload.status;
-                        if (candidateStatus !== 'compensated') {
+                        if (setPayload.status !== 'compensated') {
                             const err = new Error(`AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' only permits state transition to status: 'compensated' during saga compensation.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
 
                         // Validate metadata.compensated is boolean true
-                        if (setPayload['metadata.compensated'] !== undefined && setPayload['metadata.compensated'] !== true) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: metadata.compensated must be true during saga compensation.`);
+                        if (setPayload['metadata.compensated'] !== true) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: metadata.compensated: true is required during saga compensation.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
 
                         // Validate compensationClaimId
-                        if (setPayload['metadata.compensationClaimId'] !== undefined) {
-                            const claimId = String(setPayload['metadata.compensationClaimId']).trim();
-                            if (!claimId || !/^[a-zA-Z0-9_-]{8,64}$/.test(claimId)) {
-                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Invalid compensation claim ID during saga compensation.`);
+                        const rawClaimId = setPayload['metadata.compensationClaimId'];
+                        if (!rawClaimId || typeof rawClaimId !== 'string') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: A non-empty metadata.compensationClaimId is required during saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        const claimId = rawClaimId.trim();
+                        if (!/^[a-zA-Z0-9_-]{8,64}$/.test(claimId) || claimId === 'compensation_claim_id') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Invalid compensation claim ID during saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
+                        // Verify compensation claim ID binding (PR #66 P1)
+                        const PropertyVerificationRunItem = mongoose.models.PropertyVerificationRunItem;
+                        const isObjectId = mongoose.Types.ObjectId.isValid(claimId) && /^[0-9a-fA-F]{24}$/.test(claimId);
+                        let matchingRunItem = null;
+
+                        if (isObjectId && PropertyVerificationRunItem && typeof PropertyVerificationRunItem.findOne === 'function') {
+                            matchingRunItem = await PropertyVerificationRunItem.findOne({
+                                $or: [
+                                    { 'applyClaim.claimId': new mongoose.Types.ObjectId(claimId) },
+                                    { 'applyClaim.reconcilerClaimId': new mongoose.Types.ObjectId(claimId) }
+                                ]
+                            }).setOptions(session ? { session } : {}).lean();
+                        }
+
+                        const auditClaimId = doc.metadata?.claimId || doc.changes?.claimId || doc.changes?.before?.claimId;
+                        const auditMatchesClaim = auditClaimId && String(auditClaimId) === String(claimId);
+
+                        if (!matchingRunItem && !auditMatchesClaim) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' does not belong to any authentic PropertyVerificationRunItem.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
+                        const auditItemId = doc.targetId || doc.metadata?.itemId || doc.metadata?.runItemId || doc.changes?.before?.itemId || doc.changes?.after?.itemId;
+                        if (matchingRunItem) {
+                            const isMatchingTarget = (matchingRunItem._id && String(matchingRunItem._id) === String(auditItemId)) ||
+                                                     (matchingRunItem.inventoryId && String(matchingRunItem.inventoryId) === String(auditItemId));
+                            if (auditItemId && !isMatchingTarget) {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' belongs to RunItem '${matchingRunItem._id}', not matching audit target '${auditItemId}'.`);
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
                             }
