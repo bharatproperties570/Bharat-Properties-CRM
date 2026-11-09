@@ -15,7 +15,7 @@ import { MongoMemoryServer, MongoMemoryReplSet } from 'mongodb-memory-server';
 import config from '../src/config/env.js';
 import AuthoritySourceSettings, {
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken
+    issueInternalSeedWorkflowToken
 } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
@@ -183,7 +183,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
             }
         );
     }
@@ -204,7 +204,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
             }
         );
     }

@@ -11,7 +11,6 @@ import crypto from 'crypto';
 import AuthoritySourceSettings, {
     checkActivationEligibility,
     checkInternalMakerCheckerReviewEligibility,
-    createAuthorizedInternalWorkflowToken,
     issueApproverWorkflowToken,
     issueReviewerWorkflowToken,
     INTERNAL_WORKFLOW_OPTION

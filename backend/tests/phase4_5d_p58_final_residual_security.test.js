@@ -7,7 +7,6 @@ import AuthoritySourceSettings, {
     isProtectedPath,
     checkActivationEligibility,
     checkInternalMakerCheckerReviewEligibility,
-    createAuthorizedInternalWorkflowToken,
     INTERNAL_WORKFLOW_OPTION
 } from '../models/AuthoritySourceSettings.js';
 import User from '../models/User.js';
@@ -1058,7 +1057,7 @@ test('Area 15.1: Source with reviewStatus APPROVED cannot be enabled while exter
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.updateOne(
-                { _id: setting._id },
+                { _id: setting._id, tenantId: testTenantId },
                 { $set: { isEnabled: true } }
             );
         },

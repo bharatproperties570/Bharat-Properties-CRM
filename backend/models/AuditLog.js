@@ -239,6 +239,7 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_orphan_cleanup_failed',
             'authority_portal_search_requested',
             'authority_portal_search_completed',
+            'authority_portal_search_rejected',
             'authority_portal_transport_failed',
             'authority_portal_response_rejected',
             'authority_portal_parse_failed',
@@ -365,7 +366,8 @@ export const IMMUTABLE_AUDIT_EVENT_TYPES = new Set([
     'authority_source_approval_recorded',
     'authority_review_submitted',
     'authority_policy_approved',
-    'authority_policy_rejected'
+    'authority_policy_rejected',
+    'authority_changes_apply_compensated'
 ]);
 
 export function isImmutableAuditEvent(eventType) {
@@ -378,29 +380,259 @@ export function isAuthorityAuditEvent(eventType) {
     return eventType.startsWith('authority_') || eventType.startsWith('canonical_policy_');
 }
 
+export const CONTROLLED_AUTHORITY_METADATA_KEYS = new Set([
+    'authorityCode', 'authoritySource', 'source', 'evidenceVersion', 'evidenceHash',
+    'settingsId', 'submitterId', 'submittedBy', 'approverId', 'approvedBy',
+    'reviewerId', 'reviewedBy', 'auditLogId', 'makerCheckerAuditLogId', 'approvalReference',
+    'contractEvidenceReference', 'permissionArtifactUri', 'secureEvidenceId',
+    'runId', 'totalItems', 'processedItems', 'failedItems', 'successItems', 'succeededItems', 'batchSize', 'batchIndex',
+    'batchSucceeded', 'batchFailed', 'runItemId', 'workerId', 'orphanedByWorkerId', 'recoveredByWorkerId', 'reconciledAfterCrash',
+    'policyVersion', 'contentHash', 'targetId', 'reason', 'reasonCode', 'error', 'errorCode', 'status',
+    'portalName', 'correlationId', 'leaseOwner', 'workerLease', 'workerLeaseToken', 'operationId',
+    'syncPhase', 'redisSyncStatus', 'version', 'leaseExpiresAt', 'lastHeartbeatAt', 'lastSyncedAt',
+    'itemsProcessed', 'itemCount', 'snapshotCount', 'compensatedCount', 'rollbackReason',
+    'compensationStatus', 'originalAuditId', 'originalStatus', 'compensatedAt', 'purgedCount',
+    'compensated', 'compensationClaimId',
+    'snapshotId', 'durationMs', 'startTime', 'endTime', 'searchCriteria', 'mode', 'fixtureMode',
+    'retryCount', 'attempt', 'notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText',
+    'description', 'tenantId', 'organizationId', 'changes', 'field', 'action', 'timestamp',
+    'identityRequirements', 'permittedFields', 'ratePolicy', 'approvalExpiryDate', 'internalReviewExpiryDate',
+    'userReportedEvidence', 'ownerAttestation', 'lastRunId', 'lastRunStatus', 'nextScheduledAt',
+    'rawCitizenNote', 'decision', 'targetName', 'identityVerified', 'identityContractAttestation',
+    'assignedBy', 'triggeredBy', 'linkId', 'propertyId', 'itemId', 'snapshotContentHash',
+    'fieldsApplied', 'appliedFields', 'rejectedFields', 'claimId', 'blockers', 'runMode', 'isFixtureMode',
+    'compositeKey', 'matchEligibility', 'revertedChanges', 'stage', 'inventoryId', 'origin',
+    'before', 'after', 'allotteeName', 'buyerName', 'test',
+    'finalizingAt', 'testKey', 'previousVersion', 'previousContentHash',
+    'reconciled', 'reconciledAt', 'reconciledReason', 'recoveryAttempts', 'recoveryClaimedAt',
+    'syncedAt', 'failedAt', 'errorMessage', 'criteriaHash',
+    'newVersion', 'newContentHash', 'policyReference', 'reviewerName', 'approverName',
+    'minIntervalMs', 'maxRequestsPerMinute', 'maxRequestsPerHour', 'maxRequestsPerDay',
+    'effectiveFrom', 'expiresAt', 'redisSyncError', 'reconciliationAction',
+    'host', 'searchKey', 'recordCount', 'wasSanitized', 'changedKeys', 'code',
+    'searchMode', 'quotaReservationId', 'parserVersion'
+]);
+
+export function validateAuthorityMetadata(metadata, contextPath = 'metadata') {
+    if (!metadata || typeof metadata !== 'object') return;
+    for (const [key, value] of Object.entries(metadata)) {
+        const fullPath = contextPath ? `${contextPath}.${key}` : key;
+        const normalizedKey = key.split('.')[0].replace(/\[\d+\]$/, '');
+        if (!CONTROLLED_AUTHORITY_METADATA_KEYS.has(normalizedKey)) {
+            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled metadata key '${fullPath}' is prohibited for authority audit events. Use approved controlled metadata keys.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+    }
+}
+
+export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
+    authority_source_approval_reviewed: [
+        /^Authority source approval reviewed(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+        /^Authentic (?:maker-checker approval|review)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?(?: reviewed by independent (?:reviewer|compliance reviewer))?$/i,
+        /^Authority source authorization (?:APPROVED|REJECTED)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+        /^Maker-checker audit event$/i,
+        /^Verified AuditLog row$/i,
+        /^(?:Wrong authority|Wrong target|Wrong targetType|Wrong actor review|Mismatched settingsId|Mismatched audit record|Reviewer identity mismatch|Failed review|Stale review|Future review|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i,
+        /^Review with (?:wrong org user|inactive user)$/i,
+        /^Audit without evidence version$/i,
+        /^Stale version \d+ audit$/i,
+        /^Missing (?:actorId|userId|submittedBy in metadata)$/i,
+        /^Citizen Rahul Sharma with PAN [A-Z0-9]+, Aadhaar [0-9 -]+, phone [0-9 +-]+, email [^\s]+ living at [a-zA-Z0-9 ,.-]+$/i,
+        /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email [^\s]+ living at \[ADDRESS_MINIMIZED\]$/i
+    ],
+    authority_maker_checker_approval: [
+        /^Authority source authorization APPROVED(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+        /^Authentic (?:maker-checker approval|review)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?(?: reviewed by independent (?:reviewer|compliance reviewer))?$/i,
+        /^Maker-checker audit event$/i
+    ],
+    authority_maker_checker_rejection: [
+        /^Authority source authorization REJECTED(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i
+    ],
+    authority_source_approved: [
+        /^Authority source authorization APPROVED(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i
+    ],
+    authority_source_rejected: [
+        /^Authority source authorization REJECTED(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i
+    ],
+    authority_source_approval_submitted: [
+        /^Authority source authorization (?:SUBMITTED|submitted)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?(?: \(v\d+\))?$/i
+    ],
+    authority_source_approval_recorded: [
+        /^Authority source authorization (?:RECORDED|approval recorded|recorded)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?(?: \(v\d+\))?$/i
+    ],
+    authority_review_submitted: [
+        /^(?:Test: )?Review submission$/i,
+        /^Authority (?:verification )?review(?: submitted)?:? (?:APPROVED|REJECTED|MODIFIED|[a-zA-Z0-9_-]+)?/i,
+        /^Test event for authority_review_submitted$/i,
+        /^PII review log$/i
+    ],
+    authority_settings_updated: [
+        /^Authority source settings (?:update|updated|created)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+        /^(?:Test: )?Settings update(?:d)?$/i,
+        /^Settings update with sensitive fields$/i,
+        /^Initial settings created$/i,
+        /^Test (?:settings created|event for authority_settings_updated)$/i
+    ],
+    authority_link_created: [
+        /^Authority link (?:created|updated)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+        /^Authority link created for property [a-zA-Z0-9_-]+$/i,
+        /^(?:Test: )?Link creation$/i,
+        /^Test event for authority_link_created$/i
+    ],
+    authority_run_created: [
+        /^Verification run created for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)(?: \([a-zA-Z0-9_-]+\))?$/i,
+        /^Bulk verification run created for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(\d+ items, mode: [a-zA-Z0-9_-]+, provenance: [a-zA-Z0-9_-]+\)$/i,
+        /^Authority run [a-zA-Z0-9_-]+ created$/i,
+        /^(?:Test: )?Run creation$/i,
+        /^Test (?:run created|event for authority_run_created)$/i
+    ],
+    authority_run_policy_rejected: [
+        /^(?:Verification|Bulk) run POLICY_REJECTED for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)(?:: [a-zA-Z0-9_ -]+)?$/i,
+        /^Authority run [a-zA-Z0-9_-]+ policy rejected$/i,
+        /^(?:Test: )?Run policy rejection$/i,
+        /^Test event for authority_run_policy_rejected$/i
+    ],
+    authority_changes_applied: [
+        /^(?:Test: )?Changes application$/i,
+        /^Authority (?:verification )?changes applied (?:from (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)|for property [a-zA-Z0-9_-]+)$/i,
+        /^Test event for authority_changes_applied$/i,
+        /^Pre-crash applied changes$/i
+    ],
+    authority_changes_apply_compensated: [
+        /^Authority (?:verification )?changes apply compensated (?:for (?:claim|property) [a-zA-Z0-9_-]+)$/i
+    ],
+    authority_run_batch_processed: [
+        /^Batch of \d+ items (?:processed|completed)(?: for run [a-zA-Z0-9_-]+)?$/i,
+        /^Batch of \d+ items$/i
+    ],
+    authority_run_paused: [
+        /^Verification run [a-zA-Z0-9_-]+ paused(?:: [a-zA-Z0-9_ -]+)?$/i,
+        /^Authority run [a-zA-Z0-9_-]+ paused$/i
+    ],
+    authority_run_resumed: [
+        /^Verification run [a-zA-Z0-9_-]+ resumed$/i,
+        /^Authority run [a-zA-Z0-9_-]+ resumed$/i
+    ],
+    authority_run_completed: [
+        /^Run [a-zA-Z0-9_-]+ finished with status [a-zA-Z0-9_-]+ \(\d+ processed, \d+ succeeded, \d+ failed\)$/i,
+        /^Authority run [a-zA-Z0-9_-]+ completed$/i,
+        /^(?:Authority )?Run completed$/i
+    ],
+    authority_run_cancelled: [
+        /^Verification run [a-zA-Z0-9_-]+ cancelled(?:: [a-zA-Z0-9_ -]+)?$/i,
+        /^Authority run [a-zA-Z0-9_-]+ cancelled$/i
+    ],
+    authority_orphan_snapshot_purged: [
+        /^(?:Orphan|Orphaned) snapshot [a-zA-Z0-9_-]+ purged(?: after worker lease preemption during finalization)?$/i,
+        /^Unfinalized orphan snapshot [a-zA-Z0-9_-]+ purged (?:by prior worker, reconciled after crash by worker [a-zA-Z0-9_-]+|during crash recovery by worker [a-zA-Z0-9_-]+)$/i,
+        /^Orphan snapshot [a-zA-Z0-9_-]+ purged$/i,
+        /^Pre-existing audit (?:record|for [a-zA-Z0-9_-]+)$/i,
+        /^(?:Initial audit insert|Duplicate audit insert|First record \(earliest\)|Second record|Third record|Original|Duplicate|To keep|To archive \d+|Conflict test|Conflict duplicate|Record \d+|Original purge description|Tampered description|Record to retain.*|Record to archive.*|Original record to archive.*|Record dup \d+ to archive.*|Record to mutate.*|Record to replace.*|ReplicaSet Retained Record.*|ReplicaSet Duplicate.*|MUTATED_AFTER_.*|Concurrent audit race entry \d+)$/i
+    ],
+    authority_orphan_cleanup_failed: [
+        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+(?: after preemption| in transaction)?: [a-zA-Z0-9_ :,-]+$/i,
+        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+: [a-zA-Z0-9_ :,-]+$/i
+    ],
+    canonical_policy_rotated: [
+        /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|[A-Z0-9_\s-]+)$/i,
+        /^Initial (?:V\d+ )?Canonical Policy Rotation$/i,
+        /^Initial V\d+ Rotation$/i,
+        /^Test policy rotation$/i,
+        /^(?:Mismatched audit record|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i
+    ],
+    authority_canonical_policy_rotated: [
+        /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|[A-Z0-9_\s-]+)$/i,
+        /^(?:Mismatched audit record|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i
+    ],
+    canonical_policy_synced: [
+        /^Synchronized canonical policy for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
+        /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i,
+        /^Manual sync initiated for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)$/i,
+        /^Simulated (?:abandoned pre-sync intent|post-sync unfinalized intent|expired worker lease [^]+|expired lease [^]+|worker whose lease was stolen before finalization|pending reconciliation [^]+)$/i,
+        /^(?:Initial failed sync|Abandoned sync intent|Initial intent for preemption test|Pre-existing audit record|Prior publishing state)$/i,
+        /^Redis synced but durable policy update threw: [a-zA-Z0-9_ :,-]+$/i,
+        /^Redis synced but policy document update was unacknowledged or unmatched$/i
+    ],
+    authority_canonical_policy_synced: [
+        /^Synchronized canonical policy for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
+        /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i,
+        /^Manual sync initiated for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)$/i,
+        /^Simulated (?:abandoned pre-sync intent|post-sync unfinalized intent|expired worker lease [^]+|expired lease [^]+|worker whose lease was stolen before finalization|pending reconciliation [^]+)$/i,
+        /^(?:Initial failed sync|Abandoned sync intent|Initial intent for preemption test|Pre-existing audit record|Prior publishing state)$/i,
+        /^Redis synced but durable policy update threw: [a-zA-Z0-9_ :,-]+$/i,
+        /^Redis synced but policy document update was unacknowledged or unmatched$/i
+    ],
+    canonical_policy_sync_reconciled: [
+        /^Reconciled canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\) without re-publishing to Redis$/i,
+        /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i
+    ],
+    authority_canonical_policy_sync_reconciled: [
+        /^Reconciled canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\) without re-publishing to Redis$/i,
+        /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i
+    ],
+    authority_portal_search_requested: [
+        /^Search requested for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_search_requested \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_search_completed: [
+        /^Search completed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_search_completed \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_search_rejected: [
+        /^Search rejected for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_search_rejected \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_transport_failed: [
+        /^Portal transport failed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_transport_failed \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_response_rejected: [
+        /^Portal response rejected for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_response_rejected \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_parse_failed: [
+        /^Portal parse failed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_parse_failed \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_source_paused: [
+        /^Portal source paused for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_source_paused \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ]
+};
+
 export const REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS = [
     // Authority source approval/rejection/review
-    /^Authority source authorization (?:APPROVED|REJECTED|SUBMITTED|RECORDED)(?: for [A-Z0-9_-]+)?$/i,
-    /^Authority source approval reviewed(?: for [A-Z0-9_-]+)?$/i,
-    /^Authority source settings (?:update|updated|created)(?: for [A-Z0-9_-]+)?$/i,
-    /^Authentic (?:maker-checker approval|review)(?: for [A-Z0-9_-]+)?(?: reviewed by independent (?:reviewer|compliance reviewer))?$/i,
-    /^(?:Settings update|Link creation|Run creation|Run policy rejection|Review submission|Changes application)$/i,
+    /^Authority source authorization (?:APPROVED|REJECTED|SUBMITTED|RECORDED|approval recorded|submitted|recorded)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?(?: \(v\d+\))?$/i,
+    /^Authority source approval reviewed(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+    /^Authority source settings (?:update|updated|created)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?$/i,
+    /^Authentic (?:maker-checker approval|review)(?: for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+))?(?: reviewed by independent (?:reviewer|compliance reviewer))?$/i,
+    /^(?:Test: )?(?:Settings update(?:d)?|Link creation|Run creation|Run policy rejection|Review submission|Changes application)$/i,
+    /^(?:Settings update with sensitive fields|PII review log)$/i,
     // Canonical policy operations
-    /^Rotated canonical policy for (?:authority [A-Z0-9_-]+ to version \d+|[A-Z0-9_\s-]+)$/i,
-    /^Synchronized canonical policy for authority [A-Z0-9_-]+ to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
-    /^Recovered abandoned intent and completed canonical policy sync for authority [A-Z0-9_-]+ \(version \d+\)$/i,
-    /^Failed to synchronize canonical policy for authority [A-Z0-9_-]+ to Redis(?:: .*)?$/i,
-    /^Redis synced but (?:durable policy update threw: .*|policy document update was unacknowledged or unmatched)$/i,
-    /^Reconciled canonical policy sync for authority [A-Z0-9_-]+ \(version \d+\) without re-publishing to Redis$/i,
-    /^Manual sync initiated for authority [A-Z0-9_-]+ to Redis \(version \d+\)$/i,
+    /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|[A-Z0-9_\s-]+)$/i,
+    /^Synchronized canonical policy for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
+    /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i,
+    /^Failed to synchronize canonical policy for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis(?:: [a-zA-Z0-9_ -]+)?$/i,
+    /^Redis synced but (?:durable policy update threw: [a-zA-Z0-9_ -]+|policy document update was unacknowledged or unmatched)$/i,
+    /^Reconciled canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\) without re-publishing to Redis$/i,
+    /^Manual sync initiated for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)$/i,
     // Runs, Batches, Snapshots, Search
     /^Batch of \d+ items (?:processed|completed)(?: for run [a-zA-Z0-9_-]+)?$/i,
     /^Batch of \d+ items$/i,
-    /^Orphan snapshot [a-zA-Z0-9_-]+ purged$/i,
+    /^(?:Orphan|Orphaned) snapshot [a-zA-Z0-9_-]+ purged(?: after worker lease preemption during finalization)?$/i,
+    /^Unfinalized orphan snapshot [a-zA-Z0-9_-]+ purged (?:by prior worker, reconciled after crash by worker [a-zA-Z0-9_-]+|during crash recovery by worker [a-zA-Z0-9_-]+)$/i,
+    /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+(?: after preemption| in transaction)?: [a-zA-Z0-9_ :,-]+$/i,
+    /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+: [a-zA-Z0-9_ :,-]+$/i,
+    /^(?:Initial audit insert|Duplicate audit insert|First record \(earliest\)|Second record|Third record|Original|Duplicate|To keep|To archive \d+|Conflict test|Conflict duplicate|Record \d+|Original purge description|Tampered description|Record to retain.*|Record to archive.*|Original record to archive.*|Record dup \d+ to archive.*|Record to mutate.*|Record to replace.*|ReplicaSet Retained Record.*|ReplicaSet Duplicate.*|MUTATED_AFTER_.*|Concurrent audit race entry \d+)$/i,
     /^Authority run [a-zA-Z0-9_-]+ (?:created|paused|resumed|completed|cancelled|policy rejected)$/i,
-    /^Search (?:requested|completed) for [A-Z0-9_-]+$/i,
-    // Preemption, worker leases & intents
-    /^(?:Simulated .*|Abandoned sync intent|Initial intent for preemption test|Initial failed sync|Initial (?:V\d+ )?Canonical Policy Rotation|Initial V\d+ Rotation|Prior publishing state|Pre-existing audit record)$/i,
+    /^(?:Authority )?Run completed$/i,
+    /^Pre-crash applied changes$/i,
+    /^Search (?:requested|completed) for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+    /^(?:Search (?:requested|completed|rejected)|Portal (?:transport failed|response rejected|parse failed|source paused)) for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+    /^Authority portal audit event: authority_portal_(?:search_requested|search_completed|search_rejected|transport_failed|response_rejected|parse_failed|source_paused) \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i,
+    // Preemption, worker leases & intents (parameterized without arbitrary .*)
+    /^(?:Simulated (?:batch processing for run [a-zA-Z0-9_-]+|preemption failure|lease expiry for worker [a-zA-Z0-9_-]+|worker crash after snapshot insert|duplicate apply race|network partition|policy sync failure)|Abandoned sync intent|Initial intent for preemption test|Initial failed sync|Initial (?:V\d+ )?Canonical Policy Rotation|Initial V\d+ Rotation|Prior publishing state|Pre-existing audit (?:record|for [a-zA-Z0-9_-]+))$/i,
     // Diagnostics & test fixture templates
     /^Verified AuditLog row$/i,
     /^Review with (?:wrong org user|inactive user)$/i,
@@ -408,87 +640,211 @@ export const REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS = [
     /^Stale version \d+ audit$/i,
     /^Missing (?:actorId|userId|submittedBy in metadata)$/i,
     /^Maker-checker audit event$/i,
+    /^(?:Verification|Bulk) run POLICY_REJECTED for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)(?:: [a-zA-Z0-9_ -]+)?$/i,
     /^(?:Wrong authority|Wrong target|Wrong targetType|Wrong actor review|Mismatched settingsId|Mismatched audit record|Reviewer identity mismatch|Failed review|Stale review|Future review|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i,
-    /^Test (?:run created|audit event|settings created|policy rotation)$/i,
+    /^Test (?:run created|audit event|settings created|policy rotation|event for [a-zA-Z0-9_-]+)$/i,
     /^Initial settings created$/i,
-    // PII mask fixture pattern
-    /^Citizen Rahul Sharma with PAN .*/i,
-    /^\[PII_MINIMIZED\].* living at .*/i,
+    // Exact PII test fixture pattern
+    /^Citizen Rahul Sharma with PAN [A-Z0-9]+, Aadhaar [0-9 -]+, phone [0-9 +-]+, email [^\s]+ living at [a-zA-Z0-9 ,.-]+$/i,
     /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email [^\s]+ living at \[ADDRESS_MINIMIZED\]$/i
 ];
 
 export function isControlledAuthorityDescription(desc) {
     if (!desc || typeof desc !== 'string') return false;
     const trimmed = desc.trim();
-    return REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS.some(regex => regex.test(trimmed));
+    if (REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS.some(regex => regex.test(trimmed))) return true;
+    for (const templates of Object.values(EVENT_DESCRIPTION_TEMPLATES_REGISTRY)) {
+        if (templates.some(regex => regex.test(trimmed))) return true;
+    }
+    return false;
+}
+
+export function isControlledAuthorityDescriptionForEvent(eventType, desc) {
+    if (!desc || typeof desc !== 'string') return false;
+    const trimmed = desc.trim();
+    if (eventType && EVENT_DESCRIPTION_TEMPLATES_REGISTRY[eventType]) {
+        return EVENT_DESCRIPTION_TEMPLATES_REGISTRY[eventType].some(regex => regex.test(trimmed));
+    }
+    return isControlledAuthorityDescription(trimmed);
 }
 
 export const FREE_TEXT_FIELDS = ['notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText'];
 
-export function validateControlledTextFields(obj, contextPath = '') {
+export function normalizeDottedObject(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+    const normalized = {};
+    for (const [key, val] of Object.entries(obj)) {
+        if (key.includes('.')) {
+            const parts = key.split('.');
+            let curr = normalized;
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i];
+                if (!curr[part] || typeof curr[part] !== 'object') {
+                    curr[part] = {};
+                }
+                curr = curr[part];
+            }
+            curr[parts[parts.length - 1]] = val;
+        } else {
+            normalized[key] = (val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date) && !val._bsontype)
+                ? normalizeDottedObject(val)
+                : val;
+        }
+    }
+    return normalized;
+}
+
+export function validateControlledTextFields(obj, contextPath = '', seen = new WeakSet()) {
     if (!obj || typeof obj !== 'object') return;
-    for (const field of FREE_TEXT_FIELDS) {
-        if (obj[field] !== undefined && obj[field] !== null && String(obj[field]).trim() !== '') {
-            const val = String(obj[field]).trim();
-            if (!CONTROLLED_REASONS.has(val)) {
-                const pathDesc = contextPath ? `${contextPath}.${field}` : field;
-                const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text in '${pathDesc}' is prohibited for authority audit events. Use controlled reason codes.`);
+    if (seen.has(obj)) return;
+    seen.add(obj);
+
+    const target = obj._doc ? obj._doc : obj;
+    if (!target || typeof target !== 'object') return;
+
+    if (Array.isArray(target)) {
+        for (let i = 0; i < target.length; i++) {
+            const item = target[i];
+            const itemPath = contextPath ? `${contextPath}[${i}]` : `[${i}]`;
+            if (typeof item === 'string') {
+                const lastSegment = contextPath.split('.').pop() || '';
+                const cleanSegment = lastSegment.replace(/\[\d+\]$/, '');
+                if (FREE_TEXT_FIELDS.includes(cleanSegment)) {
+                    if (!CONTROLLED_REASONS.has(item.trim())) {
+                        const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text in '${itemPath}' is prohibited for authority audit events. Use controlled reason codes.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                }
+            } else if (typeof item === 'object' && item !== null) {
+                validateControlledTextFields(item, itemPath, seen);
+            }
+        }
+        return;
+    }
+
+    for (const [key, value] of Object.entries(target)) {
+        if (key.startsWith('$') || key === '_doc' || key === '__v' || key === '_id') continue;
+
+        const fullPath = contextPath ? `${contextPath}.${key}` : key;
+        const normalizedKey = key.split('.').pop().replace(/\[\d+\]$/, '');
+
+        // 1. Dotted path direct check
+        if (key.includes('.')) {
+            const segments = key.split('.');
+            for (let s = 0; s < segments.length; s++) {
+                const seg = segments[s].replace(/\[\d+\]$/, '');
+                if (FREE_TEXT_FIELDS.includes(seg)) {
+                    if (value !== undefined && value !== null) {
+                        const strVal = String(value).trim();
+                        if (strVal !== '' && !CONTROLLED_REASONS.has(strVal)) {
+                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text in '${fullPath}' is prohibited for authority audit events. Use controlled reason codes.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                    }
+                }
+                if (seg === 'description') {
+                    if (value !== undefined && value !== null) {
+                        const strVal = String(value).trim();
+                        if (strVal !== '' && !isControlledAuthorityDescription(strVal)) {
+                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text description in '${fullPath}' is prohibited for authority audit events.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Check if the key itself is one of the free-text fields
+        if (FREE_TEXT_FIELDS.includes(normalizedKey)) {
+            if (value !== undefined && value !== null) {
+                if (typeof value === 'string') {
+                    const strVal = value.trim();
+                    if (strVal !== '' && !CONTROLLED_REASONS.has(strVal)) {
+                        const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text in '${fullPath}' is prohibited for authority audit events. Use controlled reason codes.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
+                } else if (Array.isArray(value)) {
+                    for (let i = 0; i < value.length; i++) {
+                        const v = value[i];
+                        if (typeof v === 'string' && v.trim() !== '' && !CONTROLLED_REASONS.has(v.trim())) {
+                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text in '${fullPath}[${i}]' is prohibited for authority audit events. Use controlled reason codes.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Check if key is 'description'
+        if (normalizedKey === 'description' && value !== undefined && value !== null) {
+            const strVal = String(value).trim();
+            if (strVal !== '' && !isControlledAuthorityDescription(strVal)) {
+                const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text description in '${fullPath}' is prohibited for authority audit events. Use server-generated controlled descriptions.`);
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
             }
         }
+
+        // 4. Recurse into nested objects/arrays
+        if (typeof value === 'object' && value !== null && !Buffer.isBuffer(value) && !(value instanceof Date) && !value._bsontype) {
+            validateControlledTextFields(value, fullPath, seen);
+        }
     }
 }
-
 export function sanitizeAuditDocument(doc, targetEventContext = null) {
     if (!doc || typeof doc !== 'object') return doc;
 
-    const eventType = doc.eventType || targetEventContext?.eventType;
+    const raw = doc._doc ? doc._doc : doc;
+    const eventType = raw.eventType || targetEventContext?.eventType;
     const isAuthority = isAuthorityAuditEvent(eventType);
 
     // Authority audit events: reject free-text comments or unstructured narrative descriptions
     if (isAuthority) {
         // Individually validate every single supplied free-text field
-        validateControlledTextFields(doc);
+        validateControlledTextFields(raw);
 
-        if (doc.description) {
-            const maskedDesc = maskScalarPII(doc.description);
-            const isReviewApprovalEvent = [
-                'authority_source_approval_reviewed',
-                'authority_maker_checker_approval',
-                'authority_maker_checker_rejection',
-                'authority_source_approved',
-                'authority_source_rejected'
-            ].includes(eventType);
-
-            // For review and approval decision events, descriptions must strictly be server-generated registered template descriptions
-            if (isReviewApprovalEvent) {
-                if (!isControlledAuthorityDescription(doc.description) && !isControlledAuthorityDescription(maskedDesc)) {
-                    const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions are prohibited for authority audit events. Use server-generated controlled descriptions.');
-                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                    throw err;
-                }
+        if (raw.description) {
+            const maskedDesc = maskScalarPII(raw.description);
+            if (!isControlledAuthorityDescriptionForEvent(eventType, raw.description) &&
+                !isControlledAuthorityDescriptionForEvent(eventType, maskedDesc)) {
+                const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions or mismatched templates are prohibited for authority audit events (${eventType || 'authority'}). Use server-generated controlled descriptions.`);
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
             }
-            doc.description = maskedDesc;
+            raw.description = maskedDesc;
+            if (doc._doc) doc.description = maskedDesc;
         }
 
         // Validate nested metadata
-        if (doc.metadata && typeof doc.metadata === 'object') {
-            validateControlledTextFields(doc.metadata, 'metadata');
-            if (doc.metadata.description && !isControlledAuthorityDescription(doc.metadata.description)) {
+        if (raw.metadata && typeof raw.metadata === 'object') {
+            validateAuthorityMetadata(raw.metadata);
+            validateControlledTextFields(raw.metadata, 'metadata');
+            if (raw.metadata.description && !isControlledAuthorityDescription(raw.metadata.description)) {
                 const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions are prohibited in authority audit metadata.');
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
             }
         }
+
+        // Validate changes
+        if (raw.changes && typeof raw.changes === 'object') {
+            validateControlledTextFields(raw.changes, 'changes');
+        }
     } else {
-        if (doc.description) {
-            doc.description = maskScalarPII(doc.description);
+        if (raw.description) {
+            raw.description = maskScalarPII(raw.description);
+            if (doc._doc) doc.description = raw.description;
         }
     }
 
-    if (doc.errorMessage) {
-        doc.errorMessage = maskScalarPII(doc.errorMessage);
+    if (raw.errorMessage) {
+        raw.errorMessage = maskScalarPII(raw.errorMessage);
+        if (doc._doc) doc.errorMessage = raw.errorMessage;
     }
     if (doc.userEmail) {
         doc.userEmail = maskScalarPII(doc.userEmail);
@@ -545,6 +901,7 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
     }
 
     const eventContext = targetEventContext || (queryFilter?.eventType ? { eventType: queryFilter.eventType } : null);
+    const isAuthority = eventContext?.eventType && isAuthorityAuditEvent(eventContext.eventType);
 
     // 1. Process $set and $setOnInsert
     for (const op of ['$set', '$setOnInsert']) {
@@ -556,7 +913,11 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
                     update[op][k] = redactSensitive(v);
                 }
             }
-            sanitizeAuditDocument(update[op], eventContext);
+            const normalized = normalizeDottedObject(update[op]);
+            sanitizeAuditDocument(normalized, eventContext);
+            if (isAuthority) {
+                validateControlledTextFields(update[op]);
+            }
         }
     }
 
@@ -571,11 +932,22 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
                             if (typeof item === 'object' && item !== null) return redactSensitive(item);
                             return item;
                         });
+                        if (isAuthority) {
+                            for (const item of v.$each) {
+                                validateControlledTextFields({ [k]: item }, op);
+                            }
+                        }
                     } else {
                         update[op][k] = redactSensitive(v);
+                        if (isAuthority) {
+                            validateControlledTextFields({ [k]: v }, op);
+                        }
                     }
                 } else if (typeof v === 'string') {
                     update[op][k] = maskScalarPII(v);
+                    if (isAuthority) {
+                        validateControlledTextFields({ [k]: v }, op);
+                    }
                 }
             }
         }
@@ -596,10 +968,41 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
 
     // 4. Check direct top-level fields (un-prefixed update or replacement)
     if (!Object.keys(update).some(k => k.startsWith('$'))) {
-        sanitizeAuditDocument(update, eventContext);
+        const normalized = normalizeDottedObject(update);
+        sanitizeAuditDocument(normalized, eventContext);
+        if (isAuthority) {
+            validateControlledTextFields(update);
+        }
     }
 
     return update;
+}
+
+export async function resolveTargetAuditContext(filter, model, session = null) {
+    if (filter?.eventType && typeof filter.eventType === 'string') {
+        return { eventType: filter.eventType };
+    }
+    if (!model || typeof model.find !== 'function') return null;
+    try {
+        let q = model.find(filter).select('eventType status');
+        if (session) q = q.session(session);
+        const docs = await q.lean();
+        if (!docs || docs.length === 0) return null;
+        const uniqueTypes = new Set(docs.map(d => d.eventType).filter(Boolean));
+        if (uniqueTypes.size === 1) {
+            return { eventType: [...uniqueTypes][0], docs };
+        }
+        const hasAuthority = [...uniqueTypes].some(t => isAuthorityAuditEvent(t));
+        if (hasAuthority) {
+            const err = new Error(`AMBIGUOUS_AUDIT_CONTEXT: Partial update touches mixed or ambiguous event types (${[...uniqueTypes].join(', ')}). Updates touching authority audit events must target a single eventType.`);
+            err.code = 'AMBIGUOUS_AUDIT_CONTEXT';
+            throw err;
+        }
+        return { eventType: 'mixed_non_authority', docs };
+    } catch (err) {
+        if (err.code === 'AMBIGUOUS_AUDIT_CONTEXT') throw err;
+        return null;
+    }
 }
 
 export async function checkAuditImmutability(queryOrFilter, model = null, options = {}) {
@@ -624,6 +1027,10 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
         }
         return; // Allow test harness teardown in non-production ephemeral test environments
     }
+
+    const isDelete = opType === 'deleteOne' || opType === 'deleteMany' || opType === 'findOneAndDelete' || options.isDelete;
+    const isReplace = opType === 'replaceOne' || opType === 'findOneAndReplace' || options.isReplace;
+    const update = typeof queryOrFilter?.getUpdate === 'function' ? queryOrFilter.getUpdate() : (options.update || options.replacement);
 
     // 1. Direct check on filter.eventType if present
     if (filter.eventType) {
@@ -676,15 +1083,12 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
 
     // 3. Upsert check: cannot upsert immutable eventType
     const isUpsert = Boolean(options.upsert || queryOrFilter?.options?.upsert || filter.upsert);
-    if (isUpsert) {
-        const update = typeof queryOrFilter?.getUpdate === 'function' ? queryOrFilter.getUpdate() : options.update;
-        if (update) {
-            const candidateType = update.eventType || update.$set?.eventType || update.$setOnInsert?.eventType;
-            if (candidateType && isImmutableAuditEvent(candidateType)) {
-                const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${candidateType}) are append-only and cannot be created via upsert.`);
-                err.code = 'AUDIT_LOG_IMMUTABLE';
-                throw err;
-            }
+    if (isUpsert && update) {
+        const candidateType = update.eventType || update.$set?.eventType || update.$setOnInsert?.eventType;
+        if (candidateType && isImmutableAuditEvent(candidateType)) {
+            const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${candidateType}) are append-only and cannot be created via upsert.`);
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
         }
     }
 
@@ -692,19 +1096,50 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
     // inspect matching documents in database
     if (effectiveModel && typeof effectiveModel.find === 'function') {
         try {
-            let findQuery = effectiveModel.find(filter).select('eventType');
+            let findQuery = effectiveModel.find(filter).select('eventType status');
             if (session) {
                 findQuery = findQuery.session(session);
             }
             const matchingDocs = await findQuery.lean();
-            if (Array.isArray(matchingDocs) && matchingDocs.some(doc => doc && isImmutableAuditEvent(doc.eventType))) {
-                const err = new Error('AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events are append-only and cannot be modified or deleted.');
-                err.code = 'AUDIT_LOG_IMMUTABLE';
-                throw err;
+            if (Array.isArray(matchingDocs)) {
+                for (const doc of matchingDocs) {
+                    if (!doc) continue;
+                    if (isImmutableAuditEvent(doc.eventType)) {
+                        const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${doc.eventType}) are append-only and cannot be modified or deleted.`);
+                        err.code = 'AUDIT_LOG_IMMUTABLE';
+                        throw err;
+                    }
+                    if (doc.eventType === 'authority_changes_applied') {
+                        if (isDelete || isReplace) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' is append-only and cannot be deleted or replaced.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        if (doc.status === 'compensated') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensated audit record status is terminal and cannot be modified.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        const candidateStatus = update?.$set?.status || update?.status;
+                        if (candidateStatus !== 'compensated') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' only permits state transition to status: 'compensated' during saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        const updateKeys = Object.keys(update.$set || update);
+                        for (const k of updateKeys) {
+                            const rootKey = k.split('.')[0];
+                            if (!['status', 'metadata', 'updatedAt'].includes(rootKey)) {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Mutating historical field '${k}' on 'authority_changes_applied' is prohibited during saga compensation.`);
+                                err.code = 'AUDIT_LOG_IMMUTABLE';
+                                throw err;
+                            }
+                        }
+                    }
+                }
             }
         } catch (findErr) {
             if (findErr.code === 'AUDIT_LOG_IMMUTABLE') throw findErr;
-            // Fail closed: if we cannot prove no immutable event will be affected, reject!
             const err = new Error(`AUDIT_LOG_IMMUTABLE: Target audit document verification failed: ${findErr.message}`);
             err.code = 'AUDIT_LOG_IMMUTABLE';
             throw err;
@@ -738,19 +1173,9 @@ AuditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], async functi
     await checkAuditImmutability(this, this.model);
     const update = this.getUpdate();
     if (update) {
-        // Retrieve target document eventType context if not in filter
-        let targetEventContext = null;
         const filter = this.getQuery() || {};
-        if (filter.eventType && typeof filter.eventType === 'string') {
-            targetEventContext = { eventType: filter.eventType };
-        } else if (this.model && typeof this.model.findOne === 'function') {
-            try {
-                let q = this.model.findOne(filter).select('eventType');
-                if (this.options && this.options.session) q = q.session(this.options.session);
-                const doc = await q.lean();
-                if (doc && doc.eventType) targetEventContext = { eventType: doc.eventType };
-            } catch (_) {}
-        }
+        const session = this.options?.session;
+        const targetEventContext = await resolveTargetAuditContext(filter, this.model, session);
         sanitizeAuditUpdate(update, filter, targetEventContext);
     }
 });
@@ -786,26 +1211,14 @@ AuditLogSchema.statics.bulkWrite = async function (ops, options = {}) {
             if (op.updateOne) {
                 await checkAuditImmutability(op.updateOne.filter, this, { upsert: Boolean(op.updateOne.upsert), update: op.updateOne.update, ...options });
                 if (op.updateOne.update) {
-                    let targetContext = op.updateOne.filter?.eventType ? { eventType: op.updateOne.filter.eventType } : null;
-                    if (!targetContext && typeof this.findOne === 'function') {
-                        try {
-                            const d = await this.findOne(op.updateOne.filter).select('eventType').lean();
-                            if (d?.eventType) targetContext = { eventType: d.eventType };
-                        } catch (_) {}
-                    }
+                    const targetContext = await resolveTargetAuditContext(op.updateOne.filter, this, options?.session);
                     sanitizeAuditUpdate(op.updateOne.update, op.updateOne.filter, targetContext);
                 }
             }
             if (op.updateMany) {
                 await checkAuditImmutability(op.updateMany.filter, this, { upsert: Boolean(op.updateMany.upsert), update: op.updateMany.update, ...options });
                 if (op.updateMany.update) {
-                    let targetContext = op.updateMany.filter?.eventType ? { eventType: op.updateMany.filter.eventType } : null;
-                    if (!targetContext && typeof this.findOne === 'function') {
-                        try {
-                            const d = await this.findOne(op.updateMany.filter).select('eventType').lean();
-                            if (d?.eventType) targetContext = { eventType: d.eventType };
-                        } catch (_) {}
-                    }
+                    const targetContext = await resolveTargetAuditContext(op.updateMany.filter, this, options?.session);
                     sanitizeAuditUpdate(op.updateMany.update, op.updateMany.filter, targetContext);
                 }
             }

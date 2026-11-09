@@ -65,7 +65,16 @@ export class PortalAuditSink {
 
         const rawEventType = String(event.eventType || 'authority_portal_search_requested').toLowerCase();
         const eventType = rawEventType.startsWith('authority_') ? rawEventType : `authority_${rawEventType}`;
-        const description = event.description || `Authority portal audit event: ${eventType} (${event.authorityCode || 'UNKNOWN'})`;
+        const description = event.description || (
+            eventType === 'authority_portal_search_requested' ? `Search requested for ${event.authorityCode || 'UNKNOWN'}` :
+            eventType === 'authority_portal_search_completed' ? `Search completed for ${event.authorityCode || 'UNKNOWN'}` :
+            eventType === 'authority_portal_search_rejected' ? `Search rejected for ${event.authorityCode || 'UNKNOWN'}` :
+            eventType === 'authority_portal_transport_failed' ? `Portal transport failed for ${event.authorityCode || 'UNKNOWN'}` :
+            eventType === 'authority_portal_response_rejected' ? `Portal response rejected for ${event.authorityCode || 'UNKNOWN'}` :
+            eventType === 'authority_portal_parse_failed' ? `Portal parse failed for ${event.authorityCode || 'UNKNOWN'}` :
+            eventType === 'authority_portal_source_paused' ? `Portal source paused for ${event.authorityCode || 'UNKNOWN'}` :
+            `Authority portal audit event: ${eventType} (${event.authorityCode || 'UNKNOWN'})`
+        );
 
         const metadata = sanitizeAuditMetadata(event.metadata || {});
         if (event.runId) metadata.runId = String(event.runId);

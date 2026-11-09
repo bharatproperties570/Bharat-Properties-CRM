@@ -33,7 +33,6 @@ import AuthoritySourceSettings, {
     issueApproverWorkflowToken,
     issueReviewerWorkflowToken,
     issueEnsureDefaultsToken,
-    createAuthorizedInternalWorkflowToken,
     verifyAuthorizedInternalWorkflow,
     purgeExpiredNonces,
     _getConsumedWorkflowNoncesCount
@@ -396,20 +395,20 @@ describe('PHASE 4.5-D (PR #62) FINAL SECURITY CLOSURE', () => {
         });
 
         test('2.2 Exact registered server-defined templates are accepted', async () => {
-            const registeredDescs = [
-                'Authority source authorization APPROVED for HSVP',
-                'Authority source authorization REJECTED for GMADA',
-                'Authority source settings update for CHD',
-                'Authentic maker-checker approval reviewed by independent reviewer',
-                'Rotated canonical policy for authority HSVP to version 3',
-                'Synchronized canonical policy for authority GMADA to Redis (version 2)',
-                'Batch of 5 items processed for run 60c72b2f9b1d8b2bad000001',
-                'Verified AuditLog row'
+            const registeredItems = [
+                { eventType: 'authority_source_approval_reviewed', desc: 'Authority source authorization APPROVED for HSVP' },
+                { eventType: 'authority_maker_checker_rejection', desc: 'Authority source authorization REJECTED for GMADA' },
+                { eventType: 'authority_settings_updated', desc: 'Authority source settings update for CHD' },
+                { eventType: 'authority_source_approval_reviewed', desc: 'Authentic maker-checker approval reviewed by independent reviewer' },
+                { eventType: 'canonical_policy_rotated', desc: 'Rotated canonical policy for authority HSVP to version 3' },
+                { eventType: 'canonical_policy_synced', desc: 'Synchronized canonical policy for authority GMADA to Redis (version 2)' },
+                { eventType: 'authority_run_batch_processed', desc: 'Batch of 5 items processed for run 60c72b2f9b1d8b2bad000001' },
+                { eventType: 'authority_source_approval_reviewed', desc: 'Authority source approval reviewed for HSVP' }
             ];
 
-            for (const desc of registeredDescs) {
+            for (const { eventType, desc } of registeredItems) {
                 const log = await AuditLog.create({
-                    eventType: 'authority_source_approval_reviewed',
+                    eventType,
                     description: desc,
                     status: 'success'
                 });
@@ -536,7 +535,7 @@ describe('PHASE 4.5-D (PR #62) FINAL SECURITY CLOSURE', () => {
     describe('3. HMAC Capability Replay & Dedicated Token Issuance', () => {
 
         test('3.1 Replay attack using identical token/nonce returns false on second verification', () => {
-            const token = createAuthorizedInternalWorkflowToken('ensureDefaults', {
+            const token = issueEnsureDefaultsToken({
                 tenantId: CANONICAL_ORG_ID_STRING
             });
 
@@ -554,7 +553,7 @@ describe('PHASE 4.5-D (PR #62) FINAL SECURITY CLOSURE', () => {
         });
 
         test('3.2 Replay attempt forging _authorizedTokenVerified flag is rejected', () => {
-            const token = createAuthorizedInternalWorkflowToken('ensureDefaults', {
+            const token = issueEnsureDefaultsToken({
                 tenantId: CANONICAL_ORG_ID_STRING
             });
 
@@ -574,7 +573,7 @@ describe('PHASE 4.5-D (PR #62) FINAL SECURITY CLOSURE', () => {
             const beforeCount = _getConsumedWorkflowNoncesCount();
 
             // Create and verify token
-            const token = createAuthorizedInternalWorkflowToken('ensureDefaults', {
+            const token = issueEnsureDefaultsToken({
                 tenantId: CANONICAL_ORG_ID_STRING
             });
             verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['ensureDefaults']);

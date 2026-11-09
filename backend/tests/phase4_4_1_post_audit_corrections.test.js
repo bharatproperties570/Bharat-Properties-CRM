@@ -20,7 +20,7 @@ import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.j
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import AuthoritySourceSettings, {
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken
+    issueInternalSeedWorkflowToken
 } from '../models/AuthoritySourceSettings.js';
 import { AuthorityBulkProcessor, safeInsertMany } from '../services/authority/AuthorityBulkProcessor.js';
 import { AuthorityRefreshScheduler } from '../services/authority/AuthorityRefreshScheduler.js';
@@ -299,7 +299,7 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                 {
                     new: true,
                     upsert: true,
-                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                    [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
                 }
             );
         });
@@ -708,7 +708,7 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                 {
                     new: true,
                     upsert: true,
-                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                    [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
                 }
             );
 

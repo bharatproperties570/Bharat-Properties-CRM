@@ -9,6 +9,7 @@
 import mongoose from 'mongoose';
 import AuthoritySourceSettings from '../../../../models/AuthoritySourceSettings.js';
 import AuthorityGlobalKillSwitch from '../../../../models/AuthorityGlobalKillSwitch.js';
+import { CANONICAL_ORGANIZATION_ID } from '../../../../config/canonicalOrganization.js';
 
 export class DurablePortalCircuitBreaker {
     constructor(options = {}) {
@@ -113,8 +114,8 @@ export class DurablePortalCircuitBreaker {
 
         if (mongoose.connection?.readyState === 1) {
             try {
-                const filter = { authorityCode: code };
-                if (tenantId) filter.tenantId = tenantId;
+                const effectiveTenantId = tenantId ? String(tenantId) : String(CANONICAL_ORGANIZATION_ID);
+                const filter = { tenantId: effectiveTenantId, authorityCode: code };
 
                 await AuthoritySourceSettings.updateMany(
                     filter,
@@ -212,8 +213,8 @@ export class DurablePortalCircuitBreaker {
 
         if (mongoose.connection?.readyState === 1) {
             try {
-                const filter = { authorityCode: code };
-                if (tenantId) filter.tenantId = tenantId;
+                const effectiveTenantId = tenantId ? String(tenantId) : String(CANONICAL_ORGANIZATION_ID);
+                const filter = { tenantId: effectiveTenantId, authorityCode: code };
 
                 await AuthoritySourceSettings.updateMany(
                     filter,

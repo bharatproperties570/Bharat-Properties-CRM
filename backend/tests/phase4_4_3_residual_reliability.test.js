@@ -8,7 +8,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import AuthoritySourceSettings, {
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken
+    issueInternalSeedWorkflowToken
 } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
@@ -356,7 +356,7 @@ describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
                 {
                     new: true,
                     upsert: true,
-                    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                    [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
                 }
             );
 

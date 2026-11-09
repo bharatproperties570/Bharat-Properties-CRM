@@ -24,7 +24,9 @@ import {
 } from '../config/canonicalOrganization.js';
 
 import AuthoritySourceSettings, {
-    createAuthorizedInternalWorkflowToken,
+    issueApproverWorkflowToken,
+    issueEnsureDefaultsToken,
+    issueInternalSeedWorkflowToken,
     verifyAuthorizedInternalWorkflow,
     INTERNAL_WORKFLOW_OPTION
 } from '../models/AuthoritySourceSettings.js';
@@ -482,7 +484,7 @@ test('Area 2.6: bulkWrite touching protected fields without ensureDefaults token
 });
 
 test('Area 2.7: bulkWrite ensureDefaults cannot initialize active or approved states', async () => {
-    const token = createAuthorizedInternalWorkflowToken('ensureDefaults', { tenantId: canonicalTenantId });
+    const token = issueEnsureDefaultsToken({ tenantId: canonicalTenantId });
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.bulkWrite(
@@ -534,7 +536,7 @@ test('Area 3.1: Direct AuthoritySourceSettings.insertMany() throws DIRECT_INSERT
 });
 
 test('Area 3.2: Authorized insertMany with active/approved state throws DIRECT_INSERT_MANY_PROHIBITED', async () => {
-    const token = createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: canonicalTenantId });
+    const token = issueInternalSeedWorkflowToken({ tenantId: canonicalTenantId });
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.insertMany(
@@ -556,7 +558,7 @@ test('Area 3.2: Authorized insertMany with active/approved state throws DIRECT_I
 });
 
 test('Area 3.3: Authorized insertMany with non-canonical tenantId throws ORGANIZATION_OVERRIDE_PROHIBITED', async () => {
-    const token = createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: canonicalTenantId });
+    const token = issueInternalSeedWorkflowToken({ tenantId: canonicalTenantId });
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.insertMany(
@@ -613,7 +615,7 @@ test('Area 4.2: Standalone 6-digit postal PIN codes in audit description are mas
 
 test('Area 4.3: AuditLog.create() and .save() sanitize citizen names and PIN codes', async () => {
     const entry = await AuditLog.create({
-        eventType: 'authority_settings_updated',
+        eventType: 'lead_updated',
         action: 'CITIZEN_INSPECTION_AUDIT',
         actorId: canonicalUser._id,
         targetType: 'authority_settings',
@@ -638,7 +640,7 @@ test('Area 4.4: AuditLog write paths (insertMany, updateOne, findOneAndUpdate, b
     // 1. insertMany
     const inserted = await AuditLog.insertMany([
         {
-            eventType: 'authority_settings_updated',
+            eventType: 'lead_updated',
             action: 'BATCH_AUDIT_CITIZEN',
             actorId: canonicalUser._id,
             description: 'Allottee Rajesh Kumar with PIN 134109 registered'
@@ -738,7 +740,7 @@ test('Area 5.5: Consistent non-production test environment is classified as safe
 // ============================================================================
 
 test('Area 6.1: Token binds workflowName, tenantId, targetId, evidenceVersion, nonce, and timestamp', () => {
-    const token = createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+    const token = issueApproverWorkflowToken({
         tenantId: canonicalTenantId,
         authorityCode: 'HSVP',
         targetId: 'HSVP',
@@ -763,21 +765,21 @@ test('Area 6.1: Token binds workflowName, tenantId, targetId, evidenceVersion, n
 });
 
 test('Area 6.2: Token replay is strictly prohibited (single-use nonce)', () => {
-    const token = createAuthorizedInternalWorkflowToken('testWorkflow', {
+    const token = issueInternalSeedWorkflowToken({
         tenantId: canonicalTenantId
     });
 
     // First use succeeds
     const firstUse = verifyAuthorizedInternalWorkflow(
         { [INTERNAL_WORKFLOW_OPTION]: token },
-        ['testWorkflow']
+        ['internal_seed']
     );
     assert.strictEqual(firstUse, true);
 
     // Second use with identical token/nonce fails (Replay detected)
     const secondUse = verifyAuthorizedInternalWorkflow(
         { [INTERNAL_WORKFLOW_OPTION]: token },
-        ['testWorkflow']
+        ['internal_seed']
     );
     assert.strictEqual(secondUse, false);
 });
@@ -785,29 +787,31 @@ test('Area 6.2: Token replay is strictly prohibited (single-use nonce)', () => {
 test('Area 6.3: Context tampering invalidates token', () => {
     // 1. Tampered tenantId
     {
-        const token = createAuthorizedInternalWorkflowToken('tamperTest', { tenantId: canonicalTenantId });
+        const token = issueInternalSeedWorkflowToken({ tenantId: canonicalTenantId });
         token.tenantId = nonCanonicalTenantId.toString(); // Tampered!
-        const verified = verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['tamperTest']);
+        const verified = verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['internal_seed']);
         assert.strictEqual(verified, false);
     }
 
     // 2. Tampered workflowName
     {
-        const token = createAuthorizedInternalWorkflowToken('workflowA', { tenantId: canonicalTenantId });
+        const token = issueInternalSeedWorkflowToken({ tenantId: canonicalTenantId });
         token.workflowName = 'workflowB'; // Tampered!
-        const verified = verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['workflowA', 'workflowB']);
+        const verified = verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['internal_seed', 'workflowB']);
         assert.strictEqual(verified, false);
     }
 
     // 3. Tampered targetId / authorityCode
     {
-        const token = createAuthorizedInternalWorkflowToken('targetTest', {
+        const token = issueApproverWorkflowToken({
             tenantId: canonicalTenantId,
-            authorityCode: 'HSVP'
+            authorityCode: 'HSVP',
+            targetId: 'targetTest',
+            evidenceVersion: 1
         });
         const verified = verifyAuthorizedInternalWorkflow(
             { [INTERNAL_WORKFLOW_OPTION]: token },
-            ['targetTest'],
+            ['recordSourceApprover'],
             { authorityCode: 'GMADA' } // Mismatched target!
         );
         assert.strictEqual(verified, false);
@@ -815,13 +819,15 @@ test('Area 6.3: Context tampering invalidates token', () => {
 
     // 4. Tampered evidenceVersion
     {
-        const token = createAuthorizedInternalWorkflowToken('verTest', {
+        const token = issueApproverWorkflowToken({
             tenantId: canonicalTenantId,
+            authorityCode: 'HSVP',
+            targetId: 'verTest',
             evidenceVersion: 1
         });
         const verified = verifyAuthorizedInternalWorkflow(
             { [INTERNAL_WORKFLOW_OPTION]: token },
-            ['verTest'],
+            ['recordSourceApprover'],
             { evidenceVersion: 2 } // Mismatched version!
         );
         assert.strictEqual(verified, false);
@@ -830,8 +836,8 @@ test('Area 6.3: Context tampering invalidates token', () => {
 
 test('Area 6.4: Expired token (> 5 min) is rejected', () => {
     const expiredTimestamp = Date.now() - 360000; // 6 minutes ago
-    const token = createAuthorizedInternalWorkflowToken('expireTest', { tenantId: canonicalTenantId });
+    const token = issueInternalSeedWorkflowToken({ tenantId: canonicalTenantId });
     token.timestamp = expiredTimestamp; // Expired!
-    const verified = verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['expireTest']);
+    const verified = verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: token }, ['internal_seed']);
     assert.strictEqual(verified, false);
 });

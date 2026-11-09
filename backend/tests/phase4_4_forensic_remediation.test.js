@@ -20,7 +20,7 @@ import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.j
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import AuthoritySourceSettings, {
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken
+    issueInternalSeedWorkflowToken
 } from '../models/AuthoritySourceSettings.js';
 import AuthorityBulkProcessor from '../services/authority/AuthorityBulkProcessor.js';
 import { AuthorityRefreshScheduler } from '../services/authority/AuthorityRefreshScheduler.js';
@@ -193,7 +193,7 @@ describe('--- PHASE 4.4: FORENSIC FINDINGS REMEDIATION & REVALIDATION SUITE ---'
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
             }
         );
     }

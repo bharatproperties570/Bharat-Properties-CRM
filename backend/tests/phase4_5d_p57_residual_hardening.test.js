@@ -409,7 +409,7 @@ test('Area 2.4: Non-canonical organization user rejected by verifyMakerCheckerUs
             submittedBy: submitterUser._id,
             evidenceVersion: 1
         },
-        description: 'Review with wrong org user'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -447,7 +447,7 @@ test('Area 2.5: Inactive reviewer user rejected by verifyMakerCheckerUsers', asy
             submittedBy: submitterUser._id,
             evidenceVersion: 1
         },
-        description: 'Review with inactive user'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -548,7 +548,7 @@ test('Area 3.4: verifyMakerCheckerUsers rejects audit evidence missing metadata.
             submittedBy: submitterUser._id
             // missing evidenceVersion!
         },
-        description: 'Audit without evidence version'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -586,7 +586,7 @@ test('Area 3.5: verifyMakerCheckerUsers rejects audit evidence replay with misma
             submittedBy: submitterUser._id,
             evidenceVersion: 1 // Old version
         },
-        description: 'Stale version 1 audit'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -628,7 +628,7 @@ test('Area 4.1: AuditLog record missing actorId fails maker-checker verification
             submittedBy: submitterUser._id,
             evidenceVersion: 1
         },
-        description: 'Missing actorId'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -666,7 +666,7 @@ test('Area 4.2: AuditLog record missing userId fails maker-checker verification'
             submittedBy: submitterUser._id,
             evidenceVersion: 1
         },
-        description: 'Missing userId'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -704,7 +704,7 @@ test('Area 4.3: AuditLog metadata missing submittedBy fails maker-checker verifi
             // missing submittedBy!
             evidenceVersion: 1
         },
-        description: 'Missing submittedBy in metadata'
+        description: 'Maker-checker audit event'
     });
 
     const check = await AuthoritySourceSettings.verifyMakerCheckerUsers({
@@ -801,7 +801,7 @@ test('Area 5.5: replaceOne and findOneAndReplace rejected with REPLACEMENT_PROHI
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.replaceOne(
-                { _id: setting._id },
+                { _id: setting._id, tenantId: testTenantId },
                 { tenantId: testTenantId, authorityCode: 'HSVP', isEnabled: true }
             );
         },
@@ -814,7 +814,7 @@ test('Area 5.5: replaceOne and findOneAndReplace rejected with REPLACEMENT_PROHI
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.findOneAndReplace(
-                { _id: setting._id },
+                { _id: setting._id, tenantId: testTenantId },
                 { tenantId: testTenantId, authorityCode: 'HSVP', isEnabled: true }
             );
         },

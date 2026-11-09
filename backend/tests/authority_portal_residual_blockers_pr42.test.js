@@ -24,11 +24,11 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import AuthoritySourceSettings, {
     checkActivationEligibility,
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken
+    issueInternalSeedWorkflowToken
 } from '../models/AuthoritySourceSettings.js';
 
 const getAuthWorkflowOptions = () => ({
-    [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: '000000000000000000000001' })
+    [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: '000000000000000000000001' })
 });
 import AuthorityGlobalKillSwitch from '../models/AuthorityGlobalKillSwitch.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
