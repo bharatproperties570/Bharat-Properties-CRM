@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 import { test, describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';

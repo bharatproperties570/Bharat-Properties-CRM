@@ -743,13 +743,34 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
     }
 
     // Controlled reasons check
-    if (['reason', 'reconciledReason', 'rollbackReason', 'reasonCode', 'reconciliationAction'].includes(key)) {
+    if (['reconciledReason', 'rollbackReason', 'reasonCode', 'reconciliationAction'].includes(key)) {
         if (typeof value === 'string') {
             const trimmed = value.trim();
             if (!CONTROLLED_AUDIT_REASONS.has(trimmed) && !/^[A-Z0-9_]{2,80}$/.test(trimmed)) {
                 const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
+            }
+        }
+    }
+
+    if (key === 'reason') {
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (CONTROLLED_AUDIT_REASONS.has(trimmed)) {
+                return;
+            }
+            if (!/^[a-zA-Z0-9_ -]{2,80}$/.test(trimmed)) {
+                const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
+            for (const p of NARRATIVE_PII_PATTERNS) {
+                if (p.test(trimmed)) {
+                    const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
             }
         }
     }
