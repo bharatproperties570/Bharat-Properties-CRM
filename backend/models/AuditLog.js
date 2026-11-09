@@ -239,6 +239,7 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_orphan_cleanup_failed',
             'authority_portal_search_requested',
             'authority_portal_search_completed',
+            'authority_portal_search_rejected',
             'authority_portal_transport_failed',
             'authority_portal_response_rejected',
             'authority_portal_parse_failed',
@@ -407,7 +408,8 @@ export const CONTROLLED_AUTHORITY_METADATA_KEYS = new Set([
     'syncedAt', 'failedAt', 'errorMessage', 'criteriaHash',
     'newVersion', 'newContentHash', 'policyReference', 'reviewerName', 'approverName',
     'minIntervalMs', 'maxRequestsPerMinute', 'maxRequestsPerHour', 'maxRequestsPerDay',
-    'effectiveFrom', 'expiresAt', 'redisSyncError', 'reconciliationAction'
+    'effectiveFrom', 'expiresAt', 'redisSyncError', 'reconciliationAction',
+    'host', 'searchKey', 'recordCount', 'wasSanitized', 'changedKeys', 'code'
 ]);
 
 export function validateAuthorityMetadata(metadata, contextPath = 'metadata') {
@@ -569,10 +571,32 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i
     ],
     authority_portal_search_requested: [
-        /^Search requested for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i
+        /^Search requested for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_search_requested \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
     ],
     authority_portal_search_completed: [
-        /^Search completed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i
+        /^Search completed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_search_completed \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_search_rejected: [
+        /^Search rejected for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_search_rejected \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_transport_failed: [
+        /^Portal transport failed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_transport_failed \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_response_rejected: [
+        /^Portal response rejected for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_response_rejected \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_parse_failed: [
+        /^Portal parse failed for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_parse_failed \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
+    ],
+    authority_portal_source_paused: [
+        /^Portal source paused for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+        /^Authority portal audit event: authority_portal_source_paused \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i
     ]
 };
 
@@ -604,6 +628,8 @@ export const REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS = [
     /^(?:Authority )?Run completed$/i,
     /^Pre-crash applied changes$/i,
     /^Search (?:requested|completed) for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+    /^(?:Search (?:requested|completed|rejected)|Portal (?:transport failed|response rejected|parse failed|source paused)) for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)$/i,
+    /^Authority portal audit event: authority_portal_(?:search_requested|search_completed|search_rejected|transport_failed|response_rejected|parse_failed|source_paused) \((?:HSVP|GMADA|CHD|[A-Z0-9_-]+)\)$/i,
     // Preemption, worker leases & intents (parameterized without arbitrary .*)
     /^(?:Simulated (?:batch processing for run [a-zA-Z0-9_-]+|preemption failure|lease expiry for worker [a-zA-Z0-9_-]+|worker crash after snapshot insert|duplicate apply race|network partition|policy sync failure)|Abandoned sync intent|Initial intent for preemption test|Initial failed sync|Initial (?:V\d+ )?Canonical Policy Rotation|Initial V\d+ Rotation|Prior publishing state|Pre-existing audit (?:record|for [a-zA-Z0-9_-]+))$/i,
     // Diagnostics & test fixture templates

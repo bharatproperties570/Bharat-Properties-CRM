@@ -46,6 +46,7 @@ import AuthoritySourceSettings, {
 
 import User from '../models/User.js';
 import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
+import { PortalAuditSink } from '../services/authority/portal/infrastructure/portalAuditSink.js';
 
 const CANONICAL_ORG_ID_STRING = String(CANONICAL_ORGANIZATION_ID);
 const NON_CANONICAL_ORG_ID_STRING = '999999999999999999999999';
@@ -808,6 +809,134 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
                 assert.strictEqual(err.code, 'AUDIT_LOG_IMMUTABLE');
                 return true;
             });
+        });
+    });
+
+    describe('Area 5: Authority Portal Egress Audit Events & Controlled Metadata Verification', () => {
+        test('5.1: PortalAuditSink writes all 7 portal audit event types with standard canonical descriptions', async () => {
+            const sink = new PortalAuditSink(AuditLog, { testMode: false });
+            const portalEvents = [
+                { eventType: 'AUTHORITY_PORTAL_SOURCE_PAUSED', authorityCode: 'HSVP', metadata: { reason: 'PAUSED' } },
+                { eventType: 'AUTHORITY_PORTAL_SEARCH_REJECTED', authorityCode: 'HSVP', metadata: { reason: 'REJECTED', code: 'AUTHORITY_PORTAL_APPROVAL_BLOCKED' } },
+                { eventType: 'AUTHORITY_PORTAL_SEARCH_REQUESTED', authorityCode: 'HSVP', metadata: { authorityCode: 'HSVP', host: 'hsvphry.org.in', searchKey: 'k1', recordCount: 0 } },
+                { eventType: 'AUTHORITY_PORTAL_TRANSPORT_FAILED', authorityCode: 'HSVP', metadata: { authorityCode: 'HSVP', host: 'hsvphry.org.in', durationMs: 120, error: 'TIMEOUT' } },
+                { eventType: 'AUTHORITY_PORTAL_RESPONSE_REJECTED', authorityCode: 'HSVP', metadata: { authorityCode: 'HSVP', host: 'hsvphry.org.in', durationMs: 150, error: 'BLOCKED' } },
+                { eventType: 'AUTHORITY_PORTAL_PARSE_FAILED', authorityCode: 'HSVP', metadata: { authorityCode: 'HSVP', host: 'hsvphry.org.in', durationMs: 180, error: 'PARSE_ERROR' } },
+                { eventType: 'AUTHORITY_PORTAL_SEARCH_COMPLETED', authorityCode: 'HSVP', metadata: { authorityCode: 'HSVP', host: 'hsvphry.org.in', recordCount: 1, contentHash: 'hash', durationMs: 200, wasSanitized: false, changedKeys: [] } }
+            ];
+
+            for (const item of portalEvents) {
+                await sink.write(item);
+                const rawEventType = item.eventType.toLowerCase();
+                const eventType = rawEventType.startsWith('authority_') ? rawEventType : `authority_${rawEventType}`;
+                const persisted = await AuditLog.findOne({ eventType }).sort({ _id: -1 });
+                assert.ok(persisted, `Audit record must exist for ${eventType}`);
+                assert.strictEqual(persisted.eventType, eventType);
+                assert.ok(persisted.description.includes('HSVP'));
+            }
+        });
+
+        test('5.2: PortalAuditSink persists controlled metadata keys cleanly', async () => {
+            const sink = new PortalAuditSink(AuditLog, { testMode: false });
+            await sink.write({
+                eventType: 'AUTHORITY_PORTAL_SEARCH_COMPLETED',
+                authorityCode: 'GMADA',
+                searchKey: 'GMADA:searchKey:123',
+                metadata: {
+                    authorityCode: 'GMADA',
+                    host: 'gmada.gov.in',
+                    searchKey: 'GMADA:searchKey:123',
+                    recordCount: 2,
+                    contentHash: 'content-hash-abc',
+                    durationMs: 340,
+                    wasSanitized: true,
+                    changedKeys: ['possessionDate'],
+                    code: 'SEARCH_OK'
+                }
+            });
+
+            const persisted = await AuditLog.findOne({
+                eventType: 'authority_portal_search_completed',
+                'metadata.host': 'gmada.gov.in'
+            }).sort({ _id: -1 });
+
+            assert.ok(persisted);
+            assert.strictEqual(persisted.metadata.host, 'gmada.gov.in');
+            assert.strictEqual(persisted.metadata.searchKey, 'GMADA:searchKey:123');
+            assert.strictEqual(persisted.metadata.recordCount, 2);
+            assert.strictEqual(persisted.metadata.wasSanitized, true);
+            assert.strictEqual(persisted.metadata.code, 'SEARCH_OK');
+        });
+
+        test('5.3: PortalAuditSink rejects uncontrolled metadata key in portal events', async () => {
+            const sink = new PortalAuditSink(AuditLog, { testMode: false });
+            await assert.rejects(async () => {
+                await sink.write({
+                    eventType: 'AUTHORITY_PORTAL_SEARCH_REQUESTED',
+                    authorityCode: 'HSVP',
+                    metadata: {
+                        authorityCode: 'HSVP',
+                        uncontrolledArbitraryKey: 'unauthorized_payload'
+                    }
+                });
+            }, err => {
+                assert.ok(err.message.includes('FREE_TEXT_AUDIT_PROHIBITED') || err.message.includes('PORTAL_AUDIT_WRITE_FAILED'));
+                return true;
+            });
+        });
+
+        test('5.4: AuditLog rejects arbitrary free-text descriptions for portal events', async () => {
+            await assert.rejects(async () => {
+                await AuditLog.create({
+                    eventType: 'authority_portal_search_requested',
+                    description: 'Arbitrary user narrative about searching citizen records',
+                    status: 'success',
+                    targetType: 'authority_portal'
+                });
+            }, err => {
+                assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                return true;
+            });
+        });
+
+        test('5.5: AuditLog accepts registered alternative description templates for portal events', async () => {
+            const created = await AuditLog.create({
+                eventType: 'authority_portal_search_requested',
+                description: 'Authority portal audit event: authority_portal_search_requested (HSVP)',
+                status: 'success',
+                targetType: 'authority_portal',
+                metadata: {
+                    authorityCode: 'HSVP',
+                    host: 'hsvphry.org.in'
+                }
+            });
+            assert.ok(created._id);
+            assert.strictEqual(created.description, 'Authority portal audit event: authority_portal_search_requested (HSVP)');
+        });
+
+        test('5.6: PortalAuditSink purges sensitive citizen PII keys from portal search metadata before saving', async () => {
+            const sink = new PortalAuditSink(AuditLog, { testMode: false });
+            await sink.write({
+                eventType: 'AUTHORITY_PORTAL_SEARCH_REQUESTED',
+                authorityCode: 'HSVP',
+                metadata: {
+                    authorityCode: 'HSVP',
+                    host: 'hsvphry.org.in',
+                    aadhaar: '1234-5678-9012',
+                    password: 'secretPassword123',
+                    cookie: 'session=xyz'
+                }
+            });
+
+            const persisted = await AuditLog.findOne({
+                eventType: 'authority_portal_search_requested',
+                'metadata.host': 'hsvphry.org.in'
+            }).sort({ _id: -1 });
+
+            assert.ok(persisted);
+            assert.strictEqual(persisted.metadata.aadhaar, undefined);
+            assert.strictEqual(persisted.metadata.password, undefined);
+            assert.strictEqual(persisted.metadata.cookie, undefined);
         });
     });
 });
