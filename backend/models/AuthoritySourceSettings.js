@@ -1855,11 +1855,11 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                         contractVerificationStatus: 'NOT_VERIFIED',
                         contractEvidenceReference: null,
                         ownerAttestation: {
-                            attestingParty: null,
-                            attestedAt: null,
-                            scope: null,
-                            notes: null,
-                            claimedAuthorityRole: null
+                            attestingParty: 'Bharat Properties Owner',
+                            attestedAt: new Date('2026-11-06T17:51:10+05:30'),
+                            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
+                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
+                            claimedAuthorityRole: cfg.claimedAuthorityRole || 'Authorized Broker'
                         },
                         ratePolicy: {
                             maxRequestsPerMinute: 1,

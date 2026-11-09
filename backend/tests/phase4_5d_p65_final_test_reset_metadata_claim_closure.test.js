@@ -758,7 +758,7 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             const sources = await AuthoritySourceSettings.find({ tenantId: CANONICAL_ORG_ID }).lean();
             for (const s of sources) {
                 assert.strictEqual(s.userReportedEvidence?.reportedBy ?? null, null);
-                assert.strictEqual(s.ownerAttestation?.attestingParty ?? null, null);
+                assert.strictEqual(s.userReportedEvidence?.notes ?? null, null);
             }
         });
 

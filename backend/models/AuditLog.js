@@ -846,11 +846,16 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
     }
 
     if (key === 'reason') {
-        if (typeof value !== 'string' || !CONTROLLED_AUDIT_REASONS.has(value.trim())) {
-            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a valid controlled audit reason.`);
+        if (typeof value !== 'string') {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be a string.`);
             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
             throw err;
         }
+        const trimmed = value.trim();
+        if (CONTROLLED_AUDIT_REASONS.has(trimmed)) {
+            return;
+        }
+        validateControlledScalarValue(trimmed, fullPath);
         return;
     }
 
@@ -2038,7 +2043,9 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             }
 
                             const auditItemId = doc.targetId || doc.metadata?.itemId || doc.metadata?.runItemId || doc.changes?.before?.itemId || doc.changes?.after?.itemId;
-                            if (auditItemId && matchingRunItem._id && String(matchingRunItem._id) !== String(auditItemId)) {
+                            const isMatchingTarget = (matchingRunItem._id && String(matchingRunItem._id) === String(auditItemId)) ||
+                                                     (matchingRunItem.inventoryId && String(matchingRunItem.inventoryId) === String(auditItemId));
+                            if (auditItemId && !isMatchingTarget) {
                                 const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' belongs to RunItem '${matchingRunItem._id}', not matching audit target '${auditItemId}'.`);
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
