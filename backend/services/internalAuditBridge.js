@@ -1,76 +1,56 @@
-import { fileURLToPath } from 'node:url';
-
 /**
  * internalAuditBridge.js
  * 
- * Secure internal bridge between Document model and DocumentAuditService.
- * Genuinely private capability boundary:
- * - Does NOT export any Symbol, capability token, or capability-granting helper.
- * - Uses native V8 call-site inspection (Error.prepareStackTrace) to authenticate caller files.
- * - Only backend/models/Document.js may register the internal audit executor (single registration only).
- * - Only backend/services/DocumentAuditService.js may invoke the privileged audit write executor.
- * - Any unauthorized external or generic caller attempting to invoke this bridge is rejected immediately.
+ * Secure internal capability bridge between Document model and DocumentAuditService.
+ * Genuinely encapsulated capability boundary:
+ * - Zero exported Symbols, secrets, capability getters, or generic writer functions.
+ * - Zero dependency on Error.prepareStackTrace, call-stack inspection, or filename parsing.
+ * - Uses a single-use private closure hand-off during initialization.
+ * - Privileged audit write execution is confined strictly to the private closure of DocumentAuditService.
+ * - Any attempt by unauthorized callers to bind, rebind, or invoke the bridge fails closed.
  */
 
-let internalAuditExecutor = null;
-let isExecutorRegistered = false;
-
-function getCallerFile() {
-    const orig = Error.prepareStackTrace;
-    try {
-        Error.prepareStackTrace = (_, stack) => stack;
-        const err = new Error();
-        const currentFile = err.stack[0]?.getFileName();
-        for (let i = 1; i < err.stack.length; i++) {
-            const fileName = err.stack[i]?.getFileName();
-            if (fileName && fileName !== currentFile) {
-                return fileName.startsWith('file://') ? fileURLToPath(fileName) : fileName;
-            }
-        }
-        return null;
-    } catch (_) {
-        return null;
-    } finally {
-        Error.prepareStackTrace = orig;
-    }
-}
+let isRegistered = false;
+let isBound = false;
+let registeredExecutor = null;
 
 /**
  * Registers the privileged audit write executor from Document.js.
- * Strictly verifies the registration is initiated from backend/models/Document.js.
+ * Can only be called once during startup.
  * 
  * @param {Function} executor - Privileged mutation executor
  */
 export function registerAuditExecutor(executor) {
-    const caller = getCallerFile();
-    if (!caller || (!caller.endsWith('/models/Document.js') && !caller.endsWith('\\models\\Document.js'))) {
-        throw new Error('UNAUTHORIZED_REGISTRATION: Only backend/models/Document.js is permitted to register the audit executor.');
-    }
-    if (isExecutorRegistered || internalAuditExecutor) {
-        throw new Error('ILLEGAL_REBINDING: Document audit executor is already registered and cannot be rebound.');
+    if (isRegistered || registeredExecutor) {
+        throw new Error('ILLEGAL_REBINDING: Audit executor is already registered and cannot be rebound.');
     }
     if (typeof executor !== 'function') {
         throw new Error('INVALID_EXECUTOR: Executor must be a function.');
     }
-    internalAuditExecutor = executor;
-    isExecutorRegistered = true;
+    isRegistered = true;
+    registeredExecutor = executor;
 }
 
 /**
- * Executes a privileged verification audit mutation on a Document.
- * Strictly verifies that the caller is backend/services/DocumentAuditService.js.
+ * Binds the registered audit write executor into the private closure of DocumentAuditService.
+ * Can only be called once during application initialization. Once bound, the executor is transferred
+ * directly into DocumentAuditService's private lexical scope and the bridge reference is cleared.
+ * Any subsequent invocation by tests, controllers, or rogue services throws AUDIT_CHANNEL_ALREADY_BOUND.
  * 
- * @param {string|mongoose.Types.ObjectId} docId
- * @param {Object} updateOps
- * @returns {Promise<any>}
+ * @param {Function} consumer - Receiver callback in DocumentAuditService
  */
-export async function executePrivilegedAuditWrite(docId, updateOps) {
-    const caller = getCallerFile();
-    if (!caller || (!caller.endsWith('/services/DocumentAuditService.js') && !caller.endsWith('\\services\\DocumentAuditService.js'))) {
-        throw new Error('UNAUTHORIZED_BRIDGE_CALLER: Privileged audit writes can only be invoked by DocumentAuditService.');
+export function bindAuditPersistence(consumer) {
+    if (isBound) {
+        throw new Error('AUDIT_CHANNEL_ALREADY_BOUND: The audit persistence channel is already bound and cannot be accessed.');
     }
-    if (!internalAuditExecutor) {
+    if (typeof consumer !== 'function') {
+        throw new Error('INVALID_CONSUMER: Consumer must be a function.');
+    }
+    if (!registeredExecutor) {
         throw new Error('AUDIT_BRIDGE_UNAVAILABLE: Document audit executor has not been registered.');
     }
-    return internalAuditExecutor(docId, updateOps);
+    isBound = true;
+    const executor = registeredExecutor;
+    registeredExecutor = null; // Clear bridge reference permanently
+    consumer(executor);
 }

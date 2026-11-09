@@ -6,9 +6,22 @@ import Role from '../models/Role.js';
 import { hasStatutoryVerifierPermissions } from '../utils/propertyComplianceValidator.js';
 import { 
     verifySystemServiceSignatureDurable, 
-    commitNonceConsumptionDurable 
+    commitNonceConsumptionDurable,
+    failNonceConsumptionDurable
 } from './MarketingComplianceEnforcementService.js';
-import { executePrivilegedAuditWrite } from './internalAuditBridge.js';
+import { bindAuditPersistence } from './internalAuditBridge.js';
+
+let privilegedAuditWriter = null;
+bindAuditPersistence((writer) => {
+    privilegedAuditWriter = writer;
+});
+
+async function executePrivilegedAuditWrite(filter, updateOps) {
+    if (!privilegedAuditWriter) {
+        throw new Error('AUDIT_PERSISTENCE_UNAVAILABLE: Privileged audit writer has not been initialized.');
+    }
+    return privilegedAuditWriter(filter, updateOps);
+}
 
 /**
  * DocumentAuditService
@@ -152,6 +165,7 @@ export class DocumentAuditService {
         // 4. Authenticate Verifier & Permission Contract
         let isAuthorized = false;
         let consumedSignature = null;
+        let consumedClaimToken = null;
         const verifierStr = String(verifierId).trim();
 
         if (verifierUser) {
@@ -179,6 +193,7 @@ export class DocumentAuditService {
             if (sigRes.isValid) {
                 isAuthorized = true;
                 consumedSignature = signature;
+                consumedClaimToken = sigRes.claimToken;
                 // Safe idempotent retry: If already committed, return the document without repeating mutation
                 if (sigRes.isIdempotentRetry && sigRes.isCommitted) {
                     return Document.findById(doc._id);
@@ -228,15 +243,30 @@ export class DocumentAuditService {
             updateOps.$push = { auditHistory: historyEntry };
         }
 
-        // 6. Mutate Document via privileged internal bridge
-        await executePrivilegedAuditWrite(doc._id, updateOps);
+        // 6. Mutate Document via privileged internal bridge with atomic state fencing
+        try {
+            const atomicFilter = {
+                _id: doc._id,
+                isRevoked: { $ne: true },
+                'verificationAudit.isRevoked': { $ne: true }
+            };
+            const writeRes = await executePrivilegedAuditWrite(atomicFilter, updateOps);
+            if (!writeRes || writeRes.matchedCount === 0) {
+                throw new Error('DOCUMENT_STATE_CONFLICT: Document is revoked or in an invalid state.');
+            }
 
-        // Commit nonce in distributed ledger if system service
-        if (consumedSignature) {
-            await commitNonceConsumptionDurable(consumedSignature);
+            // Commit nonce in distributed ledger if system service
+            if (consumedSignature) {
+                await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
+            }
+
+            return Document.findById(doc._id);
+        } catch (err) {
+            if (consumedSignature) {
+                await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
+            }
+            throw err;
         }
-
-        return Document.findById(doc._id);
     }
 
     /**
@@ -281,6 +311,7 @@ export class DocumentAuditService {
         // Authenticate the revoker strictly
         let isAuthorized = false;
         let consumedSignature = null;
+        let consumedClaimToken = null;
         const revokerStr = String(revokedBy).trim();
 
         if (systemContext) {
@@ -308,6 +339,7 @@ export class DocumentAuditService {
             if (sigRes.isValid) {
                 isAuthorized = true;
                 consumedSignature = signature;
+                consumedClaimToken = sigRes.claimToken;
                 if (sigRes.isIdempotentRetry && sigRes.isCommitted) {
                     return Document.findById(doc._id);
                 }
@@ -353,15 +385,34 @@ export class DocumentAuditService {
             updateOps.$push = { auditHistory: historyEntry };
         }
 
-        // Mutate Document via privileged internal bridge
-        await executePrivilegedAuditWrite(doc._id, updateOps);
+        // Mutate Document via privileged internal bridge with atomic filter
+        try {
+            const atomicFilter = { _id: doc._id, isRevoked: { $ne: true } };
+            const writeRes = await executePrivilegedAuditWrite(atomicFilter, updateOps);
+            // If already revoked concurrently, it's idempotent
+            if (!writeRes || writeRes.matchedCount === 0) {
+                const refreshed = await Document.findById(doc._id);
+                if (refreshed && refreshed.isRevoked === true) {
+                    if (consumedSignature) {
+                        await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
+                    }
+                    return refreshed;
+                }
+                throw new Error('DOCUMENT_REVOCATION_CONFLICT: Document could not be revoked.');
+            }
 
-        // Commit nonce if system service
-        if (consumedSignature) {
-            await commitNonceConsumptionDurable(consumedSignature);
+            // Commit nonce if system service
+            if (consumedSignature) {
+                await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
+            }
+
+            return Document.findById(doc._id);
+        } catch (err) {
+            if (consumedSignature) {
+                await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
+            }
+            throw err;
         }
-
-        return Document.findById(doc._id);
     }
 }
 

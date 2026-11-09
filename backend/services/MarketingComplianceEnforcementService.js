@@ -29,7 +29,8 @@ import '../models/User.js';
 import '../models/Role.js';
 import '../models/PropertyVerificationSnapshot.js';
 import '../models/PropertyAuthorityLink.js';
-import SystemServiceReplayLedgerModel from '../models/SystemServiceReplayLedger.js';
+import SystemServiceReplayLedgerModel, { ensureReplayIndexes } from '../models/SystemServiceReplayLedger.js';
+export { ensureReplayIndexes };
 import { getVisibilityFilter } from '../utils/visibility.js';
 import {
     hasAuthoritativeTitleVerification,
@@ -293,9 +294,12 @@ export function verifySystemServiceSignature(serviceId, verifiedAt, signature, c
  * Atomically checks and records nonce consumption in the persistent MongoDB SystemServiceReplayLedger.
  * Provides distributed replay protection across separate worker processes and application restarts.
  * 
+ * Fails closed if durable MongoDB storage is unavailable, unless explicit isolated test mode
+ * is configured (ALLOW_IN_MEMORY_REPLAY_TEST_MODE === 'true').
+ * 
  * @param {string} signature
  * @param {Object} record - { serviceId, entityId, documentId, nonce, idempotencyKey }
- * @returns {Promise<{ consumed: boolean, isIdempotentRetry: boolean, isCommitted?: boolean, error?: string }>}
+ * @returns {Promise<{ consumed: boolean, isIdempotentRetry: boolean, isCommitted?: boolean, claimToken?: string, error?: string }>}
  */
 export async function recordNonceConsumptionDurable(signature, record) {
     if (!signature || typeof signature !== 'string' || !record || !record.serviceId || !record.nonce) {
@@ -304,6 +308,8 @@ export async function recordNonceConsumptionDurable(signature, record) {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 15 * 60 * 1000); // 15-minute TTL
+    const claimToken = crypto.randomUUID();
+    const leaseExpiresAt = new Date(now.getTime() + 60 * 1000); // 60-second in-flight lease
 
     // When MongoDB connection is active, use the unique-index-backed collection as the durable atomic authority
     if (mongoose.connection && mongoose.connection.readyState === 1) {
@@ -315,12 +321,15 @@ export async function recordNonceConsumptionDurable(signature, record) {
                 entityId: record.entityId ? String(record.entityId).trim() : null,
                 documentId: record.documentId ? String(record.documentId).trim() : null,
                 idempotencyKey: record.idempotencyKey ? String(record.idempotencyKey).trim() : null,
+                claimToken,
+                leaseExpiresAt,
                 status: 'CONSUMED',
+                attempts: 1,
                 consumedAt: now,
                 expiresAt
             });
-            // Atomically inserted
-            return { consumed: true, isIdempotentRetry: false };
+            // Atomically inserted new consumption record
+            return { consumed: true, isIdempotentRetry: false, isCommitted: false, claimToken };
         } catch (err) {
             // E11000 duplicate key error: concurrent duplicate or retry
             if (err.code === 11000 || String(err.message).includes('E11000')) {
@@ -332,25 +341,97 @@ export async function recordNonceConsumptionDurable(signature, record) {
                 }).lean();
 
                 if (existing) {
+                    // Check if signature matches
+                    if (existing.signature !== signature) {
+                        return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
+                    }
+
+                    const isSameContext = Boolean(
+                        existing.entityId === (record.entityId ? String(record.entityId).trim() : null) &&
+                        existing.documentId === (record.documentId ? String(record.documentId).trim() : null) &&
+                        existing.nonce === record.nonce &&
+                        existing.serviceId === String(record.serviceId).trim().toUpperCase()
+                    );
+
                     const isSameIdempotency = Boolean(
                         record.idempotencyKey &&
                         existing.idempotencyKey &&
                         record.idempotencyKey === existing.idempotencyKey
                     );
-                    const isSameContext = Boolean(
-                        existing.entityId === (record.entityId ? String(record.entityId).trim() : null) &&
-                        existing.documentId === (record.documentId ? String(record.documentId).trim() : null) &&
-                        existing.nonce === record.nonce &&
-                        existing.serviceId === String(record.serviceId).trim().toUpperCase() &&
-                        existing.signature === signature
-                    );
 
-                    if (isSameIdempotency && isSameContext) {
+                    if (!isSameContext) {
+                        return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
+                    }
+
+                    // Context matches. Evaluate state machine:
+                    if (existing.status === 'COMMITTED') {
+                        if (isSameIdempotency) {
+                            return {
+                                consumed: true,
+                                isIdempotentRetry: true,
+                                isCommitted: true,
+                                claimToken: existing.claimToken
+                            };
+                        }
+                        return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
+                    }
+
+                    if (existing.status === 'FAILED') {
                         return {
-                            consumed: true,
-                            isIdempotentRetry: true,
-                            isCommitted: existing.status === 'COMMITTED'
+                            consumed: false,
+                            isIdempotentRetry: false,
+                            error: `OPERATION_FAILED_PREVIOUSLY: ${existing.failureReason || 'Verification failure'}`
                         };
+                    }
+
+                    if (existing.status === 'CONSUMED') {
+                        const isLeaseActive = Boolean(existing.leaseExpiresAt && new Date(existing.leaseExpiresAt).getTime() > Date.now());
+
+                        // If lease is active:
+                        if (isLeaseActive) {
+                            if (isSameIdempotency) {
+                                return {
+                                    consumed: true,
+                                    isIdempotentRetry: true,
+                                    isCommitted: false,
+                                    claimToken: existing.claimToken
+                                };
+                            }
+                            return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
+                        }
+
+                        // Stale lease expired: previous worker crashed or timed out.
+                        // Atomically re-claim the expired record
+                        const reclaimed = await SystemServiceReplayLedgerModel.findOneAndUpdate(
+                            { 
+                                _id: existing._id, 
+                                status: 'CONSUMED', 
+                                leaseExpiresAt: existing.leaseExpiresAt 
+                            },
+                            { 
+                                $set: { 
+                                    claimToken, 
+                                    leaseExpiresAt: new Date(Date.now() + 60 * 1000) 
+                                },
+                                $inc: { attempts: 1 }
+                            },
+                            { new: true }
+                        );
+
+                        if (reclaimed) {
+                            return {
+                                consumed: true,
+                                isIdempotentRetry: isSameIdempotency,
+                                isCommitted: false,
+                                claimToken
+                            };
+                        } else {
+                            return {
+                                consumed: false,
+                                isIdempotentRetry: false,
+                                error: 'SIGNATURE_REPLAY_DETECTED'
+                            };
+                        }
                     }
                 }
                 return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
@@ -359,21 +440,66 @@ export async function recordNonceConsumptionDurable(signature, record) {
         }
     }
 
-    // Strictly fallback to synchronous in-memory ledger if MongoDB is offline (e.g. unit tests)
-    return recordNonceConsumptionSync(signature, record);
+    // Production fail-closed: If MongoDB storage is offline, NEVER silently fall back to local Map
+    if (process.env.ALLOW_IN_MEMORY_REPLAY_TEST_MODE === 'true') {
+        return recordNonceConsumptionSync(signature, record);
+    }
+
+    return { 
+        consumed: false, 
+        isIdempotentRetry: false, 
+        error: 'DURABLE_STORAGE_UNAVAILABLE: MongoDB replay storage is offline and in-memory test fallback is disabled.' 
+    };
 }
 
 /**
  * Commits a consumed nonce transaction in the persistent replay ledger.
+ * Fenced with claimToken so one worker cannot commit another worker's lease.
  * 
  * @param {string} signature
+ * @param {string} [claimToken=null]
  */
-export async function commitNonceConsumptionDurable(signature) {
+export async function commitNonceConsumptionDurable(signature, claimToken = null) {
     if (!signature) return;
     if (mongoose.connection && mongoose.connection.readyState === 1) {
+        const filter = { signature, status: 'CONSUMED' };
+        if (claimToken) filter.claimToken = claimToken;
         await SystemServiceReplayLedgerModel.updateOne(
-            { signature },
-            { $set: { status: 'COMMITTED' } }
+            filter,
+            { 
+                $set: { 
+                    status: 'COMMITTED', 
+                    committedAt: new Date(), 
+                    leaseExpiresAt: null 
+                } 
+            }
+        );
+    }
+}
+
+/**
+ * Marks a consumed nonce transaction as FAILED in the persistent replay ledger.
+ * Fenced with claimToken so one worker cannot fail another worker's lease.
+ * 
+ * @param {string} signature
+ * @param {string} [claimToken=null]
+ * @param {string} [reason='FAILED']
+ */
+export async function failNonceConsumptionDurable(signature, claimToken = null, reason = 'FAILED') {
+    if (!signature) return;
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        const filter = { signature, status: 'CONSUMED' };
+        if (claimToken) filter.claimToken = claimToken;
+        await SystemServiceReplayLedgerModel.updateOne(
+            filter,
+            { 
+                $set: { 
+                    status: 'FAILED', 
+                    failureReason: String(reason || 'FAILED'),
+                    failedAt: new Date(), 
+                    leaseExpiresAt: null 
+                } 
+            }
         );
     }
 }
@@ -449,7 +575,8 @@ export async function verifySystemServiceSignatureDurable(serviceId, verifiedAt,
         return {
             isValid: true,
             isIdempotentRetry: ledgerRes.isIdempotentRetry,
-            isCommitted: ledgerRes.isCommitted
+            isCommitted: ledgerRes.isCommitted,
+            claimToken: ledgerRes.claimToken
         };
     } catch (err) {
         return { isValid: false, isIdempotentRetry: false, error: err.message };

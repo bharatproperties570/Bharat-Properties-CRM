@@ -33,7 +33,7 @@ import publishService from '../services/PublishService.js';
 import marketingService from '../services/MarketingService.js';
 import { fork } from 'node:child_process';
 import SystemServiceReplayLedgerModel from '../models/SystemServiceReplayLedger.js';
-import { executePrivilegedAuditWrite } from '../services/internalAuditBridge.js';
+import * as internalAuditBridge from '../services/internalAuditBridge.js';
 import marketingComplianceEnforcementService, {
     generateSystemServiceSignature,
     verifySystemServiceSignature,
@@ -42,7 +42,10 @@ import marketingComplianceEnforcementService, {
     clearSystemServiceReplayLedger,
     recordNonceConsumptionSync,
     recordNonceConsumptionDurable,
-    verifySystemServiceSignatureDurable
+    verifySystemServiceSignatureDurable,
+    commitNonceConsumptionDurable,
+    failNonceConsumptionDurable,
+    ensureReplayIndexes
 } from '../services/MarketingComplianceEnforcementService.js';
 import { AUDIT_CAPABILITY_TOKEN } from '../services/auditCapabilityToken.js';
 import { DocumentAuditService } from '../services/DocumentAuditService.js';
@@ -5000,10 +5003,14 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     assert.ok(!srvSymbols.some(s => s.toLowerCase().includes('audit')));
                 });
 
-                it('1.4 Direct invocation of internalAuditBridge by unauthorized caller fails closed', async () => {
-                    await assert.rejects(async () => {
-                        await executePrivilegedAuditWrite(replDoc._id, { $set: { 'verificationAudit.outcome': 'FORGED' } });
-                    }, /UNAUTHORIZED_BRIDGE_CALLER/);
+                it('1.4 Direct invocation or rebinding of internalAuditBridge fails closed', async () => {
+                    assert.strictEqual(internalAuditBridge.executePrivilegedAuditWrite, undefined);
+                    assert.throws(() => {
+                        internalAuditBridge.bindAuditPersistence(() => {});
+                    }, /AUDIT_CHANNEL_ALREADY_BOUND/);
+                    assert.throws(() => {
+                        internalAuditBridge.registerAuditExecutor(() => {});
+                    }, /ILLEGAL_REBINDING/);
                 });
 
                 it('1.5 Approved DocumentAuditService workflow succeeds and attaches genuine audit', async () => {
@@ -5194,6 +5201,58 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                         await Document.updateOne(
                             { _id: replDoc._id },
                             { $unset: { 'metadata.verificationAudit': "" } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.11 $unset in string and array forms in pipeline fails closed', async () => {
+                    // String form: { $unset: "verificationAudit" }
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            [{ $unset: "verificationAudit" }]
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+                    // Array form: { $unset: ["verificationAudit", "metadata"] }
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            [{ $unset: ["verificationAudit"] }]
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.12 Aggregation pipeline with $project fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            [{ $project: { state: 1, documentId: 1 } }]
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.13 Aggregation pipeline with $replaceRoot and $replaceWith fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            [{ $replaceRoot: { newRoot: "$someField" } }]
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            [{ $replaceWith: "$someField" }]
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.14 Direct document update with audit evidence without MongoDB operators fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { documentId: replDoc.documentId, state: 'ACTIVE', verificationAudit: { outcome: 'FORGED' } }
                         );
                     }, /IMMUTABLE_VERIFICATION_AUDIT/);
                 });
@@ -5500,6 +5559,141 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     });
                     assert.equal(res3.consumed, false);
                     assert.equal(res3.error, 'SIGNATURE_REPLAY_DETECTED');
+                });
+
+                it('4.5 Stale lease recovery allows expired CONSUMED nonce to be reclaimed', async () => {
+                    const now = new Date();
+                    const nonce = `test-lease-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    // 1. Consume nonce
+                    const res1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.equal(res1.consumed, true);
+                    assert.ok(res1.claimToken);
+
+                    // 2. Active lease rejects concurrent attempt
+                    const resActive = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.equal(resActive.consumed, false);
+                    assert.equal(resActive.error, 'SIGNATURE_REPLAY_DETECTED');
+
+                    // 3. Manually expire the lease in MongoDB to simulate worker crash
+                    await SystemServiceReplayLedgerModel.updateOne(
+                        { signature: sig },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 5000) } }
+                    );
+
+                    // 4. Retry with expired lease re-claims successfully
+                    const resReclaim = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.equal(resReclaim.consumed, true);
+                    assert.notEqual(resReclaim.claimToken, res1.claimToken);
+                });
+
+                it('4.6 commitNonceConsumptionDurable and failNonceConsumptionDurable transition states properly', async () => {
+                    const now = new Date();
+                    const nonceCommit = `test-commit-${Date.now()}`;
+                    const sigCommit = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce: nonceCommit
+                    });
+
+                    const resCommit = await recordNonceConsumptionDurable(sigCommit, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce: nonceCommit
+                    });
+                    assert.equal(resCommit.consumed, true);
+
+                    await commitNonceConsumptionDurable(sigCommit, resCommit.claimToken);
+                    const ledgerCommit = await SystemServiceReplayLedgerModel.findOne({ signature: sigCommit });
+                    assert.equal(ledgerCommit.status, 'COMMITTED');
+                    assert.ok(ledgerCommit.committedAt);
+
+                    // Now test failNonceConsumptionDurable
+                    const nonceFail = `test-fail-${Date.now()}`;
+                    const sigFail = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce: nonceFail
+                    });
+
+                    const resFail = await recordNonceConsumptionDurable(sigFail, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce: nonceFail
+                    });
+                    assert.equal(resFail.consumed, true);
+
+                    await failNonceConsumptionDurable(sigFail, resFail.claimToken, 'TEST_TRANSACTION_FAILED');
+                    const ledgerFail = await SystemServiceReplayLedgerModel.findOne({ signature: sigFail });
+                    assert.equal(ledgerFail.status, 'FAILED');
+                    assert.equal(ledgerFail.failureReason, 'TEST_TRANSACTION_FAILED');
+                });
+
+                it('4.7 ensureReplayIndexes builds required unique and TTL indexes', async () => {
+                    await ensureReplayIndexes();
+                    const indexes = await SystemServiceReplayLedgerModel.collection.indexes();
+                    const indexNames = indexes.map(idx => idx.name);
+
+                    assert.ok(indexNames.includes('signature_1'), 'Must have unique index on signature');
+                    assert.ok(indexNames.includes('serviceId_1_nonce_1'), 'Must have compound index on serviceId + nonce');
+                    assert.ok(indexNames.includes('expiresAt_1'), 'Must have TTL index on expiresAt');
+                });
+
+                it('4.8 Concurrent revocation vs verification TOCTOU: atomic filter prevents race', async () => {
+                    const toctouDoc = await Document.create({
+                        documentId: `doc-toctou-${Date.now()}`,
+                        entityType: 'Deal',
+                        entityId: replEntId,
+                        currentVersionId: replDocVer._id,
+                        state: 'ACTIVE'
+                    });
+
+                    // Revoke the document concurrently directly before verification write
+                    await Document.updateOne(
+                        { _id: toctouDoc._id },
+                        { $set: { isRevoked: true, status: 'REVOKED' } },
+                        { bypassAuditImmutabilityProtection: true }
+                    );
+
+                    // Attempting to record verification audit must fail with DOCUMENT_REVOKED or DOCUMENT_STATE_CONFLICT
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: toctouDoc.documentId,
+                            auditPayload: {
+                                documentId: toctouDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: String(replUser._id),
+                                verifiedAt: new Date(),
+                                outcome: 'VERIFIED'
+                            },
+                            verifierUser: replUser
+                        });
+                    }, /(DOCUMENT_REVOKED|DOCUMENT_STATE_CONFLICT)/);
                 });
             });
 

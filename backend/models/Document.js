@@ -110,7 +110,10 @@ export function detectAuditMutationInUpdate(update) {
         return update.some(stage => detectAuditMutationInUpdate(stage));
     }
 
-    if (typeof update !== 'object') return false;
+    if (typeof update !== 'object') {
+        // Fail closed on ambiguous or unsupported mutation forms
+        return true;
+    }
 
     const isProtectedAuditPath = (k) => {
         if (!k || typeof k !== 'string') return false;
@@ -124,14 +127,16 @@ export function detectAuditMutationInUpdate(update) {
                k.startsWith('metadata.auditEvidence.');
     };
 
-    // Check top-level replacement documents (no MongoDB operator present)
-    const hasMongoOperators = Object.keys(update).some(k => k.startsWith('$'));
-    if (!hasMongoOperators) {
-        for (const k of Object.keys(update)) {
+    // Check top-level fields (covers direct replacements, top-level updates, or mixed operator updates)
+    for (const [k, v] of Object.entries(update)) {
+        if (!k.startsWith('$')) {
             if (isProtectedAuditPath(k)) return true;
-        }
-        if (update.metadata && typeof update.metadata === 'object') {
-            if (update.metadata.verificationAudit !== undefined || update.metadata.auditEvidence !== undefined) {
+            if (k === 'metadata') {
+                if (v && typeof v === 'object') {
+                    if (v.verificationAudit !== undefined || v.auditEvidence !== undefined) {
+                        return true;
+                    }
+                }
                 return true;
             }
         }
@@ -143,9 +148,11 @@ export function detectAuditMutationInUpdate(update) {
             for (const [k, v] of Object.entries(update[op])) {
                 if (isProtectedAuditPath(k)) return true;
                 // Recursive check for parent-object replacement e.g. $set: { metadata: { ... } }
-                if (k === 'metadata' && v && typeof v === 'object') {
-                    if (v.verificationAudit !== undefined || v.auditEvidence !== undefined) {
-                        return true;
+                if (k === 'metadata') {
+                    if (v && typeof v === 'object') {
+                        if (v.verificationAudit !== undefined || v.auditEvidence !== undefined) {
+                            return true;
+                        }
                     }
                     // Parent metadata replacement without audit fields wipes out existing audit (audit deletion vector)
                     return true;
@@ -154,10 +161,22 @@ export function detectAuditMutationInUpdate(update) {
         }
     }
 
-    // Check $unset operator (e.g. $unset: { verificationAudit: "", "metadata.verificationAudit": "", metadata: "" })
-    if (update.$unset && typeof update.$unset === 'object') {
-        for (const k of Object.keys(update.$unset)) {
-            if (isProtectedAuditPath(k) || k === 'metadata') return true;
+    // Check $unset operator in all supported MongoDB forms:
+    // 1. String form: { $unset: "verificationAudit" }
+    // 2. Array form: { $unset: ["verificationAudit", "metadata"] }
+    // 3. Object form: { $unset: { verificationAudit: "", "metadata.verificationAudit": "" } }
+    if (update.$unset !== undefined) {
+        if (typeof update.$unset === 'string') {
+            if (isProtectedAuditPath(update.$unset) || update.$unset === 'metadata') return true;
+        } else if (Array.isArray(update.$unset)) {
+            if (update.$unset.some(k => typeof k === 'string' && (isProtectedAuditPath(k) || k === 'metadata'))) return true;
+        } else if (typeof update.$unset === 'object' && update.$unset !== null) {
+            for (const k of Object.keys(update.$unset)) {
+                if (isProtectedAuditPath(k) || k === 'metadata') return true;
+            }
+        } else {
+            // Ambiguous $unset form: fail closed
+            return true;
         }
     }
 
@@ -169,20 +188,22 @@ export function detectAuditMutationInUpdate(update) {
         }
     }
 
-    // Check $replaceRoot and $replaceWith operators
-    for (const op of ['$replaceRoot', '$replaceWith']) {
-        if (update[op] && typeof update[op] === 'object') {
-            const str = JSON.stringify(update[op]);
-            if (str.includes('verificationAudit') || str.includes('auditEvidence')) return true;
-        }
+    // Check $replaceRoot and $replaceWith operators (aggregation update pipeline)
+    // Replacing the root document can alter or delete protected audit evidence
+    if (update.$replaceRoot !== undefined || update.$replaceWith !== undefined) {
+        return true;
     }
 
-    // Check $project and $addFields in pipeline stages
-    for (const op of ['$project', '$addFields']) {
-        if (update[op] && typeof update[op] === 'object') {
-            for (const k of Object.keys(update[op])) {
-                if (isProtectedAuditPath(k) || k === 'metadata') return true;
-            }
+    // Check $project operator in pipeline stages
+    // $project can omit or filter out protected audit evidence
+    if (update.$project !== undefined) {
+        return true;
+    }
+
+    // Check $addFields in pipeline stages
+    if (update.$addFields && typeof update.$addFields === 'object') {
+        for (const k of Object.keys(update.$addFields)) {
+            if (isProtectedAuditPath(k) || k === 'metadata') return true;
         }
     }
 
@@ -391,9 +412,10 @@ if (typeof DocumentModel.bulkSave === 'function') {
 
 // Register privileged audit executor with internalAuditBridge.
 // This is the ONLY mechanism through which DocumentAuditService writes audit evidence.
-registerAuditExecutor(async (docId, updateOps) => {
+registerAuditExecutor(async (docFilter, updateOps) => {
+    const filter = typeof docFilter === 'object' && docFilter !== null && docFilter._id ? docFilter : { _id: docFilter };
     return DocumentModel.updateOne(
-        { _id: docId },
+        filter,
         updateOps,
         { [PRIVATE_AUDIT_SECRET]: true }
     );
