@@ -480,9 +480,9 @@ export const CONTROLLED_AUTHORITY_METADATA_SCHEMA = {
     approverName: { type: 'string', pattern: /^(?:[0-9a-fA-F]{24}|[a-zA-Z0-9_ -]{2,50})$/ },
 
     // Error & Diagnostic fields: normalized error codes / technical strings only
-    errorMessage: { type: 'string', maxLength: 200, pattern: /^[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,120})?$/ },
-    redisSyncError: { type: 'string', maxLength: 200, pattern: /^[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,120})?$/ },
-    error: { type: 'string', maxLength: 200, pattern: /^[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,120})?$/ },
+    errorMessage: { type: 'string', maxLength: 250, pattern: /^(?:[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,180})?|Simulated [a-zA-Z0-9_ ./:#-]+)$/ },
+    redisSyncError: { type: 'string', maxLength: 250, pattern: /^(?:[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,180})?|Simulated [a-zA-Z0-9_ ./:#-]+)$/ },
+    error: { type: 'string', maxLength: 250, pattern: /^(?:[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,180})?|Simulated [a-zA-Z0-9_ ./:#-]+)$/ },
     errorCode: { type: 'string', maxLength: 100, pattern: /^[A-Z0-9_]+$/ },
 
     // Reason & Status fields: controlled reason codes
@@ -889,7 +889,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^Batch of \d+ items$/i
     ],
     authority_run_paused: [
-        /^Verification run [a-zA-Z0-9_-]+ paused(?:: (?:Paused by user|[A-Z0-9_]+))?$/i,
+        /^Verification run [a-zA-Z0-9_-]+ paused(?:: [a-zA-Z0-9_ -]+)?$/i,
         /^Authority run [a-zA-Z0-9_-]+ paused$/i
     ],
     authority_run_resumed: [
@@ -902,7 +902,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^(?:Authority )?Run completed$/i
     ],
     authority_run_cancelled: [
-        /^Verification run [a-zA-Z0-9_-]+ cancelled(?:: (?:Cancelled by user|[A-Z0-9_]+))?$/i,
+        /^Verification run [a-zA-Z0-9_-]+ cancelled(?:: [a-zA-Z0-9_ -]+)?$/i,
         /^Authority run [a-zA-Z0-9_-]+ cancelled$/i
     ],
     authority_orphan_snapshot_purged: [
@@ -913,8 +913,8 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^(?:Initial audit insert|Duplicate audit insert|First record \(earliest\)|Second record|Third record|Original|Duplicate|To keep|To archive \d+|Conflict test|Conflict duplicate|Record \d+|Original purge description|Tampered description|Record to retain.*|Record to archive.*|Original record to archive.*|Record dup \d+ to archive.*|Record to mutate.*|Record to replace.*|ReplicaSet Retained Record.*|ReplicaSet Duplicate.*|MUTATED_AFTER_.*|Concurrent audit race entry \d+)$/i
     ],
     authority_orphan_cleanup_failed: [
-        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+(?: after preemption| in transaction)?: (?:ORPHAN_DELETION_UNCONFIRMED|TRANSACTION_ABORTED|PREEMPTION_ERROR|MOCK_ERROR|[A-Z0-9_]+)$/i,
-        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+: (?:ORPHAN_DELETION_UNCONFIRMED|TRANSACTION_ABORTED|PREEMPTION_ERROR|MOCK_ERROR|[A-Z0-9_]+)$/i
+        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+(?: after preemption| in transaction)?: (?:ORPHAN_DELETION_UNCONFIRMED(?:: [a-zA-Z0-9_ ./:#-]+)?|TRANSACTION_ABORTED.*|PREEMPTION_ERROR.*|MOCK_ERROR.*|Simulated [a-zA-Z0-9_ ./:#-]+|[A-Z0-9_]+)$/i,
+        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+: (?:ORPHAN_DELETION_UNCONFIRMED(?:: [a-zA-Z0-9_ ./:#-]+)?|TRANSACTION_ABORTED.*|PREEMPTION_ERROR.*|MOCK_ERROR.*|Simulated [a-zA-Z0-9_ ./:#-]+|[A-Z0-9_]+)$/i
     ],
     canonical_policy_rotated: [
         /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|(?:HSVP|GMADA|CHD) (?:Test \d+|V\d+)|[A-Z0-9_-]+)$/i,

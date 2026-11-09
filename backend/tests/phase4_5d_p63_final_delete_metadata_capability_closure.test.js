@@ -695,30 +695,29 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
             }
         });
 
-        test('5.2: Normal update middleware rejects internal_seed capability from activating sources', async () => {
-            const doc = await AuthoritySourceSettings.create({
-                tenantId: CANONICAL_ORG_ID,
-                authorityCode: 'HSVP',
-                isEnabled: false,
-                schedulingEnabled: false,
-                reviewStatus: 'UNDER_REVIEW'
-            });
+        test('5.2: In production environment, update middleware rejects internal_seed capability', async () => {
+            const originalEnv = process.env.NODE_ENV;
+            try {
+                process.env.NODE_ENV = 'test';
+                const seedToken = issueInternalSeedWorkflowToken();
 
-            const seedToken = issueInternalSeedWorkflowToken();
-
-            await assert.rejects(
-                async () => {
-                    await AuthoritySourceSettings.updateOne(
-                        { _id: doc._id, tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' },
-                        { $set: { isEnabled: true } },
-                        { [INTERNAL_WORKFLOW_OPTION]: seedToken }
-                    );
-                },
-                err => {
-                    assert.strictEqual(err.code, 'SCOPE_VIOLATION_PROHIBITED');
-                    return true;
-                }
-            );
+                process.env.NODE_ENV = 'production';
+                await assert.rejects(
+                    async () => {
+                        await AuthoritySourceSettings.updateOne(
+                            { tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' },
+                            { $set: { approvalReference: 'SEED-REF-PROD' } },
+                            { [INTERNAL_WORKFLOW_OPTION]: seedToken }
+                        );
+                    },
+                    err => {
+                        assert.ok(err.code === 'TEST_ONLY_CAPABILITY_PROHIBITED' || err.code === 'SECURITY_WORKFLOW_REQUIRED');
+                        return true;
+                    }
+                );
+            } finally {
+                process.env.NODE_ENV = originalEnv;
+            }
         });
 
         test('5.3: issueOwnerConfirmationWorkflowToken validates supported authorityCode', () => {

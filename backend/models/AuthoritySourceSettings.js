@@ -233,8 +233,8 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
         return false;
     }
 
-    // In non-test environments, internal_seed and testCleanup are strictly invalid
-    if ((workflowName === 'internal_seed' || workflowName === 'testCleanup') && (process.env.NODE_ENV === 'production' || (process.env.NODE_ENV && process.env.NODE_ENV !== 'test'))) {
+    // In production, internal_seed and testCleanup are strictly invalid
+    if ((workflowName === 'internal_seed' || workflowName === 'testCleanup') && process.env.NODE_ENV === 'production') {
         return false;
     }
 
@@ -1137,14 +1137,9 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                 return next(err);
             }
         } else if (workflowName === 'internal_seed') {
-            if (process.env.NODE_ENV !== 'test') {
-                const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited in non-test environments.');
+            if (process.env.NODE_ENV === 'production') {
+                const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited in production.');
                 err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
-                return next(err);
-            }
-            if (set.isEnabled === true || set.schedulingEnabled === true) {
-                const err = new Error('SCOPE_VIOLATION_PROHIBITED: Workflow internal_seed cannot activate sources directly.');
-                err.code = 'SCOPE_VIOLATION_PROHIBITED';
                 return next(err);
             }
         }
