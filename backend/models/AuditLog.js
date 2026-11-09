@@ -2022,27 +2022,31 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             throw err;
                         }
 
-                        // Resolve the actual PropertyVerificationRunItem compensation claim and prove exact equality
+                        // Verify compensation claim ID binding (PR #66 P1)
                         const PropertyVerificationRunItem = mongoose.models.PropertyVerificationRunItem;
-                        if (PropertyVerificationRunItem && typeof PropertyVerificationRunItem.findOne === 'function') {
-                            const isObjectId = mongoose.Types.ObjectId.isValid(claimId) && /^[0-9a-fA-F]{24}$/.test(claimId);
-                            let matchingRunItem = null;
-                            if (isObjectId) {
-                                matchingRunItem = await PropertyVerificationRunItem.findOne({
-                                    $or: [
-                                        { 'applyClaim.claimId': new mongoose.Types.ObjectId(claimId) },
-                                        { 'applyClaim.reconcilerClaimId': new mongoose.Types.ObjectId(claimId) }
-                                    ]
-                                }).setOptions(session ? { session } : {}).lean();
-                            }
+                        const isObjectId = mongoose.Types.ObjectId.isValid(claimId) && /^[0-9a-fA-F]{24}$/.test(claimId);
+                        let matchingRunItem = null;
 
-                            if (!matchingRunItem) {
-                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' does not belong to any authentic PropertyVerificationRunItem.`);
-                                err.code = 'AUDIT_LOG_IMMUTABLE';
-                                throw err;
-                            }
+                        if (isObjectId && PropertyVerificationRunItem && typeof PropertyVerificationRunItem.findOne === 'function') {
+                            matchingRunItem = await PropertyVerificationRunItem.findOne({
+                                $or: [
+                                    { 'applyClaim.claimId': new mongoose.Types.ObjectId(claimId) },
+                                    { 'applyClaim.reconcilerClaimId': new mongoose.Types.ObjectId(claimId) }
+                                ]
+                            }).setOptions(session ? { session } : {}).lean();
+                        }
 
-                            const auditItemId = doc.targetId || doc.metadata?.itemId || doc.metadata?.runItemId || doc.changes?.before?.itemId || doc.changes?.after?.itemId;
+                        const auditClaimId = doc.metadata?.claimId || doc.changes?.claimId || doc.changes?.before?.claimId;
+                        const auditMatchesClaim = auditClaimId && String(auditClaimId) === String(claimId);
+
+                        if (!matchingRunItem && !auditMatchesClaim) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' does not belong to any authentic PropertyVerificationRunItem.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
+                        const auditItemId = doc.targetId || doc.metadata?.itemId || doc.metadata?.runItemId || doc.changes?.before?.itemId || doc.changes?.after?.itemId;
+                        if (matchingRunItem) {
                             const isMatchingTarget = (matchingRunItem._id && String(matchingRunItem._id) === String(auditItemId)) ||
                                                      (matchingRunItem.inventoryId && String(matchingRunItem.inventoryId) === String(auditItemId));
                             if (auditItemId && !isMatchingTarget) {
