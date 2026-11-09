@@ -178,6 +178,7 @@ jobs:
           npm run test:phase4.5d-p58-final-residual-security
           npm run test:phase4.5d-p59-canonical-org-write-boundary
           npm run test:phase4.5d-p60-final-write-path-audit-closure
+          npm run test:phase4.5d-p61-final-security-closure
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |

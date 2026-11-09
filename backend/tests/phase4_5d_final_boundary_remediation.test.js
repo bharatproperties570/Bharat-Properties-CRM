@@ -429,7 +429,7 @@ test('Maker-Checker Audit 2: Wrong targetType or targetId mismatch is rejected',
     assert.strictEqual(check2.valid, false);
     assert.ok(check2.reason.includes('does not match target settings document ID'));
 
-    await AuditLog.deleteMany({ _id: { $in: [audit1._id, audit2._id] } });
+    await AuditLog.deleteMany({ _id: { $in: [audit1._id, audit2._id] } }).catch(() => {});
     await User.deleteMany({ _id: { $in: [u1._id, u2._id, u3._id] } });
     await Role.deleteOne({ _id: role._id });
 });
@@ -461,7 +461,7 @@ test('Maker-Checker Audit 3: Failed status in AuditLog is rejected', async () =>
     assert.strictEqual(check.valid, false);
     assert.ok(check.reason.includes("must be 'success' or 'completed'"));
 
-    await AuditLog.deleteOne({ _id: failedAudit._id });
+    await AuditLog.deleteOne({ _id: failedAudit._id }).catch(() => {});
     await User.deleteMany({ _id: { $in: [u1._id, u2._id, u3._id] } });
     await Role.deleteOne({ _id: role._id });
 });
@@ -518,7 +518,7 @@ test('Maker-Checker Audit 4: Stale (>30 days) or future timestamps in AuditLog a
     assert.strictEqual(checkFuture.valid, false);
     assert.ok(checkFuture.reason.includes('future timestamp'));
 
-    await AuditLog.deleteMany({ _id: { $in: [staleAudit._id, futureAudit._id] } });
+    await AuditLog.deleteMany({ _id: { $in: [staleAudit._id, futureAudit._id] } }).catch(() => {});
     await User.deleteMany({ _id: { $in: [u1._id, u2._id, u3._id] } });
     await Role.deleteOne({ _id: role._id });
 });
@@ -551,7 +551,7 @@ test('Maker-Checker Audit 5: Reviewer/actor identity mismatch in AuditLog is rej
     assert.strictEqual(check.valid, false);
     assert.ok(check.reason.includes('does not match verified reviewer'));
 
-    await AuditLog.deleteOne({ _id: audit._id });
+    await AuditLog.deleteOne({ _id: audit._id }).catch(() => {});
     await User.deleteMany({ _id: { $in: [u1._id, u2._id, u3._id, uWrong._id] } });
     await Role.deleteOne({ _id: role._id });
 });
@@ -720,7 +720,7 @@ test('Expiry Separation 1: recordMakerCheckerApproval sets internalReviewExpiryD
     assert.strictEqual(updated.commercialUseAuthorized, false);
 
     await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
-    await AuditLog.deleteOne({ _id: auditRecord._id });
+    await AuditLog.deleteOne({ _id: auditRecord._id }).catch(() => {});
     await User.deleteMany({ _id: { $in: [u1._id, u2._id, u3._id] } });
     await Role.deleteMany({ _id: { $in: [appRole._id, revRole._id] } });
 });
