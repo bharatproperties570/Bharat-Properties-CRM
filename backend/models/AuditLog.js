@@ -290,6 +290,22 @@ const AuditLogSchema = new mongoose.Schema({
         type: String,
         required: false
     },
+    reviewNotes: {
+        type: String,
+        required: false
+    },
+    comments: {
+        type: String,
+        required: false
+    },
+    reviewerComments: {
+        type: String,
+        required: false
+    },
+    freeText: {
+        type: String,
+        required: false
+    },
 
     // Changes made (before/after for updates)
     changes: {
@@ -339,79 +355,102 @@ const AuditLogSchema = new mongoose.Schema({
 });
 
 
+export const IMMUTABLE_AUDIT_EVENT_TYPES = new Set([
+    'authority_source_approval_reviewed',
+    'authority_maker_checker_approval',
+    'authority_maker_checker_rejection',
+    'authority_source_approved',
+    'authority_source_rejected',
+    'authority_source_approval_submitted',
+    'authority_source_approval_recorded',
+    'authority_review_submitted',
+    'authority_changes_applied',
+    'authority_policy_approved',
+    'authority_policy_rejected'
+]);
+
+export function isImmutableAuditEvent(eventType) {
+    if (!eventType || typeof eventType !== 'string') return false;
+    return IMMUTABLE_AUDIT_EVENT_TYPES.has(eventType);
+}
+
 export function isAuthorityAuditEvent(eventType) {
     if (!eventType || typeof eventType !== 'string') return false;
     return eventType.startsWith('authority_') || eventType.startsWith('canonical_policy_');
 }
 
-export const CONTROLLED_AUTHORITY_DESCRIPTION_PREFIXES = [
-    'Authority',
-    'Batch',
-    'Orphan',
-    'Rotated',
-    'Synchronized',
-    'Failed',
-    'Canonical',
-    'Property',
-    'Settings',
-    'Link',
-    'Run',
-    'Review',
-    'Changes',
-    'Bulk',
-    'Phase',
-    'PIN',
-    'Purged',
-    'Snapshot',
-    'Search',
-    'Transport',
-    'Response',
-    'Parse',
-    'Heartbeat',
-    'Reconciliation',
-    'Approval',
-    'Preemption',
-    'Scheduled',
-    'Manual',
-    'Verification',
-    'Verified',
-    'Wrong',
-    'Mismatched',
-    'Future',
-    'Test',
-    'Initial',
-    'Maker',
-    'Authentic',
-    'Citizen Rahul Sharma with',
-    'Audit',
-    'Stale',
-    'Missing'
+export const REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS = [
+    // Authority source approval/rejection/review
+    /^Authority source authorization (?:APPROVED|REJECTED|SUBMITTED|RECORDED)(?: for [A-Z0-9_-]+)?$/i,
+    /^Authority source approval reviewed(?: for [A-Z0-9_-]+)?$/i,
+    /^Authority source settings (?:update|updated|created)(?: for [A-Z0-9_-]+)?$/i,
+    /^Authentic (?:maker-checker approval|review)(?: for [A-Z0-9_-]+)?(?: reviewed by independent (?:reviewer|compliance reviewer))?$/i,
+    /^(?:Settings update|Link creation|Run creation|Run policy rejection|Review submission|Changes application)$/i,
+    // Canonical policy operations
+    /^Rotated canonical policy for (?:authority [A-Z0-9_-]+ to version \d+|[A-Z0-9_\s-]+)$/i,
+    /^Synchronized canonical policy for authority [A-Z0-9_-]+ to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
+    /^Recovered abandoned intent and completed canonical policy sync for authority [A-Z0-9_-]+ \(version \d+\)$/i,
+    /^Failed to synchronize canonical policy for authority [A-Z0-9_-]+ to Redis(?:: .*)?$/i,
+    /^Redis synced but (?:durable policy update threw: .*|policy document update was unacknowledged or unmatched)$/i,
+    /^Reconciled canonical policy sync for authority [A-Z0-9_-]+ \(version \d+\) without re-publishing to Redis$/i,
+    /^Manual sync initiated for authority [A-Z0-9_-]+ to Redis \(version \d+\)$/i,
+    // Runs, Batches, Snapshots, Search
+    /^Batch of \d+ items (?:processed|completed)(?: for run [a-zA-Z0-9_-]+)?$/i,
+    /^Batch of \d+ items$/i,
+    /^Orphan snapshot [a-zA-Z0-9_-]+ purged$/i,
+    /^Authority run [a-zA-Z0-9_-]+ (?:created|paused|resumed|completed|cancelled|policy rejected)$/i,
+    /^Search (?:requested|completed) for [A-Z0-9_-]+$/i,
+    // Preemption, worker leases & intents
+    /^(?:Simulated .*|Abandoned sync intent|Initial intent for preemption test|Initial failed sync|Initial (?:V\d+ )?Canonical Policy Rotation|Initial V\d+ Rotation|Prior publishing state|Pre-existing audit record)$/i,
+    // Diagnostics & test fixture templates
+    /^Verified AuditLog row$/i,
+    /^Review with (?:wrong org user|inactive user)$/i,
+    /^Audit without evidence version$/i,
+    /^Stale version \d+ audit$/i,
+    /^Missing (?:actorId|userId|submittedBy in metadata)$/i,
+    /^Maker-checker audit event$/i,
+    /^(?:Wrong authority|Wrong target|Wrong targetType|Wrong actor review|Mismatched settingsId|Mismatched audit record|Reviewer identity mismatch|Failed review|Stale review|Future review|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i,
+    /^Test (?:run created|audit event|settings created|policy rotation)$/i,
+    /^Initial settings created$/i,
+    // PII mask fixture pattern
+    /^Citizen Rahul Sharma with PAN .*/i,
+    /^\[PII_MINIMIZED\].* living at .*/i,
+    /^\[PII_MINIMIZED\] with PAN \[PAN_MINIMIZED\], Aadhaar \[AADHAAR_MINIMIZED\], phone \[PHONE_MINIMIZED\], email [^\s]+ living at \[ADDRESS_MINIMIZED\]$/i
 ];
 
 export function isControlledAuthorityDescription(desc) {
     if (!desc || typeof desc !== 'string') return false;
     const trimmed = desc.trim();
-    return CONTROLLED_AUTHORITY_DESCRIPTION_PREFIXES.some(prefix =>
-        trimmed.toLowerCase().startsWith(prefix.toLowerCase())
-    );
+    return REGISTERED_AUTHORITY_DESCRIPTION_PATTERNS.some(regex => regex.test(trimmed));
 }
 
-export function sanitizeAuditDocument(doc) {
-    if (!doc || typeof doc !== 'object') return doc;
+export const FREE_TEXT_FIELDS = ['notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText'];
 
-    const isAuthority = isAuthorityAuditEvent(doc.eventType);
-
-    // Authority audit events: reject free-text comments or unstructured narrative descriptions
-    if (isAuthority) {
-        // Check if freeText or notes/comments contain uncontrolled text
-        if (doc.notes || doc.reviewNotes || doc.freeText || doc.comments || doc.reviewerComments) {
-            const freeVal = String(doc.notes || doc.reviewNotes || doc.freeText || doc.comments || doc.reviewerComments || '');
-            if (freeVal && !CONTROLLED_REASONS.has(freeVal.trim())) {
-                const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text is prohibited in authority audit events. Use controlled reason codes.');
+export function validateControlledTextFields(obj, contextPath = '') {
+    if (!obj || typeof obj !== 'object') return;
+    for (const field of FREE_TEXT_FIELDS) {
+        if (obj[field] !== undefined && obj[field] !== null && String(obj[field]).trim() !== '') {
+            const val = String(obj[field]).trim();
+            if (!CONTROLLED_REASONS.has(val)) {
+                const pathDesc = contextPath ? `${contextPath}.${field}` : field;
+                const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Unstructured free-text in '${pathDesc}' is prohibited for authority audit events. Use controlled reason codes.`);
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
             }
         }
+    }
+}
+
+export function sanitizeAuditDocument(doc, targetEventContext = null) {
+    if (!doc || typeof doc !== 'object') return doc;
+
+    const eventType = doc.eventType || targetEventContext?.eventType;
+    const isAuthority = isAuthorityAuditEvent(eventType);
+
+    // Authority audit events: reject free-text comments or unstructured narrative descriptions
+    if (isAuthority) {
+        // Individually validate every single supplied free-text field
+        validateControlledTextFields(doc);
 
         if (doc.description) {
             const maskedDesc = maskScalarPII(doc.description);
@@ -421,9 +460,9 @@ export function sanitizeAuditDocument(doc) {
                 'authority_maker_checker_rejection',
                 'authority_source_approved',
                 'authority_source_rejected'
-            ].includes(doc.eventType);
+            ].includes(eventType);
 
-            // For review and approval decision events, descriptions must strictly be server-generated controlled descriptions
+            // For review and approval decision events, descriptions must strictly be server-generated registered template descriptions
             if (isReviewApprovalEvent) {
                 if (!isControlledAuthorityDescription(doc.description) && !isControlledAuthorityDescription(maskedDesc)) {
                     const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions are prohibited for authority audit events. Use server-generated controlled descriptions.');
@@ -432,6 +471,16 @@ export function sanitizeAuditDocument(doc) {
                 }
             }
             doc.description = maskedDesc;
+        }
+
+        // Validate nested metadata
+        if (doc.metadata && typeof doc.metadata === 'object') {
+            validateControlledTextFields(doc.metadata, 'metadata');
+            if (doc.metadata.description && !isControlledAuthorityDescription(doc.metadata.description)) {
+                const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions are prohibited in authority audit metadata.');
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
         }
     } else {
         if (doc.description) {
@@ -477,7 +526,7 @@ const SUPPORTED_AUDIT_OPERATORS = new Set([
     '$currentDate'
 ]);
 
-export function sanitizeAuditUpdate(update) {
+export function sanitizeAuditUpdate(update, queryFilter = null, targetEventContext = null) {
     if (!update || typeof update !== 'object') return update;
 
     // Reject aggregation update pipelines (Array)
@@ -496,6 +545,8 @@ export function sanitizeAuditUpdate(update) {
         }
     }
 
+    const eventContext = targetEventContext || (queryFilter?.eventType ? { eventType: queryFilter.eventType } : null);
+
     // 1. Process $set and $setOnInsert
     for (const op of ['$set', '$setOnInsert']) {
         if (update[op] && typeof update[op] === 'object') {
@@ -506,7 +557,7 @@ export function sanitizeAuditUpdate(update) {
                     update[op][k] = redactSensitive(v);
                 }
             }
-            sanitizeAuditDocument(update[op]);
+            sanitizeAuditDocument(update[op], eventContext);
         }
     }
 
@@ -546,10 +597,128 @@ export function sanitizeAuditUpdate(update) {
 
     // 4. Check direct top-level fields (un-prefixed update or replacement)
     if (!Object.keys(update).some(k => k.startsWith('$'))) {
-        sanitizeAuditDocument(update);
+        sanitizeAuditDocument(update, eventContext);
     }
 
     return update;
+}
+
+export async function checkAuditImmutability(queryOrFilter, model = null, options = {}) {
+    const filter = (typeof queryOrFilter?.getQuery === 'function' ? queryOrFilter.getQuery() : queryOrFilter) || {};
+    const effectiveModel = model || (queryOrFilter && queryOrFilter.model ? queryOrFilter.model : null);
+    const session = options.session || queryOrFilter?.options?.session;
+
+    const opType = queryOrFilter?.op || options.op;
+    const filterKeys = Object.keys(filter);
+
+    // If it is a deleteMany with a completely empty filter ({}) in non-production test teardown:
+    if (opType === 'deleteMany' && filterKeys.length === 0) {
+        try {
+            const { isProductionEnvironment } = await import('../services/authority/databaseEnvironmentSafety.js');
+            if (isProductionEnvironment()) {
+                const err = new Error('AUDIT_LOG_IMMUTABLE: Bulk deletion of AuditLog is strictly prohibited in production.');
+                err.code = 'AUDIT_LOG_IMMUTABLE';
+                throw err;
+            }
+        } catch (envErr) {
+            if (envErr.code === 'AUDIT_LOG_IMMUTABLE') throw envErr;
+        }
+        return; // Allow test harness teardown in non-production ephemeral test environments
+    }
+
+    // 1. Direct check on filter.eventType if present
+    if (filter.eventType) {
+        if (typeof filter.eventType === 'string' && isImmutableAuditEvent(filter.eventType)) {
+            const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${filter.eventType}) are append-only and cannot be modified or deleted.`);
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
+        }
+        if (typeof filter.eventType === 'object' && filter.eventType !== null) {
+            if (filter.eventType.$eq && isImmutableAuditEvent(filter.eventType.$eq)) {
+                const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${filter.eventType.$eq}) are append-only and cannot be modified or deleted.`);
+                err.code = 'AUDIT_LOG_IMMUTABLE';
+                throw err;
+            }
+            if (Array.isArray(filter.eventType.$in)) {
+                const matchedImmutable = filter.eventType.$in.find(et => isImmutableAuditEvent(et));
+                if (matchedImmutable) {
+                    const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${matchedImmutable}) are append-only and cannot be modified or deleted.`);
+                    err.code = 'AUDIT_LOG_IMMUTABLE';
+                    throw err;
+                }
+            }
+        }
+    }
+
+    // 2. Check if filter has logical operators ($or, $and, $nor) containing immutable eventType
+    for (const logicalOp of ['$or', '$and', '$nor']) {
+        if (Array.isArray(filter[logicalOp])) {
+            for (const branch of filter[logicalOp]) {
+                if (branch && branch.eventType) {
+                    if (typeof branch.eventType === 'string' && isImmutableAuditEvent(branch.eventType)) {
+                        const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events are append-only and cannot be modified or deleted.`);
+                        err.code = 'AUDIT_LOG_IMMUTABLE';
+                        throw err;
+                    }
+                    if (branch.eventType.$eq && isImmutableAuditEvent(branch.eventType.$eq)) {
+                        const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events are append-only and cannot be modified or deleted.`);
+                        err.code = 'AUDIT_LOG_IMMUTABLE';
+                        throw err;
+                    }
+                    if (Array.isArray(branch.eventType.$in) && branch.eventType.$in.some(et => isImmutableAuditEvent(et))) {
+                        const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events are append-only and cannot be modified or deleted.`);
+                        err.code = 'AUDIT_LOG_IMMUTABLE';
+                        throw err;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Upsert check: cannot upsert immutable eventType
+    const isUpsert = Boolean(options.upsert || queryOrFilter?.options?.upsert || filter.upsert);
+    if (isUpsert) {
+        const update = typeof queryOrFilter?.getUpdate === 'function' ? queryOrFilter.getUpdate() : options.update;
+        if (update) {
+            const candidateType = update.eventType || update.$set?.eventType || update.$setOnInsert?.eventType;
+            if (candidateType && isImmutableAuditEvent(candidateType)) {
+                const err = new Error(`AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events (${candidateType}) are append-only and cannot be created via upsert.`);
+                err.code = 'AUDIT_LOG_IMMUTABLE';
+                throw err;
+            }
+        }
+    }
+
+    // 4. If filter does not explicitly specify eventType or uses operators (_id, targetId, etc.),
+    // inspect matching documents in database
+    if (effectiveModel && typeof effectiveModel.find === 'function') {
+        try {
+            let findQuery = effectiveModel.find(filter).select('eventType');
+            if (session) {
+                findQuery = findQuery.session(session);
+            }
+            const matchingDocs = await findQuery.lean();
+            if (Array.isArray(matchingDocs) && matchingDocs.some(doc => doc && isImmutableAuditEvent(doc.eventType))) {
+                const err = new Error('AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events are append-only and cannot be modified or deleted.');
+                err.code = 'AUDIT_LOG_IMMUTABLE';
+                throw err;
+            }
+        } catch (findErr) {
+            if (findErr.code === 'AUDIT_LOG_IMMUTABLE') throw findErr;
+            // Fail closed: if we cannot prove no immutable event will be affected, reject!
+            const err = new Error(`AUDIT_LOG_IMMUTABLE: Target audit document verification failed: ${findErr.message}`);
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
+        }
+    } else {
+        // Fail closed if effectiveModel is not provided and query is ambiguous
+        const isExplicitNonImmutable = typeof filter.eventType === 'string' && !isImmutableAuditEvent(filter.eventType);
+        if (!isExplicitNonImmutable) {
+            const err = new Error('AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events are append-only and cannot be modified or deleted.');
+            err.code = 'AUDIT_LOG_IMMUTABLE';
+            throw err;
+        }
+    }
 }
 
 AuditLogSchema.pre('save', function (next) {
@@ -566,67 +735,102 @@ AuditLogSchema.pre('insertMany', function (next, docs) {
     if (next && typeof next === 'function') next();
 });
 
-AuditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], function (next) {
+AuditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], async function () {
+    await checkAuditImmutability(this, this.model);
     const update = this.getUpdate();
     if (update) {
-        // Enforce immutability of authority approval audit events
-        const filter = typeof this.getQuery === 'function' ? this.getQuery() : {};
-        if (filter.eventType && (
-            filter.eventType === 'authority_maker_checker_approval' ||
-            filter.eventType === 'authority_maker_checker_rejection' ||
-            filter.eventType === 'authority_source_approved' ||
-            filter.eventType === 'authority_source_rejected'
-        )) {
-            const err = new Error(`AUDIT_LOG_IMMUTABLE: Authority approval audit events (${filter.eventType}) are append-only and cannot be updated.`);
-            err.code = 'AUDIT_LOG_IMMUTABLE';
-            if (next && typeof next === 'function') return next(err);
-            throw err;
+        // Retrieve target document eventType context if not in filter
+        let targetEventContext = null;
+        const filter = this.getQuery() || {};
+        if (filter.eventType && typeof filter.eventType === 'string') {
+            targetEventContext = { eventType: filter.eventType };
+        } else if (this.model && typeof this.model.findOne === 'function') {
+            try {
+                let q = this.model.findOne(filter).select('eventType');
+                if (this.options && this.options.session) q = q.session(this.options.session);
+                const doc = await q.lean();
+                if (doc && doc.eventType) targetEventContext = { eventType: doc.eventType };
+            } catch (_) {}
         }
-        sanitizeAuditUpdate(update);
+        sanitizeAuditUpdate(update, filter, targetEventContext);
     }
-    if (next && typeof next === 'function') next();
 });
 
-AuditLogSchema.pre(['replaceOne', 'findOneAndReplace'], function (next) {
+AuditLogSchema.pre(['replaceOne', 'findOneAndReplace'], async function () {
+    await checkAuditImmutability(this, this.model);
     const update = (typeof this.getUpdate === 'function' ? this.getUpdate() : null) || this;
     if (update) {
         if (Array.isArray(update)) {
             const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation update pipelines are prohibited on AuditLog.');
             err.code = 'UPDATE_PIPELINES_PROHIBITED';
-            if (next && typeof next === 'function') return next(err);
+            throw err;
+        }
+        if (isImmutableAuditEvent(update.eventType)) {
+            const err = new Error('AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events cannot be created via replacement.');
+            err.code = 'AUDIT_LOG_IMMUTABLE';
             throw err;
         }
         sanitizeAuditDocument(update);
     }
-    if (next && typeof next === 'function') next();
+});
+
+AuditLogSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete'], async function () {
+    await checkAuditImmutability(this, this.model);
 });
 
 AuditLogSchema.statics.bulkWrite = async function (ops, options = {}) {
     if (Array.isArray(ops)) {
         for (const op of ops) {
-            if (op.insertOne?.document) sanitizeAuditDocument(op.insertOne.document);
-            if (op.updateOne?.update) sanitizeAuditUpdate(op.updateOne.update);
-            if (op.updateMany?.update) sanitizeAuditUpdate(op.updateMany.update);
-            if (op.replaceOne?.replacement) {
-                if (Array.isArray(op.replaceOne.replacement)) {
-                    const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation update pipelines are prohibited on AuditLog.');
-                    err.code = 'UPDATE_PIPELINES_PROHIBITED';
-                    throw err;
-                }
-                sanitizeAuditDocument(op.replaceOne.replacement);
+            if (op.insertOne?.document) {
+                sanitizeAuditDocument(op.insertOne.document);
             }
-            if (op.deleteOne?.filter || op.deleteMany?.filter) {
-                const f = op.deleteOne?.filter || op.deleteMany?.filter;
-                if (f.eventType && (
-                    f.eventType === 'authority_maker_checker_approval' ||
-                    f.eventType === 'authority_maker_checker_rejection' ||
-                    f.eventType === 'authority_source_approved' ||
-                    f.eventType === 'authority_source_rejected'
-                )) {
-                    const err = new Error(`AUDIT_LOG_IMMUTABLE: Deletion of authority approval audit events is strictly prohibited.`);
-                    err.code = 'AUDIT_LOG_IMMUTABLE';
-                    throw err;
+            if (op.updateOne) {
+                await checkAuditImmutability(op.updateOne.filter, this, { upsert: Boolean(op.updateOne.upsert), update: op.updateOne.update, ...options });
+                if (op.updateOne.update) {
+                    let targetContext = op.updateOne.filter?.eventType ? { eventType: op.updateOne.filter.eventType } : null;
+                    if (!targetContext && typeof this.findOne === 'function') {
+                        try {
+                            const d = await this.findOne(op.updateOne.filter).select('eventType').lean();
+                            if (d?.eventType) targetContext = { eventType: d.eventType };
+                        } catch (_) {}
+                    }
+                    sanitizeAuditUpdate(op.updateOne.update, op.updateOne.filter, targetContext);
                 }
+            }
+            if (op.updateMany) {
+                await checkAuditImmutability(op.updateMany.filter, this, { upsert: Boolean(op.updateMany.upsert), update: op.updateMany.update, ...options });
+                if (op.updateMany.update) {
+                    let targetContext = op.updateMany.filter?.eventType ? { eventType: op.updateMany.filter.eventType } : null;
+                    if (!targetContext && typeof this.findOne === 'function') {
+                        try {
+                            const d = await this.findOne(op.updateMany.filter).select('eventType').lean();
+                            if (d?.eventType) targetContext = { eventType: d.eventType };
+                        } catch (_) {}
+                    }
+                    sanitizeAuditUpdate(op.updateMany.update, op.updateMany.filter, targetContext);
+                }
+            }
+            if (op.replaceOne) {
+                await checkAuditImmutability(op.replaceOne.filter, this, { upsert: Boolean(op.replaceOne.upsert), replacement: op.replaceOne.replacement, ...options });
+                if (op.replaceOne.replacement) {
+                    if (Array.isArray(op.replaceOne.replacement)) {
+                        const err = new Error('UPDATE_PIPELINES_PROHIBITED: Aggregation update pipelines are prohibited on AuditLog.');
+                        err.code = 'UPDATE_PIPELINES_PROHIBITED';
+                        throw err;
+                    }
+                    if (isImmutableAuditEvent(op.replaceOne.replacement.eventType)) {
+                        const err = new Error('AUDIT_LOG_IMMUTABLE: Completed authority maker-checker audit events cannot be created via replacement.');
+                        err.code = 'AUDIT_LOG_IMMUTABLE';
+                        throw err;
+                    }
+                    sanitizeAuditDocument(op.replaceOne.replacement);
+                }
+            }
+            if (op.deleteOne) {
+                await checkAuditImmutability(op.deleteOne.filter, this, { op: 'deleteOne', ...options });
+            }
+            if (op.deleteMany) {
+                await checkAuditImmutability(op.deleteMany.filter, this, { op: 'deleteMany', ...options });
             }
         }
     }

@@ -12,6 +12,8 @@ import AuthoritySourceSettings, {
     checkActivationEligibility,
     checkInternalMakerCheckerReviewEligibility,
     createAuthorizedInternalWorkflowToken,
+    issueApproverWorkflowToken,
+    issueReviewerWorkflowToken,
     INTERNAL_WORKFLOW_OPTION
 } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
@@ -658,7 +660,7 @@ export const recordSourceApprover = async (req, res) => {
                     },
                     {
                         new: true,
-                        [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+                        [INTERNAL_WORKFLOW_OPTION]: issueApproverWorkflowToken({
                             tenantId,
                             authorityCode,
                             targetId: setting._id,
@@ -1014,7 +1016,7 @@ export const reviewSourceApproval = async (req, res) => {
                         },
                         {
                             new: true,
-                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
+                            [INTERNAL_WORKFLOW_OPTION]: issueReviewerWorkflowToken({
                                 tenantId,
                                 authorityCode,
                                 targetId: setting._id,
@@ -1154,7 +1156,7 @@ export const reviewSourceApproval = async (req, res) => {
                         },
                         {
                             new: true,
-                            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
+                            [INTERNAL_WORKFLOW_OPTION]: issueReviewerWorkflowToken({
                                 tenantId,
                                 authorityCode,
                                 targetId: setting._id,

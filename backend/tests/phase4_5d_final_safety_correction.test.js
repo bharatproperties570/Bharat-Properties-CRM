@@ -397,7 +397,7 @@ test('P0 Maker-Checker: Authentic maker-checker with genuine users and roles suc
 
     // Cleanup
     await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
-    await AuditLog.deleteOne({ _id: auditEntry._id });
+    await AuditLog.deleteOne({ _id: auditEntry._id }).catch(() => {});
     await User.deleteMany({ _id: { $in: [submitter._id, approver._id, reviewer._id] } });
     await Role.deleteMany({ _id: { $in: [submitterRole._id, approverRole._id, reviewerRole._id] } });
 });
