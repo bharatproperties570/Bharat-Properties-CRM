@@ -566,39 +566,50 @@ class MarketingService {
             }
 
             if (options.dealId) {
-                chosenDeal = await Deal.findById(options.dealId).lean();
-            } else {
-                chosenDeal = candidates[0];
+                chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(options.dealId, 'deal', { isSystem: true });
+                if (!chosenDeal) {
+                    return { success: false, reason: 'Specified deal not found or inaccessible under compliance rules' };
+                }
+            } else if (candidates && candidates.length > 0) {
+                chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(candidates[0]._id, 'deal', { isSystem: true });
             }
 
             if (!chosenDeal) {
-                // If no active deals found in DB, use representative prime deal
-                chosenDeal = {
-                    unitNo: 'Prime 3BHK Luxury Floors',
-                    projectName: 'Sector 7 Kurukshetra',
-                    location: 'Sector 7, Kurukshetra, Haryana',
-                    price: 6500000,
-                    size: '250',
-                    sizeUnit: 'sq.yards',
-                    unitType: 'Residential Floor'
-                };
+                // If no active deals found in DB, do NOT synthesize fake factual claims; switch to educational advisory
+                pillar = 'ct-edu';
+                console.log('[AutonomousMarketingOS] No active authorized deals found in DB. Falling back to Educational pillar.');
+                const edu = this.getEducationalTopic();
+                postTitle = `Real Estate Advisory: ${edu.title}`;
+                const pointsFormatted = edu.points.map(p => `✓ ${p}`).join('\n');
+
+                channelCaptions.facebook = `📚 REAL ESTATE KNOWLEDGE SERIES | ${edu.title}\n\n${edu.hook}\n\n${edu.summary}\n\nKey Points to Remember:\n${pointsFormatted}\n\nSave this post for your future property purchases! Any questions regarding Haryana property legal verification?\n📞 Call our Legal Advisory Desk: ${regionalPhone}\n🌐 ${website}\n\n${edu.hashtags}`;
+                channelCaptions.instagram = `💡 ${edu.hook}\n\nHere is what every smart buyer needs to know:\n\n${pointsFormatted}\n\n📌 Save this reel/post for your next site visit!\nNeed transparent advice? Call ${regionalPhone} | 🌐 ${website}\n\n${edu.hashtags}`;
+                channelCaptions.youtube = `Shorts: ${edu.hook} 3 legal rules you must know before buying land in Haryana! Call ${regionalPhone} for guidance.`;
+                channelCaptions.google_business = `Knowledge Post: ${edu.title}. Follow Bharat Properties for transparent property guidelines and circle rates in Kurukshetra. Call ${regionalPhone}.`;
+
+                visualAsset = await this.generateVisualAsset({
+                    type: 'image',
+                    customPrompt: `Modern high-end real estate architectural office in Kurukshetra, blueprint diagrams and architectural floor plans on wooden conference desk, soft natural morning sunlight, cinematic 8k render`
+                });
+            } else {
+                const facts = marketingComplianceEnforcementService.extractAuthoritativeFacts(chosenDeal);
+                const unitNo = chosenDeal.unitNo || 'Prime Unit';
+                const projName = chosenDeal.projectName || 'Prime Location';
+                const loc = chosenDeal.location || 'Kurukshetra, Haryana';
+                const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
+
+                postTitle = `Hot Property Spotlight: ${unitNo} at ${projName}`;
+                const verifiedHashtag = facts.isTitleVerified ? '#VerifiedDeal' : '#PrimeListing';
+
+                // Generate Captions per Channel
+                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Factual listing details with transparent documentation.\n\n📍 Location: ${loc}\n📐 Size: ${chosenDeal.size || 'Prime Area'} ${chosenDeal.sizeUnit || 'sq.yards'}\n💰 Expected Price: ${priceStr}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
+                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 Prime Connectivity & Wide Roads\n💰 Investment: ${priceStr}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
+                channelCaptions.youtube = `Shorts: ${unitNo} in ${loc} — Full Walkthrough & Price Reveal! Drone Tour. Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
+                channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
+
+                // Generate photorealistic visual
+                visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', angle: 'drone', mood: 'golden_hour', format: 'post' });
             }
-
-            const unitNo = chosenDeal.unitNo || 'Prime Unit';
-            const projName = chosenDeal.projectName || 'Prime Location';
-            const loc = chosenDeal.location || 'Kurukshetra, Haryana';
-            const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
-
-            postTitle = `Hot Property Spotlight: ${unitNo} at ${projName}`;
-
-            // Generate Captions per Channel
-            channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Factual listing details with transparent documentation.\n\n📍 Location: ${loc}\n📐 Size: ${chosenDeal.size || 'Prime Area'} ${chosenDeal.sizeUnit || 'sq.yards'}\n💰 Expected Price: ${priceStr}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana #VerifiedDeal #LuxuryLiving`;
-            channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 Prime Connectivity & Wide Roads\n💰 Investment: ${priceStr}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
-            channelCaptions.youtube = `Shorts: ${unitNo} in ${loc} — Full Walkthrough & Price Reveal! Drone Tour. Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
-            channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
-
-            // Generate photorealistic visual
-            visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', angle: 'drone', mood: 'golden_hour', format: 'post' });
 
         } else if (pillar === 'ct-festival') {
             postTitle = `Festive Greetings: ${festival.name}`;
@@ -693,7 +704,7 @@ class MarketingService {
                         imageUrl: visualAsset?.url || null,
                         videoPath: visualAsset?.assetType === 'video' ? visualAsset.url : null,
                         format: 'post',
-                        entityType: 'AutonomousMarketingOS',
+                        entityType: 'deal',
                         entityId: chosenDeal?._id || null,
                         pillar
                     }, {

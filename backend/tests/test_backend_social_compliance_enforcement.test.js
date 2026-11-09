@@ -9,6 +9,9 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
 import Inventory from '../models/Inventory.js';
+import Team from '../models/Team.js';
+import Document from '../models/Document.js';
+import DocumentVersion from '../models/DocumentVersion.js';
 import MarketingContent from '../models/MarketingContent.js';
 import OutboxEvent from '../models/OutboxEvent.js';
 import Activity from '../models/Activity.js';
@@ -19,10 +22,13 @@ import twitterService from '../services/TwitterService.js';
 import linkedInService from '../services/LinkedInService.js';
 import googleBusinessService from '../services/GoogleBusinessService.js';
 import youtubeService from '../services/YouTubeService.js';
+import portalSyndicationService from '../services/PortalSyndicationService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import publishService from '../services/PublishService.js';
+import marketingService from '../services/MarketingService.js';
 import marketingComplianceEnforcementService from '../services/MarketingComplianceEnforcementService.js';
 import { postSocialMedia } from '../controllers/social.controller.js';
+import { syndicateToPortals } from '../controllers/marketing.controller.js';
 import {
     hasAuthoritativeTitleVerification,
     hasAuthoritativeReraApproval,
@@ -49,6 +55,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         googleBusiness: [],
         youtube: []
     };
+    const portalCalls = [];
 
     // Stubs
     let origFbPost;
@@ -57,6 +64,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
     let origTwPost;
     let origGbPost;
     let origYtPost;
+    let origDispatchToPortal;
+    let origGetPortalConfig;
 
     const mockResponse = () => {
         const res = {
@@ -97,6 +106,13 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         origTwPost = twitterService.postTweet;
         origGbPost = googleBusinessService.createPost;
         origYtPost = youtubeService.uploadVideo;
+        origDispatchToPortal = portalSyndicationService._dispatchToPortal;
+        origGetPortalConfig = portalSyndicationService.getConfig;
+
+        portalSyndicationService.getConfig = async () => ({
+            housing: { apiKey: 'mock_housing_key' },
+            '99acres': { apiKey: 'mock_99acres_key' }
+        });
 
         facebookService.postToPage = async (text, imageUrl, format) => {
             providerCalls.facebook.push({ text, imageUrl, format });
@@ -121,6 +137,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         youtubeService.uploadVideo = async (title, description, videoPath) => {
             providerCalls.youtube.push({ title, description, videoPath });
             return { success: true, id: 'yt_post_123' };
+        };
+        portalSyndicationService._dispatchToPortal = async (portalMeta, portalConf, maskedData, itemType) => {
+            portalCalls.push({ portal: portalMeta.id, config: portalConf, data: maskedData, itemType });
+            return { success: true, listingRef: `LST-mock-${portalMeta.id}`, timestamp: new Date().toISOString() };
         };
 
         // Create Seed Fixtures
@@ -175,6 +195,55 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 issueDate: new Date()
             }
         });
+
+        // Create Authentic CRM Document & DocumentVersion records in MongoDB
+        const sbiVer = await DocumentVersion.create({
+            versionId: 'ver-sbi-8892',
+            documentId: 'doc-sbi-8892',
+            versionNumber: 1,
+            providerInstanceId: 's3-primary',
+            objectKey: 'documents/deals/sbi-sanction.pdf',
+            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            mimeType: 'application/pdf',
+            sizeBytes: 102400
+        });
+
+        await Document.create({
+            documentId: 'doc-sbi-8892',
+            entityType: 'Deal',
+            entityId: verifiedDeal._id,
+            metadata: {
+                documentCategory: 'BANK_APPROVAL',
+                documentType: 'SANCTION_LETTER',
+                approvalAuthority: 'SBI'
+            },
+            currentVersionId: sbiVer._id,
+            state: 'ACTIVE'
+        });
+
+        const ocVer = await DocumentVersion.create({
+            versionId: 'ver-oc-101',
+            documentId: 'doc-oc-101',
+            versionNumber: 1,
+            providerInstanceId: 's3-primary',
+            objectKey: 'documents/deals/oc-certificate.pdf',
+            checksum: 'c2e0b12398fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b866',
+            mimeType: 'application/pdf',
+            sizeBytes: 204800
+        });
+
+        await Document.create({
+            documentId: 'doc-oc-101',
+            entityType: 'Deal',
+            entityId: verifiedDeal._id,
+            metadata: {
+                documentCategory: 'COMPLETION_CERTIFICATE',
+                documentType: 'OCCUPANCY_CERTIFICATE',
+                approvalAuthority: 'MUNICIPAL'
+            },
+            currentVersionId: ocVer._id,
+            state: 'ACTIVE'
+        });
     });
 
     after(async () => {
@@ -184,6 +253,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         twitterService.postTweet = origTwPost;
         googleBusinessService.createPost = origGbPost;
         youtubeService.uploadVideo = origYtPost;
+        portalSyndicationService._dispatchToPortal = origDispatchToPortal;
+        portalSyndicationService.getConfig = origGetPortalConfig;
 
         await mongoose.disconnect();
         if (replset) await replset.stop();
@@ -196,6 +267,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         providerCalls.twitter.length = 0;
         providerCalls.googleBusiness.length = 0;
         providerCalls.youtube.length = 0;
+        portalCalls.length = 0;
         await OutboxEvent.deleteMany({});
         await Activity.deleteMany({});
     });
@@ -657,7 +729,14 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 sanctionLetterNumber: 'ICICI-SANCT-2024-998',
                 documentId: 'doc-icici-sanct-998',
                 verificationStatus: 'VERIFIED',
-                sanctionDate: new Date()
+                sanctionDate: new Date(),
+                documentRecord: {
+                    documentId: 'doc-icici-sanct-998',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-icici-998',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
             }
         };
         assert.equal(hasAuthoritativeBankApproval(validBank), true);
@@ -734,7 +813,14 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 status: 'ISSUED',
                 documentId: 'doc-oc-551',
                 verificationStatus: 'VERIFIED',
-                issueDate: new Date()
+                issueDate: new Date(),
+                documentRecord: {
+                    documentId: 'doc-oc-551',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-oc-551',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
             }
         };
         assert.equal(hasAuthoritativeReadyPossession(validOC), true);
@@ -749,7 +835,14 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     referenceNo: 'OC-HR-2024-99',
                     documentId: 'doc-oc-99',
                     verificationStatus: 'VERIFIED',
-                    issueDate: new Date()
+                    issueDate: new Date(),
+                    documentRecord: {
+                        documentId: 'doc-oc-99',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-oc-99',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
                 }
             ]
         };
@@ -791,7 +884,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             reraNumber: 'HRERA-PKL-KUK-2024-11',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
-            verificationSnapshotId: 'snap-rera-2024-11'
+            verificationSnapshotId: 'snap-rera-2024-11',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+            lastVerifiedAt: new Date()
         };
         assert.equal(hasAuthoritativeReraApproval(verifiedProvenance), true);
 
@@ -802,8 +897,16 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     approvalAuthority: 'RERA',
                     registrationNo: 'PBRERA-SAS80-PR0456',
                     status: 'APPROVED',
+                    date: new Date(),
                     source: 'GOVERNMENT_PORTAL',
-                    documentId: 'doc-pbrera-456'
+                    documentId: 'doc-pbrera-456',
+                    documentRecord: {
+                        documentId: 'doc-pbrera-456',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-pbrera-456',
+                        currentVersion: { checksum: 'a1b2c3d4e5f67890123456789abcdef0' }
+                    }
                 }
             ]
         };
@@ -929,6 +1032,546 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             assert.doesNotMatch(sanitized, /govt[\s\-_/]+approved[\s\-_/]+title/i, `Failed on: ${text}`);
             // CRITICAL: NEVER replace with promotional alternatives like "High Potential Rental Yields"!
             assert.doesNotMatch(sanitized, /high[\s\-_/]*potential[\s\-_/]+rental[\s\-_/]+yield/i, `Sanitizer must not output promotional alternatives: ${sanitized}`);
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 10: EVIDENCE INTEGRITY REGRESSION TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 10 — Evidence Integrity Regression Suite', () => {
+        it('Evidence: Fake but syntactically valid document IDs fail closed', () => {
+            const fakeDocId = {
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'SBI-FAKE-12345',
+                    documentId: 'doc-fake-sbi-99999',
+                    verificationStatus: 'VERIFIED'
+                }
+            };
+            assert.equal(hasAuthoritativeBankApproval(fakeDocId), false, 'Bare syntactically valid documentId without resolved record must fail');
+        });
+
+        it('Evidence: Fake or short hash strings fail closed', () => {
+            const fakeHash = {
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'SBI-FAKE-12345',
+                    documentId: 'doc-sbi-123',
+                    verificationStatus: 'VERIFIED',
+                    documentRecord: {
+                        documentId: 'doc-sbi-123',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-sbi-123',
+                        currentVersion: { checksum: 'short_hash_123' } // < 16 chars
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeBankApproval(fakeHash), false, 'Checksum with <16 hex chars must fail');
+        });
+
+        it('Evidence: Nonexistent document records in DB fail closed during resolution', async () => {
+            const dealWithNonexistentDoc = await Deal.create({
+                name: 'Deal With Nonexistent Doc',
+                unitNo: 'Unit 999',
+                price: 5000000,
+                tenantId: testAdminUser.tenantId,
+                assignedTo: testAdminUser._id,
+                owner: testAdminUser._id,
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'SBI-NOEXIST-999',
+                    documentId: 'doc-nonexistent-in-mongodb-999',
+                    verificationStatus: 'VERIFIED'
+                }
+            });
+
+            const resolved = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                dealWithNonexistentDoc._id,
+                'deal',
+                testAdminUser
+            );
+            assert.ok(resolved);
+            assert.equal(resolved.bankApproval.documentRecord, null, 'Unresolved documentRecord must be null');
+            assert.equal(hasAuthoritativeBankApproval(resolved), false, 'Deal with nonexistent document record must fail bank approval');
+        });
+
+        it('Evidence: Wrong-property document relationships fail closed', async () => {
+            const wrongDocDeal = await Deal.create({
+                name: 'Wrong Property Deal',
+                unitNo: 'Unit Wrong',
+                price: 8000000,
+                tenantId: testAdminUser.tenantId,
+                assignedTo: testAdminUser._id,
+                owner: testAdminUser._id,
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'SBI/RE/2024/8892',
+                    documentId: 'doc-sbi-8892', // Belongs to verifiedDeal, NOT wrongDocDeal
+                    verificationStatus: 'VERIFIED'
+                }
+            });
+
+            const resolved = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                wrongDocDeal._id,
+                'deal',
+                testAdminUser
+            );
+            assert.ok(resolved);
+            assert.equal(resolved.bankApproval.documentRecord, null, 'Document belonging to a different entity must be rejected');
+            assert.equal(hasAuthoritativeBankApproval(resolved), false);
+        });
+
+        it('Evidence: Replaced or revoked document versions fail closed', () => {
+            const revokedDoc = {
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'SBI-REVOKED-101',
+                    documentId: 'doc-sbi-revoked',
+                    verificationStatus: 'VERIFIED',
+                    documentRecord: {
+                        documentId: 'doc-sbi-revoked',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        isRevoked: true,
+                        currentVersionId: 'ver-sbi-revoked',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeBankApproval(revokedDoc), false, 'Revoked document record must fail');
+
+            const replacedVersionDoc = {
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'SBI-REPLACED-101',
+                    documentId: 'doc-sbi-replaced',
+                    currentVersionId: 'ver-old-123',
+                    verificationStatus: 'VERIFIED',
+                    documentRecord: {
+                        documentId: 'doc-sbi-replaced',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-new-456',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeBankApproval(replacedVersionDoc), false, 'Replaced version must fail');
+        });
+
+        it('Evidence: verifiedByAuthority: true alone fails closed', () => {
+            const bareFlag = {
+                bankApproval: {
+                    verifiedByAuthority: true,
+                    status: 'APPROVED',
+                    bankName: 'SBI'
+                },
+                occupancyCertificate: {
+                    verifiedByAuthority: true,
+                    status: 'ISSUED'
+                },
+                reraStatus: 'APPROVED',
+                verifiedByAuthority: true
+            };
+            assert.equal(hasAuthoritativeBankApproval(bareFlag), false);
+            assert.equal(hasAuthoritativeReadyPossession(bareFlag), false);
+            assert.equal(hasAuthoritativeReraApproval(bareFlag), false);
+        });
+
+        it('Evidence: Authoritative source strings alone fail closed', () => {
+            const sourceOnly = {
+                bankApproval: {
+                    bankName: 'SBI',
+                    status: 'APPROVED',
+                    source: 'BANK_PORTAL'
+                },
+                occupancyCertificate: {
+                    status: 'ISSUED',
+                    source: 'MUNICIPAL_PORTAL'
+                },
+                reraNumber: 'HRERA-PKL-KUK-2024-88',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL'
+            };
+            assert.equal(hasAuthoritativeBankApproval(sourceOnly), false);
+            assert.equal(hasAuthoritativeReadyPossession(sourceOnly), false);
+            assert.equal(hasAuthoritativeReraApproval(sourceOnly), false);
+        });
+
+        it('Evidence: RERA evidence older than 180 days fails closed', () => {
+            const staleRera = {
+                reraNumber: 'HRERA-PKL-KUK-2024-88',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL',
+                verificationSnapshotId: 'snap-rera-stale',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: new Date(Date.now() - 181 * 24 * 60 * 60 * 1000)
+            };
+            assert.equal(hasAuthoritativeReraApproval(staleRera), false);
+        });
+
+        it('Evidence: RERA evidence without a verification timestamp fails closed', () => {
+            const noTimestampRera = {
+                reraNumber: 'HRERA-PKL-KUK-2024-88',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL',
+                verificationSnapshotId: 'snap-rera-notime',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0'
+            };
+            assert.equal(hasAuthoritativeReraApproval(noTimestampRera), false);
+        });
+
+        it('Evidence: OC/CC Boolean plus generic file reference fails closed', () => {
+            const ocBooleanOnly = {
+                occupancyCertificate: true,
+                fileNumber: 'FN-KUK-1234',
+                possessionStatus: 'READY'
+            };
+            assert.equal(hasAuthoritativeReadyPossession(ocBooleanOnly), false);
+        });
+
+        it('Evidence: Missing completion progress does not satisfy a mandatory 100% rule', () => {
+            const incompleteProgress = {
+                possessionStatus: 'READY',
+                constructionStatus: 'UNDER_CONSTRUCTION',
+                progressPercentage: 99,
+                occupancyCertificate: {
+                    certificateNumber: 'OC-123',
+                    status: 'ISSUED',
+                    documentId: 'doc-oc-123',
+                    documentRecord: {
+                        documentId: 'doc-oc-123',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-oc-123',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeReadyPossession(incompleteProgress), false);
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 10: RBAC ON LINKED RECORDS REGRESSION TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 10 — RBAC on Linked Records Regression Suite', () => {
+        it('RBAC: Inaccessible linked Inventory cannot provide evidence', async () => {
+            const agentTenantId = new mongoose.Types.ObjectId();
+            const restrictedAgent = {
+                _id: new mongoose.Types.ObjectId(),
+                email: 'agent_scoped@company.com',
+                role: { name: 'agent' },
+                dataScope: 'assigned',
+                tenantId: agentTenantId
+            };
+
+            // Inventory belongs to someone else in another scope/tenant
+            const secretInventory = await Inventory.create({
+                name: 'Secret Verified Penthouse',
+                unitNo: 'PH-01',
+                price: 25000000,
+                tenantId: new mongoose.Types.ObjectId(),
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    authorityStatus: 'VERIFIED',
+                    verificationSnapshotId: new mongoose.Types.ObjectId(),
+                    snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: 'CLEAN'
+                }
+            });
+
+            // Deal is assigned to restrictedAgent, but linked to secretInventory
+            const agentDeal = await Deal.create({
+                name: 'Agent Deal With Secret Inventory',
+                unitNo: 'Unit 505',
+                price: 25000000,
+                tenantId: agentTenantId,
+                assignedTo: restrictedAgent._id,
+                owner: restrictedAgent._id,
+                inventoryId: secretInventory._id
+            });
+
+            const resolved = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                agentDeal._id,
+                'deal',
+                restrictedAgent
+            );
+
+            assert.ok(resolved, 'Deal should be accessible');
+            assert.equal(resolved.inventory, null, 'Inaccessible linked inventory must be null');
+            const facts = extractVerificationFacts(resolved);
+            assert.equal(facts.isTitleVerified, false, 'Inaccessible inventory cannot provide title verification');
+        });
+
+        it('RBAC: Inaccessible linked Project cannot provide evidence', async () => {
+            const agentTenantId = new mongoose.Types.ObjectId();
+            const restrictedAgent = {
+                _id: new mongoose.Types.ObjectId(),
+                email: 'agent_project_scoped@company.com',
+                role: { name: 'agent' },
+                dataScope: 'assigned',
+                tenantId: agentTenantId
+            };
+
+            // Project belongs to someone else
+            const secretProject = await Project.create({
+                name: 'Secret Grand Heights',
+                tenantId: new mongoose.Types.ObjectId(),
+                reraNumber: 'HRERA-PKL-KUK-2024-999',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL',
+                reraVerificationSnapshotId: 'snap-secret-proj-999',
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    authorityStatus: 'VERIFIED',
+                    verificationSnapshotId: new mongoose.Types.ObjectId(),
+                    snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: 'CLEAN'
+                }
+            });
+
+            // Deal is assigned to restrictedAgent, linked to secretProject
+            const agentDeal = await Deal.create({
+                name: 'Agent Deal With Secret Project',
+                unitNo: 'Unit 808',
+                price: 12000000,
+                tenantId: agentTenantId,
+                assignedTo: restrictedAgent._id,
+                owner: restrictedAgent._id,
+                projectId: secretProject._id
+            });
+
+            const resolved = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                agentDeal._id,
+                'deal',
+                restrictedAgent
+            );
+
+            assert.ok(resolved, 'Deal should be accessible');
+            assert.equal(resolved.project, null, 'Inaccessible linked project must be null');
+            const facts = extractVerificationFacts(resolved);
+            assert.equal(facts.isReraApproved, false, 'Inaccessible project cannot provide RERA approval');
+        });
+
+        it('RBAC: Unauthenticated requests cannot use the internal system execution path', async () => {
+            // An external caller trying to pass an untrusted user object with email and spoofed isSystem: true
+            const spoofedUser = {
+                email: 'attacker@evil.com',
+                role: { name: 'agent' },
+                isSystem: true,
+                tenantId: new mongoose.Types.ObjectId()
+            };
+
+            const resolved = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                verifiedDeal._id,
+                'deal',
+                spoofedUser
+            );
+            assert.equal(resolved, null, 'Spoofed isSystem from authenticated user must fail closed due to tenant mismatch');
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 10: PORTAL PUBLISHING SECURITY REGRESSION TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 10 — Portal Publishing Security Regression Suite', () => {
+        it('Portal Publishing: Inaccessible ID + forged propertyData returns 404 and produces 0 provider calls', async () => {
+            const unauthorizedUser = {
+                _id: new mongoose.Types.ObjectId(),
+                email: 'intruder@otherorg.com',
+                role: { name: 'agent' },
+                dataScope: 'assigned',
+                tenantId: new mongoose.Types.ObjectId()
+            };
+
+            const req = {
+                body: {
+                    id: verifiedDeal._id.toString(),
+                    type: 'deal',
+                    platforms: ['housing', '99acres'],
+                    propertyData: {
+                        title: 'Forged Property Claim',
+                        price: 1000000,
+                        isVerified: true
+                    }
+                },
+                user: unauthorizedUser
+            };
+            const res = mockResponse();
+
+            await syndicateToPortals(req, res);
+            assert.equal(res.statusCode, 404, 'Must return 404 for inaccessible property');
+            assert.equal(portalCalls.length, 0, 'Zero provider calls must be made');
+        });
+
+        it('Portal Publishing: Missing ID returns 400 and produces 0 provider calls', async () => {
+            const req = {
+                body: {
+                    platforms: ['housing'],
+                    propertyData: {
+                        title: 'Raw Data Without ID',
+                        price: 5000000
+                    }
+                },
+                user: testAdminUser
+            };
+            const res = mockResponse();
+
+            await syndicateToPortals(req, res);
+            assert.equal(res.statusCode, 400, 'Must return 400 when canonical ID is missing');
+            assert.equal(portalCalls.length, 0, 'Zero provider calls must be made');
+        });
+
+        it('Portal Publishing: Preview mode produces 0 provider calls and zero side effects', async () => {
+            const req = {
+                body: {
+                    id: verifiedDeal._id.toString(),
+                    type: 'deal',
+                    preview: true,
+                    platforms: ['housing', '99acres']
+                },
+                user: testAdminUser
+            };
+            const res = mockResponse();
+
+            await syndicateToPortals(req, res);
+            assert.equal(res.statusCode, 200);
+            assert.ok(res.body.preview, 'Preview payload must be returned');
+            assert.equal(portalCalls.length, 0, 'Preview must make zero live provider calls');
+        });
+
+        it('Portal Publishing: Valid canonical record dispatches to portals with compliance-sanitized data', async () => {
+            const req = {
+                body: {
+                    id: verifiedDeal._id.toString(),
+                    type: 'deal',
+                    platforms: ['housing', '99acres'],
+                    propertyData: {
+                        description: 'Royal Villa! Guaranteed 20% Returns! 100% Bank Finance!'
+                    }
+                },
+                user: testAdminUser
+            };
+            const res = mockResponse();
+
+            await syndicateToPortals(req, res);
+            assert.equal(res.statusCode, 200);
+            assert.equal(portalCalls.length, 2, 'Must dispatch to both requested portals');
+
+            for (const call of portalCalls) {
+                assert.doesNotMatch(call.data.description, /guaranteed 20% returns/i, 'Prohibited returns claim must be sanitized before portal dispatch');
+                assert.doesNotMatch(call.data.description, /100% bank finance/i, 'Prohibited 100% bank finance must be sanitized before portal dispatch');
+            }
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 10: AUTONOMOUS MARKETING COMPLIANCE REGRESSION TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 10 — Autonomous Marketing Compliance Regression Suite', () => {
+        it('Autonomous Marketing: Unsanitized text is never persisted or returned as caption', async () => {
+            const cycleResult = await marketingService.runAutonomousMarketingCycle({
+                force: true,
+                dryRun: false
+            });
+
+            assert.equal(cycleResult.success, true);
+            assert.ok(cycleResult.captions, 'Cycle result must return channel captions');
+
+            for (const [platform, caption] of Object.entries(cycleResult.captions)) {
+                assert.doesNotMatch(caption, /guaranteed[\s\-_/]+returns/i, 'Caption must be sanitized');
+                assert.doesNotMatch(caption, /high[\s\-_/]*potential[\s\-_/]+rental[\s\-_/]+yield/i, 'Promotional alternatives must not exist in caption');
+            }
+
+            // Inspect persisted MarketingContent record in MongoDB
+            if (cycleResult.contentId) {
+                const persisted = await MarketingContent.findById(cycleResult.contentId).lean();
+                assert.ok(persisted, 'MarketingContent record must be persisted');
+                assert.doesNotMatch(persisted.content, /guaranteed[\s\-_/]+returns/i, 'Persisted content in DB must be sanitized');
+                assert.doesNotMatch(persisted.title, /guaranteed[\s\-_/]+returns/i, 'Persisted title in DB must be sanitized');
+            }
+        });
+
+        it('Autonomous Marketing: Unsupported #VerifiedDeal hashtag is removed unless title is verified', () => {
+            const unverifiedFacts = {
+                isTitleVerified: false,
+                isReraApproved: false,
+                isBankApproved: false,
+                isReadyPossession: false
+            };
+            const copyWithHashtags = 'Beautiful residential plot for sale in Kurukshetra! #VerifiedDeal #VerifiedProperty #RealEstate #Kurukshetra';
+            const sanitized = validateAndSanitizeCopy(copyWithHashtags, unverifiedFacts, { platform: 'facebook' });
+
+            assert.doesNotMatch(sanitized, /#VerifiedDeal/i, '#VerifiedDeal hashtag must be removed for unverified property');
+            assert.doesNotMatch(sanitized, /#VerifiedProperty/i, '#VerifiedProperty hashtag must be removed for unverified property');
+            assert.match(sanitized, /#RealEstate/i, 'Legitimate topic hashtags must remain intact');
+            assert.match(sanitized, /#Kurukshetra/i, 'Legitimate location hashtags must remain intact');
+        });
+
+        it('Autonomous Marketing: Missing or empty deals in DB falls back to educational content without fake property claims', async () => {
+            // Delete all deals temporarily
+            await Deal.deleteMany({});
+
+            const emptyCycle = await marketingService.runAutonomousMarketingCycle({
+                force: true,
+                pillar: 'ct-project',
+                dryRun: true
+            });
+
+            assert.equal(emptyCycle.success, true);
+            assert.equal(emptyCycle.pillar, 'ct-edu', 'Must fall back to educational pillar when no properties exist');
+            for (const [platform, caption] of Object.entries(emptyCycle.captions || {})) {
+                assert.doesNotMatch(caption, /100% verified title/i);
+                assert.doesNotMatch(caption, /guaranteed/i);
+            }
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 10: ADVERSARIAL SANITIZER REGRESSION TESTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 10 — Adversarial Sanitizer Regression Suite', () => {
+        const unverifiedFacts = {
+            isTitleVerified: false,
+            isReraApproved: false,
+            isBankApproved: false,
+            isReadyPossession: false
+        };
+
+        const adversarialCases = [
+            { raw: 'High potential rental yields in Sector 10!', pattern: /high[\s\-_/]*potential[\s\-_/]+rental[\s\-_/]+yield/i },
+            { raw: 'Up to 20% annual returns guaranteed!', pattern: /up\s+to\s+20%\s+annual\s+returns/i },
+            { raw: 'Fixed monthly returns of ₹50,000!', pattern: /fixed\s+monthly\s+returns/i },
+            { raw: 'Assured ROI 18% with zero risk!', pattern: /assured\s+roi\s+18%/i },
+            { raw: 'Guaranteed rental income for 5 years!', pattern: /guaranteed\s+rental\s+income/i },
+            { raw: 'Risk-free investment in prime location!', pattern: /risk[\s\-_/]*free\s+investment/i },
+            { raw: 'Double your investment in 3 years!', pattern: /double\s+your\s+investment/i },
+            { raw: 'Government-approved title with immediate registry!', pattern: /government[\s\-_/]+approved\s+title/i },
+            { raw: 'RERA certified and RERA compliant project!', pattern: /rera\s+certified/i },
+            { raw: '100% bank finance available on this plot!', pattern: /100%\s+bank\s+finance/i },
+            { raw: 'Possession guaranteed by next month!', pattern: /possession\s+guaranteed/i }
+        ];
+
+        for (const tc of adversarialCases) {
+            it(`Sanitizer neutralizes: "${tc.raw}"`, () => {
+                const sanitized = validateAndSanitizeCopy(tc.raw, unverifiedFacts, { platform: 'facebook' });
+                assert.doesNotMatch(sanitized, tc.pattern, `Prohibited pattern must be neutralized: ${sanitized}`);
+            });
         }
     });
 });

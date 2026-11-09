@@ -315,7 +315,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             reraNumber: 'PBRERA-SAS80-PR0456',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
-            verificationSnapshotId: 'snap-rera-456'
+            verificationSnapshotId: 'snap-rera-456',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+            lastVerifiedAt: new Date()
         };
         assert.equal(hasAuthoritativeReraApproval(approvedDirect), true);
 
@@ -327,7 +329,14 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                     status: 'APPROVED',
                     date: new Date(),
                     source: 'GOVERNMENT_PORTAL',
-                    documentId: 'doc-hrera-88'
+                    documentId: 'doc-hrera-88',
+                    documentRecord: {
+                        documentId: 'doc-hrera-88',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-hrera-88',
+                        currentVersion: { checksum: 'a1b2c3d4e5f67890123456789abcdef0' }
+                    }
                 }
             ]
         };
@@ -344,9 +353,50 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
         const manualInput = {
             reraNumber: 'PBRERA-SAS80-PR0456',
             reraStatus: 'APPROVED',
-            source: 'MANUAL'
+            source: 'MANUAL',
+            lastVerifiedAt: new Date()
         };
         assert.equal(hasAuthoritativeReraApproval(manualInput), false, 'Manual source must fail closed');
+
+        // Missing verification timestamp fails closed
+        const missingTimestamp = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            verificationSnapshotId: 'snap-rera-456',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0'
+        };
+        assert.equal(hasAuthoritativeReraApproval(missingTimestamp), false, 'Missing verification timestamp must fail closed');
+
+        // Verification older than 180 days fails closed
+        const staleTimestamp = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            verificationSnapshotId: 'snap-rera-456',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+            lastVerifiedAt: new Date(Date.now() - 181 * 24 * 60 * 60 * 1000)
+        };
+        assert.equal(hasAuthoritativeReraApproval(staleTimestamp), false, 'Stale timestamp (>180 days) must fail closed');
+
+        // Bare snapshot ID without content hash fails closed
+        const bareSnapshot = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            verificationSnapshotId: 'snap-rera-456',
+            lastVerifiedAt: new Date()
+        };
+        assert.equal(hasAuthoritativeReraApproval(bareSnapshot), false, 'Bare snapshot ID without content hash must fail closed');
+
+        // Bare source string alone fails closed
+        const bareSource = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            lastVerifiedAt: new Date()
+        };
+        assert.equal(hasAuthoritativeReraApproval(bareSource), false, 'Bare source string alone must fail closed');
     });
 
     // ─────────────────────────────────────────────────────────────

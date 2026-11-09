@@ -1973,23 +1973,47 @@ export const testPortalConnection = async (req, res) => {
  */
 export const syndicateToPortals = async (req, res) => {
     try {
-        const { id, type, portalIds, privacy, propertyData } = req.body;
-        let data = null;
-        if (id) {
-            data = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(id, type || 'deal', req.user);
-            if (!data && !propertyData) {
-                return res.status(404).json({ success: false, message: 'Property not found or inaccessible' });
-            }
+        const { id, type, portalIds, platforms, privacy, propertyData, preview } = req.body;
+        const targetPortalIds = portalIds || platforms;
+
+        // 1. Strictly preview-only path: zero provider calls, zero outbox dispatch, zero side effects
+        if (preview === true || req.query?.preview === 'true') {
+            const previewData = portalSyndicationService.generatePreview(propertyData || {}, {
+                privacy,
+                itemType: type || 'deal'
+            });
+            return res.json({
+                success: true,
+                preview: true,
+                previewOnly: true,
+                message: 'Portal syndication preview generated (no live dispatch)',
+                previewData
+            });
         }
+
+        // 2. Real syndication requires an authorized canonical record ID
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Property ID is required for portal syndication. Client-supplied propertyData cannot authorize live dispatch.'
+            });
+        }
+
+        // 3. Resolve canonical entity under user visibility permissions
+        const data = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(id, type || 'deal', req.user);
         if (!data) {
-            data = propertyData;
+            // Inaccessible or nonexistent canonical record: return 404/authorization failure and do NOT dispatch
+            return res.status(404).json({
+                success: false,
+                message: 'Property record not found or inaccessible under visibility permissions'
+            });
         }
-        if (!data) return res.status(404).json({ success: false, message: 'Property not found' });
-        
+
+        // 4. Dispatch ONLY authorized canonical data
         const result = await portalSyndicationService.syndicate(data, {
-            portalIds,
+            portalIds: targetPortalIds,
             privacy,
-            itemType: type,
+            itemType: type || 'deal',
             user: req.user
         });
         res.json(result);

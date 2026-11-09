@@ -121,7 +121,7 @@ class PublishService {
 
         if (Object.keys(activePortalPlatforms).length > 0) {
             try {
-                const syndicationRes = await portalSyndicationService.syndicate(data, {
+                const syndicationRes = await portalSyndicationService.syndicate(authoritativeSource, {
                     platforms: activePortalPlatforms,
                     privacy,
                     itemType,

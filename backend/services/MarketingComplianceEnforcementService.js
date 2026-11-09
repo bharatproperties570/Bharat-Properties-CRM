@@ -19,6 +19,11 @@
  */
 
 import mongoose from 'mongoose';
+import '../models/Document.js';
+import '../models/DocumentVersion.js';
+import '../models/Deal.js';
+import '../models/Project.js';
+import '../models/Inventory.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import {
     hasAuthoritativeTitleVerification,
@@ -74,30 +79,58 @@ class MarketingComplianceEnforcementService {
                 entity = await Inventory.findOne(query).lean();
                 if (entity?.projectId) {
                     const Project = mongoose.model('Project');
-                    const proj = await Project.findById(entity.projectId).lean();
-                    if (proj) entity.project = proj;
+                    const projQuery = isSystemExecution 
+                        ? { _id: entity.projectId } 
+                        : { _id: entity.projectId, ...visibilityFilter };
+                    const proj = await Project.findOne(projQuery).lean();
+                    if (proj) {
+                        entity.project = proj;
+                    } else {
+                        // Inaccessible linked project: reject linkage
+                        entity.project = null;
+                    }
                 }
             } else {
                 // Default: Deal
                 const Deal = mongoose.model('Deal');
                 entity = await Deal.findOne(query).lean();
                 
-                // If Deal has linked inventory, hydrate authority verification if not on Deal
+                // If Deal has linked inventory, hydrate ONLY if user has visibility to it (Gate 6 RBAC)
                 if (entity?.inventoryId) {
                     try {
                         const Inventory = mongoose.model('Inventory');
-                        const inv = await Inventory.findById(entity.inventoryId).lean();
-                        if (inv) entity.inventory = inv;
-                    } catch (_) {}
+                        const invQuery = isSystemExecution
+                            ? { _id: entity.inventoryId }
+                            : { _id: entity.inventoryId, ...visibilityFilter };
+                        const inv = await Inventory.findOne(invQuery).lean();
+                        if (inv) {
+                            entity.inventory = inv;
+                        } else {
+                            // Inaccessible linked inventory: reject linkage so it cannot contribute evidence
+                            entity.inventory = null;
+                        }
+                    } catch (_) {
+                        entity.inventory = null;
+                    }
                 }
 
-                // If Deal has linked project, hydrate project approvals if not on Deal
+                // If Deal has linked project, hydrate ONLY if user has visibility to it (Gate 6 RBAC)
                 if (entity?.projectId) {
                     try {
                         const Project = mongoose.model('Project');
-                        const proj = await Project.findById(entity.projectId).lean();
-                        if (proj) entity.project = proj;
-                    } catch (_) {}
+                        const projQuery = isSystemExecution
+                            ? { _id: entity.projectId }
+                            : { _id: entity.projectId, ...visibilityFilter };
+                        const proj = await Project.findOne(projQuery).lean();
+                        if (proj) {
+                            entity.project = proj;
+                        } else {
+                            // Inaccessible linked project: reject linkage so it cannot contribute evidence
+                            entity.project = null;
+                        }
+                    } catch (_) {
+                        entity.project = null;
+                    }
                 }
             }
 
@@ -111,10 +144,130 @@ class MarketingComplianceEnforcementService {
                 }
             }
 
+            // Resolve and validate authentic CRM evidence records (Document, DocumentVersion, Snapshot)
+            await this.resolveAuthoritativeEvidence(entity, user);
+
             return entity;
         } catch (err) {
             console.error(`[ComplianceEnforcement] Failed to resolve canonical entity ${entityId}:`, err.message);
             return null; // Fail closed
+        }
+    }
+
+    /**
+     * Resolves and validates referenced CRM Document and DocumentVersion records from MongoDB.
+     * Prevents client-supplied or synthesized document IDs/hashes from bypassing evidence verification.
+     * 
+     * @param {Object} entity - Resolved Deal, Inventory, or Project record
+     * @param {Object} [user=null] - User context
+     */
+    async resolveAuthoritativeEvidence(entity, user = null) {
+        if (!entity || typeof entity !== 'object') return;
+        if (mongoose.connection?.readyState !== 1) return;
+
+        try {
+            const Document = mongoose.model('Document');
+            const DocumentVersion = mongoose.model('DocumentVersion');
+
+            // Helper to resolve and validate a single candidate document
+            const resolveSingleDoc = async (docCandidate) => {
+                if (!docCandidate || typeof docCandidate !== 'object') return;
+                const docId = docCandidate.documentId || docCandidate.crmDocumentId;
+                if (!docId || typeof docId !== 'string') return;
+
+                const docRecord = await Document.findOne({
+                    documentId: String(docId).trim(),
+                    isDeleted: false
+                }).lean();
+
+                if (!docRecord) {
+                    // Document does not exist in CRM repository
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // Verify lifecycle state
+                if (docRecord.state !== 'ACTIVE') {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // Verify entity ownership: must be linked to this entity or its linked project/inventory
+                const entityIdStr = String(entity._id || entity.id || '');
+                const projIdStr = String(entity.projectId?._id || entity.projectId || '');
+                const invIdStr = String(entity.inventoryId?._id || entity.inventoryId || '');
+                const docEntityIdStr = String(docRecord.entityId?._id || docRecord.entityId || '');
+
+                const isLinked = docEntityIdStr === entityIdStr || (projIdStr && docEntityIdStr === projIdStr) || (invIdStr && docEntityIdStr === invIdStr);
+                if (!isLinked) {
+                    // Document belongs to a different entity!
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // Verify current document version
+                if (!docRecord.currentVersionId) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                const versionRecord = await DocumentVersion.findById(docRecord.currentVersionId).lean();
+                if (!versionRecord || !versionRecord.checksum) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // Successfully verified authentic CRM document record
+                docCandidate.documentRecord = {
+                    ...docRecord,
+                    currentVersion: versionRecord
+                };
+                docCandidate._isVerifiedRecord = true;
+            };
+
+            // 1. Resolve Bank Approval candidate documents
+            if (entity.bankApproval) await resolveSingleDoc(entity.bankApproval);
+            if (Array.isArray(entity.bankApprovals)) {
+                for (const b of entity.bankApprovals) await resolveSingleDoc(b);
+            }
+            if (entity.project?.bankApproval) await resolveSingleDoc(entity.project.bankApproval);
+            if (Array.isArray(entity.project?.bankApprovals)) {
+                for (const b of entity.project.bankApprovals) await resolveSingleDoc(b);
+            }
+
+            // 2. Resolve Possession (OC/CC) candidate documents
+            if (entity.occupancyCertificate) await resolveSingleDoc(entity.occupancyCertificate);
+            if (entity.completionCertificate) await resolveSingleDoc(entity.completionCertificate);
+            if (entity.project?.occupancyCertificate) await resolveSingleDoc(entity.project.occupancyCertificate);
+            if (entity.project?.completionCertificate) await resolveSingleDoc(entity.project.completionCertificate);
+
+            // 3. Resolve Approvals array documents
+            if (Array.isArray(entity.approvals)) {
+                for (const a of entity.approvals) await resolveSingleDoc(a);
+            }
+            if (Array.isArray(entity.project?.approvals)) {
+                for (const a of entity.project.approvals) await resolveSingleDoc(a);
+            }
+
+            // 4. Resolve RERA Snapshots if PropertyVerificationSnapshot model exists
+            const snapshotId = entity.reraVerificationSnapshotId || entity.verificationSnapshotId || entity.authorityVerification?.verificationSnapshotId;
+            if (snapshotId && mongoose.modelNames().includes('PropertyVerificationSnapshot')) {
+                const PropertyVerificationSnapshot = mongoose.model('PropertyVerificationSnapshot');
+                if (mongoose.Types.ObjectId.isValid(String(snapshotId))) {
+                    const snapDoc = await PropertyVerificationSnapshot.findById(snapshotId).lean();
+                    if (snapDoc) {
+                        entity._resolvedSnapshot = snapDoc;
+                        if (entity.authorityVerification) entity.authorityVerification.snapshotRecord = snapDoc;
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[ComplianceEnforcement] Evidence resolution non-fatal warning:', err.message);
         }
     }
 
