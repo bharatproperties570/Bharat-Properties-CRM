@@ -137,7 +137,6 @@ describe('PHASE 4.5-D (PR #62) FINAL SECURITY CLOSURE', () => {
                 'authority_source_approval_submitted',
                 'authority_source_approval_recorded',
                 'authority_review_submitted',
-                'authority_changes_applied',
                 'authority_policy_approved',
                 'authority_policy_rejected'
             ];
@@ -149,6 +148,7 @@ describe('PHASE 4.5-D (PR #62) FINAL SECURITY CLOSURE', () => {
             assert.strictEqual(isImmutableAuditEvent('user_login'), false);
             assert.strictEqual(isImmutableAuditEvent('lead_created'), false);
             assert.strictEqual(isImmutableAuditEvent('authority_settings_updated'), false);
+            assert.strictEqual(isImmutableAuditEvent('authority_changes_applied'), false);
         });
 
         test('1.2 updateOne targeting immutable audit log by _id rejects with AUDIT_LOG_IMMUTABLE', async () => {

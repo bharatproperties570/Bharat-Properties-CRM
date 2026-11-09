@@ -364,7 +364,6 @@ export const IMMUTABLE_AUDIT_EVENT_TYPES = new Set([
     'authority_source_approval_submitted',
     'authority_source_approval_recorded',
     'authority_review_submitted',
-    'authority_changes_applied',
     'authority_policy_approved',
     'authority_policy_rejected'
 ]);
