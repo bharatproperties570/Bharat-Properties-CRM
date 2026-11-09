@@ -14,8 +14,60 @@ export const RECOGNIZED_AUTHORITY_CODES = Object.freeze([
     'ESTATE_OFFICE_CHD',
     'GMADA',
     'DDA',
-    'PUDA'
+    'PUDA',
+    'HRERA',
+    'HARERA',
+    'PBRERA',
+    'RERA'
 ]);
+
+export const TRUSTED_VERIFIER_ROLES = Object.freeze([
+    'COMPLIANCE_OFFICER',
+    'LEGAL_AUDITOR',
+    'AUTHORITY_WORKER',
+    'STATUTORY_AUDITOR',
+    'COMPLIANCE_ADMIN',
+    'BANK_OFFICER'
+]);
+
+export const TRUSTED_SYSTEM_VERIFIER_IDS = Object.freeze([
+    'SYSTEM_COMPLIANCE_ENGINE',
+    'AUTHORITY_SYNC_WORKER',
+    'BANK_INTEGRATION_GATEWAY'
+]);
+
+/**
+ * Enforces the trusted verifier authorization contract.
+ * Rejects arbitrary strings (e.g. "some_user", "SYSTEM", "admin") and arbitrary 24-character IDs without authorized role.
+ * 
+ * @param {string|null} verifierId - Unique identifier of verifier
+ * @param {string|null} verifierRole - Declared authority role of verifier
+ * @returns {boolean} True if identity and role satisfy trusted authorization contract
+ */
+export function isAuthorizedVerifier(verifierId, verifierRole = null) {
+    if (!verifierId && !verifierRole) return false;
+
+    const vId = verifierId ? String(verifierId).trim() : '';
+    const vRole = verifierRole ? String(verifierRole).trim().toUpperCase() : '';
+
+    // Check recognized system verifier IDs (exact recognized system services)
+    if (vId && TRUSTED_SYSTEM_VERIFIER_IDS.includes(vId.toUpperCase())) {
+        return true;
+    }
+
+    // Role-based authorization: role must be in TRUSTED_VERIFIER_ROLES
+    if (!TRUSTED_VERIFIER_ROLES.includes(vRole)) {
+        return false;
+    }
+
+    // When role is trusted, verifierId must be a non-empty, non-placeholder identifier
+    if (!vId) return false;
+    if (['null', 'undefined', 'none', 'n/a', 'false', '0', 'system', 'admin'].includes(vId.toLowerCase())) return false;
+
+    // Must be a valid structured identifier (e.g. CMP-1029, AUD-88, USR-4421, or 24-hex ObjectId)
+    const isStructured = /^[0-9a-fA-F]{24}$/.test(vId) || /^[A-Z]{2,4}-[A-Za-z0-9_-]{2,32}$/.test(vId) || /^[A-Za-z0-9._-]{4,64}$/.test(vId);
+    return isStructured;
+}
 
 export const APPROVED_AUTHORITY_STATUSES = Object.freeze(['VERIFIED']);
 export const APPROVED_RERA_STATUSES = Object.freeze(['APPROVED', 'REGISTERED', 'ACTIVE', 'VALID']);
@@ -197,15 +249,46 @@ export function validateAuthoritativeDocumentRecord(doc, parentEntity = null, ex
     // 4. Must not be revoked
     if (rec.isRevoked === true || rec.metadata?.isRevoked === true || rec.status === 'REVOKED') return false;
 
-    // 5. Must belong to the correct property or parent entity
+    // 5. Entity ownership: validate both Document.entityType and Document.entityId
+    const recEntityType = String(rec.entityType || '').trim();
+    // Reject Contact, Lead, User or other non-property collections immediately
+    if (['Contact', 'Lead', 'User', 'Account'].includes(recEntityType)) {
+        return false;
+    }
+
     if (parentEntity && (parentEntity._id || parentEntity.id)) {
         const parentId = String(parentEntity._id || parentEntity.id);
-        const linkedId = String(rec.entityId?._id || rec.entityId || rec.propertyId || '');
-        const linkedProject = String(parentEntity.projectId?._id || parentEntity.projectId || '');
-        const linkedInventory = String(parentEntity.inventoryId?._id || parentEntity.inventoryId || '');
+        const linkedProject = String(parentEntity.projectId?._id || parentEntity.projectId || (parentEntity.project?._id) || '');
+        const linkedInventory = String(parentEntity.inventoryId?._id || parentEntity.inventoryId || (parentEntity.inventory?._id) || '');
+        const recEntityId = String(rec.entityId?._id || rec.entityId || rec.propertyId || '');
 
-        const matchesEntity = linkedId === parentId || (linkedProject && linkedId === linkedProject) || (linkedInventory && linkedId === linkedInventory);
-        if (!matchesEntity && linkedId) {
+        let parentEntityType = String(parentEntity._entityType || '').trim();
+        if (!parentEntityType) {
+            if (parentEntity.dealId || parentEntity.unitNo || parentEntity.stage) parentEntityType = 'Deal';
+            else if (parentEntity.builderName || parentEntity.totalUnits || parentEntity.projectType) parentEntityType = 'Project';
+            else if (parentEntity.inventoryId || parentEntity.unitNumber || parentEntity.status) parentEntityType = 'Inventory';
+        }
+
+        let isAuthorizedEntityOwnership = false;
+        // Direct canonical entity match: entityId must match and entityType must match canonical collection
+        if (recEntityId === parentId && parentEntityType && recEntityType === parentEntityType) {
+            isAuthorizedEntityOwnership = true;
+        }
+        // Linked Project match: entityId must match linked Project AND entityType must be 'Project'
+        else if (linkedProject && recEntityId === linkedProject && recEntityType === 'Project') {
+            isAuthorizedEntityOwnership = true;
+        }
+        // Linked Inventory match: entityId must match linked Inventory AND entityType must be 'Inventory'
+        else if (linkedInventory && recEntityId === linkedInventory && recEntityType === 'Inventory') {
+            isAuthorizedEntityOwnership = true;
+        }
+
+        if (!isAuthorizedEntityOwnership) {
+            // Cross-entity-type mismatch, wrong ID, or same-ID collision simulation -> REJECT
+            return false;
+        }
+    } else {
+        if (!['Deal', 'Project', 'Inventory'].includes(recEntityType)) {
             return false;
         }
     }
@@ -319,11 +402,15 @@ function hasLinkedDocumentRecordOrHash(doc) {
 
 /**
  * Checks whether a document entry has authorized verification provenance.
- * Disqualifies manual entries (MANUAL, USER_INPUT, AGENT_INPUT, SELF_REPORTED).
- * Bare boolean flags or source strings on embedded objects do not independently establish provenance.
- * Requires authentic resolved CRM document record, snapshot record, or trusted audit evidence.
+ * Round 5 Hardening:
+ * - Strictly removes synthetic audit construction based on rec.createdBy, rec.createdAt, new Date(), or rec.state === 'ACTIVE'.
+ * - ACTIVE document state alone NEVER means authority-verified.
+ * - Requires a real, persisted, trusted verification audit record.
+ * - Enforces the trusted verifier authorization contract (rejects arbitrary strings / arbitrary 24-char IDs without authorized role).
+ * - Verifies explicit non-future timestamp <= 180 days, explicit VERIFIED / APPROVED outcome, documentId/versionId linkage, and entity linkage.
+ * - Fails closed if no genuine verification audit exists. Never manufactures verification evidence.
  */
-function hasAuthoritativeDocumentProvenance(doc, parentEntity = null) {
+export function hasAuthoritativeDocumentProvenance(doc, parentEntity = null) {
     if (!doc || typeof doc !== 'object') return false;
 
     // Disqualify explicit manual input
@@ -332,39 +419,85 @@ function hasAuthoritativeDocumentProvenance(doc, parentEntity = null) {
         return false;
     }
 
-    // Must resolve trusted verification/audit record
     const rec = doc.documentRecord || doc._resolvedRecord;
-    const audit = rec?.auditEvidence || rec?.verificationAudit || doc.auditEvidence || doc.auditRecord || (rec ? {
-        verifierId: rec.createdBy || rec.verifiedBy || rec.metadata?.verifiedBy || 'SYSTEM',
-        verifiedAt: rec.updatedAt || rec.createdAt || doc.verifiedAt || doc.sanctionDate || doc.issueDate || doc.approvalDate || new Date(),
-        outcome: rec.state === 'ACTIVE' ? 'VERIFIED' : rec.state
-    } : null);
+    
+    // Require genuine, persisted verification audit record — strictly NO synthetic audit construction!
+    const audit = rec?.verificationAudit || 
+                  rec?.auditEvidence || 
+                  rec?.metadata?.verificationAudit || 
+                  rec?.metadata?.auditEvidence ||
+                  doc.verificationAudit ||
+                  doc.auditEvidence || 
+                  doc.auditRecord;
 
-    if (!audit) {
-        // Bare boolean flags, reviewer strings, or source strings without underlying audit evidence fail closed
+    if (!audit || typeof audit !== 'object') {
+        // No synthetic audit invented during validation; fail closed.
         return false;
     }
 
-    // 1. Verifier identity: actual verifier or recognized authorized system verifier
-    const verifier = audit.verifierId || audit.verifiedBy || audit.createdBy;
-    if (!verifier || String(verifier).trim().length === 0) return false;
-    const verStr = String(verifier).trim();
-    const isAuthorizedVerifier = ['SYSTEM', 'ADMIN', 'AUTHORITY_WORKER', 'COMPLIANCE_OFFICER', 'LEGAL_AUDITOR', 'AUTHORITY_SYNC', 'BANK_INTEGRATION'].includes(verStr.toUpperCase()) || /^[a-fA-F0-9]{24}$/.test(verStr) || /^[a-zA-Z0-9_\-]{3,64}$/.test(verStr);
-    if (!isAuthorizedVerifier) return false;
+    // 1. Trusted Verifier Authorization Contract: actual verifier identity with authorized role
+    const verifierId = audit.verifierId || audit.verifiedBy || audit.auditorId;
+    const verifierRole = audit.verifierRole || audit.role || audit.auditorRole;
+    if (!isAuthorizedVerifier(verifierId, verifierRole)) {
+        return false;
+    }
 
-    // 2. Verification timestamp: non-future timestamp within 180 days
-    const auditTime = audit.verifiedAt || audit.timestamp || rec?.verifiedAt || rec?.createdAt;
-    if (!isValidVerificationDate(auditTime)) return false;
+    // 2. Explicit verification timestamp (must be present, non-future, <= 180 days)
+    // NEVER substitute rec.createdAt or new Date()!
+    const verifiedAt = audit.verifiedAt || audit.timestamp;
+    if (!verifiedAt || !isValidVerificationDate(verifiedAt)) {
+        return false;
+    }
 
-    // 3. Document ID linkage
-    if (rec && doc.documentId && String(rec.documentId).trim() !== String(doc.documentId).trim()) return false;
+    // 3. Explicit successful verification outcome (strictly 'VERIFIED' or 'APPROVED')
+    // rec.state === 'ACTIVE' must NOT automatically mean authority-verified outcome!
+    const outcome = String(audit.outcome || audit.verificationOutcome || audit.status || '').trim().toUpperCase();
+    if (!['VERIFIED', 'APPROVED'].includes(outcome)) {
+        return false;
+    }
 
-    // 4. Verification outcome: must be verified / active / approved
-    const outcome = String(audit.outcome || audit.verificationOutcome || audit.status || rec?.state || rec?.status || '').toUpperCase();
-    if (!['VERIFIED', 'APPROVED', 'VALID', 'ACTIVE'].includes(outcome)) return false;
+    // 4. Revocation and supersession checks
+    if (audit.isRevoked === true || audit.isSuperseded === true || rec?.isRevoked === true || rec?.metadata?.isRevoked === true || rec?.status === 'REVOKED') {
+        return false;
+    }
 
-    // 5. Revocation or supersession state
-    if (audit.isRevoked === true || audit.isSuperseded === true || rec?.isRevoked === true || rec?.status === 'REVOKED') return false;
+    // 5. Document ID and current-version linkage
+    if (rec && rec.documentId) {
+        const recDocId = String(rec.documentId).trim();
+        if (doc.documentId && String(doc.documentId).trim() !== recDocId) return false;
+        if (audit.documentId && String(audit.documentId).trim() !== recDocId) return false;
+
+        const currentVerId = String(rec.currentVersionId?._id || rec.currentVersionId || '').trim();
+        if (audit.versionId && currentVerId && String(audit.versionId).trim() !== currentVerId) {
+            return false;
+        }
+    }
+
+    // 6. Entity linkage
+    if (parentEntity && (parentEntity._id || parentEntity.id)) {
+        const parentId = String(parentEntity._id || parentEntity.id);
+        const linkedProject = String(parentEntity.projectId?._id || parentEntity.projectId || (parentEntity.project?._id) || '');
+        const linkedInventory = String(parentEntity.inventoryId?._id || parentEntity.inventoryId || (parentEntity.inventory?._id) || '');
+
+        if (audit.entityId) {
+            const auditEntityId = String(audit.entityId?._id || audit.entityId);
+            const matchesEntity = auditEntityId === parentId || (linkedProject && auditEntityId === linkedProject) || (linkedInventory && auditEntityId === linkedInventory);
+            if (!matchesEntity) return false;
+        }
+
+        if (audit.entityType) {
+            const auditEntType = String(audit.entityType).trim();
+            let expectedType = String(parentEntity._entityType || '').trim();
+            if (!expectedType) {
+                if (parentEntity.dealId || parentEntity.unitNo) expectedType = 'Deal';
+                else if (parentEntity.builderName || parentEntity.totalUnits) expectedType = 'Project';
+                else if (parentEntity.inventoryId || parentEntity.unitNumber) expectedType = 'Inventory';
+            }
+            if (expectedType && auditEntType !== expectedType && auditEntType !== 'Project' && auditEntType !== 'Inventory') {
+                return false;
+            }
+        }
+    }
 
     return true;
 }
@@ -454,7 +587,10 @@ function hasReraProvenance(item, parentEntity = null) {
     }
 
     // MANDATORY FRESHNESS: Non-future verification timestamp within 180 days on EVERY accepted evidence path
-    const reviewDate = item.lastVerifiedAt || item.verifiedAt || item.reviewDate || item.date || item.identityVerifiedAt || parentEntity?.reraLastVerifiedAt || parentEntity?.lastVerifiedAt || parentEntity?.date;
+    const snapCandidate = item.snapshotRecord || item._resolvedSnapshot || parentEntity?._resolvedSnapshot || parentEntity?.authorityVerification?.snapshotRecord;
+    const reviewDate = item.lastVerifiedAt || item.verifiedAt || item.reviewDate || item.date || item.identityVerifiedAt || 
+                       snapCandidate?.observedAt || snapCandidate?.verifiedAt || snapCandidate?.lastVerifiedAt ||
+                       parentEntity?.reraLastVerifiedAt || parentEntity?.lastVerifiedAt || parentEntity?.date;
     if (!isValidVerificationDate(reviewDate)) {
         return false;
     }
@@ -467,20 +603,59 @@ function hasReraProvenance(item, parentEntity = null) {
     // 2. Real resolved snapshot record from PropertyVerificationSnapshot
     const snap = item.snapshotRecord || item._resolvedSnapshot || parentEntity?._resolvedSnapshot || parentEntity?.authorityVerification?.snapshotRecord;
     if (snap && typeof snap === 'object') {
+        // Enforce verified relationship chain: Snapshot -> PropertyAuthorityLink -> canonical property entity
+        const link = snap._resolvedLink || snap.linkRecord;
+        if (!link || typeof link !== 'object') {
+            // Missing PropertyAuthorityLink or bare embedded snapshot without resolved DB link -> FAIL CLOSED
+            return false;
+        }
+
+        if (link.isActive === false || link.matchEligibility === 'AMBIGUOUS' || link.matchEligibility === 'INELIGIBLE') {
+            return false;
+        }
+
+        // Verify that the link belongs to the canonical entity or its authorized linked Project/Inventory
+        const parentId = String(parentEntity?._id || parentEntity?.id || '');
+        const projId = String(parentEntity?.projectId?._id || parentEntity?.projectId || (parentEntity?.project?._id) || '');
+        const invId = String(parentEntity?.inventoryId?._id || parentEntity?.inventoryId || (parentEntity?.inventory?._id) || '');
+
+        const linkInventoryId = String(link.inventoryId?._id || link.inventoryId || '');
+        const linkPropertyId = String(link.propertyId?._id || link.propertyId || link.entityId || '');
+        const linkProjectId = String(link.projectId?._id || link.projectId || '');
+
+        // Reject missing property identity on link
+        if (!linkInventoryId && !linkPropertyId && !linkProjectId && !link.dealId) {
+            return false;
+        }
+
+        // Link ID must NEVER be compared directly with property ID!
+        // DO NOT use tenantId as a substitute for property identity!
+        let matchesEntity = false;
+        if (parentId) {
+            matchesEntity = (linkInventoryId && (linkInventoryId === parentId || linkInventoryId === invId)) ||
+                            (linkProjectId && (linkProjectId === parentId || linkProjectId === projId)) ||
+                            (linkPropertyId && (linkPropertyId === parentId || linkPropertyId === invId || linkPropertyId === projId)) ||
+                            (link.dealId && String(link.dealId) === parentId);
+        }
+
+        if (!matchesEntity) {
+            // Snapshot linked to another property -> FAIL CLOSED
+            return false;
+        }
+
+        // Validate authority code against permitted authority contract
+        const permittedAuthorities = ['HRERA', 'HARERA', 'PBRERA', 'RERA', 'HSVP', 'GMADA', 'CHD'];
+        const snapCode = String(snap.authorityCode || snap.source || '').trim().toUpperCase();
+        const linkCode = String(link.authorityCode || '').trim().toUpperCase();
+
+        if (!permittedAuthorities.includes(snapCode)) return false;
+        if (linkCode && !permittedAuthorities.includes(linkCode)) return false;
+
+        // Sealing and revocation
         if (snap.isRevoked === true || snap.status === 'REVOKED' || snap.isSealed === false) return false;
 
-        // Validate entity relationship
-        const snapEntityId = String(snap.linkId || snap.propertyId || snap.entityId || snap.normalizedData?.propertyId || snap.tenantId || '');
-        const parentId = String(parentEntity?._id || parentEntity?.id || '');
-        const projId = String(parentEntity?.projectId?._id || parentEntity?.projectId || '');
-        const invId = String(parentEntity?.inventoryId?._id || parentEntity?.inventoryId || '');
-        const matchesEntity = snapEntityId === parentId || (projId && snapEntityId === projId) || (invId && snapEntityId === invId);
-        if (snapEntityId && !matchesEntity && parentId) return false;
-
-        // Validate authority / source identity
-        const code = String(snap.authorityCode || snap.source || '').trim().toUpperCase();
-        const validAuth = ['HRERA', 'HARERA', 'PBRERA', 'RERA', 'HSVP', 'GMADA', 'CHD'].includes(code) || snap.provenance === 'LIVE' || (typeof snap.sourceReferenceUrl === 'string' && snap.sourceReferenceUrl.length > 5);
-        if (!validAuth) return false;
+        // Data quality restrictions
+        if (snap.dataQuality?.status === 'RESTRICTED') return false;
 
         // Validate verification audit / authorized verifier
         const verifier = snap.createdByWorkerId || snap.verifiedBy || snap.verifierId || snap.runItemId || snap.fenceToken;
@@ -493,9 +668,6 @@ function hasReraProvenance(item, parentEntity = null) {
         // Verification timestamp freshness
         const snapDate = snap.observedAt || snap.verifiedAt || snap.createdAt || snap.lastVerifiedAt;
         if (!isValidVerificationDate(snapDate)) return false;
-
-        // Data quality restrictions
-        if (snap.dataQuality?.status === 'RESTRICTED') return false;
 
         return true;
     }

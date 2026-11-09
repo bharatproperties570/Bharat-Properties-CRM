@@ -25,6 +25,7 @@ import '../models/Deal.js';
 import '../models/Project.js';
 import '../models/Inventory.js';
 import '../models/PropertyVerificationSnapshot.js';
+import '../models/PropertyAuthorityLink.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import {
     hasAuthoritativeTitleVerification,
@@ -137,6 +138,9 @@ class MarketingComplianceEnforcementService {
 
             if (!entity) return null;
 
+            // Explicitly set canonical entityType
+            entity._entityType = normType === 'project' ? 'Project' : (normType === 'inventory' ? 'Inventory' : 'Deal');
+
             // Authorization / tenant verification check (defense-in-depth)
             if (user && user.tenantId && entity.tenantId) {
                 if (String(user.tenantId) !== String(entity.tenantId)) {
@@ -199,15 +203,32 @@ class MarketingComplianceEnforcementService {
                     return;
                 }
 
-                // 2. Verify entity ownership: must be linked to this entity or its linked project/inventory
-                const entityIdStr = String(entity._id || entity.id || '');
-                const projIdStr = String(entity.projectId?._id || entity.projectId || '');
-                const invIdStr = String(entity.inventoryId?._id || entity.inventoryId || '');
-                const docEntityIdStr = String(docRecord.entityId?._id || docRecord.entityId || '');
+                // 2. Verify entity ownership: validate both Document.entityType and Document.entityId
+                const docEntityType = String(docRecord.entityType || '').trim();
+                // Reject Contact, Lead, User or other non-property collections immediately
+                if (['Contact', 'Lead', 'User', 'Account'].includes(docEntityType)) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
 
-                const isLinked = docEntityIdStr === entityIdStr || (projIdStr && docEntityIdStr === projIdStr) || (invIdStr && docEntityIdStr === invIdStr);
-                if (!isLinked) {
-                    // Document belongs to a different entity!
+                const entityIdStr = String(entity._id || entity.id || '');
+                const projIdStr = String(entity.projectId?._id || entity.projectId || (entity.project?._id) || '');
+                const invIdStr = String(entity.inventoryId?._id || entity.inventoryId || (entity.inventory?._id) || '');
+                const docEntityIdStr = String(docRecord.entityId?._id || docRecord.entityId || '');
+                const canonicalType = String(entity._entityType || 'Deal');
+
+                let isAuthorizedOwner = false;
+                if (docEntityIdStr === entityIdStr && docEntityType === canonicalType) {
+                    isAuthorizedOwner = true;
+                } else if (projIdStr && docEntityIdStr === projIdStr && docEntityType === 'Project') {
+                    isAuthorizedOwner = true;
+                } else if (invIdStr && docEntityIdStr === invIdStr && docEntityType === 'Inventory') {
+                    isAuthorizedOwner = true;
+                }
+
+                if (!isAuthorizedOwner) {
+                    // Document belongs to a different entity or wrong entityType!
                     docCandidate.documentRecord = null;
                     docCandidate._isVerifiedRecord = false;
                     return;
@@ -370,28 +391,97 @@ class MarketingComplianceEnforcementService {
                 }
             }
 
-            // 4. Resolve RERA Snapshots if PropertyVerificationSnapshot model exists
+            // 4. Resolve RERA Snapshots via verified relationship chain:
+            // PropertyVerificationSnapshot -> PropertyAuthorityLink -> canonical property entity
             const snapshotId = entity.reraVerificationSnapshotId || entity.verificationSnapshotId || entity.authorityVerification?.verificationSnapshotId;
             if (snapshotId && mongoose.modelNames().includes('PropertyVerificationSnapshot')) {
                 const PropertyVerificationSnapshot = mongoose.model('PropertyVerificationSnapshot');
                 let snapDoc = null;
+                // Resolve snapshot strictly by authentic DB _id or snapshotId field (no searching by linkId or propertyId!)
                 if (mongoose.Types.ObjectId.isValid(String(snapshotId))) {
                     snapDoc = await PropertyVerificationSnapshot.findById(snapshotId).lean();
                 }
                 if (!snapDoc) {
-                    snapDoc = await PropertyVerificationSnapshot.findOne({
-                        $or: [
-                            { snapshotId: String(snapshotId) },
-                            { _id: mongoose.Types.ObjectId.isValid(String(snapshotId)) ? snapshotId : undefined },
-                            { linkId: mongoose.Types.ObjectId.isValid(String(snapshotId)) ? snapshotId : undefined },
-                            { 'identityEvidence.propertyId': String(snapshotId) }
-                        ].filter(c => Object.values(c)[0] !== undefined)
-                    }).lean();
+                    snapDoc = await PropertyVerificationSnapshot.findOne({ snapshotId: String(snapshotId) }).lean();
                 }
 
-                if (snapDoc && snapDoc.isSealed !== false && snapDoc.dataQuality?.status !== 'RESTRICTED') {
+                // Check snapshot sealing, revocation, and data quality restrictions
+                if (snapDoc) {
+                    if (snapDoc.isSealed === false || snapDoc.isRevoked === true || snapDoc.status === 'REVOKED' || snapDoc.dataQuality?.status === 'RESTRICTED') {
+                        snapDoc = null;
+                    }
+                }
+
+                // Enforce verified relationship chain: Snapshot -> PropertyAuthorityLink -> canonical property entity
+                if (snapDoc && snapDoc.linkId && mongoose.modelNames().includes('PropertyAuthorityLink')) {
+                    const PropertyAuthorityLink = mongoose.model('PropertyAuthorityLink');
+                    const linkDoc = await PropertyAuthorityLink.findById(snapDoc.linkId).lean();
+
+                    if (!linkDoc) {
+                        // Missing PropertyAuthorityLink -> relationship chain broken -> fail closed
+                        snapDoc = null;
+                    } else if (linkDoc.isActive === false || linkDoc.matchEligibility === 'AMBIGUOUS' || linkDoc.matchEligibility === 'INELIGIBLE') {
+                        // Link deactivated or ambiguous -> reject
+                        snapDoc = null;
+                    } else {
+                        // Verify link ownership against canonical property entity or linked Project/Inventory
+                        const entityIdStr = String(entity._id || entity.id || '');
+                        const projIdStr = String(entity.projectId?._id || entity.projectId || (entity.project?._id) || '');
+                        const invIdStr = String(entity.inventoryId?._id || entity.inventoryId || (entity.inventory?._id) || '');
+
+                        const linkInventoryId = String(linkDoc.inventoryId?._id || linkDoc.inventoryId || '');
+                        const linkPropertyId = String(linkDoc.propertyId?._id || linkDoc.propertyId || linkDoc.entityId || '');
+                        const linkProjectId = String(linkDoc.projectId?._id || linkDoc.projectId || '');
+
+                        if (!linkInventoryId && !linkPropertyId && !linkProjectId && !linkDoc.dealId) {
+                            // Missing property identity on link -> fail closed
+                            snapDoc = null;
+                        } else {
+                            let matchesProperty = false;
+                            const canonicalType = String(entity._entityType || '').toLowerCase();
+
+                            if (canonicalType === 'inventory') {
+                                matchesProperty = (linkInventoryId === entityIdStr || linkPropertyId === entityIdStr);
+                            } else if (canonicalType === 'project') {
+                                matchesProperty = (linkProjectId === entityIdStr || linkPropertyId === entityIdStr);
+                            } else {
+                                // Default: Deal
+                                matchesProperty = (invIdStr && linkInventoryId === invIdStr) ||
+                                                  (projIdStr && linkProjectId === projIdStr) ||
+                                                  (linkPropertyId && (linkPropertyId === entityIdStr || linkPropertyId === invIdStr || linkPropertyId === projIdStr)) ||
+                                                  (linkDoc.dealId && String(linkDoc.dealId) === entityIdStr);
+                            }
+
+                            if (!matchesProperty) {
+                                // Snapshot linked to another property -> fail closed
+                                snapDoc = null;
+                            } else {
+                                // Validate authority code against permitted authority contract
+                                const permittedAuthorities = ['HRERA', 'HARERA', 'PBRERA', 'RERA', 'HSVP', 'GMADA', 'CHD'];
+                                const snapAuth = String(snapDoc.authorityCode || '').trim().toUpperCase();
+                                const linkAuth = String(linkDoc.authorityCode || '').trim().toUpperCase();
+
+                                if (!permittedAuthorities.includes(snapAuth) || (linkAuth && !permittedAuthorities.includes(linkAuth))) {
+                                    snapDoc = null;
+                                } else {
+                                    // Verified relationship chain confirmed: attach linkDoc to snapDoc
+                                    snapDoc._resolvedLink = linkDoc;
+                                    snapDoc.linkRecord = linkDoc;
+                                }
+                            }
+                        }
+                    }
+                } else if (snapDoc) {
+                    // Missing linkId on snapshot -> entity identity cannot be established -> reject
+                    snapDoc = null;
+                }
+
+                if (snapDoc && snapDoc._resolvedLink) {
                     entity._resolvedSnapshot = snapDoc;
                     if (entity.authorityVerification) entity.authorityVerification.snapshotRecord = snapDoc;
+                } else {
+                    entity._resolvedSnapshot = null;
+                    if (entity.authorityVerification) entity.authorityVerification.snapshotRecord = null;
                 }
             }
         } catch (err) {
@@ -463,7 +553,7 @@ class MarketingComplianceEnforcementService {
      * @returns {Promise<{ sanitizedText: string, facts: Object, canonicalEntity: Object|null }>}
      */
     async revalidateScheduledPost(jobData) {
-        const { entityId, entityType, text, platform, format } = jobData;
+        const { entityId, entityType, text, title, postTitle, platform, format } = jobData;
 
         // Fetch fresh canonical record from database at time of worker execution via authorized system execution path
         const canonicalEntity = await this.resolveAuthoritativeEntity(entityId, entityType, { isSystem: true });
@@ -476,8 +566,16 @@ class MarketingComplianceEnforcementService {
             { format }
         );
 
+        let sanitizedTitle = null;
+        const rawTitle = title || postTitle;
+        if (rawTitle) {
+            const titleRes = this.enforceCompliance(rawTitle, canonicalEntity, platform, { format });
+            sanitizedTitle = titleRes.sanitizedText;
+        }
+
         return {
             sanitizedText,
+            sanitizedTitle,
             facts,
             canonicalEntity
         };

@@ -311,7 +311,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     // RERA REQUIREMENT 13: Valid explicitly approved registration with authoritative provenance -> VERIFIED
     // ─────────────────────────────────────────────────────────────
     await t.test('RERA Requirement 13: Valid explicitly approved registration with authoritative provenance passes', async () => {
+        const directPropId = '66f19ce95b90dffc37482fec';
         const approvedDirect = {
+            _id: directPropId,
             reraNumber: 'PBRERA-SAS80-PR0456',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
@@ -322,12 +324,19 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                 authorityCode: 'PBRERA',
                 observedAt: new Date(),
                 contentHash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
-                createdByWorkerId: 'worker-pbrera-1'
+                createdByWorkerId: 'worker-pbrera-1',
+                _resolvedLink: {
+                    propertyId: directPropId,
+                    authorityCode: 'PBRERA',
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
             }
         };
         assert.equal(hasAuthoritativeReraApproval(approvedDirect), true);
 
         const approvedArray = {
+            _entityType: 'Deal',
             approvals: [
                 {
                     approvalAuthority: 'RERA',
@@ -339,6 +348,7 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                     documentId: 'doc-hrera-88',
                     documentRecord: {
                         documentId: 'doc-hrera-88',
+                        entityType: 'Deal',
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-hrera-88',
@@ -348,6 +358,13 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                             documentId: 'doc-hrera-88',
                             checksumAlgorithm: 'SHA-256',
                             checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                        },
+                        verificationAudit: {
+                            verifierId: 'CMP-OFFICER-77',
+                            verifierRole: 'COMPLIANCE_OFFICER',
+                            verifiedAt: new Date(),
+                            outcome: 'VERIFIED',
+                            documentId: 'doc-hrera-88'
                         }
                     }
                 }
@@ -518,7 +535,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     // SCENARIO: Verified property fallback tones include qualified claims
     // ─────────────────────────────────────────────────────────────
     await t.test('Scenario: Fallback tones on verified property include qualified verification claims', async () => {
+        const verifiedPropId = '66f19ce95b90dffc37482fec';
         const fullyVerifiedDeal = {
+            _id: verifiedPropId,
             unitNo: 'Villa 12',
             projectName: 'Royal Heritage',
             location: 'Sector 32, Kurukshetra',
@@ -538,7 +557,13 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                 authorityCode: 'HRERA',
                 observedAt: new Date(),
                 contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-                createdByWorkerId: 'worker-hrera-1'
+                createdByWorkerId: 'worker-hrera-1',
+                _resolvedLink: {
+                    propertyId: verifiedPropId,
+                    authorityCode: 'HRERA',
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
             }
         };
 

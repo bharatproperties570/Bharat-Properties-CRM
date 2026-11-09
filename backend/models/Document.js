@@ -50,8 +50,13 @@ const DocumentSchema = new mongoose.Schema({
         approvalAuthority: String,
         registrationNo: String,
         name: String,
-        type: { type: String }
+        type: { type: String },
+        verificationAudit: { type: mongoose.Schema.Types.Mixed },
+        auditEvidence: { type: mongoose.Schema.Types.Mixed }
     },
+
+    verificationAudit: { type: mongoose.Schema.Types.Mixed },
+    auditEvidence: { type: mongoose.Schema.Types.Mixed },
     
     currentVersionId: { type: mongoose.Schema.Types.ObjectId, ref: 'DocumentVersion' },
     

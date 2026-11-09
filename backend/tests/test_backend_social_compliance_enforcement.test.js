@@ -17,6 +17,7 @@ import OutboxEvent from '../models/OutboxEvent.js';
 import Activity from '../models/Activity.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 
 import facebookService from '../services/FacebookService.js';
 import twitterService from '../services/TwitterService.js';
@@ -36,6 +37,10 @@ import {
     hasAuthoritativeBankApproval,
     hasAuthoritativeReadyPossession,
     validateAuthoritativeDocumentRecord,
+    hasAuthoritativeDocumentProvenance,
+    isAuthorizedVerifier,
+    TRUSTED_VERIFIER_ROLES,
+    TRUSTED_SYSTEM_VERIFIER_IDS,
     extractVerificationFacts,
     validateAndSanitizeCopy,
     generateCompliantFallback
@@ -220,7 +225,17 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             metadata: {
                 documentCategory: 'BANK_APPROVAL',
                 documentType: 'SANCTION_LETTER',
-                approvalAuthority: 'SBI'
+                approvalAuthority: 'SBI',
+                verificationAudit: {
+                    verifierId: 'CMP-OFFICER-77',
+                    verifierRole: 'COMPLIANCE_OFFICER',
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED',
+                    documentId: 'doc-sbi-8892',
+                    versionId: String(sbiVer._id),
+                    entityType: 'Deal',
+                    entityId: verifiedDeal._id
+                }
             },
             currentVersionId: sbiVer._id,
             state: 'ACTIVE'
@@ -244,7 +259,17 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             metadata: {
                 documentCategory: 'COMPLETION_CERTIFICATE',
                 documentType: 'OCCUPANCY_CERTIFICATE',
-                approvalAuthority: 'MUNICIPAL'
+                approvalAuthority: 'MUNICIPAL',
+                verificationAudit: {
+                    verifierId: 'CMP-OFFICER-77',
+                    verifierRole: 'COMPLIANCE_OFFICER',
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED',
+                    documentId: 'doc-oc-101',
+                    versionId: String(ocVer._id),
+                    entityType: 'Deal',
+                    entityId: verifiedDeal._id
+                }
             },
             currentVersionId: ocVer._id,
             state: 'ACTIVE'
@@ -269,10 +294,45 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentCategory: 'RERA_CERTIFICATE',
                 documentType: 'RERA_CERTIFICATE',
                 approvalAuthority: 'HRERA',
-                documentNo: 'HRERA-PKL-KUK-2024-88'
+                documentNo: 'HRERA-PKL-KUK-2024-88',
+                verificationAudit: {
+                    verifierId: 'CMP-OFFICER-77',
+                    verifierRole: 'COMPLIANCE_OFFICER',
+                    verifiedAt: new Date(),
+                    outcome: 'VERIFIED',
+                    documentId: 'doc-hrera-88',
+                    versionId: String(reraVer._id),
+                    entityType: 'Deal',
+                    entityId: verifiedDeal._id
+                }
             },
             currentVersionId: reraVer._id,
             state: 'ACTIVE'
+        });
+
+        // Seed authentic PropertyAuthorityLink and PropertyVerificationSnapshot for verified relationship chain
+        const authLink = await PropertyAuthorityLink.create({
+            tenantId: verifiedDeal.tenantId || new mongoose.Types.ObjectId(),
+            inventoryId: verifiedDeal._id,
+            propertyId: verifiedDeal._id.toString(),
+            authorityCode: 'HSVP',
+            matchEligibility: 'ELIGIBLE',
+            isActive: true,
+            createdBy: testAdminUser._id
+        });
+
+        await PropertyVerificationSnapshot.create({
+            _id: new mongoose.Types.ObjectId(),
+            snapshotId: 'snap-hrera-88',
+            tenantId: verifiedDeal.tenantId || new mongoose.Types.ObjectId(),
+            authorityCode: 'HSVP',
+            linkId: authLink._id,
+            isSealed: true,
+            isRevoked: false,
+            contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            observedAt: new Date(),
+            createdByWorkerId: 'WORKER-AUTH-101',
+            dataQuality: { status: 'COMPLETE' }
         });
     });
 
@@ -753,6 +813,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         // Valid evidence-backed bank approval with real CRM document record and verified status passes
         const validBank = {
+            _entityType: 'Deal',
             bankApproval: {
                 bankName: 'ICICI BANK',
                 status: 'APPROVED',
@@ -762,10 +823,18 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 sanctionDate: new Date(),
                 documentRecord: {
                     documentId: 'doc-icici-sanct-998',
+                    entityType: 'Deal',
                     state: 'ACTIVE',
                     isDeleted: false,
                     currentVersionId: 'ver-icici-998',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-BANK-101',
+                        verifierRole: 'BANK_OFFICER',
+                        verifiedAt: new Date(),
+                        outcome: 'APPROVED',
+                        documentId: 'doc-icici-sanct-998'
+                    }
                 }
             }
         };
@@ -837,6 +906,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         // Valid Occupancy Certificate passes
         const validOC = {
+            _entityType: 'Deal',
             possessionStatus: 'READY',
             progressPercentage: 100,
             occupancyCertificate: {
@@ -848,10 +918,18 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 progressPercentage: 100,
                 documentRecord: {
                     documentId: 'doc-oc-551',
+                    entityType: 'Deal',
                     state: 'ACTIVE',
                     isDeleted: false,
                     currentVersionId: 'ver-oc-551',
-                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-OC-551',
+                        verifierRole: 'COMPLIANCE_OFFICER',
+                        verifiedAt: new Date(),
+                        outcome: 'APPROVED',
+                        documentId: 'doc-oc-551'
+                    }
                 }
             }
         };
@@ -859,6 +937,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         // Valid Completion Certificate in approvals array passes
         const validCCInApprovals = {
+            _entityType: 'Deal',
             possessionStatus: 'READY_TO_MOVE',
             progressPercentage: 100,
             approvals: [
@@ -872,10 +951,18 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     progressPercentage: 100,
                     documentRecord: {
                         documentId: 'doc-oc-99',
+                        entityType: 'Deal',
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-oc-99',
-                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                        verificationAudit: {
+                            verifierId: 'CMP-CC-99',
+                            verifierRole: 'COMPLIANCE_OFFICER',
+                            verifiedAt: new Date(),
+                            outcome: 'APPROVED',
+                            documentId: 'doc-oc-99'
+                        }
                     }
                 }
             ]
@@ -914,7 +1001,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         assert.equal(hasAuthoritativeReraApproval(explicitManual), false, 'Explicit manual source must fail closed');
 
         // Valid RERA with official portal provenance AND immutable verificationSnapshotId passes
+        const reraTestPropId = new mongoose.Types.ObjectId();
         const verifiedProvenance = {
+            _id: reraTestPropId,
             reraNumber: 'HRERA-PKL-KUK-2024-11',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
@@ -928,13 +1017,22 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
                 verifiedAt: new Date(),
                 status: 'APPROVED',
-                createdByWorkerId: 'WORKER_RERA_SYNC'
+                createdByWorkerId: 'WORKER_RERA_SYNC',
+                _resolvedLink: {
+                    propertyId: reraTestPropId.toString(),
+                    authorityCode: 'HRERA',
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
             }
         };
         assert.equal(hasAuthoritativeReraApproval(verifiedProvenance), true);
 
         // Approvals array entry with official provenance AND linked document record passes
+        const reraDocPropId = new mongoose.Types.ObjectId();
         const approvalWithProvenance = {
+            _id: reraDocPropId,
+            _entityType: 'Deal',
             approvals: [
                 {
                     approvalAuthority: 'RERA',
@@ -945,10 +1043,17 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     documentId: 'doc-pbrera-456',
                     documentRecord: {
                         documentId: 'doc-pbrera-456',
+                        entityType: 'Deal',
+                        entityId: reraDocPropId,
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-pbrera-456',
-                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                        currentVersion: {
+                            _id: 'ver-pbrera-456',
+                            versionId: 'ver-pbrera-456',
+                            documentId: 'doc-pbrera-456',
+                            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                        }
                     }
                 }
             ]
@@ -1858,6 +1963,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         it('Possession: progressPercentage === 100 with authentic OC passes', () => {
             const completeProgress = {
+                _entityType: 'Deal',
                 possessionStatus: 'READY',
                 progressPercentage: 100,
                 occupancyCertificate: {
@@ -1869,10 +1975,18 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     progressPercentage: 100,
                     documentRecord: {
                         documentId: 'doc-oc-123',
+                        entityType: 'Deal',
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-oc-123',
-                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                        verificationAudit: {
+                            verifierId: 'CMP-OC-123',
+                            verifierRole: 'COMPLIANCE_OFFICER',
+                            verifiedAt: new Date(),
+                            outcome: 'APPROVED',
+                            documentId: 'doc-oc-123'
+                        }
                     }
                 }
             };
@@ -1957,6 +2071,613 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 assert.doesNotMatch(persisted.title, /high-yield/i, 'Persisted DB title must not contain high-yield');
                 assert.doesNotMatch(persisted.title, /rera approved/i, 'Persisted DB title must not contain unverified rera approved');
             }
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 12 — ROUND 5 AUDIT PROVENANCE, SNAPSHOT IDENTITY & ENTITY OWNERSHIP SUITE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 12 — Round 5 Audit Provenance, Snapshot Identity & Entity Ownership Suite', () => {
+        // ========== 1. REMOVE SYNTHETIC DOCUMENT VERIFICATION AUDIT ==========
+
+        it('Audit Provenance: Document without genuine verificationAudit fails closed (no synthetic fallback)', () => {
+            const docWithoutAudit = {
+                documentId: 'doc-no-audit-1',
+                documentRecord: {
+                    documentId: 'doc-no-audit-1',
+                    entityType: 'Deal',
+                    state: 'ACTIVE', // ACTIVE alone does not mean verified!
+                    isDeleted: false,
+                    createdBy: 'USER-123',
+                    createdAt: new Date(),
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    // No verificationAudit or auditEvidence!
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docWithoutAudit), false, 'ACTIVE document without verification audit must fail closed');
+        });
+
+        it('Audit Provenance: rec.state === ACTIVE alone does not substitute for VERIFIED verification outcome', () => {
+            const docActiveOnly = {
+                documentId: 'doc-active-only',
+                documentRecord: {
+                    documentId: 'doc-active-only',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-OFFICER-1',
+                        verifierRole: 'COMPLIANCE_OFFICER',
+                        verifiedAt: new Date(),
+                        outcome: 'PENDING' // Not VERIFIED or APPROVED!
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docActiveOnly), false, 'Non-verified audit outcome must fail closed');
+        });
+
+        it('Audit Provenance: Missing explicit verification timestamp fails closed (no new Date fallback)', () => {
+            const docNoDate = {
+                documentId: 'doc-no-date',
+                documentRecord: {
+                    documentId: 'doc-no-date',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-OFFICER-1',
+                        verifierRole: 'COMPLIANCE_OFFICER',
+                        outcome: 'VERIFIED'
+                        // No verifiedAt timestamp!
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docNoDate), false, 'Missing verifiedAt timestamp must fail closed');
+        });
+
+        it('Audit Provenance: Arbitrary verifier string without recognized role fails closed', () => {
+            const docArbitraryVerifier = {
+                documentId: 'doc-arb-v',
+                documentRecord: {
+                    documentId: 'doc-arb-v',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'some-random-user-string',
+                        verifiedAt: new Date(),
+                        outcome: 'VERIFIED'
+                        // No authorized role!
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docArbitraryVerifier), false, 'Arbitrary verifier string must fail closed');
+            assert.equal(isAuthorizedVerifier('some-random-user-string', null), false);
+        });
+
+        it('Audit Provenance: Arbitrary 24-char ObjectId without authorized role fails closed', () => {
+            const arbitraryId = new mongoose.Types.ObjectId().toString();
+            const docArbObjectId = {
+                documentId: 'doc-arb-id',
+                documentRecord: {
+                    documentId: 'doc-arb-id',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: arbitraryId,
+                        verifiedAt: new Date(),
+                        outcome: 'VERIFIED'
+                        // No authorized role!
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docArbObjectId), false, 'Arbitrary 24-char ID without authorized role must fail closed');
+            assert.equal(isAuthorizedVerifier(arbitraryId, null), false);
+        });
+
+        it('Audit Provenance: Authorized verifier with recognized role and non-future date passes', () => {
+            const docValidAudit = {
+                documentId: 'doc-valid-audit',
+                documentRecord: {
+                    documentId: 'doc-valid-audit',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-AUD-889',
+                        verifierRole: 'COMPLIANCE_OFFICER',
+                        verifiedAt: new Date(),
+                        outcome: 'VERIFIED',
+                        documentId: 'doc-valid-audit'
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docValidAudit), true, 'Genuine verification audit with authorized role must pass');
+            assert.equal(isAuthorizedVerifier('CMP-AUD-889', 'COMPLIANCE_OFFICER'), true);
+        });
+
+        it('Audit Provenance: Revoked or superseded audit record fails closed', () => {
+            const docRevokedAudit = {
+                documentId: 'doc-revoked-audit',
+                documentRecord: {
+                    documentId: 'doc-revoked-audit',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-AUD-889',
+                        verifierRole: 'COMPLIANCE_OFFICER',
+                        verifiedAt: new Date(),
+                        outcome: 'VERIFIED',
+                        isRevoked: true // Revoked!
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docRevokedAudit), false, 'Revoked audit record must fail closed');
+        });
+
+        it('Audit Provenance: Audit record documentId mismatch fails closed', () => {
+            const docMismatchId = {
+                documentId: 'doc-correct-id',
+                documentRecord: {
+                    documentId: 'doc-correct-id',
+                    entityType: 'Deal',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        verifierId: 'CMP-AUD-889',
+                        verifierRole: 'COMPLIANCE_OFFICER',
+                        verifiedAt: new Date(),
+                        outcome: 'VERIFIED',
+                        documentId: 'doc-WRONG-id' // Mismatched!
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docMismatchId), false, 'Mismatched audit documentId must fail closed');
+        });
+
+        // ========== 2. SNAPSHOT RELATIONSHIP CHAIN ==========
+
+        it('Snapshot Chain: Valid snapshot with valid link-to-property relationship passes', async () => {
+            const propId = new mongoose.Types.ObjectId();
+            const link = await PropertyAuthorityLink.create({
+                tenantId: new mongoose.Types.ObjectId(),
+                inventoryId: propId,
+                propertyId: propId.toString(),
+                authorityCode: 'HSVP',
+                matchEligibility: 'ELIGIBLE',
+                isActive: true,
+                createdBy: testAdminUser._id
+            });
+
+            const snapshot = await PropertyVerificationSnapshot.create({
+                _id: new mongoose.Types.ObjectId(),
+                snapshotId: 'snap-valid-chain-1',
+                tenantId: link.tenantId,
+                authorityCode: 'HSVP',
+                linkId: link._id,
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                dataQuality: { status: 'COMPLETE' }
+            });
+
+            const testDeal = {
+                _id: propId,
+                _entityType: 'Deal',
+                inventoryId: propId,
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                lastVerifiedAt: new Date(),
+                _resolvedSnapshot: {
+                    ...snapshot.toObject(),
+                    _resolvedLink: link.toObject()
+                }
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(testDeal), true, 'Valid snapshot relationship chain must pass');
+        });
+
+        it('Snapshot Chain: Snapshot linked to another property fails closed', async () => {
+            const propertyA = new mongoose.Types.ObjectId();
+            const propertyB = new mongoose.Types.ObjectId();
+
+            const linkB = await PropertyAuthorityLink.create({
+                tenantId: new mongoose.Types.ObjectId(),
+                inventoryId: propertyB, // Linked to Property B
+                propertyId: propertyB.toString(),
+                authorityCode: 'HSVP',
+                matchEligibility: 'ELIGIBLE',
+                isActive: true,
+                createdBy: testAdminUser._id
+            });
+
+            const snapshotB = await PropertyVerificationSnapshot.create({
+                _id: new mongoose.Types.ObjectId(),
+                snapshotId: 'snap-prop-b',
+                tenantId: linkB.tenantId,
+                authorityCode: 'HSVP',
+                linkId: linkB._id,
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                dataQuality: { status: 'COMPLETE' }
+            });
+
+            // Property A attempts to use Snapshot B
+            const dealA = {
+                _id: propertyA,
+                _entityType: 'Deal',
+                inventoryId: propertyA,
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: {
+                    ...snapshotB.toObject(),
+                    _resolvedLink: linkB.toObject() // Points to property B
+                }
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(dealA), false, 'Snapshot linked to another property must fail closed');
+        });
+
+        it('Snapshot Chain: Missing PropertyAuthorityLink fails closed', () => {
+            const fakeSnapshot = {
+                authorityCode: 'HRERA',
+                linkId: new mongoose.Types.ObjectId(),
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101'
+                // No _resolvedLink or linkRecord!
+            };
+
+            const deal = {
+                _id: new mongoose.Types.ObjectId(),
+                _entityType: 'Deal',
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: fakeSnapshot
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(deal), false, 'Missing PropertyAuthorityLink must fail closed');
+        });
+
+        it('Snapshot Chain: Missing property identity on link fails closed', () => {
+            const linkNoIdentity = {
+                inventoryId: null,
+                propertyId: null,
+                projectId: null,
+                authorityCode: 'HRERA',
+                isActive: true,
+                matchEligibility: 'ELIGIBLE'
+            };
+
+            const snap = {
+                authorityCode: 'HRERA',
+                linkId: new mongoose.Types.ObjectId(),
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: linkNoIdentity
+            };
+
+            const deal = {
+                _id: new mongoose.Types.ObjectId(),
+                _entityType: 'Deal',
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(deal), false, 'Link with missing property identity must fail closed');
+        });
+
+        it('Snapshot Chain: Link ID incorrectly used directly as property ID fails closed', () => {
+            const propertyId = new mongoose.Types.ObjectId();
+            const snap = {
+                authorityCode: 'HRERA',
+                linkId: propertyId, // linkId was set directly to property ID without link establishing identity
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101'
+                // No _resolvedLink!
+            };
+
+            const deal = {
+                _id: propertyId,
+                _entityType: 'Deal',
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(deal), false, 'Link ID used directly as property ID must fail closed');
+        });
+
+        it('Snapshot Chain: tenantId cannot substitute for property identity', () => {
+            const tenantId = new mongoose.Types.ObjectId();
+            const propA = new mongoose.Types.ObjectId();
+            const propB = new mongoose.Types.ObjectId();
+
+            const linkB = {
+                tenantId: tenantId,
+                inventoryId: propB, // Property B
+                authorityCode: 'HRERA',
+                isActive: true,
+                matchEligibility: 'ELIGIBLE'
+            };
+
+            const snap = {
+                tenantId: tenantId, // Same tenant!
+                authorityCode: 'HRERA',
+                linkId: new mongoose.Types.ObjectId(),
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: linkB
+            };
+
+            const dealA = {
+                _id: propA,
+                tenantId: tenantId, // Same tenant, different property
+                _entityType: 'Deal',
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: snap
+            };
+
+            assert.equal(hasAuthoritativeReraApproval(dealA), false, 'tenantId must never substitute for property identity');
+        });
+
+        it('Snapshot Chain: Revoked, unsealed, stale, and restricted snapshots fail closed', () => {
+            const baseLink = {
+                inventoryId: new mongoose.Types.ObjectId(),
+                authorityCode: 'HRERA',
+                isActive: true,
+                matchEligibility: 'ELIGIBLE'
+            };
+
+            // 1. Revoked
+            const revokedSnap = {
+                authorityCode: 'HRERA',
+                isSealed: true,
+                isRevoked: true, // Revoked!
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: baseLink
+            };
+            assert.equal(hasAuthoritativeReraApproval({ _id: baseLink.inventoryId, _entityType: 'Deal', reraNumber: 'HRERA-1', reraStatus: 'APPROVED', _resolvedSnapshot: revokedSnap }), false);
+
+            // 2. Unsealed
+            const unsealedSnap = {
+                authorityCode: 'HRERA',
+                isSealed: false, // Unsealed!
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: baseLink
+            };
+            assert.equal(hasAuthoritativeReraApproval({ _id: baseLink.inventoryId, _entityType: 'Deal', reraNumber: 'HRERA-1', reraStatus: 'APPROVED', _resolvedSnapshot: unsealedSnap }), false);
+
+            // 3. Stale (> 180 days)
+            const staleSnap = {
+                authorityCode: 'HRERA',
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(Date.now() - 190 * 24 * 60 * 60 * 1000), // > 180 days!
+                createdByWorkerId: 'WORKER-101',
+                _resolvedLink: baseLink
+            };
+            assert.equal(hasAuthoritativeReraApproval({ _id: baseLink.inventoryId, _entityType: 'Deal', reraNumber: 'HRERA-1', reraStatus: 'APPROVED', _resolvedSnapshot: staleSnap }), false);
+
+            // 4. Restricted data quality
+            const restrictedSnap = {
+                authorityCode: 'HRERA',
+                isSealed: true,
+                isRevoked: false,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                observedAt: new Date(),
+                createdByWorkerId: 'WORKER-101',
+                dataQuality: { status: 'RESTRICTED' },
+                _resolvedLink: baseLink
+            };
+            assert.equal(hasAuthoritativeReraApproval({ _id: baseLink.inventoryId, _entityType: 'Deal', reraNumber: 'HRERA-1', reraStatus: 'APPROVED', _resolvedSnapshot: restrictedSnap }), false);
+        });
+
+        // ========== 3. DOCUMENT ENTITYTYPE OWNERSHIP & COLLISION SIMULATION ==========
+
+        it('Document Ownership: Document with entityType === Contact matching Deal ID is rejected (same-ID collision simulation)', async () => {
+            const collisionId = new mongoose.Types.ObjectId();
+            const collisionVer = await DocumentVersion.create({
+                versionId: 'ver-collision-contact',
+                documentId: 'doc-collision-contact',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/contacts/id.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 102400
+            });
+
+            await Document.create({
+                documentId: 'doc-collision-contact',
+                entityType: 'Contact', // Contact, NOT Deal!
+                entityId: collisionId, // Same ID as Deal!
+                metadata: {
+                    documentCategory: 'BANK_APPROVAL'
+                },
+                currentVersionId: collisionVer._id,
+                state: 'ACTIVE'
+            });
+
+            const dealWithCollision = {
+                _id: collisionId,
+                _entityType: 'Deal',
+                bankApproval: {
+                    documentId: 'doc-collision-contact',
+                    bankName: 'HDFC',
+                    status: 'APPROVED',
+                    sanctionLetterNumber: 'HDFC-SANCT-999'
+                }
+            };
+
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(dealWithCollision);
+            assert.equal(dealWithCollision.bankApproval.documentRecord, null, 'Contact document must be rejected for Deal');
+
+            // Direct validator check
+            const candidateDoc = {
+                documentId: 'doc-collision-contact',
+                documentRecord: {
+                    documentId: 'doc-collision-contact',
+                    entityType: 'Contact',
+                    entityId: collisionId,
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-collision-contact',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
+            };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, dealWithCollision, 'BANK'), false, 'Cross-entity-type Contact document must fail closed');
+        });
+
+        it('Document Ownership: Document with entityType === Lead matching Deal ID is rejected', () => {
+            const sharedId = new mongoose.Types.ObjectId();
+            const candidateDoc = {
+                documentId: 'doc-lead-col',
+                documentRecord: {
+                    documentId: 'doc-lead-col',
+                    entityType: 'Lead', // Lead!
+                    entityId: sharedId,
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
+            };
+            const deal = { _id: sharedId, _entityType: 'Deal' };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, deal, 'BANK'), false, 'Lead document must fail closed for Deal');
+        });
+
+        it('Document Ownership: Document with entityType === Project matching Deal linked Project ID passes', () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const projId = new mongoose.Types.ObjectId();
+
+            const candidateDoc = {
+                documentId: 'doc-proj-doc',
+                documentRecord: {
+                    documentId: 'doc-proj-doc',
+                    entityType: 'Project', // Matches linked Project!
+                    entityId: projId,
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    metadata: { documentCategory: 'RERA_CERTIFICATE' },
+                    currentVersionId: 'ver-p1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
+            };
+            const deal = { _id: dealId, _entityType: 'Deal', projectId: projId };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, deal, 'RERA'), true, 'Document for linked Project must pass');
+        });
+
+        it('Document Ownership: Document with entityType === Inventory matching Deal linked Inventory ID passes', () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const invId = new mongoose.Types.ObjectId();
+
+            const candidateDoc = {
+                documentId: 'doc-inv-doc',
+                documentRecord: {
+                    documentId: 'doc-inv-doc',
+                    entityType: 'Inventory', // Matches linked Inventory!
+                    entityId: invId,
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    metadata: { documentCategory: 'BANK_APPROVAL' },
+                    currentVersionId: 'ver-i1',
+                    currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                }
+            };
+            const deal = { _id: dealId, _entityType: 'Deal', inventoryId: invId };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, deal, 'BANK'), true, 'Document for linked Inventory must pass');
+        });
+
+        // ========== 4. SANITIZER & TITLE COMPLIANCE REGRESSION ==========
+
+        it('Sanitizer & Title: Custom title with unverified claims is sanitized and passes post-sanitization audit', () => {
+            const unverifiedFacts = {
+                isTitleVerified: false,
+                isReraApproved: false,
+                isBankApproved: false,
+                isReadyPossession: false
+            };
+            const customTitle = 'Unbeatable Deal! 100% Guaranteed Returns & Verified Title in Prime Sector!';
+            const sanitizedTitle = validateAndSanitizeCopy(customTitle, unverifiedFacts, { platform: 'facebook' });
+
+            assert.doesNotMatch(sanitizedTitle, /guaranteed/i);
+            assert.doesNotMatch(sanitizedTitle, /verified title/i);
+            assert.match(sanitizedTitle, /Documentation status can be checked during due diligence/i);
+        });
+
+        it('Worker Execution Revalidation: Current evidence is revalidated rather than trusting previously scheduled facts', async () => {
+            // Create a Deal with valid verification initially
+            const tempDeal = await Deal.create({
+                name: 'Expiring Deal',
+                unitNo: 'Unit 990',
+                location: 'Karnal',
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    status: 'VERIFIED',
+                    verificationSnapshotId: 'snap-temp-990',
+                    snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                    lastVerifiedAt: new Date(Date.now() - 190 * 24 * 60 * 60 * 1000), // Expired!
+                    litigationStatus: 'CLEAN'
+                }
+            });
+
+            // Simulate worker revalidation of scheduled post
+            const jobData = {
+                platform: 'facebook',
+                entityId: tempDeal._id.toString(),
+                entityType: 'deal',
+                title: 'Prime Property with Verified Title',
+                text: 'Luxury Unit 990 with Verified Title and Guaranteed 15% ROI!'
+            };
+
+            const revalidated = await marketingComplianceEnforcementService.revalidateScheduledPost(jobData);
+            assert.equal(revalidated.facts.isTitleVerified, false, 'Expired verification must revalidate to false at execution time');
+            assert.doesNotMatch(revalidated.sanitizedText, /guaranteed/i);
+            assert.doesNotMatch(revalidated.sanitizedText, /15% roi/i);
+            assert.doesNotMatch(revalidated.sanitizedText, /verified title/i);
+            assert.doesNotMatch(revalidated.sanitizedTitle, /verified title/i);
         });
     });
 });
