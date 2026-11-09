@@ -5505,8 +5505,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     // Launch two separate child processes racing to consume the same signature simultaneously
                     const runChild = () => new Promise((resolve) => {
                         const child = fork(workerScript, [mongoUri, sig, recordPayload], { silent: true });
-                        child.on('message', (msg) => resolve(msg));
-                        child.on('exit', (code) => resolve({ code }));
+                        const timer = setTimeout(() => {
+                            try { child.kill('SIGKILL'); } catch (e) {}
+                            resolve({ success: false, error: 'TIMEOUT' });
+                        }, 10000);
+                        child.on('message', (msg) => { clearTimeout(timer); resolve(msg); });
+                        child.on('exit', (code) => { clearTimeout(timer); resolve({ code }); });
                     });
 
                     const [result1, result2] = await Promise.all([runChild(), runChild()]);
@@ -6029,8 +6033,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                             bindError = e.message;
                         }
                         console.log(JSON.stringify({ stolenWriter, bindError }));
+                        process.exit(0);
                         `
-                    ], { cwd: backendDir });
+                    ], { cwd: backendDir, timeout: 10000 });
 
                     const jsonLine = stdout.split('\n').filter(l => l.trim().startsWith('{')).pop();
                     const parsed = JSON.parse(jsonLine);
@@ -6052,8 +6057,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                             registerError = e.message;
                         }
                         console.log(JSON.stringify({ registerError }));
+                        process.exit(0);
                         `
-                    ], { cwd: backendDir });
+                    ], { cwd: backendDir, timeout: 10000 });
 
                     const jsonLine = stdout.split('\n').filter(l => l.trim().startsWith('{')).pop();
                     const parsed = JSON.parse(jsonLine);
@@ -6315,8 +6321,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
                     const runChild = () => new Promise((resolve) => {
                         const child = fork(workerScript, [mongoUri, sig, recordPayload], { silent: true });
-                        child.on('message', (msg) => resolve(msg));
-                        child.on('exit', (code) => resolve({ code }));
+                        const timer = setTimeout(() => {
+                            try { child.kill('SIGKILL'); } catch (e) {}
+                            resolve({ success: false, error: 'TIMEOUT' });
+                        }, 10000);
+                        child.on('message', (msg) => { clearTimeout(timer); resolve(msg); });
+                        child.on('exit', (code) => { clearTimeout(timer); resolve({ code }); });
                     });
 
                     const [result1, result2] = await Promise.all([runChild(), runChild()]);
