@@ -24,7 +24,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import AuthoritySourceSettings, {
     checkActivationEligibility,
     INTERNAL_WORKFLOW_OPTION,
-    issueInternalSeedWorkflowToken
+    issueInternalSeedWorkflowToken,
+    _testOnlyResetAuthoritySettings
 } from '../models/AuthoritySourceSettings.js';
 
 const getAuthWorkflowOptions = () => ({
@@ -1724,7 +1725,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         const tenantId = testTenantId;
         const userId = new mongoose.Types.ObjectId();
 
-        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode: 'GMADA' });
+        await _testOnlyResetAuthoritySettings({ tenantId, authorityCode: 'GMADA' });
         // Seed existing setting with maxConcurrent = 1
         await AuthoritySourceSettings.create({
             tenantId,
@@ -2032,7 +2033,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
         const tenantId = testTenantId;
         const userId = new mongoose.Types.ObjectId();
 
-        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode: 'HSVP' });
+        await _testOnlyResetAuthoritySettings({ tenantId, authorityCode: 'HSVP' });
         const existing = await AuthoritySourceSettings.create({
             tenantId,
             authorityCode: 'HSVP',
@@ -2255,7 +2256,7 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             approvedBy: 'audit'
         };
 
-        await AuthoritySourceSettings.deleteMany({ tenantId: tenantAlpha, authorityCode });
+        await _testOnlyResetAuthoritySettings({ tenantId: tenantAlpha, authorityCode });
         await AuthoritySourceSettings.create({
             tenantId: tenantAlpha,
             authorityCode,
@@ -2414,43 +2415,32 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             }
         });
 
-        await AuthoritySourceSettings.updateOne(
-            { tenantId: testTenantId, authorityCode },
-            {
-                $set: {
-                    permissionStatus: 'GRANTED',
-                    approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
-                    approvalReference: raceAudit._id.toString(),
-                    makerCheckerAuditLogId: raceAudit._id,
-                    commercialUseAuthorized: true,
-                    readOnlySearchAuthorized: true,
-                    termsReviewed: true,
-                    termsReference: 'https://gmada.gov.in/terms',
-                    submittedBy: submitterUser._id,
-                    approvedBy: approverUser._id,
-                    reviewedBy: reviewerUser._id,
-                    permittedFields: ['propertyId', 'sectorNumber', 'urbanEstate', 'status'],
-                    reviewStatus: 'APPROVED',
-                    isEnabled: true,
-                    contractVerificationStatus: 'VERIFIED_CONTRACT',
-                    contractEvidenceReference: 'GMADA/CONTRACT/01',
-                    identityRequirements: { verified: true },
-                    ratePolicy: {
-                        maxConcurrent: 1,
-                        maxRequestsPerMinute: 10,
-                        maxRequestsPerDay: 500,
-                        minIntervalMs: 50,
-                        minimumIntervalMs: 50,
-                        policySource: 'GMADA/RACE/POL'
-                    }
-                },
-                $setOnInsert: {
-                    tenantId: testTenantId,
-                    authorityCode
-                }
-            },
-            { upsert: true, ...getAuthWorkflowOptions() }
-        );
+        gmadaSetting.permissionStatus = 'GRANTED';
+        gmadaSetting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+        gmadaSetting.approvalReference = raceAudit._id.toString();
+        gmadaSetting.makerCheckerAuditLogId = raceAudit._id;
+        gmadaSetting.commercialUseAuthorized = true;
+        gmadaSetting.readOnlySearchAuthorized = true;
+        gmadaSetting.termsReviewed = true;
+        gmadaSetting.termsReference = 'https://gmada.gov.in/terms';
+        gmadaSetting.submittedBy = submitterUser._id;
+        gmadaSetting.approvedBy = approverUser._id;
+        gmadaSetting.reviewedBy = reviewerUser._id;
+        gmadaSetting.permittedFields = ['propertyId', 'sectorNumber', 'urbanEstate', 'status'];
+        gmadaSetting.reviewStatus = 'APPROVED';
+        gmadaSetting.isEnabled = true;
+        gmadaSetting.contractVerificationStatus = 'VERIFIED_CONTRACT';
+        gmadaSetting.contractEvidenceReference = 'GMADA/CONTRACT/01';
+        gmadaSetting.identityRequirements = { verified: true };
+        gmadaSetting.ratePolicy = {
+            maxConcurrent: 1,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerDay: 500,
+            minIntervalMs: 50,
+            minimumIntervalMs: 50,
+            policySource: 'GMADA/RACE/POL'
+        };
+        await gmadaSetting.save();
 
         // Initialize AuthorityGlobalFenceWatermark
         await AuthorityGlobalFenceWatermark.deleteMany({ authorityCode });

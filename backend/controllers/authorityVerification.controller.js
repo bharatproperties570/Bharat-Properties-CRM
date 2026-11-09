@@ -2115,7 +2115,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                                         description: 'Redis synced but policy document update was unacknowledged or unmatched',
                                         'metadata.redisSyncStatus': 'PENDING_RECONCILIATION',
                                         'metadata.syncPhase': 'PENDING_RECONCILIATION',
-                                        'metadata.errorMessage': isZeroMatch ? 'Policy document was not matched during sync confirmation' : 'Policy document update was unacknowledged'
+                                        'metadata.errorMessage': isZeroMatch ? 'POLICY_NOT_MATCHED: Policy document was not matched during sync confirmation' : 'POLICY_UPDATE_FAILED: Policy document update was unacknowledged'
                                     }
                                 }
                             ).catch(() => {});
@@ -2581,7 +2581,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                                 status: 'failed',
                                 'metadata.syncPhase': 'PENDING_RECONCILIATION',
                                 'metadata.redisSyncStatus': 'MALFORMED_REDIS_POLICY',
-                                'metadata.errorMessage': `Authoritative Redis record is malformed: ${readErr.message}`
+                                'metadata.errorMessage': 'MALFORMED_REDIS_POLICY: Authoritative Redis record is malformed'
                             }
                         }
                     ).catch(() => {});
@@ -2678,7 +2678,7 @@ export const syncCanonicalPolicy = async (req, res) => {
                                 status: 'failed',
                                 'metadata.syncPhase': 'PENDING_RECONCILIATION',
                                 'metadata.redisSyncStatus': 'MALFORMED_REDIS_POLICY',
-                                'metadata.errorMessage': `Authoritative Redis record is malformed: version=${rawVersion}, contentHash=${rawHash}`
+                                'metadata.errorMessage': 'MALFORMED_REDIS_POLICY: Authoritative Redis record is malformed'
                             }
                         }
                     ).catch(() => {});

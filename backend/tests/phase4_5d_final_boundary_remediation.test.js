@@ -83,7 +83,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import Inventory from '../models/Inventory.js';
@@ -627,7 +627,7 @@ test('Activation Bypass 1: Existing UNDER_REVIEW record + updateOne({$set:{isEna
     assert.strictEqual(settingAfter.isEnabled, false);
     assert.strictEqual(settingAfter.reviewStatus, 'UNDER_REVIEW');
 
-    await AuthoritySourceSettings.deleteOne({ _id: setting._id, tenantId: testTenantId });
+    await _testOnlyResetAuthoritySettings({ _id: setting._id, tenantId: testTenantId });
 });
 
 test('Activation Bypass 2: Existing UNDER_REVIEW record + findOneAndUpdate({$set:{schedulingEnabled:true}}) is rejected', async () => {
@@ -656,7 +656,7 @@ test('Activation Bypass 2: Existing UNDER_REVIEW record + findOneAndUpdate({$set
     const settingAfter = await AuthoritySourceSettings.findById(setting._id);
     assert.strictEqual(settingAfter.schedulingEnabled, false);
 
-    await AuthoritySourceSettings.deleteOne({ _id: setting._id, tenantId: testTenantId });
+    await _testOnlyResetAuthoritySettings({ _id: setting._id, tenantId: testTenantId });
 });
 
 test('Activation Bypass 3: Direct bulkWrite on AuthoritySourceSettings throws DIRECT_BULK_WRITE_PROHIBITED', async () => {
@@ -719,7 +719,7 @@ test('Expiry Separation 1: recordMakerCheckerApproval sets internalReviewExpiryD
     assert.strictEqual(updated.contractVerificationStatus, 'NOT_VERIFIED');
     assert.strictEqual(updated.commercialUseAuthorized, false);
 
-    await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
+    await _testOnlyResetAuthoritySettings({ tenantId: testTenantId, authorityCode: 'HSVP' });
     await AuditLog.deleteOne({ _id: auditRecord._id }).catch(() => {});
     await User.deleteMany({ _id: { $in: [u1._id, u2._id, u3._id] } });
     await Role.deleteMany({ _id: { $in: [appRole._id, revRole._id] } });

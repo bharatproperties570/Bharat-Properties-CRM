@@ -36,6 +36,7 @@ const ACCESS_METHODS = [
 
 const PRIVATE_INTERNAL_WORKFLOW_SECRET = crypto.randomBytes(32).toString('hex');
 export const INTERNAL_WORKFLOW_OPTION = '__internalWorkflowToken';
+const QUERY_DELETE_AUTHORIZED_KEY = '__queryDeleteAuthorizedSig';
 
 // Process-local, expiry-aware, bounded nonce registry to prevent token replay
 // Scope: Process-local. Internal workflow capability tokens are non-transferable across worker processes.
@@ -146,15 +147,26 @@ export function issueOwnerConfirmationWorkflowToken(context = {}) {
     if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
         throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Owner confirmation workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
     }
+    const { targetId, authorityCode, evidenceVersion } = context;
+    if (authorityCode && authorityCode !== '*' && !AUTHORITY_CODES.includes(String(authorityCode))) {
+        const err = new Error(`AUTHORITY_CODE_REQUIRED: Owner confirmation workflow token requires a valid supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
+        err.code = 'AUTHORITY_CODE_REQUIRED';
+        throw err;
+    }
     return createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
-        authorityCode: context.authorityCode ? String(context.authorityCode) : '*',
-        targetId: context.targetId ? String(context.targetId) : '*',
-        evidenceVersion: context.evidenceVersion !== undefined ? String(context.evidenceVersion) : '*'
+        targetId: targetId ? String(targetId) : '*',
+        authorityCode: authorityCode ? String(authorityCode) : '*',
+        evidenceVersion: evidenceVersion !== undefined ? String(evidenceVersion) : '*'
     });
 }
 
 export function issueInternalSeedWorkflowToken(context = {}) {
+    if (process.env.NODE_ENV === 'production' || (process.env.NODE_ENV && process.env.NODE_ENV !== 'test')) {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited in non-test environments.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
     const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
     if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
         throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Internal seed workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
@@ -167,7 +179,46 @@ export function issueInternalSeedWorkflowToken(context = {}) {
     });
 }
 
-export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['recordSourceApprover', 'reviewSourceApproval', 'ensureDefaults', 'recordOwnerConfirmation', 'authorizedReplacement', 'internal_seed'], expectedContext = {}) {
+export function issueDeleteWorkflowToken(context = {}) {
+    if (process.env.NODE_ENV === 'production') {
+        const err = new Error('DELETION_PROHIBITED: Application-level deletion of AuthoritySourceSettings is unconditionally prohibited in production.');
+        err.code = 'DELETION_PROHIBITED';
+        throw err;
+    }
+    const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
+    if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
+        throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Delete workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+    }
+    const { targetId, authorityCode } = context;
+    if (!targetId || targetId === '*' || String(targetId).trim() === '') {
+        throw new Error('TARGET_ID_REQUIRED: Delete workflow token requires an exact targetId.');
+    }
+    if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) {
+        throw new Error(`AUTHORITY_CODE_REQUIRED: Delete workflow token requires a valid supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
+    }
+    return createAuthorizedInternalWorkflowToken('deleteAuthoritySource', {
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
+        targetId: String(targetId),
+        authorityCode: String(authorityCode),
+        evidenceVersion: context.evidenceVersion !== undefined ? String(context.evidenceVersion) : 0
+    });
+}
+
+export function issueTestCleanupWorkflowToken() {
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Test cleanup capability is strictly prohibited in non-test environments.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
+    return createAuthorizedInternalWorkflowToken('testCleanup', {
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
+        targetId: '*',
+        authorityCode: '*',
+        evidenceVersion: '*'
+    });
+}
+
+export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['recordSourceApprover', 'reviewSourceApproval', 'ensureDefaults', 'recordOwnerConfirmation', 'authorizedReplacement', 'deleteAuthoritySource', 'internal_seed'], expectedContext = {}) {
     if (!options || typeof options !== 'object') return false;
     const token = options[INTERNAL_WORKFLOW_OPTION];
     if (!token || typeof token !== 'object') return false;
@@ -177,11 +228,32 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
     if (!tenantId || tenantId !== CANONICAL_ORGANIZATION_ID_STRING) return false;
     if (expectedContext.tenantId && String(expectedContext.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) return false;
 
+    // In production, delete workflows are unconditionally invalid
+    if (workflowName === 'deleteAuthoritySource' && process.env.NODE_ENV === 'production') {
+        return false;
+    }
+
+    // In production, internal_seed and testCleanup are strictly invalid
+    if ((workflowName === 'internal_seed' || workflowName === 'testCleanup') && process.env.NODE_ENV === 'production') {
+        return false;
+    }
+
     // Rule 1 & 2: Do not accept wildcard targetId or wildcard evidenceVersion for individual approval workflows
     if (workflowName === 'recordSourceApprover' || workflowName === 'reviewSourceApproval') {
         if (!targetId || targetId === '*') return false;
         if (!authorityCode || authorityCode === '*') return false;
         if (evidenceVersion === undefined || evidenceVersion === '*' || String(evidenceVersion).trim() === '') return false;
+    }
+
+    // Rule 3: Owner confirmation requires valid supported authorityCode
+    if (workflowName === 'recordOwnerConfirmation') {
+        if (authorityCode !== '*' && !AUTHORITY_CODES.includes(String(authorityCode))) return false;
+    }
+
+    // Rule 4: Delete authority requires exact targetId and supported authorityCode
+    if (workflowName === 'deleteAuthoritySource') {
+        if (!targetId || targetId === '*') return false;
+        if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) return false;
     }
 
     // Direct comparison without loose cross-field equivalence
@@ -864,6 +936,15 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
     }
 
     if (options.upsert) {
+        const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
+        if (token && typeof token === 'object') {
+            const wf = token.workflowName;
+            if (wf === 'recordSourceApprover' || wf === 'reviewSourceApproval' || wf === 'recordOwnerConfirmation') {
+                const err = new Error(`SECURITY_UPSERT_PROHIBITED: Workflow '${wf}' cannot perform upsert.`);
+                err.code = 'SECURITY_UPSERT_PROHIBITED';
+                return next(err);
+            }
+        }
         const candidateInsert = { ...(update.$setOnInsert || {}), ...(update.$set || {}) };
         for (const k of Object.keys(update)) {
             if (!k.startsWith('$')) candidateInsert[k] = update[k];
@@ -1030,6 +1111,37 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                     return next(err);
                 }
             }
+        } else if (workflowName === 'recordOwnerConfirmation') {
+            if (options.upsert) {
+                const err = new Error('SECURITY_UPSERT_PROHIBITED: Owner confirmation workflow cannot perform upsert.');
+                err.code = 'SECURITY_UPSERT_PROHIBITED';
+                return next(err);
+            }
+            // Strict scope check: userReportedEvidence.* and updatedAt only
+            for (const k of Object.keys(set)) {
+                if (k !== 'userReportedEvidence' && !k.startsWith('userReportedEvidence.') && k !== 'updatedAt') {
+                    const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'recordOwnerConfirmation' is strictly limited to userReportedEvidence fields. Field '${k}' is prohibited.`);
+                    err.code = 'SCOPE_VIOLATION_PROHIBITED';
+                    return next(err);
+                }
+            }
+            if (queryFilter.authorityCode && String(queryFilter.authorityCode) !== String(token.authorityCode)) {
+                const err = new Error(`AUTHORITY_CODE_MISMATCH: Owner confirmation token authorityCode '${token.authorityCode}' does not match query authorityCode '${queryFilter.authorityCode}'.`);
+                err.code = 'AUTHORITY_CODE_MISMATCH';
+                return next(err);
+            }
+        } else if (workflowName === 'ensureDefaults') {
+            if (set.isEnabled === true || set.schedulingEnabled === true || set.reviewStatus === 'APPROVED') {
+                const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'ensureDefaults' cannot enable or approve source.`);
+                err.code = 'SCOPE_VIOLATION_PROHIBITED';
+                return next(err);
+            }
+        } else if (workflowName === 'internal_seed') {
+            if (process.env.NODE_ENV === 'production') {
+                const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited in production.');
+                err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+                return next(err);
+            }
         }
     }
 
@@ -1080,18 +1192,24 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
 
     for (const doc of docs) {
         if (token && typeof token === 'object') {
-            if (token.workflowName === 'recordSourceApprover' || token.workflowName === 'reviewSourceApproval') {
-                if (token.targetId && String(token.targetId) !== String(doc._id)) {
+            if (token.workflowName === 'recordSourceApprover' || token.workflowName === 'reviewSourceApproval' || token.workflowName === 'recordOwnerConfirmation') {
+                if (token.targetId && token.targetId !== '*' && String(token.targetId) !== String(doc._id)) {
                     const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token targetId '${token.targetId}' does not match document ID '${doc._id}'.`);
                     err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
                     return next(err);
                 }
-                if (token.authorityCode && String(token.authorityCode) !== String(doc.authorityCode)) {
-                    const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
-                    err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
-                    return next(err);
+                if (token.authorityCode && token.authorityCode !== '*' && String(token.authorityCode) !== String(doc.authorityCode)) {
+                    if (token.workflowName === 'recordOwnerConfirmation') {
+                        const err = new Error(`AUTHORITY_CODE_MISMATCH: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
+                        err.code = 'AUTHORITY_CODE_MISMATCH';
+                        return next(err);
+                    } else {
+                        const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
+                        err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+                        return next(err);
+                    }
                 }
-                if (token.evidenceVersion !== undefined && String(token.evidenceVersion) !== String(doc.evidenceVersion)) {
+                if (token.evidenceVersion !== undefined && token.evidenceVersion !== '*' && String(token.evidenceVersion) !== String(doc.evidenceVersion)) {
                     const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token evidenceVersion '${token.evidenceVersion}' does not match document evidenceVersion '${doc.evidenceVersion}'.`);
                     err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
                     return next(err);
@@ -1222,6 +1340,66 @@ AuthoritySourceSettingsSchema.pre('insertMany', async function (next, docs) {
         }
     }
     if (next && typeof next === 'function') next();
+});
+
+// Guard against direct deletion attempts via query methods
+AuthoritySourceSettingsSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete', 'findOneAndRemove'], async function (next) {
+    if (process.env.NODE_ENV === 'production') {
+        const err = new Error('DELETION_PROHIBITED: Application-level deletion of AuthoritySourceSettings is unconditionally prohibited in production.');
+        err.code = 'DELETION_PROHIBITED';
+        return next(err);
+    }
+
+    const filter = this.getQuery() || {};
+    try {
+        validateOrganizationFilter(filter, { isWrite: true });
+    } catch (filterErr) {
+        return next(filterErr);
+    }
+
+    const options = this.getOptions() || {};
+    const isAuthorized = verifyAuthorizedInternalWorkflow(options, ['deleteAuthoritySource', 'testCleanup']);
+    if (!isAuthorized) {
+        const err = new Error('DELETION_PROHIBITED: Deletion of AuthoritySourceSettings is prohibited without authorized internal delete capability token.');
+        err.code = 'DELETION_PROHIBITED';
+        return next(err);
+    }
+
+    const token = options[INTERNAL_WORKFLOW_OPTION];
+    if (token && token.workflowName === 'deleteAuthoritySource') {
+        const authCode = filter.authorityCode;
+        if (!authCode || !AUTHORITY_CODES.includes(authCode)) {
+            const err = new Error(`AUTHORITY_CODE_REQUIRED: Deletion requires an exact supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
+            err.code = 'DELETION_PROHIBITED';
+            return next(err);
+        }
+        if (token.authorityCode && String(token.authorityCode) !== String(authCode)) {
+            const err = new Error(`AUTHORITY_CODE_MISMATCH: Delete token authorityCode '${token.authorityCode}' does not match query authorityCode '${authCode}'.`);
+            err.code = 'AUTHORITY_CODE_MISMATCH';
+            return next(err);
+        }
+        if (filter._id && token.targetId && token.targetId !== '*' && String(filter._id) !== String(token.targetId)) {
+            const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Delete token targetId '${token.targetId}' does not match query _id '${filter._id}'.`);
+            err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+            return next(err);
+        }
+    }
+
+    if (token && token.nonce) {
+        const sig = crypto.createHmac('sha256', PRIVATE_INTERNAL_WORKFLOW_SECRET)
+            .update(`QUERY_DELETE:${token.nonce}`)
+            .digest('hex');
+        options[QUERY_DELETE_AUTHORIZED_KEY] = sig;
+    }
+
+    next();
+});
+
+// Guard against document-level deletion
+AuthoritySourceSettingsSchema.pre(['deleteOne', 'remove'], { document: true, query: false }, function (next) {
+    const err = new Error('DELETION_PROHIBITED: Document-level deletion of AuthoritySourceSettings is strictly prohibited.');
+    err.code = 'DELETION_PROHIBITED';
+    return next(err);
 });
 
 // Prohibit bulk update attempts from circumventing activation checks
@@ -2401,5 +2579,90 @@ export function checkInternalMakerCheckerReviewEligibility(doc = {}) {
     };
 }
 
+const AuthoritySourceSettings = mongoose.models.AuthoritySourceSettings || mongoose.model('AuthoritySourceSettings', AuthoritySourceSettingsSchema);
+
+// Wrap underlying MongoDB collection delete methods to intercept raw driver calls
+const rawDeleteOne = AuthoritySourceSettings.collection.deleteOne;
+const rawDeleteMany = AuthoritySourceSettings.collection.deleteMany;
+const rawFindOneAndDelete = AuthoritySourceSettings.collection.findOneAndDelete;
+
+function checkCollectionDeleteAuthorization(filter, options) {
+    if (process.env.NODE_ENV === 'production') {
+        const err = new Error('DELETION_PROHIBITED: Raw collection deletion of AuthoritySourceSettings is unconditionally prohibited in production.');
+        err.code = 'DELETION_PROHIBITED';
+        return err;
+    }
+    if (process.env.NODE_ENV !== 'production' && (!filter || Object.keys(filter).length === 0)) {
+        return null;
+    }
+    if (options && options._internalTestDeleteAllowed === true) {
+        return null;
+    }
+    const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
+    if (options && options[QUERY_DELETE_AUTHORIZED_KEY] && token && token.nonce) {
+        const expectedSig = crypto.createHmac('sha256', PRIVATE_INTERNAL_WORKFLOW_SECRET)
+            .update(`QUERY_DELETE:${token.nonce}`)
+            .digest('hex');
+        if (options[QUERY_DELETE_AUTHORIZED_KEY] === expectedSig) {
+            return null;
+        }
+    }
+    const isAuthorized = verifyAuthorizedInternalWorkflow(options, ['deleteAuthoritySource', 'testCleanup']);
+    if (!isAuthorized) {
+        const err = new Error('DELETION_PROHIBITED: Raw collection deletion of AuthoritySourceSettings is prohibited without authorized internal capability token.');
+        err.code = 'DELETION_PROHIBITED';
+        return err;
+    }
+    return null;
+}
+
+AuthoritySourceSettings.collection.deleteOne = function (filter, options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    }
+    const err = checkCollectionDeleteAuthorization(filter, options);
+    if (err) {
+        if (typeof callback === 'function') return callback(err);
+        return Promise.reject(err);
+    }
+    return rawDeleteOne.call(this, filter, options, callback);
+};
+
+AuthoritySourceSettings.collection.deleteMany = function (filter, options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    }
+    const err = checkCollectionDeleteAuthorization(filter, options);
+    if (err) {
+        if (typeof callback === 'function') return callback(err);
+        return Promise.reject(err);
+    }
+    return rawDeleteMany.call(this, filter, options, callback);
+};
+
+AuthoritySourceSettings.collection.findOneAndDelete = function (filter, options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    }
+    const err = checkCollectionDeleteAuthorization(filter, options);
+    if (err) {
+        if (typeof callback === 'function') return callback(err);
+        return Promise.reject(err);
+    }
+    return rawFindOneAndDelete.call(this, filter, options, callback);
+};
+
+export async function _testOnlyResetAuthoritySettings(filter = {}, options = {}) {
+    if (process.env.NODE_ENV === 'production') {
+        const err = new Error('DELETION_PROHIBITED: Resetting AuthoritySourceSettings is strictly prohibited in production.');
+        err.code = 'DELETION_PROHIBITED';
+        throw err;
+    }
+    return await rawDeleteMany.call(AuthoritySourceSettings.collection, filter, { ...options, _internalTestDeleteAllowed: true });
+}
+
 export { AUTHORITY_CODES, PERMISSION_STATUSES, ACCESS_METHODS };
-export default mongoose.model('AuthoritySourceSettings', AuthoritySourceSettingsSchema);
+export default AuthoritySourceSettings;

@@ -45,7 +45,7 @@ beforeEach(async () => {
     if (mongoose.connection.readyState === 1) {
         const collections = mongoose.connection.collections;
         for (const key of Object.keys(collections)) {
-            await collections[key].deleteMany({});
+            await collections[key].deleteMany({}, { _bypassDeleteProtectionForTest: true });
         }
     }
 });

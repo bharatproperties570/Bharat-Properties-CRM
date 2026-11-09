@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
 import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
@@ -166,7 +166,7 @@ test.after(async () => {
 
 // Helper to reset a specific authority setting into clean PENDING_REVIEW state
 async function prepareSubmittedSource(code = 'HSVP') {
-    await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: code });
+    await _testOnlyResetAuthoritySettings({ tenantId: testTenantId, authorityCode: code });
     await AuthoritySourceSettings.ensureDefaults(testTenantId);
 
     const setting = await AuthoritySourceSettings.findOne({ tenantId: testTenantId, authorityCode: code });
@@ -806,7 +806,7 @@ test('State 14: Internal approval attempt -> isEnabled=false and schedulingEnabl
 // ============================================================
 
 test('Query 15: updateOne upsert with isEnabled=true -> Reject; no document created', async () => {
-    await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
+    await _testOnlyResetAuthoritySettings({ tenantId: testTenantId, authorityCode: 'HSVP' });
 
     await assert.rejects(
         async () => {
@@ -824,7 +824,7 @@ test('Query 15: updateOne upsert with isEnabled=true -> Reject; no document crea
 });
 
 test('Query 16: findOneAndUpdate upsert with reviewStatus=APPROVED -> Reject; no document created', async () => {
-    await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'GMADA' });
+    await _testOnlyResetAuthoritySettings({ tenantId: testTenantId, authorityCode: 'GMADA' });
 
     await assert.rejects(
         async () => {
@@ -957,7 +957,7 @@ test('Bulk 22: direct APPROVED / enabled / scheduling update -> Reject', async (
 });
 
 test('Bulk 23: canonical ensureDefaults() $setOnInsert -> Pass, remains disabled and pending', async () => {
-    await AuthoritySourceSettings.deleteMany({ tenantId: testTenantId });
+    await _testOnlyResetAuthoritySettings({ tenantId: testTenantId });
 
     // ensureDefaults uses bulkWrite with $setOnInsert
     await AuthoritySourceSettings.ensureDefaults(testTenantId);
