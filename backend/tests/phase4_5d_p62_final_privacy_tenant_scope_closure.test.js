@@ -853,7 +853,8 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
                     changedKeys: ['possessionDate'],
                     code: 'SEARCH_OK',
                     searchMode: 'EXACT',
-                    quotaReservationId: 'res_gmada_123'
+                    quotaReservationId: 'res_gmada_123',
+                    parserVersion: '1.0.0'
                 }
             });
 
@@ -870,6 +871,7 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
             assert.strictEqual(persisted.metadata.code, 'SEARCH_OK');
             assert.strictEqual(persisted.metadata.searchMode, 'EXACT');
             assert.strictEqual(persisted.metadata.quotaReservationId, 'res_gmada_123');
+            assert.strictEqual(persisted.metadata.parserVersion, '1.0.0');
         });
 
         test('5.3: PortalAuditSink rejects uncontrolled metadata key in portal events', async () => {
