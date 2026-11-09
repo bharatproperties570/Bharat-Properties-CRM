@@ -4,8 +4,11 @@ import DocumentVersion from '../models/DocumentVersion.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
 import { hasStatutoryVerifierPermissions } from '../utils/propertyComplianceValidator.js';
-import { verifySystemServiceSignature } from './MarketingComplianceEnforcementService.js';
-import { AUDIT_CAPABILITY_TOKEN } from './auditCapabilityToken.js';
+import { 
+    verifySystemServiceSignatureDurable, 
+    commitNonceConsumptionDurable 
+} from './MarketingComplianceEnforcementService.js';
+import { executePrivilegedAuditWrite } from './internalAuditBridge.js';
 
 /**
  * DocumentAuditService
@@ -13,17 +16,62 @@ import { AUDIT_CAPABILITY_TOKEN } from './auditCapabilityToken.js';
  * Internal trusted service for writing, superseding, and revoking Document verification audits.
  * This is the ONLY authorized mechanism capable of modifying verification audit evidence.
  * 
- * Ordinary controllers, routes, generic model update operations, user payloads,
- * and arbitrary query options cannot acquire or forge the required capability token.
+ * Boundary Enforcement:
+ * - Uses internalAuditBridge.js to execute privileged writes with call-stack authentication.
+ * - Always resolves User and Role from the database; caller-supplied permission objects are disregarded.
+ * - System services must authenticate with HMAC-SHA256 signatures, validated nonces, and bounded timestamps.
+ * - Distributed replay protection prevents replaying nonces across worker processes or restarts.
+ * - Revocation requires identical statutory authorization or HMAC signature.
+ * - Revoked documents cannot be reactivated.
  */
 export class DocumentAuditService {
+    /**
+     * Resolves and verifies an authorized statutory verifier from persisted MongoDB User & Role collections.
+     * Treats caller identity strictly as an identifier, never trusting caller-provided permission/role objects.
+     * 
+     * @param {string|mongoose.Types.ObjectId|Object} userRef - User identifier or object
+     * @returns {Promise<{ isAuthorized: boolean, userId: string|null, roleId: string|null }>}
+     */
+    static async resolvePersistedVerifierAuthorization(userRef) {
+        if (!userRef) return { isAuthorized: false, userId: null, roleId: null };
+
+        const userId = String(userRef._id || userRef).trim();
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return { isAuthorized: false, userId: null, roleId: null };
+        }
+
+        // Always query database directly to ensure role changes, deactivation, or deletion are reflected immediately
+        const userDoc = await User.findById(userId).populate('role').lean();
+        if (!userDoc || userDoc.isActive !== true || userDoc.status !== 'active' || userDoc.isDeleted || userDoc.deletedAt) {
+            return { isAuthorized: false, userId, roleId: null };
+        }
+
+        let roleDoc = userDoc.role && typeof userDoc.role === 'object' ? userDoc.role : null;
+        if (!roleDoc || !roleDoc.moduleAccess) {
+            const roleId = userDoc.role?._id || userDoc.role;
+            if (roleId && mongoose.Types.ObjectId.isValid(String(roleId))) {
+                roleDoc = await Role.findById(roleId).lean();
+            }
+        }
+
+        if (!roleDoc || roleDoc.isDeleted || roleDoc.deletedAt) {
+            return { isAuthorized: false, userId, roleId: null };
+        }
+
+        if (!hasStatutoryVerifierPermissions(roleDoc)) {
+            return { isAuthorized: false, userId, roleId: String(roleDoc._id || '') };
+        }
+
+        return { isAuthorized: true, userId, roleId: String(roleDoc._id || '') };
+    }
+
     /**
      * Attaches or supersedes verification audit evidence on an active Document.
      * 
      * @param {Object} params
      * @param {string} params.documentId - Unique document identifier
      * @param {Object} params.auditPayload - 7-field verification audit record
-     * @param {Object} [params.verifierUser=null] - Authenticated User entity or user record
+     * @param {Object} [params.verifierUser=null] - Authenticated User entity or identifier
      * @param {Object} [params.systemContext=null] - Authenticated system service credentials
      * @returns {Promise<Object>} Updated Document record
      */
@@ -52,7 +100,7 @@ export class DocumentAuditService {
             throw new Error(`DOCUMENT_DELETED: Document '${documentId}' is soft-deleted.`);
         }
         if (doc.isRevoked === true || doc.status === 'REVOKED') {
-            throw new Error(`DOCUMENT_REVOKED: Document '${documentId}' is already revoked.`);
+            throw new Error(`DOCUMENT_REVOKED: Document '${documentId}' is revoked and cannot be reactivated.`);
         }
 
         // 2. Validate current DocumentVersion
@@ -103,51 +151,45 @@ export class DocumentAuditService {
 
         // 4. Authenticate Verifier & Permission Contract
         let isAuthorized = false;
+        let consumedSignature = null;
         const verifierStr = String(verifierId).trim();
 
         if (verifierUser) {
-            const userObj = verifierUser._id ? verifierUser : await User.findById(verifierStr).populate('role').lean();
-            if (userObj && userObj.isActive === true && userObj.status === 'active' && !userObj.isDeleted && !userObj.deletedAt) {
-                let roleObj = userObj.role && typeof userObj.role === 'object' ? userObj.role : null;
-                if (!roleObj || !roleObj.moduleAccess) {
-                    const roleId = userObj.role?._id || userObj.role;
-                    if (roleId) {
-                        roleObj = await Role.findById(roleId).lean();
-                    }
-                }
-                if (roleObj && !roleObj.isDeleted && !roleObj.deletedAt && hasStatutoryVerifierPermissions(roleObj)) {
-                    isAuthorized = true;
-                }
+            const authRes = await this.resolvePersistedVerifierAuthorization(verifierUser);
+            if (authRes.isAuthorized) {
+                isAuthorized = true;
             }
         } else if (systemContext) {
             const sysId = String(systemContext.serviceId || verifierStr).toUpperCase();
-            const isValidSig = verifySystemServiceSignature(
+            const signature = systemContext.systemSignature || auditPayload.systemSignature;
+            const context = {
+                entityId: auditEntId,
+                documentId: auditDocId,
+                nonce: systemContext.nonce || auditPayload.systemNonce,
+                idempotencyKey: systemContext.idempotencyKey
+            };
+
+            const sigRes = await verifySystemServiceSignatureDurable(
                 sysId,
                 verifiedAt,
-                systemContext.systemSignature || auditPayload.systemSignature,
-                {
-                    entityId: auditEntId,
-                    documentId: auditDocId,
-                    nonce: systemContext.nonce || auditPayload.systemNonce,
-                    idempotencyKey: systemContext.idempotencyKey
-                }
+                signature,
+                context
             );
-            if (isValidSig) {
+
+            if (sigRes.isValid) {
                 isAuthorized = true;
+                consumedSignature = signature;
+                // Safe idempotent retry: If already committed, return the document without repeating mutation
+                if (sigRes.isIdempotentRetry && sigRes.isCommitted) {
+                    return Document.findById(doc._id);
+                }
+            } else {
+                throw new Error(`UNAUTHORIZED_VERIFIER: System service verification failed: ${sigRes.error || 'INVALID_SIGNATURE'}`);
             }
         } else if (mongoose.Types.ObjectId.isValid(verifierStr)) {
-            const userDoc = await User.findById(verifierStr).populate('role').lean();
-            if (userDoc && userDoc.isActive === true && userDoc.status === 'active' && !userDoc.isDeleted && !userDoc.deletedAt) {
-                let roleObj = userDoc.role && typeof userDoc.role === 'object' ? userDoc.role : null;
-                if (!roleObj || !roleObj.moduleAccess) {
-                    const roleId = userDoc.role?._id || userDoc.role;
-                    if (roleId) {
-                        roleObj = await Role.findById(roleId).lean();
-                    }
-                }
-                if (roleObj && !roleObj.isDeleted && !roleObj.deletedAt && hasStatutoryVerifierPermissions(roleObj)) {
-                    isAuthorized = true;
-                }
+            const authRes = await this.resolvePersistedVerifierAuthorization(verifierStr);
+            if (authRes.isAuthorized) {
+                isAuthorized = true;
             }
         }
 
@@ -155,7 +197,7 @@ export class DocumentAuditService {
             throw new Error('UNAUTHORIZED_VERIFIER: Verifier lacks required statutory verification permissions or valid signature.');
         }
 
-        // 5. Build Audit Record and Preserve History
+        // 5. Build Audit Record and Preserve Prior History
         const finalAudit = {
             ...auditPayload,
             documentId: auditDocId,
@@ -186,24 +228,26 @@ export class DocumentAuditService {
             updateOps.$push = { auditHistory: historyEntry };
         }
 
-        // 6. Mutate Document using private capability token
-        await Document.updateOne(
-            { _id: doc._id },
-            updateOps,
-            { [AUDIT_CAPABILITY_TOKEN]: true }
-        );
+        // 6. Mutate Document via privileged internal bridge
+        await executePrivilegedAuditWrite(doc._id, updateOps);
+
+        // Commit nonce in distributed ledger if system service
+        if (consumedSignature) {
+            await commitNonceConsumptionDurable(consumedSignature);
+        }
 
         return Document.findById(doc._id);
     }
 
     /**
      * Revokes a Document verification audit through the approved workflow while preserving history.
+     * Strictly requires statutory authorization (persisted User+Role) or cryptographically verified systemContext.
      * 
      * @param {Object} params
      * @param {string} params.documentId - Unique document identifier
      * @param {string} params.revocationReason - Statutory reason for revocation
      * @param {string} params.revokedBy - User or service ID issuing revocation
-     * @param {Object} [params.verifierUser=null] - Authenticated User entity
+     * @param {Object} [params.verifierUser=null] - Authenticated User entity or identifier
      * @param {Object} [params.systemContext=null] - Authenticated system service credentials
      * @returns {Promise<Object>} Updated Document record
      */
@@ -217,7 +261,7 @@ export class DocumentAuditService {
         if (!documentId || typeof documentId !== 'string') {
             throw new Error('INVALID_DOCUMENT_ID: A valid documentId string is required.');
         }
-        if (!revocationReason || typeof revocationReason !== 'string') {
+        if (!revocationReason || typeof revocationReason !== 'string' || !revocationReason.trim()) {
             throw new Error('INVALID_REVOCATION_REASON: Revocation reason is mandatory.');
         }
         if (!revokedBy) {
@@ -229,39 +273,52 @@ export class DocumentAuditService {
             throw new Error(`DOCUMENT_NOT_FOUND: Document '${documentId}' does not exist.`);
         }
 
-        // Authenticate the revoker
+        // If already revoked, preserve idempotency
+        if (doc.isRevoked === true && doc.status === 'REVOKED') {
+            return doc;
+        }
+
+        // Authenticate the revoker strictly
         let isAuthorized = false;
+        let consumedSignature = null;
         const revokerStr = String(revokedBy).trim();
 
-        if (verifierUser) {
-            const userObj = verifierUser._id ? verifierUser : await User.findById(revokerStr).populate('role').lean();
-            if (userObj && userObj.isActive === true && userObj.status === 'active' && !userObj.isDeleted) {
-                let roleObj = userObj.role && typeof userObj.role === 'object' ? userObj.role : null;
-                if (!roleObj || !roleObj.moduleAccess) {
-                    const roleId = userObj.role?._id || userObj.role;
-                    if (roleId) {
-                        roleObj = await Role.findById(roleId).lean();
-                    }
-                }
-                if (roleObj && !roleObj.isDeleted && hasStatutoryVerifierPermissions(roleObj)) {
-                    isAuthorized = true;
-                }
+        if (systemContext) {
+            // System-service revocation requires exact HMAC cryptographic verification
+            if (!systemContext.serviceId || !systemContext.systemSignature || !systemContext.nonce) {
+                throw new Error('UNAUTHORIZED_REVOKER: System service revocation requires serviceId, systemSignature, and nonce.');
             }
-        } else if (systemContext) {
-            isAuthorized = true; // System service authenticated via system context
-        } else if (mongoose.Types.ObjectId.isValid(revokerStr)) {
-            const userDoc = await User.findById(revokerStr).populate('role').lean();
-            if (userDoc && userDoc.isActive === true && userDoc.status === 'active' && !userDoc.isDeleted) {
-                let roleObj = userDoc.role && typeof userDoc.role === 'object' ? userDoc.role : null;
-                if (!roleObj || !roleObj.moduleAccess) {
-                    const roleId = userDoc.role?._id || userDoc.role;
-                    if (roleId) {
-                        roleObj = await Role.findById(roleId).lean();
-                    }
+            const sysId = String(systemContext.serviceId).trim().toUpperCase();
+            const timestamp = systemContext.timestamp || systemContext.revokedAt || new Date();
+            const signature = systemContext.systemSignature;
+            const context = {
+                entityId: String(doc.entityId || ''),
+                documentId: String(doc.documentId || ''),
+                nonce: systemContext.nonce,
+                idempotencyKey: systemContext.idempotencyKey
+            };
+
+            const sigRes = await verifySystemServiceSignatureDurable(
+                sysId,
+                timestamp,
+                signature,
+                context
+            );
+
+            if (sigRes.isValid) {
+                isAuthorized = true;
+                consumedSignature = signature;
+                if (sigRes.isIdempotentRetry && sigRes.isCommitted) {
+                    return Document.findById(doc._id);
                 }
-                if (roleObj && !roleObj.isDeleted && hasStatutoryVerifierPermissions(roleObj)) {
-                    isAuthorized = true;
-                }
+            } else {
+                throw new Error(`UNAUTHORIZED_REVOKER: System service revocation signature verification failed: ${sigRes.error || 'INVALID_SIGNATURE'}`);
+            }
+        } else {
+            const userIdentifier = verifierUser?._id || verifierUser || revokerStr;
+            const authRes = await this.resolvePersistedVerifierAuthorization(userIdentifier);
+            if (authRes.isAuthorized) {
+                isAuthorized = true;
             }
         }
 
@@ -296,11 +353,13 @@ export class DocumentAuditService {
             updateOps.$push = { auditHistory: historyEntry };
         }
 
-        await Document.updateOne(
-            { _id: doc._id },
-            updateOps,
-            { [AUDIT_CAPABILITY_TOKEN]: true }
-        );
+        // Mutate Document via privileged internal bridge
+        await executePrivilegedAuditWrite(doc._id, updateOps);
+
+        // Commit nonce if system service
+        if (consumedSignature) {
+            await commitNonceConsumptionDurable(consumedSignature);
+        }
 
         return Document.findById(doc._id);
     }

@@ -858,7 +858,7 @@ function hasReraProvenance(item, parentEntity = null) {
             if (linkInventoryId === dealInvId) {
                 // Verify linked inventory tenant matches canonical organization boundary
                 const dealInvTenant = String(link._resolvedDealInventory?.tenantId?._id || link._resolvedDealInventory?.tenantId || parentEntity?.inventory?.tenantId?._id || parentEntity?.inventory?.tenantId || '').trim();
-                if (dealInvTenant && dealInvTenant !== parentTenantId) {
+                if (!dealInvTenant || dealInvTenant !== parentTenantId) {
                     return false;
                 }
                 matchesEntity = true;
@@ -878,9 +878,9 @@ function hasReraProvenance(item, parentEntity = null) {
             if (String(projInvProjectId) !== parentId) {
                 return false;
             }
-            // Verify project inventory belongs to same canonical tenant
+            // Require explicit, non-empty tenant identity for resolved Inventory and exact equality with canonical Project tenant
             const projInvTenant = String(projInv.tenantId?._id || projInv.tenantId || '').trim();
-            if (projInvTenant && projInvTenant !== parentTenantId) {
+            if (!projInvTenant || projInvTenant !== parentTenantId) {
                 return false;
             }
             matchesEntity = true;

@@ -31,13 +31,18 @@ import portalSyndicationService from '../services/PortalSyndicationService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import publishService from '../services/PublishService.js';
 import marketingService from '../services/MarketingService.js';
+import { fork } from 'node:child_process';
+import SystemServiceReplayLedgerModel from '../models/SystemServiceReplayLedger.js';
+import { executePrivilegedAuditWrite } from '../services/internalAuditBridge.js';
 import marketingComplianceEnforcementService, {
     generateSystemServiceSignature,
     verifySystemServiceSignature,
     calculateShannonEntropy,
     SystemServiceReplayLedger,
     clearSystemServiceReplayLedger,
-    recordNonceConsumptionSync
+    recordNonceConsumptionSync,
+    recordNonceConsumptionDurable,
+    verifySystemServiceSignatureDurable
 } from '../services/MarketingComplianceEnforcementService.js';
 import { AUDIT_CAPABILITY_TOKEN } from '../services/auditCapabilityToken.js';
 import { DocumentAuditService } from '../services/DocumentAuditService.js';
@@ -283,20 +288,24 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             metadata: {
                 documentCategory: 'BANK_APPROVAL',
                 documentType: 'SANCTION_LETTER',
-                approvalAuthority: 'SBI',
-                verificationAudit: {
-                    verifierId: String(complianceUser._id),
-                    verifierRole: 'COMPLIANCE_OFFICER',
-                    verifiedAt: new Date(),
-                    outcome: 'APPROVED',
-                    documentId: 'doc-sbi-8892',
-                    versionId: String(sbiVer._id),
-                    entityType: 'Deal',
-                    entityId: verifiedDeal._id
-                }
+                approvalAuthority: 'SBI'
             },
             currentVersionId: sbiVer._id,
             state: 'ACTIVE'
+        });
+
+        await DocumentAuditService.recordVerificationAudit({
+            documentId: 'doc-sbi-8892',
+            auditPayload: {
+                documentId: 'doc-sbi-8892',
+                versionId: String(sbiVer._id),
+                entityId: verifiedDeal._id,
+                entityType: 'Deal',
+                verifierId: String(complianceUser._id),
+                verifiedAt: new Date(),
+                outcome: 'APPROVED'
+            },
+            verifierUser: complianceUser
         });
 
         const ocVer = await DocumentVersion.create({
@@ -317,20 +326,24 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             metadata: {
                 documentCategory: 'COMPLETION_CERTIFICATE',
                 documentType: 'OCCUPANCY_CERTIFICATE',
-                approvalAuthority: 'MUNICIPAL',
-                verificationAudit: {
-                    verifierId: String(complianceUser._id),
-                    verifierRole: 'COMPLIANCE_OFFICER',
-                    verifiedAt: new Date(),
-                    outcome: 'APPROVED',
-                    documentId: 'doc-oc-101',
-                    versionId: String(ocVer._id),
-                    entityType: 'Deal',
-                    entityId: verifiedDeal._id
-                }
+                approvalAuthority: 'MUNICIPAL'
             },
             currentVersionId: ocVer._id,
             state: 'ACTIVE'
+        });
+
+        await DocumentAuditService.recordVerificationAudit({
+            documentId: 'doc-oc-101',
+            auditPayload: {
+                documentId: 'doc-oc-101',
+                versionId: String(ocVer._id),
+                entityId: verifiedDeal._id,
+                entityType: 'Deal',
+                verifierId: String(complianceUser._id),
+                verifiedAt: new Date(),
+                outcome: 'APPROVED'
+            },
+            verifierUser: complianceUser
         });
 
         const reraVer = await DocumentVersion.create({
@@ -352,20 +365,24 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentCategory: 'RERA_CERTIFICATE',
                 documentType: 'RERA_CERTIFICATE',
                 approvalAuthority: 'HRERA',
-                documentNo: 'HRERA-PKL-KUK-2024-88',
-                verificationAudit: {
-                    verifierId: String(complianceUser._id),
-                    verifierRole: 'COMPLIANCE_OFFICER',
-                    verifiedAt: new Date(),
-                    outcome: 'VERIFIED',
-                    documentId: 'doc-hrera-88',
-                    versionId: String(reraVer._id),
-                    entityType: 'Deal',
-                    entityId: verifiedDeal._id
-                }
+                documentNo: 'HRERA-PKL-KUK-2024-88'
             },
             currentVersionId: reraVer._id,
             state: 'ACTIVE'
+        });
+
+        await DocumentAuditService.recordVerificationAudit({
+            documentId: 'doc-hrera-88',
+            auditPayload: {
+                documentId: 'doc-hrera-88',
+                versionId: String(reraVer._id),
+                entityId: verifiedDeal._id,
+                entityType: 'Deal',
+                verifierId: String(complianceUser._id),
+                verifiedAt: new Date(),
+                outcome: 'VERIFIED'
+            },
+            verifierUser: complianceUser
         });
 
         // Seed authentic PropertyAuthorityLink and PropertyVerificationSnapshot for verified relationship chain
@@ -2979,7 +2996,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             });
 
             const dealId = new mongoose.Types.ObjectId();
-            await Document.create({
+            await mongoose.connection.collection('documents').insertOne({
                 documentId: 'doc-inactive-user',
                 entityType: 'Deal',
                 entityId: dealId,
@@ -3032,7 +3049,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             });
 
             const dealId = new mongoose.Types.ObjectId();
-            await Document.create({
+            await mongoose.connection.collection('documents').insertOne({
                 documentId: 'doc-agent-user',
                 entityType: 'Deal',
                 entityId: dealId,
@@ -3069,7 +3086,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             });
 
             const dealId = new mongoose.Types.ObjectId();
-            await Document.create({
+            await mongoose.connection.collection('documents').insertOne({
                 documentId: 'doc-nonexist-user',
                 entityType: 'Deal',
                 entityId: dealId,
@@ -3105,7 +3122,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 sizeBytes: 1024
             });
 
-            await Document.create({
+            await mongoose.connection.collection('documents').insertOne({
                 documentId: 'doc-sys-fake',
                 entityType: 'Deal',
                 entityId: dealId,
@@ -3156,8 +3173,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 entityId: dealId,
                 metadata: { documentCategory: 'BANK_APPROVAL' },
                 currentVersionId: docVer._id,
-                state: 'ACTIVE',
-                verificationAudit: {
+                state: 'ACTIVE'
+            });
+
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-sys-auth',
+                auditPayload: {
                     documentId: 'doc-sys-auth',
                     versionId: String(docVer._id),
                     entityId: dealId,
@@ -3167,6 +3188,11 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     outcome: 'APPROVED',
                     systemSignature: validSig,
                     systemNonce: sysNonce
+                },
+                systemContext: {
+                    serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                    systemSignature: validSig,
+                    nonce: sysNonce
                 }
             });
 
@@ -3196,8 +3222,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 entityId: dealId,
                 metadata: { documentCategory: 'BANK_APPROVAL' },
                 currentVersionId: docVer._id,
-                state: 'ACTIVE',
-                verificationAudit: {
+                state: 'ACTIVE'
+            });
+
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-legit-user',
+                auditPayload: {
                     documentId: 'doc-legit-user',
                     versionId: String(docVer._id),
                     entityId: dealId,
@@ -3205,7 +3235,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     verifierId: String(complianceUser._id),
                     verifiedAt: new Date(),
                     outcome: 'APPROVED'
-                }
+                },
+                verifierUser: complianceUser
             });
 
             const candidateDoc = { documentId: 'doc-legit-user' };
@@ -3719,8 +3750,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 entityId: dealId,
                 metadata: { documentCategory: 'BANK_APPROVAL' },
                 currentVersionId: docVer._id,
-                state: 'ACTIVE',
-                verificationAudit: {
+                state: 'ACTIVE'
+            });
+
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-rev-test',
+                auditPayload: {
                     documentId: 'doc-rev-test',
                     versionId: String(docVer._id),
                     entityId: dealId,
@@ -3728,7 +3763,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     verifierId: String(revUser._id),
                     verifiedAt: new Date(),
                     outcome: 'APPROVED'
-                }
+                },
+                verifierUser: revUser
             });
 
             // 1. Initial resolution succeeds
@@ -4029,21 +4065,27 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 sizeBytes: 1024
             });
 
+            const immutEntId = new mongoose.Types.ObjectId();
             const doc = await Document.create({
                 documentId: 'doc-immut-1',
                 entityType: 'Deal',
-                entityId: new mongoose.Types.ObjectId(),
+                entityId: immutEntId,
                 currentVersionId: ver._id,
-                state: 'ACTIVE',
-                verificationAudit: {
+                state: 'ACTIVE'
+            });
+
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-immut-1',
+                auditPayload: {
                     documentId: 'doc-immut-1',
                     versionId: String(ver._id),
-                    entityId: new mongoose.Types.ObjectId(),
+                    entityId: immutEntId,
                     entityType: 'Deal',
                     verifierId: String(complianceUser._id),
                     verifiedAt: new Date(),
                     outcome: 'APPROVED'
-                }
+                },
+                verifierUser: complianceUser
             });
 
             // Ordinary save attempt to mutate verificationAudit throws error
@@ -4077,11 +4119,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 );
             }, /IMMUTABLE_VERIFICATION_AUDIT/);
 
-            // Authorized audit workflow holding AUDIT_CAPABILITY_TOKEN succeeds
+            // Ordinary non-audit field updates succeed without audit capability
             await Document.updateOne(
                 { _id: doc._id },
-                { $set: { isRevoked: true } },
-                { [AUDIT_CAPABILITY_TOKEN]: true }
+                { $set: { isRevoked: true } }
             );
         });
 
@@ -4181,21 +4222,27 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 sizeBytes: 1024
             });
 
+            const immSaveEntId = new mongoose.Types.ObjectId();
             const doc = await Document.create({
                 documentId: 'doc-imm-save-1',
                 entityType: 'Deal',
-                entityId: new mongoose.Types.ObjectId(),
+                entityId: immSaveEntId,
                 currentVersionId: docVer._id,
-                state: 'ACTIVE',
-                verificationAudit: {
+                state: 'ACTIVE'
+            });
+
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-imm-save-1',
+                auditPayload: {
                     documentId: 'doc-imm-save-1',
                     versionId: String(docVer._id),
-                    entityId: new mongoose.Types.ObjectId(),
+                    entityId: immSaveEntId,
                     entityType: 'Deal',
                     verifierId: String(statutoryUser._id),
                     verifiedAt: new Date(),
                     outcome: 'APPROVED'
-                }
+                },
+                verifierUser: statutoryUser
             });
 
             // Attempting to modify audit and save() without capability token
@@ -4211,8 +4258,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentId: 'doc-imm-ops-1',
                 entityType: 'Deal',
                 entityId: new mongoose.Types.ObjectId(),
-                state: 'ACTIVE',
-                verificationAudit: { outcome: 'APPROVED' }
+                state: 'ACTIVE'
             });
 
             // updateOne rejected
@@ -4237,8 +4283,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentId: 'doc-forged-flag-1',
                 entityType: 'Deal',
                 entityId: new mongoose.Types.ObjectId(),
-                state: 'ACTIVE',
-                verificationAudit: { outcome: 'APPROVED' }
+                state: 'ACTIVE'
             });
 
             // Passing { isAuthorizedAuditWorkflow: true } in query options
@@ -4263,8 +4308,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 documentId: 'doc-pipeline-bypass-1',
                 entityType: 'Deal',
                 entityId: new mongoose.Types.ObjectId(),
-                state: 'ACTIVE',
-                verificationAudit: { outcome: 'APPROVED' }
+                state: 'ACTIVE'
             });
 
             await assert.rejects(async () => {
@@ -4865,6 +4909,894 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     true,
                     'Schema-supported Project-to-Inventory ObjectId relationship must succeed'
                 );
+            });
+        });
+
+        // =====================================================================
+        // SECTION 16: ROUND 9 FINAL SECURITY BOUNDARY & ADVERSARIAL SUITE
+        // =====================================================================
+        describe('Section 16: Round 9 Final Security Boundary & Adversarial Suite', () => {
+            let replDocVer;
+            let replDoc;
+            let replEntId;
+            let replUser;
+            let replRole;
+            const testTenant = '6af1cd89b469461ab58ba1e8';
+
+            beforeEach(async () => {
+                replEntId = new mongoose.Types.ObjectId();
+
+                replRole = await Role.create({
+                    name: `Compliance Auditor R9 ${Date.now()}-${Math.random()}`,
+                    department: 'marketing',
+                    isSystemRole: false,
+                    moduleAccess: {
+                        authorityVerification: { view: true, edit: true }
+                    },
+                    approvalRights: {
+                        approveAuthorityChanges: true
+                    }
+                });
+
+                replUser = await User.create({
+                    fullName: 'Statutory Verifier R9',
+                    email: `verifier-r9-${Date.now()}-${Math.random()}@bharatproperties.co`,
+                    password: 'HashedPassword123!',
+                    role: replRole._id,
+                    department: 'marketing',
+                    tenantId: testTenant,
+                    isActive: true,
+                    status: 'active'
+                });
+
+                replDocVer = await DocumentVersion.create({
+                    versionId: `ver-r9-${Date.now()}-${Math.random()}`,
+                    documentId: `doc-r9-${Date.now()}-${Math.random()}`,
+                    versionNumber: 1,
+                    providerInstanceId: 's3-primary',
+                    storageKey: 'documents/r9.pdf',
+                    storageBucket: 'test-bucket',
+                    objectKey: 'documents/r9.pdf',
+                    checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    mimeType: 'application/pdf',
+                    sizeBytes: 2048
+                });
+
+                replDoc = await Document.create({
+                    documentId: replDocVer.documentId,
+                    entityType: 'Deal',
+                    entityId: replEntId,
+                    currentVersionId: replDocVer._id,
+                    state: 'ACTIVE'
+                });
+            });
+
+            // 1. P0 — Genuinely Private Audit Capability
+            describe('P0: Audit Capability Privacy', () => {
+                it('1.1 Ordinary model update cannot change audit evidence', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $set: { verificationAudit: { outcome: 'VERIFIED' } } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('1.2 Forged boolean options (isAuthorizedAuditWorkflow) are strictly rejected', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $set: { verificationAudit: { outcome: 'VERIFIED' } } },
+                            { isAuthorizedAuditWorkflow: true }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('1.3 Importing application modules does NOT expose any capability token', () => {
+                    assert.equal(AUDIT_CAPABILITY_TOKEN, undefined);
+                    const docSymbols = Object.getOwnPropertySymbols(Document).map(s => s.toString());
+                    assert.ok(!docSymbols.some(s => s.toLowerCase().includes('audit')));
+                    const srvSymbols = Object.getOwnPropertySymbols(DocumentAuditService).map(s => s.toString());
+                    assert.ok(!srvSymbols.some(s => s.toLowerCase().includes('audit')));
+                });
+
+                it('1.4 Direct invocation of internalAuditBridge by unauthorized caller fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await executePrivilegedAuditWrite(replDoc._id, { $set: { 'verificationAudit.outcome': 'FORGED' } });
+                    }, /UNAUTHORIZED_BRIDGE_CALLER/);
+                });
+
+                it('1.5 Approved DocumentAuditService workflow succeeds and attaches genuine audit', async () => {
+                    const updated = await DocumentAuditService.recordVerificationAudit({
+                        documentId: replDoc.documentId,
+                        auditPayload: {
+                            documentId: replDoc.documentId,
+                            versionId: String(replDocVer._id),
+                            entityId: replEntId,
+                            entityType: 'Deal',
+                            verifierId: String(replUser._id),
+                            verifiedAt: new Date(),
+                            outcome: 'VERIFIED'
+                        },
+                        verifierUser: replUser
+                    });
+
+                    assert.equal(updated.verificationAudit.outcome, 'VERIFIED');
+                    assert.equal(updated.verificationAudit.documentId, replDoc.documentId);
+                });
+            });
+
+            // 2. P0 — Complete Document Audit Mutation Protection
+            describe('P0: Complete Document Write-Path Protection', () => {
+                it('2.1 Document.create with forged verificationAudit fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.create({
+                            documentId: `doc-forged-create-${Date.now()}`,
+                            entityType: 'Deal',
+                            entityId: replEntId,
+                            state: 'ACTIVE',
+                            verificationAudit: { outcome: 'VERIFIED', verifierId: 'evil' }
+                        });
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.2 Document.create with forged metadata.verificationAudit fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.create({
+                            documentId: `doc-forged-meta-${Date.now()}`,
+                            entityType: 'Deal',
+                            entityId: replEntId,
+                            state: 'ACTIVE',
+                            metadata: { verificationAudit: { outcome: 'VERIFIED' } }
+                        });
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.3 insertMany with audit evidence fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.insertMany([
+                            {
+                                documentId: `doc-insertMany-${Date.now()}`,
+                                entityType: 'Deal',
+                                entityId: replEntId,
+                                state: 'ACTIVE',
+                                verificationAudit: { outcome: 'VERIFIED' }
+                            }
+                        ]);
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.4 replaceOne without capability fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.replaceOne(
+                            { _id: replDoc._id },
+                            {
+                                documentId: replDoc.documentId,
+                                entityType: 'Deal',
+                                entityId: replEntId,
+                                state: 'ACTIVE',
+                                verificationAudit: { outcome: 'VERIFIED' }
+                            }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.5 findOneAndReplace without capability fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.findOneAndReplace(
+                            { _id: replDoc._id },
+                            {
+                                documentId: replDoc.documentId,
+                                entityType: 'Deal',
+                                entityId: replEntId,
+                                state: 'ACTIVE',
+                                verificationAudit: { outcome: 'VERIFIED' }
+                            }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.6 bulkWrite operations with audit evidence are rejected', async () => {
+                    // insertOne in bulkWrite
+                    await assert.rejects(async () => {
+                        await Document.bulkWrite([
+                            {
+                                insertOne: {
+                                    document: {
+                                        documentId: `doc-bulk-1-${Date.now()}`,
+                                        entityType: 'Deal',
+                                        entityId: replEntId,
+                                        state: 'ACTIVE',
+                                        verificationAudit: { outcome: 'VERIFIED' }
+                                    }
+                                }
+                            }
+                        ]);
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+                    // updateOne in bulkWrite
+                    await assert.rejects(async () => {
+                        await Document.bulkWrite([
+                            {
+                                updateOne: {
+                                    filter: { _id: replDoc._id },
+                                    update: { $set: { verificationAudit: { outcome: 'VERIFIED' } } }
+                                }
+                            }
+                        ]);
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+                    // replaceOne in bulkWrite
+                    await assert.rejects(async () => {
+                        await Document.bulkWrite([
+                            {
+                                replaceOne: {
+                                    filter: { _id: replDoc._id },
+                                    replacement: {
+                                        documentId: replDoc.documentId,
+                                        entityType: 'Deal',
+                                        entityId: replEntId,
+                                        state: 'ACTIVE'
+                                    }
+                                }
+                            }
+                        ]);
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.7 $rename into and out of protected audit paths fails closed', async () => {
+                    // Rename out of verificationAudit
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $rename: { 'verificationAudit': 'someLeakedAudit' } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+                    // Rename into verificationAudit
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $rename: { 'someField': 'verificationAudit' } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.8 $set replacing entire metadata object fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $set: { metadata: { documentCategory: 'TITLE_DEED' } } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.9 Aggregation update pipeline fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            [
+                                { $set: { verificationAudit: { outcome: 'FORGED' } } }
+                            ]
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+
+                it('2.10 Audit deletion using $unset fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $unset: { verificationAudit: "" } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+                    await assert.rejects(async () => {
+                        await Document.updateOne(
+                            { _id: replDoc._id },
+                            { $unset: { 'metadata.verificationAudit': "" } }
+                        );
+                    }, /IMMUTABLE_VERIFICATION_AUDIT/);
+                });
+            });
+
+            // 3. P0 — Fix Revocation Authorization Bypass
+            describe('P0: Revocation Authorization Strict Boundary', () => {
+                let recordedDoc;
+                beforeEach(async () => {
+                    recordedDoc = await DocumentAuditService.recordVerificationAudit({
+                        documentId: replDoc.documentId,
+                        auditPayload: {
+                            documentId: replDoc.documentId,
+                            versionId: String(replDocVer._id),
+                            entityId: replEntId,
+                            entityType: 'Deal',
+                            verifierId: String(replUser._id),
+                            verifiedAt: new Date(),
+                            outcome: 'VERIFIED'
+                        },
+                        verifierUser: replUser
+                    });
+                });
+
+                it('3.1 systemContext: {} fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.revokeVerificationAudit({
+                            documentId: replDoc.documentId,
+                            revocationReason: 'Testing empty systemContext',
+                            revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemContext: {}
+                        });
+                    }, /UNAUTHORIZED_REVOKER/);
+                });
+
+                it('3.2 Arbitrary non-empty systemContext fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.revokeVerificationAudit({
+                            documentId: replDoc.documentId,
+                            revocationReason: 'Testing arbitrary systemContext',
+                            revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemContext: { arbitraryField: true }
+                        });
+                    }, /UNAUTHORIZED_REVOKER/);
+                });
+
+                it('3.3 Missing signature fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.revokeVerificationAudit({
+                            documentId: replDoc.documentId,
+                            revocationReason: 'Missing signature',
+                            revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                nonce: 'abcdef1234567890'
+                            }
+                        });
+                    }, /UNAUTHORIZED_REVOKER/);
+                });
+
+                it('3.4 Invalid signature fails closed', async () => {
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.revokeVerificationAudit({
+                            documentId: replDoc.documentId,
+                            revocationReason: 'Invalid signature',
+                            revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                nonce: 'abcdef1234567890',
+                                systemSignature: '0000000000000000000000000000000000000000000000000000000000000000'
+                            }
+                        });
+                    }, /UNAUTHORIZED_REVOKER/);
+                });
+
+                it('3.5 Expired or future timestamp fails closed', async () => {
+                    const expiredTime = new Date(Date.now() - 25 * 60 * 1000);
+                    const nonce = 'abcdef1234567890';
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', expiredTime, ctx);
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.revokeVerificationAudit({
+                            documentId: replDoc.documentId,
+                            revocationReason: 'Expired timestamp',
+                            revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                timestamp: expiredTime,
+                                nonce,
+                                systemSignature: sig
+                            }
+                        });
+                    }, /UNAUTHORIZED_REVOKER/);
+                });
+
+                it('3.6 Forged verifierUser object (lacking DB permissions) fails closed', async () => {
+                    const forgedCallerUser = {
+                        _id: new mongoose.Types.ObjectId(),
+                        isActive: true,
+                        status: 'active',
+                        role: {
+                            moduleAccess: { authorityVerification: { view: true, edit: true } },
+                            approvalRights: { approveAuthorityChanges: true }
+                        }
+                    };
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.revokeVerificationAudit({
+                            documentId: replDoc.documentId,
+                            revocationReason: 'Forged verifier object',
+                            revokedBy: String(forgedCallerUser._id),
+                            verifierUser: forgedCallerUser
+                        });
+                    }, /UNAUTHORIZED_REVOKER/);
+                });
+
+                it('3.7 Persisted authorized verifier succeeds and preserves immutable audit history', async () => {
+                    const revoked = await DocumentAuditService.revokeVerificationAudit({
+                        documentId: replDoc.documentId,
+                        revocationReason: 'Statutory compliance revocation by authorized auditor',
+                        revokedBy: String(replUser._id),
+                        verifierUser: replUser
+                    });
+
+                    assert.equal(revoked.isRevoked, true);
+                    assert.equal(revoked.verificationAudit.isRevoked, true);
+                    assert.equal(revoked.auditHistory.length, 1);
+                    assert.equal(revoked.auditHistory[0].action, 'REVOKED');
+                    assert.equal(revoked.auditHistory[0].revocationReason, 'Statutory compliance revocation by authorized auditor');
+                });
+
+                it('3.8 Revoked document cannot be silently reactivated by subsequent recordVerificationAudit', async () => {
+                    await DocumentAuditService.revokeVerificationAudit({
+                        documentId: replDoc.documentId,
+                        revocationReason: 'Court stay order',
+                        revokedBy: String(replUser._id),
+                        verifierUser: replUser
+                    });
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: String(replUser._id),
+                                verifiedAt: new Date(),
+                                outcome: 'VERIFIED'
+                            },
+                            verifierUser: replUser
+                        });
+                    }, /DOCUMENT_REVOKED/);
+                });
+            });
+
+            // 4. P1 — Persisted Distributed HMAC Replay Protection
+            describe('P1: Distributed Persistent HMAC Replay Protection', () => {
+                it('4.1 Replay attack is rejected by persistent MongoDB ledger', async () => {
+                    const now = new Date();
+                    const nonce = `test-durable-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    // First consumption succeeds
+                    const res1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.equal(res1.consumed, true);
+                    assert.equal(res1.isIdempotentRetry, false);
+
+                    // Replay attempt fails closed
+                    const res2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.equal(res2.consumed, false);
+                    assert.equal(res2.error, 'SIGNATURE_REPLAY_DETECTED');
+                });
+
+                it('4.2 Replay protection persists across in-memory cache clear (process restart simulation)', async () => {
+                    const now = new Date();
+                    const nonce = `test-restart-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+
+                    // Clear process-local in-memory cache to simulate server restart
+                    clearSystemServiceReplayLedger();
+                    assert.equal(SystemServiceReplayLedger.size, 0);
+
+                    // Attempting replay against MongoDB fails closed
+                    const res = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.equal(res.consumed, false);
+                    assert.equal(res.error, 'SIGNATURE_REPLAY_DETECTED');
+                });
+
+                it('4.3 Concurrent requests from separate worker processes enforce atomic uniqueness (multi-process test)', async () => {
+                    const now = new Date();
+                    const nonce = `test-mp-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+                    const recordPayload = JSON.stringify({
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+
+                    const mongoUri = mongoose.connection.client.s.url;
+                    const workerScript = new URL('./helpers/concurrencyReplayWorker.js', import.meta.url).pathname;
+
+                    // Launch two separate child processes racing to consume the same signature simultaneously
+                    const runChild = () => new Promise((resolve) => {
+                        const child = fork(workerScript, [mongoUri, sig, recordPayload], { silent: true });
+                        child.on('message', (msg) => resolve(msg));
+                        child.on('exit', (code) => resolve({ code }));
+                    });
+
+                    const [result1, result2] = await Promise.all([runChild(), runChild()]);
+                    const results = [result1, result2];
+
+                    const successCount = results.filter(r => r.success === true).length;
+                    const failureCount = results.filter(r => r.success === false).length;
+
+                    assert.equal(successCount, 1, 'Exactly one worker process must succeed in consuming the nonce');
+                    assert.equal(failureCount, 1, 'The competing worker process must be rejected with replay error');
+                });
+
+                it('4.4 Legitimate idempotent retry with matching idempotencyKey succeeds', async () => {
+                    const now = new Date();
+                    const nonce = `test-idem-${Date.now()}`;
+                    const idKey = `idempotency-key-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const res1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+                    assert.equal(res1.consumed, true);
+                    assert.equal(res1.isIdempotentRetry, false);
+
+                    // Retry with exact matching key and context succeeds as idempotent retry
+                    const res2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+                    assert.equal(res2.consumed, true);
+                    assert.equal(res2.isIdempotentRetry, true);
+
+                    // Retry with altered key fails closed
+                    const res3 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: 'different-idempotency-key'
+                    });
+                    assert.equal(res3.consumed, false);
+                    assert.equal(res3.error, 'SIGNATURE_REPLAY_DETECTED');
+                });
+            });
+
+            // 5. P1 — Project-to-Inventory Tenant Equality
+            describe('P1: Project-to-Inventory Tenant Equality', () => {
+                const projectId = new mongoose.Types.ObjectId();
+                const invId = new mongoose.Types.ObjectId();
+                const canonicalProject = {
+                    _id: projectId,
+                    _entityType: 'Project',
+                    name: 'Grand Bharat Towers',
+                    tenantId: testTenant,
+                    reraNumber: 'HRERA-PKL-123-2024',
+                    reraStatus: 'APPROVED',
+                    lastVerifiedAt: new Date(),
+                    isManual: false
+                };
+
+                const baseSnap = {
+                    _isResolverVerified: true,
+                    tenantId: testTenant,
+                    isSealed: true,
+                    isRevoked: false,
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    authorityCode: 'HRERA',
+                    contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    observedAt: new Date(),
+                    dataQuality: { status: 'COMPLETE' },
+                    createdByWorkerId: 'WORKER_RERA_SYNC'
+                };
+
+                it('5.1 Matching explicit tenant IDs pass', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectId: projectId,
+                                tenantId: testTenant
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: snap }),
+                        true
+                    );
+                });
+
+                it('5.2 Missing Inventory tenant fails closed', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectId: projectId,
+                                tenantId: ''
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: snap }),
+                        false
+                    );
+                });
+
+                it('5.3 Null Inventory tenant fails closed', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectId: projectId,
+                                tenantId: null
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: snap }),
+                        false
+                    );
+                });
+
+                it('5.4 Mismatched Inventory tenant fails closed', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectId: projectId,
+                                tenantId: '6af1cd89b469461ab58ba999' // Other tenant
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: snap }),
+                        false
+                    );
+                });
+
+                it('5.5 Missing Project tenant fails closed', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectId: projectId,
+                                tenantId: testTenant
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, tenantId: null, _resolvedSnapshot: snap }),
+                        false
+                    );
+                });
+
+                it('5.6 Invalid projectId fails closed', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectId: 'invalid-non-objectid',
+                                tenantId: testTenant
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: snap }),
+                        false
+                    );
+                });
+
+                it('5.7 String/name-only project mapping fails closed', () => {
+                    const snap = {
+                        ...baseSnap,
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: testTenant,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId,
+                            _resolvedProjectInventory: {
+                                _id: invId,
+                                projectName: 'Grand Bharat Towers',
+                                tenantId: testTenant
+                            }
+                        }
+                    };
+
+                    assert.equal(
+                        hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: snap }),
+                        false
+                    );
+                });
+            });
+
+            // 6. P1 — Persisted Verifier Identity
+            describe('P1: Persisted Verifier Identity in Database', () => {
+                it('6.1 Caller-supplied permissions are disregarded; user with restricted DB role fails closed', async () => {
+                    const restrictedRole = await Role.create({
+                        name: `Restricted User Role ${Date.now()}-${Math.random()}`,
+                        department: 'sales',
+                        isSystemRole: false,
+                        moduleAccess: { authorityVerification: { view: true, edit: false } },
+                        approvalRights: { approveAuthorityChanges: false }
+                    });
+
+                    const restrictedUser = await User.create({
+                        fullName: 'Restricted User',
+                        email: `restricted-${Date.now()}-${Math.random()}@bharatproperties.co`,
+                        password: 'HashedPassword123!',
+                        role: restrictedRole._id,
+                        department: 'sales',
+                        tenantId: testTenant,
+                        isActive: true,
+                        status: 'active'
+                    });
+
+                    // Caller passes forged verifierUser claiming to have super permissions
+                    const forgedCallerUser = {
+                        _id: restrictedUser._id,
+                        isActive: true,
+                        status: 'active',
+                        role: {
+                            moduleAccess: { authorityVerification: { view: true, edit: true } },
+                            approvalRights: { approveAuthorityChanges: true }
+                        }
+                    };
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: String(restrictedUser._id),
+                                verifiedAt: new Date(),
+                                outcome: 'VERIFIED'
+                            },
+                            verifierUser: forgedCallerUser
+                        });
+                    }, /UNAUTHORIZED_VERIFIER/);
+                });
+
+                it('6.2 Soft-deleted user in DB fails closed immediately', async () => {
+                    await User.updateOne({ _id: replUser._id }, { $set: { isDeleted: true, deletedAt: new Date() } });
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: String(replUser._id),
+                                verifiedAt: new Date(),
+                                outcome: 'VERIFIED'
+                            },
+                            verifierUser: replUser
+                        });
+                    }, /UNAUTHORIZED_VERIFIER/);
+                });
+
+                it('6.3 Inactive/suspended user in DB fails closed immediately', async () => {
+                    await User.updateOne({ _id: replUser._id }, { $set: { isActive: false, status: 'suspended' } });
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: String(replUser._id),
+                                verifiedAt: new Date(),
+                                outcome: 'VERIFIED'
+                            },
+                            verifierUser: replUser
+                        });
+                    }, /UNAUTHORIZED_VERIFIER/);
+                });
             });
         });
     });

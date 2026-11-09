@@ -1,12 +1,13 @@
 /**
  * auditCapabilityToken.js
  * 
- * Ephemeral, unforgeable capability symbol for document verification audit mutations.
- * This symbol is private to the trusted DocumentAuditService and Document model.
+ * DEPRECATED & DISMANTLED in Round 9.
  * 
- * Ordinary callers, controllers, routes, user request bodies, or query options
- * passing plain boolean flags (e.g. { isAuthorizedAuditWorkflow: true }) cannot
- * forge this JavaScript Symbol.
+ * Publicly exported capability tokens are inherently vulnerable to unauthorized imports.
+ * The verification audit authorization boundary is now genuinely private and encapsulated
+ * within internalAuditBridge.js and backend/models/Document.js.
+ * 
+ * No capability token is exported from this module.
  */
 
-export const AUDIT_CAPABILITY_TOKEN = Symbol('DOCUMENT_AUDIT_AUTHORIZATION_CAPABILITY');
+export const AUDIT_CAPABILITY_TOKEN = undefined;

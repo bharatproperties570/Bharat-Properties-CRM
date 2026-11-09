@@ -29,6 +29,7 @@ import '../models/User.js';
 import '../models/Role.js';
 import '../models/PropertyVerificationSnapshot.js';
 import '../models/PropertyAuthorityLink.js';
+import SystemServiceReplayLedgerModel from '../models/SystemServiceReplayLedger.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import {
     hasAuthoritativeTitleVerification,
@@ -285,6 +286,173 @@ export function verifySystemServiceSignature(serviceId, verifiedAt, signature, c
         return true;
     } catch (_) {
         return false;
+    }
+}
+
+/**
+ * Atomically checks and records nonce consumption in the persistent MongoDB SystemServiceReplayLedger.
+ * Provides distributed replay protection across separate worker processes and application restarts.
+ * 
+ * @param {string} signature
+ * @param {Object} record - { serviceId, entityId, documentId, nonce, idempotencyKey }
+ * @returns {Promise<{ consumed: boolean, isIdempotentRetry: boolean, isCommitted?: boolean, error?: string }>}
+ */
+export async function recordNonceConsumptionDurable(signature, record) {
+    if (!signature || typeof signature !== 'string' || !record || !record.serviceId || !record.nonce) {
+        return { consumed: false, isIdempotentRetry: false, error: 'INVALID_PARAMS' };
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 15 * 60 * 1000); // 15-minute TTL
+
+    // When MongoDB connection is active, use the unique-index-backed collection as the durable atomic authority
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        try {
+            await SystemServiceReplayLedgerModel.create({
+                signature,
+                nonce: record.nonce,
+                serviceId: String(record.serviceId).trim().toUpperCase(),
+                entityId: record.entityId ? String(record.entityId).trim() : null,
+                documentId: record.documentId ? String(record.documentId).trim() : null,
+                idempotencyKey: record.idempotencyKey ? String(record.idempotencyKey).trim() : null,
+                status: 'CONSUMED',
+                consumedAt: now,
+                expiresAt
+            });
+            // Atomically inserted
+            return { consumed: true, isIdempotentRetry: false };
+        } catch (err) {
+            // E11000 duplicate key error: concurrent duplicate or retry
+            if (err.code === 11000 || String(err.message).includes('E11000')) {
+                const existing = await SystemServiceReplayLedgerModel.findOne({
+                    $or: [
+                        { signature },
+                        { serviceId: String(record.serviceId).trim().toUpperCase(), nonce: record.nonce }
+                    ]
+                }).lean();
+
+                if (existing) {
+                    const isSameIdempotency = Boolean(
+                        record.idempotencyKey &&
+                        existing.idempotencyKey &&
+                        record.idempotencyKey === existing.idempotencyKey
+                    );
+                    const isSameContext = Boolean(
+                        existing.entityId === (record.entityId ? String(record.entityId).trim() : null) &&
+                        existing.documentId === (record.documentId ? String(record.documentId).trim() : null) &&
+                        existing.nonce === record.nonce &&
+                        existing.serviceId === String(record.serviceId).trim().toUpperCase() &&
+                        existing.signature === signature
+                    );
+
+                    if (isSameIdempotency && isSameContext) {
+                        return {
+                            consumed: true,
+                            isIdempotentRetry: true,
+                            isCommitted: existing.status === 'COMMITTED'
+                        };
+                    }
+                }
+                return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
+            }
+            return { consumed: false, isIdempotentRetry: false, error: err.message };
+        }
+    }
+
+    // Strictly fallback to synchronous in-memory ledger if MongoDB is offline (e.g. unit tests)
+    return recordNonceConsumptionSync(signature, record);
+}
+
+/**
+ * Commits a consumed nonce transaction in the persistent replay ledger.
+ * 
+ * @param {string} signature
+ */
+export async function commitNonceConsumptionDurable(signature) {
+    if (!signature) return;
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        await SystemServiceReplayLedgerModel.updateOne(
+            { signature },
+            { $set: { status: 'COMMITTED' } }
+        );
+    }
+}
+
+/**
+ * Durable, asynchronous verification of system service HMAC signature.
+ * Enforces distributed atomic replay protection via MongoDB SystemServiceReplayLedger.
+ * 
+ * @param {string} serviceId
+ * @param {Date|string} verifiedAt
+ * @param {string} signature
+ * @param {Object} [context={}]
+ * @param {string} [overrideSecret=null]
+ * @returns {Promise<{ isValid: boolean, isIdempotentRetry: boolean, isCommitted?: boolean, error?: string }>}
+ */
+export async function verifySystemServiceSignatureDurable(serviceId, verifiedAt, signature, context = {}, overrideSecret = null) {
+    if (!serviceId || !verifiedAt || !signature || typeof signature !== 'string') {
+        return { isValid: false, isIdempotentRetry: false, error: 'INVALID_PARAMETERS' };
+    }
+    const secret = getValidatedSystemServiceSecret(overrideSecret);
+    if (!secret) {
+        return { isValid: false, isIdempotentRetry: false, error: 'SECRET_UNAVAILABLE' };
+    }
+
+    // 1. Enforce bounded validity window (15 minutes)
+    const now = Date.now();
+    const verifyTime = (verifiedAt instanceof Date ? verifiedAt : new Date(verifiedAt)).getTime();
+    if (isNaN(verifyTime)) {
+        return { isValid: false, isIdempotentRetry: false, error: 'INVALID_TIMESTAMP' };
+    }
+    if (verifyTime > now + 60 * 1000) {
+        return { isValid: false, isIdempotentRetry: false, error: 'FUTURE_TIMESTAMP' };
+    }
+    if (now - verifyTime > 15 * 60 * 1000) {
+        return { isValid: false, isIdempotentRetry: false, error: 'EXPIRED_TIMESTAMP' };
+    }
+
+    // 2. Validate mandatory nonce (must be >= 8 chars)
+    const nonce = String(context.nonce || context.systemNonce || '').trim();
+    if (!nonce || nonce.length < 8) {
+        return { isValid: false, isIdempotentRetry: false, error: 'INSUFFICIENT_NONCE' };
+    }
+
+    try {
+        const timeStr = verifiedAt instanceof Date ? verifiedAt.toISOString() : String(verifiedAt);
+        const entityIdStr = context.entityId ? String(context.entityId).trim() : '';
+        const docIdStr = context.documentId ? String(context.documentId).trim() : '';
+        const payload = `${String(serviceId).trim().toUpperCase()}:${timeStr}:${entityIdStr}:${docIdStr}:${nonce}`;
+        const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+
+        const sigBuf = Buffer.from(signature, 'hex');
+        const expBuf = Buffer.from(expected, 'hex');
+        if (sigBuf.length !== expBuf.length || sigBuf.length !== 32) {
+            return { isValid: false, isIdempotentRetry: false, error: 'HMAC_LENGTH_MISMATCH' };
+        }
+        if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
+            return { isValid: false, isIdempotentRetry: false, error: 'HMAC_SIGNATURE_MISMATCH' };
+        }
+
+        // 3. Atomically consume nonce in persistent distributed ledger
+        const ledgerRes = await recordNonceConsumptionDurable(signature, {
+            serviceId: String(serviceId).trim().toUpperCase(),
+            entityId: entityIdStr,
+            documentId: docIdStr,
+            nonce,
+            idempotencyKey: context.idempotencyKey || null
+        });
+
+        if (!ledgerRes.consumed) {
+            return { isValid: false, isIdempotentRetry: false, error: ledgerRes.error || 'SIGNATURE_REPLAY_DETECTED' };
+        }
+
+        return {
+            isValid: true,
+            isIdempotentRetry: ledgerRes.isIdempotentRetry,
+            isCommitted: ledgerRes.isCommitted
+        };
+    } catch (err) {
+        return { isValid: false, isIdempotentRetry: false, error: err.message };
     }
 }
 
