@@ -24,6 +24,7 @@ import '../models/DocumentVersion.js';
 import '../models/Deal.js';
 import '../models/Project.js';
 import '../models/Inventory.js';
+import '../models/PropertyVerificationSnapshot.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import {
     hasAuthoritativeTitleVerification,
@@ -170,13 +171,17 @@ class MarketingComplianceEnforcementService {
             const DocumentVersion = mongoose.model('DocumentVersion');
 
             // Helper to resolve and validate a single candidate document
-            const resolveSingleDoc = async (docCandidate) => {
+            const resolveSingleDoc = async (docCandidate, expectedClaimType = null) => {
                 if (!docCandidate || typeof docCandidate !== 'object') return;
-                const docId = docCandidate.documentId || docCandidate.crmDocumentId;
+                const docId = docCandidate.documentId || docCandidate.crmDocumentId || docCandidate.documentNumber || docCandidate.referenceNo;
                 if (!docId || typeof docId !== 'string') return;
 
                 const docRecord = await Document.findOne({
-                    documentId: String(docId).trim(),
+                    $or: [
+                        { documentId: String(docId).trim() },
+                        { 'metadata.documentNo': String(docId).trim() },
+                        { 'metadata.documentNumber': String(docId).trim() }
+                    ],
                     isDeleted: false
                 }).lean();
 
@@ -187,14 +192,14 @@ class MarketingComplianceEnforcementService {
                     return;
                 }
 
-                // Verify lifecycle state
+                // 1. Verify lifecycle state
                 if (docRecord.state !== 'ACTIVE') {
                     docCandidate.documentRecord = null;
                     docCandidate._isVerifiedRecord = false;
                     return;
                 }
 
-                // Verify entity ownership: must be linked to this entity or its linked project/inventory
+                // 2. Verify entity ownership: must be linked to this entity or its linked project/inventory
                 const entityIdStr = String(entity._id || entity.id || '');
                 const projIdStr = String(entity.projectId?._id || entity.projectId || '');
                 const invIdStr = String(entity.inventoryId?._id || entity.inventoryId || '');
@@ -208,7 +213,41 @@ class MarketingComplianceEnforcementService {
                     return;
                 }
 
-                // Verify current document version
+                // 3. Verify document category/type matches intended evidence claim
+                if (expectedClaimType) {
+                    const rawCat = String(
+                        docRecord.metadata?.documentCategory ||
+                        docRecord.metadata?.documentType ||
+                        docRecord.metadata?.type ||
+                        docRecord.type ||
+                        ''
+                    ).trim().toUpperCase();
+
+                    if (expectedClaimType === 'BANK') {
+                        const isBankMatch = ['BANK_APPROVAL', 'BANK_SANCTION', 'SANCTION_LETTER', 'BANK_APF_LETTER', 'APF_RECORD', 'APF', 'LOAN_APPROVAL', 'LOAN_SANCTION'].some(t => rawCat.includes(t));
+                        if (!isBankMatch) {
+                            docCandidate.documentRecord = null;
+                            docCandidate._isVerifiedRecord = false;
+                            return;
+                        }
+                    } else if (expectedClaimType === 'POSSESSION') {
+                        const isPosMatch = ['OCCUPANCY_CERTIFICATE', 'COMPLETION_CERTIFICATE', 'OC', 'CC', 'OCCUPANCY', 'COMPLETION'].some(t => rawCat.includes(t));
+                        if (!isPosMatch) {
+                            docCandidate.documentRecord = null;
+                            docCandidate._isVerifiedRecord = false;
+                            return;
+                        }
+                    } else if (expectedClaimType === 'RERA') {
+                        const isReraMatch = ['RERA_CERTIFICATE', 'RERA_REGISTRATION', 'RERA_APPROVAL', 'RERA_VERIFICATION', 'RERA'].some(t => rawCat.includes(t));
+                        if (!isReraMatch) {
+                            docCandidate.documentRecord = null;
+                            docCandidate._isVerifiedRecord = false;
+                            return;
+                        }
+                    }
+                }
+
+                // 4. Verify current document version reference
                 if (!docRecord.currentVersionId) {
                     docCandidate.documentRecord = null;
                     docCandidate._isVerifiedRecord = false;
@@ -216,7 +255,50 @@ class MarketingComplianceEnforcementService {
                 }
 
                 const versionRecord = await DocumentVersion.findById(docRecord.currentVersionId).lean();
-                if (!versionRecord || !versionRecord.checksum) {
+                if (!versionRecord) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // 5. Verify DocumentVersion.documentId exactly matches Document.documentId
+                if (String(versionRecord.documentId).trim() !== String(docRecord.documentId).trim()) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // 6. Verify resolved version is the current version referenced by Document
+                if (String(versionRecord._id) !== String(docRecord.currentVersionId)) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // 7. Validate checksum algorithm and 64-char hexadecimal SHA-256 checksum format
+                const algo = String(versionRecord.checksumAlgorithm || 'SHA-256').trim().toUpperCase();
+                if (algo !== 'SHA-256' && algo !== 'SHA256') {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+                const checksum = String(versionRecord.checksum || '').trim();
+                if (!/^[a-fA-F0-9]{64}$/.test(checksum)) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // 8. Reject if embedded candidate checksum does not match actual DocumentVersion checksum
+                const candidateHash = docCandidate.checksum || docCandidate.contentHash || docCandidate.snapshotContentHash;
+                if (candidateHash && String(candidateHash).trim().toLowerCase() !== checksum.toLowerCase()) {
+                    docCandidate.documentRecord = null;
+                    docCandidate._isVerifiedRecord = false;
+                    return;
+                }
+
+                // 9. Reject revoked or deleted versions
+                if (versionRecord.isRevoked === true || versionRecord.isDeleted === true || docRecord.isRevoked === true || docRecord.status === 'REVOKED') {
                     docCandidate.documentRecord = null;
                     docCandidate._isVerifiedRecord = false;
                     return;
@@ -231,39 +313,85 @@ class MarketingComplianceEnforcementService {
             };
 
             // 1. Resolve Bank Approval candidate documents
-            if (entity.bankApproval) await resolveSingleDoc(entity.bankApproval);
+            if (entity.bankApproval) await resolveSingleDoc(entity.bankApproval, 'BANK');
             if (Array.isArray(entity.bankApprovals)) {
-                for (const b of entity.bankApprovals) await resolveSingleDoc(b);
+                for (const b of entity.bankApprovals) await resolveSingleDoc(b, 'BANK');
             }
-            if (entity.project?.bankApproval) await resolveSingleDoc(entity.project.bankApproval);
+            if (entity.project?.bankApproval) await resolveSingleDoc(entity.project.bankApproval, 'BANK');
             if (Array.isArray(entity.project?.bankApprovals)) {
-                for (const b of entity.project.bankApprovals) await resolveSingleDoc(b);
+                for (const b of entity.project.bankApprovals) await resolveSingleDoc(b, 'BANK');
             }
 
             // 2. Resolve Possession (OC/CC) candidate documents
-            if (entity.occupancyCertificate) await resolveSingleDoc(entity.occupancyCertificate);
-            if (entity.completionCertificate) await resolveSingleDoc(entity.completionCertificate);
-            if (entity.project?.occupancyCertificate) await resolveSingleDoc(entity.project.occupancyCertificate);
-            if (entity.project?.completionCertificate) await resolveSingleDoc(entity.project.completionCertificate);
+            if (entity.occupancyCertificate) await resolveSingleDoc(entity.occupancyCertificate, 'POSSESSION');
+            if (entity.completionCertificate) await resolveSingleDoc(entity.completionCertificate, 'POSSESSION');
+            if (entity.project?.occupancyCertificate) await resolveSingleDoc(entity.project.occupancyCertificate, 'POSSESSION');
+            if (entity.project?.completionCertificate) await resolveSingleDoc(entity.project.completionCertificate, 'POSSESSION');
 
             // 3. Resolve Approvals array documents
             if (Array.isArray(entity.approvals)) {
-                for (const a of entity.approvals) await resolveSingleDoc(a);
+                for (const a of entity.approvals) {
+                    const cat = String(a.category || a.documentType || a.approvalAuthority || '').toUpperCase();
+                    let claimType = null;
+                    if (cat.includes('BANK') || cat.includes('LOAN') || cat.includes('MORTGAGE') || cat.includes('FINANCE')) claimType = 'BANK';
+                    else if (cat.includes('OC') || cat.includes('CC') || cat.includes('OCCUPANCY') || cat.includes('COMPLETION')) claimType = 'POSSESSION';
+                    else if (cat.includes('RERA')) claimType = 'RERA';
+                    await resolveSingleDoc(a, claimType);
+                }
             }
             if (Array.isArray(entity.project?.approvals)) {
-                for (const a of entity.project.approvals) await resolveSingleDoc(a);
+                for (const a of entity.project.approvals) {
+                    const cat = String(a.category || a.documentType || a.approvalAuthority || '').toUpperCase();
+                    let claimType = null;
+                    if (cat.includes('BANK') || cat.includes('LOAN') || cat.includes('MORTGAGE') || cat.includes('FINANCE')) claimType = 'BANK';
+                    else if (cat.includes('OC') || cat.includes('CC') || cat.includes('OCCUPANCY') || cat.includes('COMPLETION')) claimType = 'POSSESSION';
+                    else if (cat.includes('RERA')) claimType = 'RERA';
+                    await resolveSingleDoc(a, claimType);
+                }
+            }
+
+            // Also check dedicated RERA document references
+            if (entity.reraDocument) await resolveSingleDoc(entity.reraDocument, 'RERA');
+            if (entity.reraRegistrationDocument) await resolveSingleDoc(entity.reraRegistrationDocument, 'RERA');
+            if (entity.reraDocumentId) {
+                const reraDocCandidate = { documentId: entity.reraDocumentId };
+                await resolveSingleDoc(reraDocCandidate, 'RERA');
+                if (reraDocCandidate.documentRecord) {
+                    entity.documentRecord = reraDocCandidate.documentRecord;
+                    entity.reraDocument = reraDocCandidate;
+                }
+            }
+            if (entity.reraNumber) {
+                const reraDocCandidate = { documentId: entity.reraNumber };
+                await resolveSingleDoc(reraDocCandidate, 'RERA');
+                if (reraDocCandidate.documentRecord) {
+                    entity.documentRecord = reraDocCandidate.documentRecord;
+                    entity.reraDocument = reraDocCandidate;
+                }
             }
 
             // 4. Resolve RERA Snapshots if PropertyVerificationSnapshot model exists
             const snapshotId = entity.reraVerificationSnapshotId || entity.verificationSnapshotId || entity.authorityVerification?.verificationSnapshotId;
             if (snapshotId && mongoose.modelNames().includes('PropertyVerificationSnapshot')) {
                 const PropertyVerificationSnapshot = mongoose.model('PropertyVerificationSnapshot');
+                let snapDoc = null;
                 if (mongoose.Types.ObjectId.isValid(String(snapshotId))) {
-                    const snapDoc = await PropertyVerificationSnapshot.findById(snapshotId).lean();
-                    if (snapDoc) {
-                        entity._resolvedSnapshot = snapDoc;
-                        if (entity.authorityVerification) entity.authorityVerification.snapshotRecord = snapDoc;
-                    }
+                    snapDoc = await PropertyVerificationSnapshot.findById(snapshotId).lean();
+                }
+                if (!snapDoc) {
+                    snapDoc = await PropertyVerificationSnapshot.findOne({
+                        $or: [
+                            { snapshotId: String(snapshotId) },
+                            { _id: mongoose.Types.ObjectId.isValid(String(snapshotId)) ? snapshotId : undefined },
+                            { linkId: mongoose.Types.ObjectId.isValid(String(snapshotId)) ? snapshotId : undefined },
+                            { 'identityEvidence.propertyId': String(snapshotId) }
+                        ].filter(c => Object.values(c)[0] !== undefined)
+                    }).lean();
+                }
+
+                if (snapDoc && snapDoc.isSealed !== false && snapDoc.dataQuality?.status !== 'RESTRICTED') {
+                    entity._resolvedSnapshot = snapDoc;
+                    if (entity.authorityVerification) entity.authorityVerification.snapshotRecord = snapDoc;
                 }
             }
         } catch (err) {

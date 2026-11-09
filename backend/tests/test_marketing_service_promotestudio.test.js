@@ -316,8 +316,14 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
             verificationSnapshotId: 'snap-rera-456',
-            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
-            lastVerifiedAt: new Date()
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
+            lastVerifiedAt: new Date(),
+            _resolvedSnapshot: {
+                authorityCode: 'PBRERA',
+                observedAt: new Date(),
+                contentHash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
+                createdByWorkerId: 'worker-pbrera-1'
+            }
         };
         assert.equal(hasAuthoritativeReraApproval(approvedDirect), true);
 
@@ -325,6 +331,7 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             approvals: [
                 {
                     approvalAuthority: 'RERA',
+                    documentType: 'RERA_CERTIFICATE',
                     registrationNo: 'HRERA-PKL-KUK-2024-88',
                     status: 'APPROVED',
                     date: new Date(),
@@ -335,12 +342,73 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-hrera-88',
-                        currentVersion: { checksum: 'a1b2c3d4e5f67890123456789abcdef0' }
+                        metadata: { documentCategory: 'RERA_CERTIFICATE' },
+                        currentVersion: {
+                            versionId: 'ver-hrera-88',
+                            documentId: 'doc-hrera-88',
+                            checksumAlgorithm: 'SHA-256',
+                            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                        }
                     }
                 }
             ]
         };
         assert.equal(hasAuthoritativeReraApproval(approvedArray), true);
+
+        // Fabricated bypass 1: Recent date + fake snapshot ID + fake hash (no underlying snapshot record)
+        const fakeSnapshotAndHash = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            verificationSnapshotId: 'snap-fake-999',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+            lastVerifiedAt: new Date()
+        };
+        assert.equal(hasAuthoritativeReraApproval(fakeSnapshotAndHash), false, 'Fake snapshot ID + hash without resolved snapshot record must fail closed');
+
+        // Fabricated bypass 2: Recent date + verifiedByAuthority: true
+        const fakeVerifiedByAuth = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            verifiedByAuthority: true,
+            lastVerifiedAt: new Date()
+        };
+        assert.equal(hasAuthoritativeReraApproval(fakeVerifiedByAuth), false, 'verifiedByAuthority: true alone must fail closed');
+
+        // Fabricated bypass 3: Recent date + source: RERA_PORTAL
+        const fakeSourceOnly = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            lastVerifiedAt: new Date()
+        };
+        assert.equal(hasAuthoritativeReraApproval(fakeSourceOnly), false, 'source: RERA_PORTAL alone must fail closed');
+
+        // Fabricated bypass 4: Recent date + reviewer string + hash
+        const fakeReviewerAndHash = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL',
+            reviewedBy: 'officer-99',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+            lastVerifiedAt: new Date()
+        };
+        assert.equal(hasAuthoritativeReraApproval(fakeReviewerAndHash), false, 'Reviewer string + hash without snapshot record must fail closed');
+
+        // Fabricated bypass 5: Embedded authorityVerification object with no underlying snapshot record
+        const embeddedAvNoSnapshot = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED',
+            authorityVerification: {
+                authorityCode: 'HRERA',
+                status: 'VERIFIED',
+                verificationSnapshotId: 'snap-fake-123',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: new Date(),
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeReraApproval(embeddedAvNoSnapshot), false, 'Embedded authorityVerification without underlying snapshot record must fail closed');
 
         // Gate 4: Unprovenanced or manual registration without evidence must fail closed
         const unprovenanced = {
@@ -464,7 +532,14 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                 litigationStatus: 'CLEAN'
             },
             reraNumber: 'HRERA-PKL-KUK-2024-88',
-            reraStatus: 'APPROVED'
+            reraStatus: 'APPROVED',
+            lastVerifiedAt: new Date(),
+            _resolvedSnapshot: {
+                authorityCode: 'HRERA',
+                observedAt: new Date(),
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                createdByWorkerId: 'worker-hrera-1'
+            }
         };
 
         const tones = ['urgent', 'luxury', 'investor'];

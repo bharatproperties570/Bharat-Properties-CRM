@@ -16,6 +16,7 @@ import MarketingContent from '../models/MarketingContent.js';
 import OutboxEvent from '../models/OutboxEvent.js';
 import Activity from '../models/Activity.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 
 import facebookService from '../services/FacebookService.js';
 import twitterService from '../services/TwitterService.js';
@@ -34,6 +35,7 @@ import {
     hasAuthoritativeReraApproval,
     hasAuthoritativeBankApproval,
     hasAuthoritativeReadyPossession,
+    validateAuthoritativeDocumentRecord,
     extractVerificationFacts,
     validateAndSanitizeCopy,
     generateCompliantFallback
@@ -161,6 +163,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             unitNo: 'Villa 101',
             location: 'Sector 13, Kurukshetra',
             price: 15000000,
+            progressPercentage: 100,
             tenantId: testTenantId,
             assignedTo: testAdminUser._id,
             owner: testAdminUser._id,
@@ -179,6 +182,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
             reraVerificationSnapshotId: 'snap-hrera-88',
+            reraDocumentId: 'doc-hrera-88',
             bankApproval: {
                 bankName: 'SBI',
                 status: 'APPROVED',
@@ -192,7 +196,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 status: 'ISSUED',
                 documentId: 'doc-oc-101',
                 verificationStatus: 'VERIFIED',
-                issueDate: new Date()
+                issueDate: new Date(),
+                progressPercentage: 100
             }
         });
 
@@ -242,6 +247,31 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 approvalAuthority: 'MUNICIPAL'
             },
             currentVersionId: ocVer._id,
+            state: 'ACTIVE'
+        });
+
+        const reraVer = await DocumentVersion.create({
+            versionId: 'ver-hrera-88',
+            documentId: 'doc-hrera-88',
+            versionNumber: 1,
+            providerInstanceId: 's3-primary',
+            objectKey: 'documents/deals/hrera-certificate.pdf',
+            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            mimeType: 'application/pdf',
+            sizeBytes: 153600
+        });
+
+        await Document.create({
+            documentId: 'doc-hrera-88',
+            entityType: 'Deal',
+            entityId: verifiedDeal._id,
+            metadata: {
+                documentCategory: 'RERA_CERTIFICATE',
+                documentType: 'RERA_CERTIFICATE',
+                approvalAuthority: 'HRERA',
+                documentNo: 'HRERA-PKL-KUK-2024-88'
+            },
+            currentVersionId: reraVer._id,
             state: 'ACTIVE'
         });
     });
@@ -808,12 +838,14 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         // Valid Occupancy Certificate passes
         const validOC = {
             possessionStatus: 'READY',
+            progressPercentage: 100,
             occupancyCertificate: {
                 certificateNumber: 'OC-KUK-2024-551',
                 status: 'ISSUED',
                 documentId: 'doc-oc-551',
                 verificationStatus: 'VERIFIED',
                 issueDate: new Date(),
+                progressPercentage: 100,
                 documentRecord: {
                     documentId: 'doc-oc-551',
                     state: 'ACTIVE',
@@ -828,6 +860,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         // Valid Completion Certificate in approvals array passes
         const validCCInApprovals = {
             possessionStatus: 'READY_TO_MOVE',
+            progressPercentage: 100,
             approvals: [
                 {
                     documentType: 'OCCUPANCY_CERTIFICATE',
@@ -836,6 +869,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     documentId: 'doc-oc-99',
                     verificationStatus: 'VERIFIED',
                     issueDate: new Date(),
+                    progressPercentage: 100,
                     documentRecord: {
                         documentId: 'doc-oc-99',
                         state: 'ACTIVE',
@@ -885,8 +919,17 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             reraStatus: 'APPROVED',
             source: 'RERA_PORTAL',
             verificationSnapshotId: 'snap-rera-2024-11',
-            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
-            lastVerifiedAt: new Date()
+            snapshotContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            lastVerifiedAt: new Date(),
+            _resolvedSnapshot: {
+                snapshotId: 'snap-rera-2024-11',
+                authorityCode: 'HRERA',
+                source: 'RERA_PORTAL',
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                verifiedAt: new Date(),
+                status: 'APPROVED',
+                createdByWorkerId: 'WORKER_RERA_SYNC'
+            }
         };
         assert.equal(hasAuthoritativeReraApproval(verifiedProvenance), true);
 
@@ -905,7 +948,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                         state: 'ACTIVE',
                         isDeleted: false,
                         currentVersionId: 'ver-pbrera-456',
-                        currentVersion: { checksum: 'a1b2c3d4e5f67890123456789abcdef0' }
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
                     }
                 }
             ]
@@ -1573,5 +1616,347 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 assert.doesNotMatch(sanitized, tc.pattern, `Prohibited pattern must be neutralized: ${sanitized}`);
             });
         }
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 11: ROUND 4 EVIDENCE INTEGRITY & DOCUMENT VERSION CLOSURE SUITE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 11 — Round 4 Evidence Integrity & Targeted Closure Suite', () => {
+        // 1. Fake RERA snapshot and provenance bypass attempts (all 5 fail closed)
+        it('RERA Bypass 1: Recent date + fake snapshot ID + fake hash fails closed without DB record', () => {
+            const fake = {
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL',
+                verificationSnapshotId: 'snap-fake-12345678',
+                snapshotContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                lastVerifiedAt: new Date()
+                // No _resolvedSnapshot or documentRecord
+            };
+            assert.equal(hasAuthoritativeReraApproval(fake), false);
+        });
+
+        it('RERA Bypass 2: Recent date + verifiedByAuthority: true fails closed without DB record', () => {
+            const fake = {
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                verifiedByAuthority: true,
+                lastVerifiedAt: new Date()
+            };
+            assert.equal(hasAuthoritativeReraApproval(fake), false);
+        });
+
+        it('RERA Bypass 3: Recent date + source: RERA_PORTAL fails closed without DB record', () => {
+            const fake = {
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL',
+                lastVerifiedAt: new Date()
+            };
+            assert.equal(hasAuthoritativeReraApproval(fake), false);
+        });
+
+        it('RERA Bypass 4: Recent date + reviewer string + hash fails closed without DB record', () => {
+            const fake = {
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                reviewedBy: 'Chief RERA Officer Haryana',
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                lastVerifiedAt: new Date()
+            };
+            assert.equal(hasAuthoritativeReraApproval(fake), false);
+        });
+
+        it('RERA Bypass 5: Embedded authorityVerification object with no underlying snapshot fails closed', () => {
+            const fake = {
+                reraNumber: 'HRERA-PKL-KUK-2024-99',
+                reraStatus: 'APPROVED',
+                authorityVerification: {
+                    authorityCode: 'HRERA',
+                    status: 'VERIFIED',
+                    verificationSnapshotId: 'snap-fake-9999',
+                    snapshotContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: 'CLEAN'
+                }
+            };
+            assert.equal(hasAuthoritativeReraApproval(fake), false);
+        });
+
+        // 2. DocumentVersion belongs to a different Document
+        it('Document Version: DocumentVersion.documentId mismatching Document.documentId fails closed', () => {
+            const candidateDoc = {
+                documentId: 'doc-correct-100',
+                documentRecord: {
+                    documentId: 'doc-correct-100',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-100',
+                    currentVersion: {
+                        _id: 'ver-100',
+                        documentId: 'doc-DIFFERENT-999', // Mismatch!
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                    }
+                }
+            };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, null, 'BANK'), false);
+        });
+
+        // 3. Wrong checksum algorithm and invalid digest length
+        it('Document Version: Checksum algorithm not SHA-256 is rejected', () => {
+            const candidateDoc = {
+                documentId: 'doc-algo-bad',
+                documentRecord: {
+                    documentId: 'doc-algo-bad',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-bad-algo',
+                    currentVersion: {
+                        _id: 'ver-bad-algo',
+                        documentId: 'doc-algo-bad',
+                        checksumAlgorithm: 'MD5', // Invalid algorithm!
+                        checksum: 'c2e0b12398fc1c149afbf4c8996fb924'
+                    }
+                }
+            };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, null, 'BANK'), false);
+        });
+
+        it('Document Version: Checksum digest length less than 64 hex chars is rejected', () => {
+            const candidateDoc = {
+                documentId: 'doc-short-digest',
+                documentRecord: {
+                    documentId: 'doc-short-digest',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-short',
+                    currentVersion: {
+                        _id: 'ver-short',
+                        documentId: 'doc-short-digest',
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c14' // Only 16 chars!
+                    }
+                }
+            };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, null, 'BANK'), false);
+        });
+
+        // 4. Valid document but wrong document category
+        it('Document Category: OCCUPANCY_CERTIFICATE document used for BANK claim is rejected', () => {
+            const candidateDoc = {
+                documentId: 'doc-oc-as-bank',
+                documentRecord: {
+                    documentId: 'doc-oc-as-bank',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    metadata: { documentCategory: 'OCCUPANCY_CERTIFICATE' },
+                    currentVersionId: 'ver-oc',
+                    currentVersion: {
+                        _id: 'ver-oc',
+                        documentId: 'doc-oc-as-bank',
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                    }
+                }
+            };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, null, 'BANK'), false);
+        });
+
+        it('Document Category: BANK_APPROVAL document used for POSSESSION claim is rejected', () => {
+            const candidateDoc = {
+                documentId: 'doc-bank-as-oc',
+                documentRecord: {
+                    documentId: 'doc-bank-as-oc',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    metadata: { documentCategory: 'BANK_APPROVAL' },
+                    currentVersionId: 'ver-bank',
+                    currentVersion: {
+                        _id: 'ver-bank',
+                        documentId: 'doc-bank-as-oc',
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                    }
+                }
+            };
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, null, 'POSSESSION'), false);
+        });
+
+        // 5. Document linked to the wrong property
+        it('Document Entity: Document linked to a different property entity is rejected', () => {
+            const propertyA = { _id: new mongoose.Types.ObjectId() };
+            const propertyB = { _id: new mongoose.Types.ObjectId() };
+
+            const candidateDoc = {
+                documentId: 'doc-prop-b',
+                documentRecord: {
+                    documentId: 'doc-prop-b',
+                    entityType: 'Deal',
+                    entityId: propertyB._id, // Belongs to Property B
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    metadata: { documentCategory: 'BANK_APPROVAL' },
+                    currentVersionId: 'ver-b',
+                    currentVersion: {
+                        _id: 'ver-b',
+                        documentId: 'doc-prop-b',
+                        checksumAlgorithm: 'SHA-256',
+                        checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+                    }
+                }
+            };
+            // Attempting to evaluate document for Property A must fail
+            assert.equal(validateAuthoritativeDocumentRecord(candidateDoc, propertyA, 'BANK'), false);
+        });
+
+        // 6. Possession: Missing mandatory possession progress & progress contracts
+        it('Possession: Missing progressPercentage fails closed', () => {
+            const missingProgress = {
+                possessionStatus: 'READY',
+                // No progressPercentage on entity
+                occupancyCertificate: {
+                    certificateNumber: 'OC-123',
+                    status: 'ISSUED',
+                    documentId: 'doc-oc-123',
+                    verificationStatus: 'VERIFIED',
+                    issueDate: new Date(),
+                    documentRecord: {
+                        documentId: 'doc-oc-123',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-oc-123',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeReadyPossession(missingProgress), false);
+        });
+
+        it('Possession: progressPercentage === 99 fails closed', () => {
+            const incompleteProgress = {
+                possessionStatus: 'READY',
+                progressPercentage: 99,
+                occupancyCertificate: {
+                    certificateNumber: 'OC-123',
+                    status: 'ISSUED',
+                    documentId: 'doc-oc-123',
+                    verificationStatus: 'VERIFIED',
+                    issueDate: new Date(),
+                    documentRecord: {
+                        documentId: 'doc-oc-123',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-oc-123',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeReadyPossession(incompleteProgress), false);
+        });
+
+        it('Possession: progressPercentage === 100 with authentic OC passes', () => {
+            const completeProgress = {
+                possessionStatus: 'READY',
+                progressPercentage: 100,
+                occupancyCertificate: {
+                    certificateNumber: 'OC-123',
+                    status: 'ISSUED',
+                    documentId: 'doc-oc-123',
+                    verificationStatus: 'VERIFIED',
+                    issueDate: new Date(),
+                    progressPercentage: 100,
+                    documentRecord: {
+                        documentId: 'doc-oc-123',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-oc-123',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeReadyPossession(completeProgress), true);
+        });
+
+        it('Possession: Contradictory progress across linked records (entity 100 vs project 85) fails closed', () => {
+            const contradictory = {
+                possessionStatus: 'READY',
+                progressPercentage: 100,
+                project: {
+                    progressPercentage: 85 // Conflict!
+                },
+                occupancyCertificate: {
+                    certificateNumber: 'OC-123',
+                    status: 'ISSUED',
+                    documentId: 'doc-oc-123',
+                    verificationStatus: 'VERIFIED',
+                    issueDate: new Date(),
+                    documentRecord: {
+                        documentId: 'doc-oc-123',
+                        state: 'ACTIVE',
+                        isDeleted: false,
+                        currentVersionId: 'ver-oc-123',
+                        currentVersion: { checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeReadyPossession(contradictory), false);
+        });
+
+        it('Possession: 100% progress without authentic OC/CC document record fails closed', () => {
+            const noDoc = {
+                possessionStatus: 'READY',
+                progressPercentage: 100
+                // Missing occupancyCertificate / completionCertificate
+            };
+            assert.equal(hasAuthoritativeReadyPossession(noDoc), false);
+        });
+
+        // 7. Sanitizer semantic assertions: no unsupported replacement claims
+        it('Sanitizer: Neutral replacement never injects unsupported financial or possession promises', () => {
+            const unverifiedFacts = {
+                isTitleVerified: false,
+                isReraApproved: false,
+                isBankApproved: false,
+                isReadyPossession: false
+            };
+            const input = 'Guaranteed 20% ROI with assured rental income for 3 years! Possession guaranteed by December 2026! RERA registered project!';
+            const sanitized = validateAndSanitizeCopy(input, unverifiedFacts, { platform: 'facebook' });
+
+            // Semantic assertions: Ensure sanitized copy does NOT introduce other prohibited claims
+            assert.doesNotMatch(sanitized, /8[\s\-_/]*10%/i, 'Must never inject 8-10% ROI');
+            assert.doesNotMatch(sanitized, /fixed\s+rental/i, 'Must never inject fixed rental promises');
+            assert.doesNotMatch(sanitized, /possession\s+scheduled/i, 'Must never inject unverified possession schedules');
+            assert.doesNotMatch(sanitized, /rera\s+registered/i, 'Must never inject unverified RERA registration');
+            assert.doesNotMatch(sanitized, /guaranteed/i, 'Must never contain guaranteed claims');
+            assert.doesNotMatch(sanitized, /assured/i, 'Must never contain assured claims');
+        });
+
+        // 8. Autonomous Marketing Title Sanitization
+        it('Autonomous Marketing: Prohibited claim in title is sanitized in return value and database persistence', async () => {
+            const cycleResult = await marketingService.runAutonomousMarketingCycle({
+                force: true,
+                title: 'High-Yield Guaranteed Investment in Sector 13 with RERA Approved Plots!',
+                dryRun: false
+            });
+
+            assert.equal(cycleResult.success, true);
+            // Assert postTitle in return value
+            assert.ok(cycleResult.postTitle, 'Cycle result must return postTitle');
+            assert.doesNotMatch(cycleResult.postTitle, /guaranteed/i, 'Return title must not contain guaranteed');
+            assert.doesNotMatch(cycleResult.postTitle, /high-yield/i, 'Return title must not contain high-yield');
+            assert.doesNotMatch(cycleResult.postTitle, /rera approved/i, 'Return title must not contain unverified rera approved');
+
+            // Assert persisted MarketingContent in MongoDB
+            if (cycleResult.recordId || cycleResult.contentId) {
+                const recId = cycleResult.recordId || cycleResult.contentId;
+                const persisted = await MarketingContent.findById(recId).lean();
+                assert.ok(persisted, 'MarketingContent must exist');
+                assert.doesNotMatch(persisted.title, /guaranteed/i, 'Persisted DB title must not contain guaranteed');
+                assert.doesNotMatch(persisted.title, /high-yield/i, 'Persisted DB title must not contain high-yield');
+                assert.doesNotMatch(persisted.title, /rera approved/i, 'Persisted DB title must not contain unverified rera approved');
+            }
+        });
     });
 });

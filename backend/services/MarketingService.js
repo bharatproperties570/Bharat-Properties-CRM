@@ -654,6 +654,19 @@ class MarketingService {
         }
 
         // 3b. Enterprise Statutory Compliance Enforcement (Server-Side Security Boundary)
+        if (options.customTitle || options.title) {
+            postTitle = options.customTitle || options.title;
+        }
+
+        if (postTitle) {
+            const { sanitizedText: sanitizedTitle } = marketingComplianceEnforcementService.enforceCompliance(
+                postTitle,
+                chosenDeal || null,
+                'generic'
+            );
+            postTitle = sanitizedTitle;
+        }
+
         for (const ch of Object.keys(channelCaptions)) {
             const rawCap = channelCaptions[ch];
             if (rawCap) {

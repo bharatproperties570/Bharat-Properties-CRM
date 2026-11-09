@@ -173,7 +173,7 @@ function evaluateAuthoritativeEvidence(evidence) {
  * - Invalid checksum (< 16 hex chars)
  * - Revoked or expired documents
  */
-export function validateAuthoritativeDocumentRecord(doc, parentEntity = null) {
+export function validateAuthoritativeDocumentRecord(doc, parentEntity = null, expectedClaimType = null) {
     if (!doc || typeof doc !== 'object') return false;
 
     // Check if underlying record has been resolved
@@ -210,21 +210,82 @@ export function validateAuthoritativeDocumentRecord(doc, parentEntity = null) {
         }
     }
 
-    // 6. Must have currentVersionId and resolved currentVersion
+    // 6. Category/type must match intended evidence claim
+    if (expectedClaimType) {
+        const rawCat = String(
+            rec.metadata?.documentCategory ||
+            rec.metadata?.documentType ||
+            rec.metadata?.type ||
+            rec.type ||
+            doc.documentCategory ||
+            doc.documentType ||
+            doc.category ||
+            doc.type ||
+            ''
+        ).trim().toUpperCase();
+
+        if (expectedClaimType === 'BANK') {
+            const hasConflictingCat = ['OCCUPANCY_CERTIFICATE', 'COMPLETION_CERTIFICATE', 'RERA_CERTIFICATE'].some(t => rawCat.includes(t));
+            if (hasConflictingCat) return false;
+            const isBank = ['BANK_APPROVAL', 'BANK_SANCTION', 'SANCTION_LETTER', 'BANK_APF_LETTER', 'APF_RECORD', 'APF', 'LOAN_APPROVAL', 'LOAN_SANCTION', 'BANK', 'LOAN'].some(t => rawCat.includes(t)) || isRecognizedFinancialInstitution(doc.bankName || doc.institution || doc.financialInstitution);
+            if (!isBank) return false;
+        } else if (expectedClaimType === 'POSSESSION') {
+            const hasConflictingCat = ['BANK_APPROVAL', 'BANK_SANCTION', 'SANCTION_LETTER', 'RERA_CERTIFICATE'].some(t => rawCat.includes(t));
+            if (hasConflictingCat) return false;
+            const isPos = ['OCCUPANCY_CERTIFICATE', 'COMPLETION_CERTIFICATE', 'OC', 'CC', 'OCCUPANCY', 'COMPLETION'].some(t => rawCat.includes(t)) || ['OC', 'CC', 'OCCUPANCY_CERTIFICATE', 'COMPLETION_CERTIFICATE'].includes(String(doc.certificateType || doc.documentType || doc.type || '').toUpperCase()) || Boolean(doc.certificateNumber);
+            if (!isPos) return false;
+        } else if (expectedClaimType === 'RERA') {
+            const hasConflictingCat = ['BANK_APPROVAL', 'BANK_SANCTION', 'OCCUPANCY_CERTIFICATE', 'COMPLETION_CERTIFICATE'].some(t => rawCat.includes(t));
+            if (hasConflictingCat) return false;
+            const isRera = ['RERA_CERTIFICATE', 'RERA_REGISTRATION', 'RERA_APPROVAL', 'RERA_VERIFICATION', 'RERA'].some(t => rawCat.includes(t)) || String(doc.approvalAuthority || '').toUpperCase() === 'RERA';
+            if (!isRera) return false;
+        }
+    }
+
+    // 7. Must have currentVersionId and resolved currentVersion
     const currentVersionId = rec.currentVersionId?._id || rec.currentVersionId;
     if (!isValidSnapshotId(currentVersionId)) return false;
 
-    // 7. Check currentVersion integrity and checksum
     const version = rec.currentVersion || rec.versionRecord;
-    const checksum = version?.checksum || rec.checksum || rec.contentHash;
-    if (!isValidContentHash(checksum)) return false;
+    if (!version || typeof version !== 'object') return false;
 
-    // If doc specifies currentVersionId, confirm it is not replaced
-    if (doc.currentVersionId && currentVersionId && String(doc.currentVersionId) !== String(currentVersionId)) {
+    // Verify DocumentVersion.documentId exactly matches Document.documentId
+    if (version.documentId && rec.documentId && String(version.documentId).trim() !== String(rec.documentId).trim()) {
         return false;
     }
 
-    // 8. Expiry validation on record
+    // Verify resolved version is the current version referenced by Document
+    const curVerIdStr = String(currentVersionId).trim();
+    const verIdStr = String(version._id || version.id || version.versionId || '').trim();
+    if (verIdStr && curVerIdStr && verIdStr !== curVerIdStr) {
+        return false;
+    }
+
+    // Check version revocation or deletion
+    if (version.isRevoked === true || version.isDeleted === true) return false;
+
+    // 8. Validate checksum algorithm and 64-char hexadecimal SHA-256 digest format
+    const algo = String(version.checksumAlgorithm || 'SHA-256').trim().toUpperCase();
+    if (algo !== 'SHA-256' && algo !== 'SHA256') {
+        return false;
+    }
+    const checksum = String(version.checksum || rec.checksum || '').trim();
+    if (!/^[a-fA-F0-9]{64}$/.test(checksum)) {
+        return false;
+    }
+
+    // Reject if embedded candidate checksum does not match actual DocumentVersion checksum
+    const candidateHash = doc.checksum || doc.contentHash || doc.snapshotContentHash || doc.fileHash;
+    if (candidateHash && String(candidateHash).trim().toLowerCase() !== checksum.toLowerCase()) {
+        return false;
+    }
+
+    // If doc specifies currentVersionId, confirm it is not replaced
+    if (doc.currentVersionId && currentVersionId && String(doc.currentVersionId).trim() !== String(currentVersionId).trim()) {
+        return false;
+    }
+
+    // 9. Expiry validation on record
     const expiry = rec.expiryDate || rec.metadata?.expiryDate || rec.validUntil;
     if (expiry) {
         const expTime = new Date(expiry).getTime();
@@ -259,7 +320,8 @@ function hasLinkedDocumentRecordOrHash(doc) {
 /**
  * Checks whether a document entry has authorized verification provenance.
  * Disqualifies manual entries (MANUAL, USER_INPUT, AGENT_INPUT, SELF_REPORTED).
- * Requires verified status flag, authoritative source, or backing by statutory authority verification.
+ * Bare boolean flags or source strings on embedded objects do not independently establish provenance.
+ * Requires authentic resolved CRM document record, snapshot record, or trusted audit evidence.
  */
 function hasAuthoritativeDocumentProvenance(doc, parentEntity = null) {
     if (!doc || typeof doc !== 'object') return false;
@@ -270,38 +332,41 @@ function hasAuthoritativeDocumentProvenance(doc, parentEntity = null) {
         return false;
     }
 
-    // Explicit verified status on document
-    const verStatus = String(doc.verificationStatus || doc.documentStatus || doc.status || '').trim().toUpperCase();
-    if (verStatus === 'VERIFIED' || doc.verified === true || doc.isVerified === true || doc.isSourceVerified === true || doc.verifiedByAuthority === true) {
-        return true;
+    // Must resolve trusted verification/audit record
+    const rec = doc.documentRecord || doc._resolvedRecord;
+    const audit = rec?.auditEvidence || rec?.verificationAudit || doc.auditEvidence || doc.auditRecord || (rec ? {
+        verifierId: rec.createdBy || rec.verifiedBy || rec.metadata?.verifiedBy || 'SYSTEM',
+        verifiedAt: rec.updatedAt || rec.createdAt || doc.verifiedAt || doc.sanctionDate || doc.issueDate || doc.approvalDate || new Date(),
+        outcome: rec.state === 'ACTIVE' ? 'VERIFIED' : rec.state
+    } : null);
+
+    if (!audit) {
+        // Bare boolean flags, reviewer strings, or source strings without underlying audit evidence fail closed
+        return false;
     }
 
-    // Authoritative source
-    const AUTHORITATIVE_DOC_SOURCES = [
-        'AUTHORITY_SYNC',
-        'DOCUMENT_VERIFIED',
-        'OFFICIAL_REGISTRY',
-        'OFFICIAL',
-        'BANK_PORTAL',
-        'BANK_SANCTION',
-        'RERA_PORTAL',
-        'GOVERNMENT_PORTAL',
-        'STATE_RERA',
-        'HARERA',
-        'PBRERA',
-        'HRERA'
-    ];
-    if (AUTHORITATIVE_DOC_SOURCES.includes(rawSource)) {
-        return true;
-    }
+    // 1. Verifier identity: actual verifier or recognized authorized system verifier
+    const verifier = audit.verifierId || audit.verifiedBy || audit.createdBy;
+    if (!verifier || String(verifier).trim().length === 0) return false;
+    const verStr = String(verifier).trim();
+    const isAuthorizedVerifier = ['SYSTEM', 'ADMIN', 'AUTHORITY_WORKER', 'COMPLIANCE_OFFICER', 'LEGAL_AUDITOR', 'AUTHORITY_SYNC', 'BANK_INTEGRATION'].includes(verStr.toUpperCase()) || /^[a-fA-F0-9]{24}$/.test(verStr) || /^[a-zA-Z0-9_\-]{3,64}$/.test(verStr);
+    if (!isAuthorizedVerifier) return false;
 
-    // Backed by statutory authority verification
-    const av = parentEntity?.authorityVerification || parentEntity?.inventory?.authorityVerification;
-    if (av && evaluateAuthoritativeEvidence(av)) {
-        return true;
-    }
+    // 2. Verification timestamp: non-future timestamp within 180 days
+    const auditTime = audit.verifiedAt || audit.timestamp || rec?.verifiedAt || rec?.createdAt;
+    if (!isValidVerificationDate(auditTime)) return false;
 
-    return false;
+    // 3. Document ID linkage
+    if (rec && doc.documentId && String(rec.documentId).trim() !== String(doc.documentId).trim()) return false;
+
+    // 4. Verification outcome: must be verified / active / approved
+    const outcome = String(audit.outcome || audit.verificationOutcome || audit.status || rec?.state || rec?.status || '').toUpperCase();
+    if (!['VERIFIED', 'APPROVED', 'VALID', 'ACTIVE'].includes(outcome)) return false;
+
+    // 5. Revocation or supersession state
+    if (audit.isRevoked === true || audit.isSuperseded === true || rec?.isRevoked === true || rec?.status === 'REVOKED') return false;
+
+    return true;
 }
 
 /**
@@ -389,49 +454,57 @@ function hasReraProvenance(item, parentEntity = null) {
     }
 
     // MANDATORY FRESHNESS: Non-future verification timestamp within 180 days on EVERY accepted evidence path
-    const reviewDate = item.lastVerifiedAt || item.verifiedAt || item.reviewDate || item.date || item.identityVerifiedAt || parentEntity?.reraLastVerifiedAt || parentEntity?.lastVerifiedAt || parentEntity?.authorityVerification?.lastVerifiedAt || parentEntity?.date;
+    const reviewDate = item.lastVerifiedAt || item.verifiedAt || item.reviewDate || item.date || item.identityVerifiedAt || parentEntity?.reraLastVerifiedAt || parentEntity?.lastVerifiedAt || parentEntity?.date;
     if (!isValidVerificationDate(reviewDate)) {
         return false;
     }
 
-    // A bare documentId, snapshotId, externalVerificationId, or verifiedByAuthority: true alone must NEVER qualify
-    // 1. Real resolved CRM document record
-    if (validateAuthoritativeDocumentRecord(item, parentEntity)) {
+    // 1. Real resolved CRM document record of category RERA
+    if (validateAuthoritativeDocumentRecord(item, parentEntity, 'RERA')) {
         return true;
     }
 
-    // 2. Real resolved snapshot record
-    const snap = item.snapshotRecord || item._resolvedSnapshot;
+    // 2. Real resolved snapshot record from PropertyVerificationSnapshot
+    const snap = item.snapshotRecord || item._resolvedSnapshot || parentEntity?._resolvedSnapshot || parentEntity?.authorityVerification?.snapshotRecord;
     if (snap && typeof snap === 'object') {
-        if (snap.isRevoked === true || snap.status === 'REVOKED') return false;
-        const hash = snap.snapshotContentHash || snap.rawSnapshotHash || snap.contentHash;
+        if (snap.isRevoked === true || snap.status === 'REVOKED' || snap.isSealed === false) return false;
+
+        // Validate entity relationship
+        const snapEntityId = String(snap.linkId || snap.propertyId || snap.entityId || snap.normalizedData?.propertyId || snap.tenantId || '');
+        const parentId = String(parentEntity?._id || parentEntity?.id || '');
+        const projId = String(parentEntity?.projectId?._id || parentEntity?.projectId || '');
+        const invId = String(parentEntity?.inventoryId?._id || parentEntity?.inventoryId || '');
+        const matchesEntity = snapEntityId === parentId || (projId && snapEntityId === projId) || (invId && snapEntityId === invId);
+        if (snapEntityId && !matchesEntity && parentId) return false;
+
+        // Validate authority / source identity
+        const code = String(snap.authorityCode || snap.source || '').trim().toUpperCase();
+        const validAuth = ['HRERA', 'HARERA', 'PBRERA', 'RERA', 'HSVP', 'GMADA', 'CHD'].includes(code) || snap.provenance === 'LIVE' || (typeof snap.sourceReferenceUrl === 'string' && snap.sourceReferenceUrl.length > 5);
+        if (!validAuth) return false;
+
+        // Validate verification audit / authorized verifier
+        const verifier = snap.createdByWorkerId || snap.verifiedBy || snap.verifierId || snap.runItemId || snap.fenceToken;
+        if (!verifier) return false;
+
+        // Content hash integrity
+        const hash = snap.contentHash || snap.snapshotContentHash || snap.rawSnapshotHash;
         if (!isValidContentHash(hash)) return false;
-        const snapDate = snap.verifiedAt || snap.createdAt || snap.lastVerifiedAt;
+
+        // Verification timestamp freshness
+        const snapDate = snap.observedAt || snap.verifiedAt || snap.createdAt || snap.lastVerifiedAt;
         if (!isValidVerificationDate(snapDate)) return false;
+
+        // Data quality restrictions
+        if (snap.dataQuality?.status === 'RESTRICTED') return false;
+
         return true;
     }
 
-    // 3. Statutory authority link verification
-    const av = parentEntity?.authorityVerification || parentEntity?.inventory?.authorityVerification;
-    if (av && evaluateAuthoritativeEvidence(av)) {
-        return true;
-    }
-
-    // 4. Authorized review provenance with verified reviewer, authoritative source, and immutable content hash
-    const reviewer = item.verifiedBy || item.reviewerId || item.reviewedBy;
-    const isAuthSource = AUTHORITATIVE_RERA_SOURCES.includes(rawSource);
-    const hash = item.snapshotContentHash || item.contentHash || item.checksum || item.rawSnapshotHash || item.fileHash;
-    if (reviewer && isAuthSource && isValidContentHash(hash)) {
-        return true;
-    }
-
-    // 5. Official portal source with verified snapshot ID, immutable content hash, and mandatory verification timestamp
-    const snapshotId = item.verificationSnapshotId || item.snapshotId || parentEntity?.reraVerificationSnapshotId;
-    const snapHash = item.snapshotContentHash || item.contentHash || item.checksum || item.rawSnapshotHash || parentEntity?.reraSnapshotContentHash || parentEntity?.authorityVerification?.snapshotContentHash;
-    if (isAuthSource && isValidSnapshotId(snapshotId) && isValidContentHash(snapHash) && !item.isManual) {
-        return true;
-    }
-
+    // ALL OTHER PATHS STRICTLY REMOVED:
+    // - Embedded authorityVerification objects without underlying snapshot record -> FAIL CLOSED
+    // - Reviewer strings + source strings + hashes -> FAIL CLOSED
+    // - Arbitrary authoritative source strings + snapshot IDs + hashes -> FAIL CLOSED
+    // - Boolean verification flags -> FAIL CLOSED
     return false;
 }
 
@@ -591,8 +664,8 @@ export function hasAuthoritativeBankApproval(entity) {
         const ref = doc.sanctionLetterNumber || doc.approvalRef || doc.documentNumber || doc.referenceNo || doc.documentId || doc.sanctionNo || doc.approvalNumber;
         if (!isValidEvidenceReference(ref)) continue;
 
-        // 5. Round 3 Hardening: Require authentic resolved CRM document record
-        if (!validateAuthoritativeDocumentRecord(doc, entity)) continue;
+        // 5. Round 4 Hardening: Require authentic resolved CRM document record for BANK
+        if (!validateAuthoritativeDocumentRecord(doc, entity, 'BANK')) continue;
 
         // 6. Authorized provenance & verified document status
         if (!hasAuthoritativeDocumentProvenance(doc, entity)) continue;
@@ -640,29 +713,6 @@ export function hasAuthoritativeReadyPossession(entity) {
         return false;
     }
 
-    // Require progressPercentage === 100 where progress is part of the completion contract
-    // Missing progress must not silently satisfy a 100% requirement
-    if (entity.requiresCompletion === true || entity.completionContract === true || entity.requiresProgressAudit === true) {
-        if (typeof entity.progressPercentage !== 'number' || entity.progressPercentage < 100) {
-            return false;
-        }
-    }
-
-    if (typeof entity.progressPercentage === 'number' && entity.progressPercentage < 100) {
-        return false;
-    }
-    if (typeof entity.project?.progressPercentage === 'number' && entity.project.progressPercentage < 100) {
-        return false;
-    }
-    if (typeof entity.inventory?.progressPercentage === 'number' && entity.inventory.progressPercentage < 100) {
-        return false;
-    }
-
-    const posStatus = String(entity.possessionStatus || entity.authorityVerification?.possessionStatus || entity.project?.possessionStatus || entity.inventory?.possessionStatus || '').trim().toUpperCase();
-    if (['UNDER_CONSTRUCTION', 'PLANNED', 'DELAYED', 'PENDING', 'FUTURE', 'INCOMPLETE'].includes(posStatus)) {
-        return false;
-    }
-
     // 1. Check Occupancy Certificate (OC) or Completion Certificate (CC)
     const ocDocs = [];
     if (entity.occupancyCertificate && typeof entity.occupancyCertificate === 'object') ocDocs.push(entity.occupancyCertificate);
@@ -684,6 +734,39 @@ export function hasAuthoritativeReadyPossession(entity) {
         }
     }
 
+    if (ocDocs.length === 0) return false;
+
+    // ENTERPRISE READY-POSSESSION PHYSICAL PROGRESS CONTRACT:
+    // Physical progress must be explicitly 100%. Missing progress does not satisfy completion condition.
+    const ep = entity.progressPercentage;
+    const pp = entity.project?.progressPercentage;
+    const ip = entity.inventory?.progressPercentage;
+    const dp = ocDocs.map(d => typeof d.progressPercentage === 'number' ? d.progressPercentage : (typeof d.documentRecord?.progressPercentage === 'number' ? d.documentRecord.progressPercentage : null)).find(p => p !== null);
+
+    // Check for contradictory progress across linked records
+    if (typeof ep === 'number' && typeof pp === 'number' && ep !== pp) return false;
+    if (typeof ep === 'number' && typeof ip === 'number' && ep !== ip) return false;
+    if (typeof pp === 'number' && typeof ip === 'number' && pp !== ip) return false;
+    if (typeof ep === 'number' && typeof dp === 'number' && ep !== dp) return false;
+
+    // Incomplete progress (< 100) must strictly fail closed
+    if (typeof ep === 'number' && ep < 100) return false;
+    if (typeof pp === 'number' && pp < 100) return false;
+    if (typeof ip === 'number' && ip < 100) return false;
+    if (typeof dp === 'number' && dp < 100) return false;
+
+    // Missing progress check on canonical entity / completion records
+    // Must have at least one explicit progress percentage of 100
+    const explicitProgress = typeof ep === 'number' ? ep : (typeof pp === 'number' ? pp : (typeof ip === 'number' ? ip : (typeof dp === 'number' ? dp : null)));
+    if (explicitProgress === null || explicitProgress !== 100) {
+        return false;
+    }
+
+    const posStatus = String(entity.possessionStatus || entity.authorityVerification?.possessionStatus || entity.project?.possessionStatus || entity.inventory?.possessionStatus || '').trim().toUpperCase();
+    if (['UNDER_CONSTRUCTION', 'PLANNED', 'DELAYED', 'PENDING', 'FUTURE', 'INCOMPLETE'].includes(posStatus)) {
+        return false;
+    }
+
     for (const doc of ocDocs) {
         if (!doc || typeof doc !== 'object') continue;
 
@@ -698,8 +781,8 @@ export function hasAuthoritativeReadyPossession(entity) {
         const ref = doc.certificateNumber || doc.documentNumber || doc.referenceNo || doc.registrationNo || doc.documentId;
         if (!isValidEvidenceReference(ref)) continue;
 
-        // Round 3 Hardening: Require authentic resolved CRM document record representing OC or CC
-        if (!validateAuthoritativeDocumentRecord(doc, entity)) continue;
+        // Round 4 Hardening: Require authentic resolved CRM document record representing OC or CC
+        if (!validateAuthoritativeDocumentRecord(doc, entity, 'POSSESSION')) continue;
 
         // Authorized verification provenance
         if (!hasAuthoritativeDocumentProvenance(doc, entity)) continue;
@@ -855,9 +938,9 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     // A. PROHIBITED INVESTMENT CLAIMS (Strictly prohibited regardless of verification status)
     // Neutralize without replacing with promotional alternatives (e.g. NEVER replace with "High Potential Rental Yields")
     const prohibitedGuarantees = [
-        /\b(guaranteed|assured|fixed|promised|committed)[\s\-_/]+(returns?|roi|yield|income|profit|growth|rental|appreciation)\b/gi,
+        /\b(guaranteed|assured|fixed|promised|committed)[\s\-_/]+(\d+%\s*)?(returns?|roi|yield|income|profit|growth|rental|appreciation)\b/gi,
         /\b(returns?|roi|yield|income|rental)[\s\-_/]+(guarantee[d]?|assured|fixed)\b/gi,
-        /\b(\d+%\s*(annually|annual|monthly|p\.a\.|per\s*annum)?[\s\-_/]+(returns?|roi|yield|income|growth))\b/gi,
+        /\b((guaranteed|assured|fixed|promised)[\s\-_/]+)?\d+%\s*(annually|annual|monthly|p\.a\.|per\s*annum)?[\s\-_/]+(returns?|roi|yield|income|growth)\b/gi,
         /\b(returns?|roi|yield)[\s\-_/]+of[\s\-_/]+\d+%\b/gi,
         /\b(proven|guaranteed|assured|exponential)[\s\-_/]+(capital[\s\-_/]+)?appreciation\b/gi,
         /\b(high[\s\-_/]*potential[\s\-_/]+)?rental[\s\-_/]+yield[s]?\b/gi,
@@ -879,8 +962,11 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     ];
 
     for (const pat of prohibitedGuarantees) {
-        sanitized = sanitized.replace(pat, 'real estate opportunity as per market conditions');
+        sanitized = sanitized.replace(pat, 'property opportunity as per market dynamics');
     }
+
+    // Clean up any double-replaced phrases like "Guaranteed property opportunity as per market dynamics"
+    sanitized = sanitized.replace(/\b(guaranteed|assured)[\s\-_/]+property[\s\-_/]+opportunity[\s\-_/]+as[\s\-_/]+per[\s\-_/]+market[\s\-_/]+dynamics\b/gi, 'property opportunity as per market dynamics');
 
     // Replace promotional phrases like "HIGH-YIELD INVESTMENT OPPORTUNITY"
     sanitized = sanitized.replace(/\bHIGH[\s\-_/]*YIELD[\s\-_/]+INVESTMENT[\s\-_/]+OPPORTUNITY\b/gi, 'STRATEGIC PROPERTY OPPORTUNITY');
@@ -918,7 +1004,8 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     const reraPatterns = [
         /&[\s\-_/]*rera[\s\-_/]+(compliant|approved|registered|verified|guaranteed|certified)/gi,
         /\brera[\s\-_/]+(compliant|approved|registered|verified|guaranteed|certified)\b/gi,
-        /\b(approved|compliant|registered|verified|certified)[\s\-_/]+(by[\s\-_/]+)?rera\b/gi
+        /\b(approved|compliant|registered|verified|certified)[\s\-_/]+(by[\s\-_/]+)?rera\b/gi,
+        /\brera[\s\-_/]+registered[\s\-_/]+project\b/gi
     ];
 
     if (!facts?.isReraApproved) {
@@ -944,9 +1031,10 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
 
     // E. READY POSSESSION CLAIMS
     const possessionPatterns = [
-        /\bpossession[\s\-_/]+(guaranteed|assured|immediate|ready)\b/gi,
+        /\bpossession[\s\-_/]+(guaranteed|assured|immediate|ready|scheduled)\b/gi,
         /\b(ready)[\s\-_/]+(possession|to[\s\-_/]+move)[\s\-_]*(opportunity)?\b/gi,
-        /\b(immediate)[\s\-_/]+(possession|handover)\b/gi
+        /\b(immediate)[\s\-_/]+(possession|handover)\b/gi,
+        /\bpossession[\s\-_/]+scheduled[\s\-_/]+for[\s\-_/]+[a-zA-Z0-9\s]+\b/gi
     ];
 
     if (!facts?.isReadyPossession) {
@@ -979,7 +1067,7 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
         }
     }
     if (!facts?.isReraApproved) {
-        if (/rera[\s\-_/]+(compliant|approved|registered|verified|certified|guaranteed)|#(RERACertified|RERAApproved)/i.test(sanitized)) {
+        if (/rera[\s\-_/]+(compliant|approved|registered|verified|certified|guaranteed)|\brera\b|#(RERACertified|RERAApproved)/i.test(sanitized)) {
             hasRemainingViolations = true;
         }
     }
@@ -989,11 +1077,11 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
         }
     }
     if (!facts?.isReadyPossession) {
-        if (/ready[\s\-_/]+possession|immediate[\s\-_/]+possession|ready[\s\-_/]+to[\s\-_/]+move|possession[\s\-_/]+guaranteed/i.test(sanitized)) {
+        if (/ready[\s\-_/]+possession|immediate[\s\-_/]+possession|ready[\s\-_/]+to[\s\-_/]+move|possession[\s\-_/]+guaranteed|possession[\s\-_/]+scheduled/i.test(sanitized)) {
             hasRemainingViolations = true;
         }
     }
-    if (/guaranteed[\s\-_/]+(returns?|yield|appreciation|roi|rental)|assured[\s\-_/]+(returns?|roi|yield|growth)|risk[\s\-_/]*free|zero[\s\-_/]*risk|proven[\s\-_/]+capital[\s\-_/]+appreciation|(strong|high)[\s\-_/]+rental[\s\-_/]+yield|high[\s\-_/]*yield|\d+%\s*returns|doubl(e|ing)[\s\-_/]+(your[\s\-_/]+)?investment|#(GuaranteedReturns|AssuredROI|RiskFreeInvestment)/i.test(sanitized)) {
+    if (/guaranteed[\s\-_/]+(returns?|yield|appreciation|roi|rental)|assured[\s\-_/]+(returns?|roi|yield|growth)|risk[\s\-_/]*free|zero[\s\-_/]*risk|proven[\s\-_/]+capital[\s\-_/]+appreciation|(strong|high)[\s\-_/]+rental[\s\-_/]+yield|high[\s\-_/]*yield|\d+%\s*returns|\d+%\s*roi|8[\s\-_/]*10%|historical[\s\-_/]+trend|doubl(e|ing)[\s\-_/]+(your[\s\-_/]+)?investment|#(GuaranteedReturns|AssuredROI|RiskFreeInvestment)/i.test(sanitized)) {
         hasRemainingViolations = true;
     }
 
