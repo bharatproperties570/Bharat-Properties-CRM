@@ -8,6 +8,8 @@
  * Area 4: Private Capability Issuance & Audit Immutability Policy (12 tests)
  */
 
+process.env.NODE_ENV = 'test';
+
 import test, { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
@@ -646,14 +648,19 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
         });
 
         test('4.5: issueOwnerConfirmationWorkflowToken issues valid token for owner confirmation', () => {
-            const token = issueOwnerConfirmationWorkflowToken({ authorityCode: 'CHD' });
+            const sampleTargetId = new mongoose.Types.ObjectId().toHexString();
+            const token = issueOwnerConfirmationWorkflowToken({
+                authorityCode: 'CHD',
+                targetId: sampleTargetId,
+                evidenceVersion: 1
+            });
             assert.strictEqual(token.workflowName, 'recordOwnerConfirmation');
             assert.strictEqual(token.tenantId, CANONICAL_ORG_ID_STRING);
 
             const valid = verifyAuthorizedInternalWorkflow(
                 { [INTERNAL_WORKFLOW_OPTION]: token },
                 ['recordOwnerConfirmation'],
-                { authorityCode: 'CHD', tenantId: CANONICAL_ORG_ID_STRING }
+                { authorityCode: 'CHD', tenantId: CANONICAL_ORG_ID_STRING, targetId: sampleTargetId, evidenceVersion: 1 }
             );
             assert.strictEqual(valid, true);
         });
@@ -782,7 +789,14 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
             // Transitioning status to compensated succeeds
             const updateRes = await AuditLog.updateOne(
                 { _id: log._id },
-                { $set: { status: 'compensated' } }
+                {
+                    $set: {
+                        status: 'compensated',
+                        'metadata.compensated': true,
+                        'metadata.compensationClaimId': 'claim_recovery_101',
+                        'metadata.compensatedAt': new Date()
+                    }
+                }
             );
             assert.strictEqual(updateRes.acknowledged, true);
 

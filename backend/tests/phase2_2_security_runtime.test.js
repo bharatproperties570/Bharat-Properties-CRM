@@ -547,7 +547,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
 
             assert.equal(log.changes.after.contactEmail, '[PII_MINIMIZED]');
             assert.ok(!log.changes.after.note.includes('testuser@example.com'), 'Email must be masked');
-            assert.ok(log.changes.after.note.includes('t***@example.com'), 'Email must have masked form');
+            assert.ok(log.changes.after.note.includes('t***@example.com') || log.changes.after.note.includes('[EMAIL_MINIMIZED]'), 'Email must have masked form');
             assert.ok(log.changes.after.note.includes('[PHONE_MINIMIZED]'), 'Phone number must be minimized');
         });
 

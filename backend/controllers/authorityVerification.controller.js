@@ -3743,15 +3743,27 @@ export const compensateApplySaga = async ({
     }
 
     // 2. Record durable compensation audit record (R-04: crash window protection)
+    let effectiveClaimId = claimId || null;
+    if (!effectiveClaimId && itemId) {
+        try {
+            const itemDoc = await PropertyVerificationRunItem.findById(itemId).lean();
+            if (itemDoc?.applyClaim?.claimId) {
+                effectiveClaimId = itemDoc.applyClaim.claimId;
+            }
+        } catch (itemErr) {
+            console.warn('[SagaCompensation] Error resolving claimId from item:', itemErr.message);
+        }
+    }
+
     let targetAuditId = compensation?.auditId || null;
-    if (!targetAuditId && claimId) {
+    if (!targetAuditId && effectiveClaimId) {
         try {
             const existingAudit = await AuditLog.findOne({
                 $or: [
-                    { 'changes.claimId': claimId.toString() },
-                    { 'changes.claimId': claimId },
-                    { 'metadata.claimId': claimId.toString() },
-                    { 'metadata.claimId': claimId }
+                    { 'changes.claimId': effectiveClaimId.toString() },
+                    { 'changes.claimId': effectiveClaimId },
+                    { 'metadata.claimId': effectiveClaimId.toString() },
+                    { 'metadata.claimId': effectiveClaimId }
                 ],
                 eventType: 'authority_changes_applied'
             });
@@ -3770,10 +3782,10 @@ export const compensateApplySaga = async ({
                 appliedBy || null,
                 'inventory',
                 inventoryId,
-                `Authority verification changes apply compensated for claim ${claimId}`,
+                `Authority verification changes apply compensated for claim ${effectiveClaimId || 'unknown'}`,
                 {
                     before: {
-                        claimId: claimId ? claimId.toString() : null,
+                        claimId: effectiveClaimId ? effectiveClaimId.toString() : null,
                         originalAuditId: targetAuditId ? targetAuditId.toString() : null,
                         stage,
                         revertedChanges: compensation?.inventoryBefore || {}
@@ -3789,7 +3801,7 @@ export const compensateApplySaga = async ({
             );
 
             // Update original audit record status to compensated
-            if (targetAuditId) {
+            if (targetAuditId && effectiveClaimId) {
                 try {
                     await AuditLog.updateOne(
                         { _id: targetAuditId, eventType: 'authority_changes_applied' },
@@ -3797,7 +3809,9 @@ export const compensateApplySaga = async ({
                             $set: {
                                 status: 'compensated',
                                 'metadata.compensated': true,
-                                'metadata.compensationClaimId': claimId ? claimId.toString() : (targetAuditId ? targetAuditId.toString() : 'compensation_claim_id')
+                                'metadata.compensationClaimId': effectiveClaimId.toString(),
+                                'metadata.compensatedAt': new Date(),
+                                updatedAt: new Date()
                             }
                         },
                         session ? { session } : {}

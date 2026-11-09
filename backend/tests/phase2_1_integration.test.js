@@ -510,6 +510,7 @@ describe('Phase 2.1 — Database-Backed Integration Tests', () => {
         // Clean up between tests
         const collections = mongoose.connection.collections;
         for (const key in collections) {
+            if (key === 'authoritysourcesettings' || key === 'authority_source_settings') continue;
             await collections[key].deleteMany({});
         }
     });

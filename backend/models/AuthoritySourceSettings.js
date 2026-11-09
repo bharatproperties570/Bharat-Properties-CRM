@@ -1,7 +1,12 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import { CANONICAL_ORGANIZATION_ID, CANONICAL_ORGANIZATION_ID_STRING } from '../config/canonicalOrganization.js';
-import { isProductionEnvironment } from '../services/authority/databaseEnvironmentSafety.js';
+import {
+    isProductionEnvironment,
+    isEnvironmentProductionOrUnsafe,
+    getActiveMongooseConnectionIdentity,
+    parseMongoDetails
+} from '../services/authority/databaseEnvironmentSafety.js';
 
 /**
  * AuthoritySourceSettings
@@ -146,7 +151,9 @@ export function issueEnsureDefaultsToken(context = {}) {
 export function issueOwnerConfirmationWorkflowToken(context = {}) {
     const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
     if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
-        throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Owner confirmation workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Owner confirmation workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+        throw err;
     }
     const { targetId, authorityCode, evidenceVersion } = context;
     if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) {
@@ -154,16 +161,27 @@ export function issueOwnerConfirmationWorkflowToken(context = {}) {
         err.code = 'AUTHORITY_CODE_REQUIRED';
         throw err;
     }
-    if (targetId === '*') {
+    if (!targetId || targetId === '*' || String(targetId).trim() === '') {
         const err = new Error('TARGET_ID_REQUIRED: Owner confirmation workflow token requires an exact targetId.');
         err.code = 'TARGET_ID_REQUIRED';
         throw err;
     }
+    const targetIdStr = String(targetId).trim();
+    if (!/^[0-9a-fA-F]{24}$/.test(targetIdStr)) {
+        const err = new Error('TARGET_ID_REQUIRED: Owner confirmation workflow token requires an exact 24-character hex targetId.');
+        err.code = 'TARGET_ID_REQUIRED';
+        throw err;
+    }
+    if (evidenceVersion === undefined || evidenceVersion === null || evidenceVersion === '*' || String(evidenceVersion).trim() === '' || isNaN(Number(evidenceVersion))) {
+        const err = new Error('EVIDENCE_VERSION_REQUIRED: Owner confirmation workflow token requires an exact numeric evidenceVersion.');
+        err.code = 'EVIDENCE_VERSION_REQUIRED';
+        throw err;
+    }
     return createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
-        targetId: targetId ? String(targetId) : '*',
+        targetId: targetIdStr,
         authorityCode: String(authorityCode),
-        evidenceVersion: evidenceVersion !== undefined ? String(evidenceVersion) : '*'
+        evidenceVersion: Number(evidenceVersion)
     });
 }
 
@@ -251,9 +269,11 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
         if (evidenceVersion === undefined || evidenceVersion === '*' || String(evidenceVersion).trim() === '') return false;
     }
 
-    // Rule 3: Owner confirmation requires valid supported authorityCode
+    // Rule 3: Owner confirmation requires valid supported authorityCode, exact targetId, and exact evidenceVersion
     if (workflowName === 'recordOwnerConfirmation') {
+        if (!targetId || targetId === '*' || !/^[0-9a-fA-F]{24}$/.test(String(targetId))) return false;
         if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) return false;
+        if (evidenceVersion === undefined || evidenceVersion === '*' || String(evidenceVersion).trim() === '') return false;
         if (expectedContext.targetId && (!targetId || targetId === '*' || String(targetId) !== String(expectedContext.targetId))) return false;
     }
 
@@ -287,6 +307,7 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
     const now = Date.now();
     if (!timestamp || typeof timestamp !== 'number') return false;
     if (Math.abs(now - timestamp) > WORKFLOW_TOKEN_MAX_TTL_MS) return false; // Expired!
+    if (token.expiresAt && typeof token.expiresAt === 'number' && now > token.expiresAt) return false;
 
     try {
         const payload = `${workflowName}:${tenantId}:${targetId || '*'}:${authorityCode || '*'}:${evidenceVersion !== undefined ? evidenceVersion : '*'}:${nonce}:${timestamp}`;
@@ -916,6 +937,12 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
     }
 
     const options = this.getOptions() || {};
+    const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
+    if (this.op === 'updateMany' && token && token.workflowName === 'recordOwnerConfirmation') {
+        const err = new Error('MULTI_DOCUMENT_UPDATE_PROHIBITED: Owner confirmation capability cannot be used with updateMany.');
+        err.code = 'MULTI_DOCUMENT_UPDATE_PROHIBITED';
+        return next(err);
+    }
     const isAuthorized = verifyAuthorizedInternalWorkflow(options);
 
     // Reject caller-controlled boolean spoofing
@@ -1067,7 +1094,6 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
         }
     }
 
-    const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
     if (token && typeof token === 'object') {
         const workflowName = token.workflowName;
         if (workflowName === 'recordSourceApprover') {
@@ -1137,6 +1163,11 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                 err.code = 'AUTHORITY_CODE_MISMATCH';
                 return next(err);
             }
+            if (queryFilter._id && String(queryFilter._id) !== String(token.targetId)) {
+                const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Owner confirmation token targetId '${token.targetId}' does not match query filter _id '${queryFilter._id}'.`);
+                err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+                return next(err);
+            }
         } else if (workflowName === 'ensureDefaults') {
             if (set.isEnabled === true || set.schedulingEnabled === true || set.reviewStatus === 'APPROVED') {
                 const err = new Error(`SCOPE_VIOLATION_PROHIBITED: Workflow 'ensureDefaults' cannot enable or approve source.`);
@@ -1157,7 +1188,7 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
 
     // Check upsert when no existing document matches
     if (docs.length === 0) {
-        if (token && typeof token === 'object' && (token.workflowName === 'recordSourceApprover' || token.workflowName === 'reviewSourceApproval')) {
+        if (token && typeof token === 'object' && (token.workflowName === 'recordSourceApprover' || token.workflowName === 'reviewSourceApproval' || token.workflowName === 'recordOwnerConfirmation')) {
             const err = new Error('TARGET_NOT_FOUND: Target AuthoritySourceSettings document does not exist.');
             err.code = 'TARGET_NOT_FOUND';
             return next(err);
@@ -1200,23 +1231,17 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
     for (const doc of docs) {
         if (token && typeof token === 'object') {
             if (token.workflowName === 'recordSourceApprover' || token.workflowName === 'reviewSourceApproval' || token.workflowName === 'recordOwnerConfirmation') {
-                if (token.targetId && token.targetId !== '*' && String(token.targetId) !== String(doc._id)) {
+                if (!token.targetId || token.targetId === '*' || String(token.targetId) !== String(doc._id)) {
                     const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token targetId '${token.targetId}' does not match document ID '${doc._id}'.`);
                     err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
                     return next(err);
                 }
-                if (token.authorityCode && token.authorityCode !== '*' && String(token.authorityCode) !== String(doc.authorityCode)) {
-                    if (token.workflowName === 'recordOwnerConfirmation') {
-                        const err = new Error(`AUTHORITY_CODE_MISMATCH: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
-                        err.code = 'AUTHORITY_CODE_MISMATCH';
-                        return next(err);
-                    } else {
-                        const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
-                        err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
-                        return next(err);
-                    }
+                if (!token.authorityCode || token.authorityCode === '*' || String(token.authorityCode) !== String(doc.authorityCode)) {
+                    const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token authorityCode '${token.authorityCode}' does not match document authority code '${doc.authorityCode}'.`);
+                    err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+                    return next(err);
                 }
-                if (token.evidenceVersion !== undefined && token.evidenceVersion !== '*' && String(token.evidenceVersion) !== String(doc.evidenceVersion)) {
+                if (token.evidenceVersion === undefined || token.evidenceVersion === '*' || String(token.evidenceVersion) !== String(doc.evidenceVersion)) {
                     const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Internal workflow token evidenceVersion '${token.evidenceVersion}' does not match document evidenceVersion '${doc.evidenceVersion}'.`);
                     err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
                     return next(err);
@@ -1358,10 +1383,6 @@ AuthoritySourceSettingsSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete'
     }
 
     if (this.op === 'deleteMany') {
-        const filter = this.getQuery() || {};
-        if (Object.keys(filter).length === 0 && isVerifiedEphemeralTestDatabase() && process.env.NODE_ENV !== 'production' && !isProductionEnvironment()) {
-            return next();
-        }
         const err = new Error('DELETE_MANY_PROHIBITED: Multi-document deletion of AuthoritySourceSettings is strictly prohibited.');
         err.code = 'DELETION_PROHIBITED';
         err.subCode = 'DELETE_MANY_PROHIBITED';
@@ -1588,13 +1609,13 @@ AuthoritySourceSettingsSchema.methods.checkActivationEligibility = function () {
         blockers.push('No approved access method configured');
     }
     const isOwnerAttested = this.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' && this.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
-    const hasEvidence = isOwnerAttested
-        ? Boolean(this.ownerAttestation?.attestingParty && this.ownerAttestation?.attestedAt && this.ownerAttestation?.scope)
-        : Boolean(
-            (this.approvalReference && this.approvalReference.trim()) ||
-            (this.permissionArtifactUri && this.permissionArtifactUri.trim()) ||
-            (this.secureEvidenceId && this.secureEvidenceId.trim())
-        );
+    const hasOwnerEvidence = Boolean(this.ownerAttestation?.attestingParty && this.ownerAttestation?.attestedAt && this.ownerAttestation?.scope);
+    const hasOfficialEvidence = Boolean(
+        (this.approvalReference && this.approvalReference.trim()) ||
+        (this.permissionArtifactUri && this.permissionArtifactUri.trim()) ||
+        (this.secureEvidenceId && this.secureEvidenceId.trim())
+    );
+    const hasEvidence = hasOwnerEvidence || hasOfficialEvidence;
     if (!hasEvidence) {
         blockers.push(isOwnerAttested ? 'Incomplete owner attestation: requires attestingParty, attestedAt, and scope' : 'No approval reference/evidence provided');
     }
@@ -1692,13 +1713,13 @@ AuthoritySourceSettingsSchema.methods.checkInternalMakerCheckerReviewEligibility
         blockers.push(`Permission status is ${this.permissionStatus}, must be GRANTED or PENDING_REVIEW`);
     }
 
-    const hasEvidence = isOwnerAttested
-        ? Boolean(this.ownerAttestation?.attestingParty && this.ownerAttestation?.attestedAt && this.ownerAttestation?.scope)
-        : Boolean(
-            (this.approvalReference && this.approvalReference.trim()) ||
-            (this.permissionArtifactUri && this.permissionArtifactUri.trim()) ||
-            (this.secureEvidenceId && this.secureEvidenceId.trim())
-        );
+    const hasOwnerEvidence = Boolean(this.ownerAttestation?.attestingParty && this.ownerAttestation?.attestedAt && this.ownerAttestation?.scope);
+    const hasOfficialEvidence = Boolean(
+        (this.approvalReference && this.approvalReference.trim()) ||
+        (this.permissionArtifactUri && this.permissionArtifactUri.trim()) ||
+        (this.secureEvidenceId && this.secureEvidenceId.trim())
+    );
+    const hasEvidence = hasOwnerEvidence || hasOfficialEvidence;
     if (!hasEvidence && this.evidenceBasis) {
         blockers.push(isOwnerAttested ? 'Incomplete owner attestation: requires attestingParty, attestedAt, and scope' : 'No approval reference/evidence provided');
     }
@@ -1834,11 +1855,11 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                         contractVerificationStatus: 'NOT_VERIFIED',
                         contractEvidenceReference: null,
                         ownerAttestation: {
-                            attestingParty: 'Bharat Properties Owner',
-                            attestedAt: new Date('2026-11-06T17:51:10+05:30'),
-                            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
-                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
-                            claimedAuthorityRole: cfg.claimedAuthorityRole
+                            attestingParty: null,
+                            attestedAt: null,
+                            scope: null,
+                            notes: null,
+                            claimedAuthorityRole: null
                         },
                         ratePolicy: {
                             maxRequestsPerMinute: 1,
@@ -1857,11 +1878,11 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                         reviewStatus: 'UNDER_REVIEW',
                         identityRequirements: cfg.identityRequirements,
                         userReportedEvidence: {
-                            reportedBy: 'Bharat Properties Owner',
-                            reportedAt: new Date('2026-11-06T17:51:10+05:30'),
-                            claimedAuthorityRole: 'Authorized Broker',
-                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
-                            verificationStatus: 'PENDING_WRITTEN_REFERENCE'
+                            reportedBy: null,
+                            reportedAt: null,
+                            claimedAuthorityRole: null,
+                            notes: null,
+                            verificationStatus: 'UNVERIFIED'
                         }
                     }
                 },
@@ -1880,7 +1901,20 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
 /**
  * Records or updates explicit owner confirmation in userReportedEvidence.
  */
-AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (tenantId, authorityCode, details = {}) {
+AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (tenantIdOrOptions, authorityCodeArg, detailsArg) {
+    let tenantId, authorityCode, details;
+    if (tenantIdOrOptions && typeof tenantIdOrOptions === 'object' && !tenantIdOrOptions._bsontype && typeof tenantIdOrOptions.toHexString !== 'function') {
+        tenantId = tenantIdOrOptions.tenantId;
+        authorityCode = tenantIdOrOptions.authorityCode;
+        details = { ...tenantIdOrOptions };
+        delete details.tenantId;
+        delete details.authorityCode;
+    } else {
+        tenantId = tenantIdOrOptions;
+        authorityCode = authorityCodeArg;
+        details = detailsArg;
+    }
+
     if (!tenantId || String(tenantId) !== String(CANONICAL_ORGANIZATION_ID)) {
         const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Owner confirmation requires canonical organization ID '${CANONICAL_ORGANIZATION_ID}'.`);
         err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
@@ -1891,6 +1925,12 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         err.code = 'AUTHORITY_CODE_REQUIRED';
         throw err;
     }
+    if (!details || typeof details !== 'object') {
+        const err = new Error('CONFIRMATION_EVIDENCE_REQUIRED: Owner confirmation evidence payload is required.');
+        err.code = 'CONFIRMATION_EVIDENCE_REQUIRED';
+        throw err;
+    }
+
     const effectiveTenantId = CANONICAL_ORGANIZATION_ID;
     const existing = await this.findOne({ tenantId: effectiveTenantId, authorityCode: String(authorityCode) });
     if (!existing) {
@@ -1899,22 +1939,55 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         throw err;
     }
 
+    const actor = details.reportedBy || details.actorId || details.userId || details.confirmedBy;
+    if (!actor || String(actor).trim() === '') {
+        const err = new Error('ACTOR_IDENTITY_REQUIRED: Owner confirmation requires an explicit authenticated actor identity.');
+        err.code = 'ACTOR_IDENTITY_REQUIRED';
+        throw err;
+    }
+    const actorStr = String(actor).trim();
+
+    const ALLOWED_CLAIMED_ROLES = new Set(['AUTHORIZED_BROKER', 'PORTAL_OPERATOR', 'OWNER_REPRESENTATIVE', 'BROKER_ADMIN', 'Authorized Broker']);
+    const claimedRole = details.claimedAuthorityRole;
+    if (!claimedRole || !ALLOWED_CLAIMED_ROLES.has(String(claimedRole).trim())) {
+        const err = new Error(`CONFIRMATION_DETAILS_REQUIRED: Owner confirmation requires an explicit valid claimedAuthorityRole (${Array.from(ALLOWED_CLAIMED_ROLES).join(', ')}).`);
+        err.code = 'CONFIRMATION_DETAILS_REQUIRED';
+        throw err;
+    }
+
+    let notes = details.notes ? String(details.notes).trim() : 'OWNER_ATTESTED_READ_ONLY_ACCESS';
+    if (notes.length > 160) {
+        notes = notes.slice(0, 160);
+    }
+    const { validateControlledScalarValue } = await import('./AuditLog.js');
+    validateControlledScalarValue(notes, 'userReportedEvidence.notes');
+    if (/\b\d{4}\s?\d{4}\s?\d{4}\b/.test(notes) || /[A-Z]{5}[0-9]{4}[A-Z]/.test(notes) || /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(notes)) {
+        const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Notes contain prohibited PII pattern.');
+        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+        throw err;
+    }
+
+    const verificationStatus = details.verificationStatus || 'PENDING_WRITTEN_REFERENCE';
+    const currentEvidenceVersion = existing.evidenceVersion !== undefined ? existing.evidenceVersion : 1;
+
     const token = issueOwnerConfirmationWorkflowToken({
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
         authorityCode: String(authorityCode),
         targetId: String(existing._id),
-        evidenceVersion: existing.evidenceVersion !== undefined ? existing.evidenceVersion : 0
+        evidenceVersion: currentEvidenceVersion
     });
+
+    const serverTimestamp = new Date();
 
     return this.findOneAndUpdate(
         { _id: existing._id, tenantId: effectiveTenantId, authorityCode: String(authorityCode) },
         {
             $set: {
-                'userReportedEvidence.reportedBy': details.reportedBy || 'Bharat Properties Owner',
-                'userReportedEvidence.reportedAt': details.reportedAt || new Date('2026-11-06T17:51:10+05:30'),
-                'userReportedEvidence.claimedAuthorityRole': details.claimedAuthorityRole || 'Authorized Broker',
-                'userReportedEvidence.notes': details.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
-                'userReportedEvidence.verificationStatus': details.verificationStatus || 'PENDING_WRITTEN_REFERENCE'
+                'userReportedEvidence.reportedBy': actorStr,
+                'userReportedEvidence.reportedAt': serverTimestamp,
+                'userReportedEvidence.claimedAuthorityRole': String(claimedRole).trim(),
+                'userReportedEvidence.notes': notes,
+                'userReportedEvidence.verificationStatus': verificationStatus
             }
         },
         {
@@ -2481,13 +2554,13 @@ export function checkActivationEligibility(doc = {}) {
         blockers.push({ code: 'REVIEW_NOT_APPROVED', message: `Review status is ${doc.reviewStatus}` });
     }
     const isOwnerAttested = doc.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' && doc.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
-    const hasEvidence = isOwnerAttested
-        ? Boolean(doc.ownerAttestation?.attestingParty && doc.ownerAttestation?.attestedAt && doc.ownerAttestation?.scope)
-        : Boolean(
-            (doc.approvalReference && doc.approvalReference.trim()) ||
-            (doc.permissionArtifactUri && doc.permissionArtifactUri.trim()) ||
-            (doc.secureEvidenceId && doc.secureEvidenceId.trim())
-        );
+    const hasOwnerEvidence = Boolean(doc.ownerAttestation?.attestingParty && doc.ownerAttestation?.attestedAt && doc.ownerAttestation?.scope);
+    const hasOfficialEvidence = Boolean(
+        (doc.approvalReference && doc.approvalReference.trim()) ||
+        (doc.permissionArtifactUri && doc.permissionArtifactUri.trim()) ||
+        (doc.secureEvidenceId && doc.secureEvidenceId.trim())
+    );
+    const hasEvidence = hasOwnerEvidence || hasOfficialEvidence;
     if (!hasEvidence && doc.evidenceBasis) {
         blockers.push({ code: 'EVIDENCE_MISSING', message: isOwnerAttested ? 'Incomplete owner attestation' : 'No approval reference/evidence provided' });
     }
@@ -2557,13 +2630,13 @@ export function checkInternalMakerCheckerReviewEligibility(doc = {}) {
         blockers.push({ code: 'PERMISSION_NOT_GRANTED', message: `Permission status is ${doc.permissionStatus}` });
     }
 
-    const hasEvidence = isOwnerAttested
-        ? Boolean(doc.ownerAttestation?.attestingParty && doc.ownerAttestation?.attestedAt && doc.ownerAttestation?.scope)
-        : Boolean(
-            (doc.approvalReference && doc.approvalReference.trim()) ||
-            (doc.permissionArtifactUri && doc.permissionArtifactUri.trim()) ||
-            (doc.secureEvidenceId && doc.secureEvidenceId.trim())
-        );
+    const hasOwnerEvidence = Boolean(doc.ownerAttestation?.attestingParty && doc.ownerAttestation?.attestedAt && doc.ownerAttestation?.scope);
+    const hasOfficialEvidence = Boolean(
+        (doc.approvalReference && doc.approvalReference.trim()) ||
+        (doc.permissionArtifactUri && doc.permissionArtifactUri.trim()) ||
+        (doc.secureEvidenceId && doc.secureEvidenceId.trim())
+    );
+    const hasEvidence = hasOwnerEvidence || hasOfficialEvidence;
     if (!hasEvidence && doc.evidenceBasis) {
         blockers.push({ code: 'EVIDENCE_MISSING', message: isOwnerAttested ? 'Incomplete owner attestation' : 'No approval reference/evidence provided' });
     }
@@ -2615,13 +2688,113 @@ const AuthoritySourceSettings = mongoose.models.AuthoritySourceSettings || mongo
 // Private symbol used exclusively for test teardown on verified ephemeral test databases
 const INTERNAL_TEST_RESET_KEY = Symbol('INTERNAL_TEST_RESET');
 
-function isVerifiedEphemeralTestDatabase() {
-    if (!mongoose.connection || !mongoose.connection.host) return false;
-    const host = String(mongoose.connection.host).toLowerCase();
-    const dbName = String(mongoose.connection.name || '').toLowerCase();
-    const isLocalHost = host === '127.0.0.1' || host === 'localhost' || host === '::1';
-    const isMemoryDb = dbName.includes('test') || dbName.includes('memory') || host.includes('127.0.0.1');
-    return isLocalHost || isMemoryDb;
+const REGISTERED_EPHEMERAL_INSTANCES = new Set();
+
+export function registerVerifiedEphemeralTestDatabase(instance) {
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Ephemeral test database registration is strictly prohibited outside NODE_ENV=test.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
+    if (isProductionEnvironment() || isEnvironmentProductionOrUnsafe()) {
+        const err = new Error('PRODUCTION_ENVIRONMENT_DETECTED: Ephemeral test database registration is prohibited in production or unsafe environments.');
+        err.code = 'PRODUCTION_ENVIRONMENT_DETECTED';
+        throw err;
+    }
+    if (!instance) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: An explicit ephemeral database instance is required.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    let host = '';
+    let port = null;
+    let uri = '';
+
+    if (typeof instance.getUri === 'function') {
+        uri = instance.getUri();
+        const parsed = parseMongoDetails(uri);
+        host = parsed.host;
+        port = parsed.effectivePort;
+    } else if (instance.instanceInfo?.port) {
+        port = Number(instance.instanceInfo.port);
+        host = '127.0.0.1';
+    } else if (typeof instance === 'string') {
+        uri = instance;
+        const parsed = parseMongoDetails(uri);
+        host = parsed.host;
+        port = parsed.effectivePort;
+    } else if (typeof instance === 'object' && instance.port) {
+        port = Number(instance.port);
+        host = instance.host || '127.0.0.1';
+    }
+
+    const hostLower = String(host || '').toLowerCase();
+    const isLoopback = hostLower === '127.0.0.1' || hostLower === 'localhost' || hostLower === '::1';
+    if (!isLoopback) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Ephemeral test database must be bound to loopback interface.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    // Standard persistent MongoDB default port 27017 cannot be registered as ephemeral unless it is a verified memory server instance
+    if (port === 27017 && !instance.instanceInfo && !instance.constructor?.name?.includes('Memory')) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Persistent local MongoDB (port 27017) cannot be registered as an ephemeral test database.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    REGISTERED_EPHEMERAL_INSTANCES.add({
+        instance,
+        host: hostLower,
+        port: port ? Number(port) : null,
+        uri
+    });
+}
+
+export function unregisterVerifiedEphemeralTestDatabase(instance) {
+    if (!instance) return;
+    for (const item of Array.from(REGISTERED_EPHEMERAL_INSTANCES)) {
+        if (item.instance === instance || item === instance) {
+            REGISTERED_EPHEMERAL_INSTANCES.delete(item);
+        }
+    }
+}
+
+export function clearVerifiedEphemeralTestDatabases() {
+    REGISTERED_EPHEMERAL_INSTANCES.clear();
+}
+
+export function isVerifiedEphemeralTestDatabase() {
+    if (process.env.NODE_ENV !== 'test') return false;
+    if (isProductionEnvironment() || isEnvironmentProductionOrUnsafe()) return false;
+    if (!mongoose.connection || mongoose.connection.readyState !== 1) return false;
+    if (REGISTERED_EPHEMERAL_INSTANCES.size === 0) return false;
+
+    const active = getActiveMongooseConnectionIdentity(mongoose.connection);
+    if (!active || active.readyState !== 1) return false;
+
+    const host = String(active.host || '').toLowerCase();
+    const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    if (!isLoopback) return false;
+
+    const activePort = active.port;
+    if (!activePort || activePort === 27017) {
+        return false; // Persistent local MongoDB
+    }
+
+    for (const item of REGISTERED_EPHEMERAL_INSTANCES) {
+        if (item.port && Number(item.port) === Number(activePort)) {
+            return true;
+        }
+        if (item.instance && typeof item.instance.getUri === 'function') {
+            const parsed = parseMongoDetails(item.instance.getUri());
+            if (Number(parsed.effectivePort) === Number(activePort)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 function checkCollectionDeleteAuthorization(filter, options, operationType = 'deleteOne') {
@@ -2631,14 +2804,8 @@ function checkCollectionDeleteAuthorization(filter, options, operationType = 'de
         return err;
     }
 
-    if (operationType === 'deleteMany' && (!filter || Object.keys(filter).length === 0)) {
-        if (isVerifiedEphemeralTestDatabase() && process.env.NODE_ENV !== 'production' && !isProductionEnvironment()) {
-            return null;
-        }
-    }
-
     if (options && options[INTERNAL_TEST_RESET_KEY] === true) {
-        if (isVerifiedEphemeralTestDatabase() && process.env.NODE_ENV !== 'production') {
+        if (isVerifiedEphemeralTestDatabase()) {
             return null;
         }
         const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Resetting AuthoritySourceSettings is strictly prohibited outside verified ephemeral test environments.');
