@@ -7,6 +7,7 @@ import MarketingContent from '../models/MarketingContent.js';
 import Activity from '../models/Activity.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import { marketingQueue } from '../src/queues/marketingQueue.js';
+import brandBannerComposer from './BrandBannerComposer.js';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -226,10 +227,11 @@ class MarketingService {
 
     /**
      * Generate actual AI visual asset (image or video)
-     * @param {Object} options - { deal, type, angle, mood, format, customPrompt }
+     * Enterprise Sharp Composition Engine + Brand Kit (Logo, Typography, Badges, Footer)
+     * @param {Object} options - { deal, type, angle, mood, format, customPrompt, pillar, festival, edu, trust }
      */
     async generateVisualAsset(options = {}) {
-        const { deal, type = 'image', angle = 'drone', mood = 'golden_hour', format = 'post', customPrompt = '' } = options;
+        const { deal, type = 'image', angle = 'drone', mood = 'golden_hour', format = 'post', customPrompt = '', pillar } = options;
         
         const projectName = deal?.projectName?.name || deal?.projectName || deal?.name || deal?.title || deal?.unitNo || 'Prime Real Estate Opportunity';
         let rawLoc = deal?.location || deal?.locCity || deal?.city || deal?.address?.location || 'Kurukshetra, Haryana';
@@ -238,7 +240,7 @@ class MarketingService {
         }
         const location = rawLoc;
         const isMohali = location.toLowerCase().includes('mohali');
-        const phone = isMohali ? '9991000570' : '9991333570';
+        const phone = isMohali ? '9991000570' : '9416035570';
 
         if (type === 'video') {
             // High-resolution real estate drone video reel assets (hosted on public CRM domain)
@@ -254,67 +256,41 @@ class MarketingService {
             };
         }
 
-        // Image Generation: Construct real estate architectural prompt
-        const angleMap = {
-            drone: '4K overhead cinematic aerial drone shot highlighting expansive plots, lush greenery, and wide roads',
-            hero: 'eye-level architectural hero shot showing grand modern facade and entrance',
-            interior: 'wide-angle sunlit luxury interior living room with high ceilings and gold finish accents',
-            walking: 'street-level walking tour POV showing paved wide boulevard and prime residential neighborhood'
-        };
-        const moodMap = {
-            golden_hour: 'golden hour sunset warm lighting casting long dramatic shadows, amber glow',
-            cinematic: 'moody cinematic dusk lighting with elegant warm LED perimeter lights',
-            luxury: 'aspirational crisp high-noon daylight, clear blue sky, royal luxury aesthetic',
-            minimalist: 'minimalist clean architectural daylight with geometric precision'
-        };
-
-        const chosenAngle = angleMap[angle] || angleMap.drone;
-        const chosenMood = moodMap[mood] || moodMap.golden_hour;
-        const aspect = (format === 'story' || format === 'reel') ? '9:16 vertical' : '1:1 square';
-
-        const basePrompt = customPrompt || `Photorealistic architectural render of ${projectName} in ${location}. ${chosenAngle}. ${chosenMood}. Deep navy blue facade accents with subtle gold trim. Ultra-realistic, 8k resolution, Unreal Engine 5 real estate visualization, ${aspect}`;
-        
+        // Enterprise Brand Banner Generation via Sharp Engine
         try {
-            // Fetch live generated AI render from Pollinations Flux AI
-            const encoded = encodeURIComponent(basePrompt);
-            const isVertical = format === 'story' || format === 'reel';
-            const width = isVertical ? 768 : 1024;
-            const height = isVertical ? 1344 : 1024;
-            const genUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true`;
-
-            // Download and persist to persistent uploads directory for permanent, high-speed public serving
-            const imgRes = await axios.get(genUrl, { responseType: 'arraybuffer', timeout: 35000 });
-            const filename = `file-${Date.now()}-ai-visual-${Math.floor(Math.random() * 100000)}.jpg`;
-            
-            // Prefer shared production uploads on EC2, fallback to local uploads
-            let uploadDir = '/home/ubuntu/bharat-crm-releases/shared/uploads';
-            if (!fs.existsSync(uploadDir)) {
-                uploadDir = path.join(process.cwd(), 'uploads');
+            // Determine active pillar
+            let targetPillar = pillar;
+            if (!targetPillar) {
+                if (deal) {
+                    targetPillar = 'ct-project';
+                } else {
+                    const festCheck = this.detectUpcomingFestival(new Date());
+                    targetPillar = festCheck.isFestival ? 'ct-festival' : 'ct-project';
+                }
             }
-            if (!fs.existsSync(uploadDir)) {
-                fs.mkdirSync(uploadDir, { recursive: true });
-            }
-            const localPath = path.join(uploadDir, filename);
-            fs.writeFileSync(localPath, Buffer.from(imgRes.data));
 
-            const publicUrl = `https://api.bharatproperties.co/uploads/${filename}`;
-            return {
-                success: true,
-                assetType: 'image',
-                url: publicUrl,
-                localPath,
-                prompt: basePrompt
-            };
+            const bannerResult = await brandBannerComposer.composeBanner({
+                pillar: targetPillar,
+                deal,
+                festivalName: options.festival?.name || options.festivalName || 'Dhanteras & Diwali',
+                greeting: options.festival?.greeting || options.greeting,
+                customTitleHi: options.customTitleHi || (targetPillar === 'ct-festival' ? 'शुभ धनतेरस एवं दीपावली' : undefined),
+                customTitleEn: options.customTitleEn || (targetPillar === 'ct-festival' ? 'HAPPY DHANTERAS & DIWALI' : undefined),
+                subtext: options.subtext,
+                edu: options.edu,
+                trust: options.trust,
+                phone: `+91 ${phone} | 99913-33570`,
+                address: '#166, Sector 3, Huda Market, Kurukshetra',
+                website: 'www.bharatproperties.co'
+            });
+
+            return bannerResult;
         } catch (err) {
-            console.warn('[MarketingService] Live image generation fetch error, using resilient studio visual asset:', err.message);
-            // Fallback to high-res property image on server
-            const fallbackUrl = 'https://api.bharatproperties.co/uploads/file-1794179346959-ai_visual_test.jpg';
-            return {
-                success: true,
-                assetType: 'image',
-                url: fallbackUrl,
-                prompt: basePrompt
-            };
+            console.error('[MarketingService] Error in BrandBannerComposer:', err);
+            // Resilient fallback
+            return await brandBannerComposer.composeFestivalBanner({
+                phone: '+91 94160-35570 | 99913-33570'
+            });
         }
     }
 
@@ -608,9 +584,8 @@ class MarketingService {
                 channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
 
                 // Generate photorealistic visual
-                visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', angle: 'drone', mood: 'golden_hour', format: 'post' });
+                visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', pillar: 'ct-project', angle: 'drone', mood: 'golden_hour', format: 'post' });
             }
-
         } else if (pillar === 'ct-festival') {
             postTitle = `Festive Greetings: ${festival.name}`;
             channelCaptions.facebook = `✨ ${festival.greeting}\n\nBharat Properties wishes you and your family abundant peace, happiness, and prosperity on the auspicious occasion of ${festival.name}.\n\nMay this festive season mark the beginning of new milestones and bring you closer to owning your dream home.\n\nWith warm regards,\nBharat Properties Team\n📞 ${regionalPhone} | 🌐 ${website}\n\n${festival.hashtags}`;
@@ -618,9 +593,16 @@ class MarketingService {
             channelCaptions.youtube = `${festival.name} Greetings from Bharat Properties Kurukshetra! Wishing everyone peace, prosperity, and joy.`;
             channelCaptions.google_business = `${festival.greeting} Warm festive greetings from Bharat Properties Kurukshetra. Call ${regionalPhone} for prime property inquiries.`;
 
+            // Generate branded festive flyer with official logo and auspicious greetings
             visualAsset = await this.generateVisualAsset({
                 type: 'image',
-                customPrompt: `Festive real estate greeting card for ${festival.name} in Kurukshetra India, luxury modern Indian villa adorned with warm golden fairy lights and traditional brass diyas, twilight sky, elegant golden architectural accents, no text, photorealistic 8k unreal engine render`
+                pillar: 'ct-festival',
+                festival,
+                festivalName: festival.name,
+                greeting: festival.greeting,
+                customTitleHi: 'शुभ धनतेरस एवं दीपावली',
+                customTitleEn: 'HAPPY DHANTERAS & DIWALI',
+                subtext: 'May this festive season illuminate your life with joy, enduring wealth, and your dream home!'
             });
 
         } else if (pillar === 'ct-edu') {
@@ -633,9 +615,11 @@ class MarketingService {
             channelCaptions.youtube = `Shorts: ${edu.hook} 3 legal rules you must know before buying land in Haryana! Call ${regionalPhone} for guidance.`;
             channelCaptions.google_business = `Knowledge Post: ${edu.title}. Follow Bharat Properties for transparent property guidelines and circle rates in Kurukshetra. Call ${regionalPhone}.`;
 
+            // Generate branded educational flyer
             visualAsset = await this.generateVisualAsset({
                 type: 'image',
-                customPrompt: `Modern high-end real estate architectural office in Kurukshetra, blueprint diagrams and architectural floor plans on wooden conference desk, soft natural morning sunlight, cinematic 8k render`
+                pillar: 'ct-edu',
+                edu
             });
 
         } else if (pillar === 'ct-trust') {
@@ -647,9 +631,11 @@ class MarketingService {
             channelCaptions.youtube = `Shorts: Why Kurukshetra trusts Bharat Properties for verified real estate mandates! Call ${regionalPhone} or visit ${website}.`;
             channelCaptions.google_business = `${trust.title}: ${trust.body} Contact Bharat Properties at ${regionalPhone}.`;
 
+            // Generate branded trust & authority flyer
             visualAsset = await this.generateVisualAsset({
                 type: 'image',
-                customPrompt: `Grand entrance of a luxury residential community in Kurukshetra with modern security gatehouse and manicured landscaped gardens, bright sunny afternoon, royal luxury aesthetic, photorealistic 8k render`
+                pillar: 'ct-trust',
+                trust
             });
         }
 

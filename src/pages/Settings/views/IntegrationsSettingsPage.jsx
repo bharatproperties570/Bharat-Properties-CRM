@@ -41,6 +41,46 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [lastKnownStatus, setLastKnownStatus] = useState('Not Connected');
     const [isConnectingMeta, setIsConnectingMeta] = useState(false);
+    const [isConnectingLinkedIn, setIsConnectingLinkedIn] = useState(false);
+
+    const handleLinkedInOneClickConnect = async () => {
+        try {
+            setIsConnectingLinkedIn(true);
+            const res = await marketingAPI.getLinkedInAuthUrl();
+            if (res?.success && res.url) {
+                window.location.href = res.url;
+            } else {
+                toast.error(res?.error || 'Could not initiate LinkedIn login');
+            }
+        } catch (err) {
+            const errDetail = err.response?.data?.error || err.message;
+            toast.error(errDetail || 'Failed to initiate LinkedIn OAuth');
+        } finally {
+            setIsConnectingLinkedIn(false);
+        }
+    };
+
+    const handleDisconnectLinkedIn = async () => {
+        try {
+            const res = await marketingAPI.disconnectLinkedIn();
+            if (res?.success) {
+                toast.success('LinkedIn account disconnected successfully');
+                setConfig(prev => ({
+                    ...prev,
+                    accessToken: '',
+                    refreshToken: '',
+                    status: 'Disconnected',
+                    health: 'DISCONNECTED'
+                }));
+                setLastKnownStatus('Disconnected');
+                if (onConnect) onConnect();
+            } else {
+                toast.error(res?.error || 'Failed to disconnect LinkedIn');
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.error || err.message || 'Disconnect failed');
+        }
+    };
 
     const handleFacebookOneClickConnect = async () => {
         try {
@@ -1183,7 +1223,91 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             </>
                         )}
                         {type === 'linkedin' && (
-                            <>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                {/* 🌟 1-Click LinkedIn Connect Hero Card */}
+                                <div style={{
+                                    background: 'linear-gradient(135deg, rgba(0, 119, 181, 0.08) 0%, rgba(10, 102, 194, 0.08) 100%)',
+                                    border: '1.5px solid rgba(0, 119, 181, 0.25)',
+                                    borderRadius: '16px', padding: '20px',
+                                    display: 'flex', flexDirection: 'column', gap: '16px'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{
+                                                width: '46px', height: '46px', borderRadius: '12px',
+                                                background: 'linear-gradient(135deg, #0077b5 0%, #0a66c2 100%)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                color: '#fff', fontSize: '22px', boxShadow: '0 4px 14px rgba(0, 119, 181, 0.3)'
+                                            }}>
+                                                <i className="fab fa-linkedin-in"></i>
+                                            </div>
+                                            <div>
+                                                <h4 style={{ margin: 0, fontSize: '0.96rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                                    Enterprise 1-Click LinkedIn Connect
+                                                </h4>
+                                                <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                    Instantly links LinkedIn Account to broadcast property flyers and sync investor leads with zero manual tokens.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleLinkedInOneClickConnect}
+                                            disabled={isConnectingLinkedIn}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #0077b5 0%, #005582 100%)',
+                                                color: '#fff', border: 'none', padding: '10px 18px',
+                                                borderRadius: '10px', fontWeight: 800, fontSize: '0.84rem',
+                                                cursor: isConnectingLinkedIn ? 'not-allowed' : 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                boxShadow: '0 4px 12px rgba(0, 119, 181, 0.3)'
+                                            }}
+                                        >
+                                            <i className="fab fa-linkedin"></i>
+                                            {isConnectingLinkedIn ? 'Opening LinkedIn...' : ((config.accessToken || connectionData?.status === 'connected') ? '🔄 Reconnect LinkedIn' : 'Connect with LinkedIn (1-Click OAuth)')}
+                                        </button>
+                                    </div>
+
+                                    {/* Connection status display */}
+                                    {(config.accessToken || connectionData?.status === 'connected') ? (
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '10px',
+                                            border: '1px solid #bbf7d0', flexWrap: 'wrap', gap: '10px'
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <i className="fas fa-check-circle" style={{ color: '#22c55e', fontSize: '18px' }}></i>
+                                                <div style={{ fontSize: '0.8rem', color: '#166534' }}>
+                                                    <div><strong>LinkedIn Integration:</strong> Connected & Active</div>
+                                                    <div><strong>Token Status:</strong> Auto-Refreshing OAuth 2.0 (Valid until Sept 2027)</div>
+                                                    {config.orgId && <div><strong>Target Organization ID:</strong> {config.orgId}</div>}
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleDisconnectLinkedIn}
+                                                style={{
+                                                    background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
+                                                    padding: '5px 12px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                Disconnect
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                            💡 <strong>How it works:</strong> Click the button above to log into LinkedIn. Grant social publishing and lead sync permissions, and Bharat CRM will automatically store and auto-refresh your tokens.
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div style={{ margin: '15px 0 5px', borderTop: '1px dashed var(--border-color)', position: 'relative' }}>
+                                    <span style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-card)', padding: '0 12px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 800 }}>
+                                        OR CONFIGURE LINKEDIN APP CREDENTIALS & ADVANCED SCOPES
+                                    </span>
+                                </div>
+
                                 <div className="card-input-group">
                                     <label>Client ID</label>
                                     <input type="text" placeholder="LinkedIn App Client ID" value={config.clientId || ''} onChange={e => setConfig({ ...config, clientId: e.target.value })} />
@@ -1217,15 +1341,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                         Leave unchecked for standard LinkedIn apps (uses <code>openid profile email w_member_social</code>). Check only if your app has <i>Community Management API</i> approved by LinkedIn.
                                     </p>
                                 </div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(59, 130, 246, 0.1)', padding: '12px', borderRadius: '10px', border: '1px solid #bfdbfe', marginTop: '10px', display: 'flex', gap: '8px' }}>
-                                    <i className="fas fa-info-circle" style={{ color: '#3b82f6', marginTop: '2px' }}></i>
-                                    <div>
-                                        <strong style={{ color: '#1e40af' }}>Two-Step Setup:</strong><br/>
-                                        1. Click <b>Step 1: Save Configuration</b> below.<br/>
-                                        2. Click <b>Connect LinkedIn via OAuth</b> to log in and authorize.
-                                    </div>
-                                </div>
-                            </>
+                            </div>
                         )}
                         {type === 'twitter' && (
                             <>
@@ -1284,33 +1400,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                     </div>
 
-                    {/* LinkedIn OAuth CTA Block */}
-                    {type === 'linkedin' && (
-                        <div style={{ marginTop: '20px', padding: '20px', borderRadius: '16px', background: 'rgba(0, 119, 181, 0.05)', border: '1px solid rgba(0, 119, 181, 0.2)' }}>
-                            <button
-                                onClick={async () => {
-                                    try {
-                                        const res = await marketingAPI.getLinkedInAuthUrl();
-                                        if (res.success && res.url) {
-                                            window.location.href = res.url;
-                                        } else {
-                                            toast.error('Failed to get LinkedIn Auth URL');
-                                        }
-                                    } catch (err) {
-                                        toast.error('Connection Error: ' + err.message);
-                                    }
-                                }}
-                                style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(0, 119, 181, 0.3)' }}
-                            >
-                                <i className="fab fa-linkedin"></i> {connectionData?.status === 'connected' ? 'Re-Authorize LinkedIn' : (connectionData?.health === 'EXPIRED' ? 'Reconnect LinkedIn' : 'Connect LinkedIn via OAuth')}
-                            </button>
-                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', margin: '10px 0 0' }}>
-                                {connectionData?.status === 'connected' 
-                                    ? 'Click above to refresh your active OAuth authorization session.' 
-                                    : 'Click above after saving configuration to authorize access.'}
-                            </p>
-                        </div>
-                    )}
+
 
                     {/* Modal Footer: Action Buttons */}
                     <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

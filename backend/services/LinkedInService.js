@@ -11,7 +11,9 @@ class LinkedInService {
         this.authUrl = 'https://www.linkedin.com/oauth/v2/authorization';
         this.tokenUrl = 'https://www.linkedin.com/oauth/v2/accessToken';
         this.apiBase = 'https://api.linkedin.com/v2';
-        this.restliBase = 'https://api.linkedin.com/rest/v2';
+        this.restBase = 'https://api.linkedin.com/rest';
+        this.restliBase = 'https://api.linkedin.com/rest';
+        this.apiVersion = '202610';
     }
 
     /**
@@ -37,8 +39,8 @@ class LinkedInService {
         const cleanRedirectUri = redirectUri.trim();
 
         // 🌟 Enterprise Smart Scope Resolution:
-        // Standard Member Social scope for active LinkedIn Apps (removing openid/profile/email which require extra OpenID product)
-        let scopeList = ['w_member_social'];
+        // Request Organization Social for company page broadcasting + Member Social
+        let scopeList = ['w_organization_social', 'r_organization_social', 'w_member_social'];
 
         // If customScopes specified by user, use custom scopes
         if (customScopes && typeof customScopes === 'string' && customScopes.trim()) {
@@ -250,7 +252,7 @@ class LinkedInService {
     }
 
     /**
-     * Step 1: Register an Image Upload with LinkedIn
+     * Step 1: Register an Image Upload with LinkedIn (Rest Images API)
      * @param {string} orgId - Organization ID
      */
     async registerImageUpload(orgId) {
@@ -259,29 +261,23 @@ class LinkedInService {
         const targetOrgId = orgId || config.orgId;
 
         const payload = {
-            registerUploadRequest: {
-                recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
-                owner: `urn:li:organization:${targetOrgId}`,
-                serviceRelationships: [
-                    {
-                        relationshipType: 'OWNER',
-                        identifier: 'urn:li:userGeneratedContent'
-                    }
-                ]
+            initializeUploadRequest: {
+                owner: `urn:li:organization:${targetOrgId}`
             }
         };
 
-        const response = await axios.post(`${this.restliBase}/assets?action=registerUpload`, payload, {
+        const response = await axios.post(`${this.restBase}/images?action=initializeUpload`, payload, {
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'LinkedIn-Version': '202401',
+                'LinkedIn-Version': this.apiVersion,
+                'X-Restli-Protocol-Version': '2.0.0',
                 'Content-Type': 'application/json'
             }
         });
 
         return {
-            uploadUrl: response.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl,
-            asset: response.data.value.asset
+            uploadUrl: response.data.value.uploadUrl,
+            asset: response.data.value.image
         };
     }
 
@@ -293,7 +289,7 @@ class LinkedInService {
         await axios.put(uploadUrl, buffer, {
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': mimeType
+                'Content-Type': mimeType || 'image/jpeg'
             }
         });
         return true;
@@ -336,19 +332,26 @@ class LinkedInService {
                 };
             }
 
-            const response = await axios.post(`${this.restliBase}/posts`, postData, {
+            const response = await axios.post(`${this.restBase}/posts`, postData, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'LinkedIn-Version': '202401',
+                    'LinkedIn-Version': this.apiVersion,
                     'X-Restli-Protocol-Version': '2.0.0',
                     'Content-Type': 'application/json'
                 }
             });
 
-            return { success: true, postId: response.headers['x-restli-id'] };
+            return { 
+                success: true, 
+                postId: response.headers['x-restli-id'] || response.headers['location'] || 'linkedin_post_success' 
+            };
         } catch (err) {
             console.error('[LinkedInService] Post Error:', err.response?.data || err.message);
-            throw new Error(err.response?.data?.message || err.message);
+            const errDetail = err.response?.data?.message || err.message;
+            if (errDetail.includes('Organization Or Events permissions must be used') || errDetail.includes('Organization permissions must be used')) {
+                throw new Error('LinkedIn Company Page permissions required. Click "🔄 Reconnect LinkedIn" in Settings > Integrations to grant Organization publishing access.');
+            }
+            throw new Error(errDetail);
         }
     }
 }

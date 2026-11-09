@@ -568,7 +568,8 @@ export const generateVisualAsset = async (req, res) => {
             angle,
             mood,
             format,
-            customPrompt
+            customPrompt,
+            ...req.body
         });
 
         res.json(result);

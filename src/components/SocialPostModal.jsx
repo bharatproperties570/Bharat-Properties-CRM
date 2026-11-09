@@ -128,10 +128,11 @@ const SocialPostModal = ({
   });
 
   const [metaStatus, setMetaStatus] = useState(null);
+  const [linkedInStatus, setLinkedInStatus] = useState(null);
 
   const isActuallyOpen = isOpen || show;
 
-  // 🛡️ Fetch Live Meta & Portal Connection Statuses from Backend
+  // 🛡️ Fetch Live Meta, LinkedIn & Portal Connection Statuses from Backend
   useEffect(() => {
     if (isActuallyOpen && typeof socialAPI?.getFacebookOAuthStatus === 'function') {
       socialAPI.getFacebookOAuthStatus()
@@ -139,6 +140,14 @@ const SocialPostModal = ({
           if (res?.success) setMetaStatus(res);
         })
         .catch(e => console.warn('Could not fetch Meta OAuth status', e));
+    }
+
+    if (isActuallyOpen && typeof marketingAPI?.getLinkedInStatus === 'function') {
+      marketingAPI.getLinkedInStatus()
+        .then(res => {
+          if (res?.success) setLinkedInStatus(res);
+        })
+        .catch(e => console.warn('Could not fetch LinkedIn status', e));
     }
   }, [isActuallyOpen]);
 
@@ -421,28 +430,11 @@ const SocialPostModal = ({
         } else {
           setImageUrl(res.url);
           setVideoUrl('');
-          // Auto-apply Bharat Brand Kit to the fresh render
-          try {
-            const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
-              ? String(initialData.location).trim()
-              : 'Kurukshetra, Haryana';
-            const propData = {
-              title: initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity',
-              location: cleanLoc,
-              price: initialData?.price || 'Price on Request',
-              format: format === 'story' || format === 'reel' ? '9:16' : '1:1'
-            };
-            const branded = await brandifyPropertyImage(res.url, propData);
-            setBrandedImageUrl(branded.dataUrl);
-            setIsBrandified(true);
-            setPreviewBrandedMode(true);
-            toast.success('✨ AI Image Rendered & Branded with Bharat Kit!', { id: toastId });
-          } catch (e) {
-            console.warn('[SocialPostModal] Brandify error on generated image:', e);
-            setIsBrandified(false);
-            setBrandedImageUrl('');
-            toast.success('✨ AI Real Estate Image Generated!', { id: toastId });
-          }
+          // res.url is rendered by Enterprise BrandBannerComposer on backend
+          setBrandedImageUrl(res.url);
+          setIsBrandified(true);
+          setPreviewBrandedMode(true);
+          toast.success('✨ High-Resolution Branded Flyer Generated!', { id: toastId });
         }
       } else {
         throw new Error(res?.error || 'Visual generation failed');
@@ -532,28 +524,8 @@ const SocialPostModal = ({
     const entityType = initialData?.type || (initialData?.unitNo ? 'Deal' : 'System');
 
     try {
-      // Resolve Final Media Asset: If brandified, ensure public URL or robust asset reference
-      let finalImageUrl = imageUrl;
-      if (isBrandified && brandedImageUrl) {
-        if (brandedImageUrl.startsWith('data:image')) {
-          try {
-            const blobRes = await fetch(brandedImageUrl);
-            const blob = await blobRes.blob();
-            const uploadFormData = new FormData();
-            uploadFormData.append('file', blob, `bharat_branded_${Date.now()}.jpg`);
-            const upRes = await api.post('/upload', uploadFormData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-              _silentError: true
-            });
-            finalImageUrl = upRes.data?.url || upRes.data?.downloadUrl || brandedImageUrl;
-          } catch (e) {
-            console.warn('[SocialPostModal] Branded upload fallback:', e);
-            finalImageUrl = brandedImageUrl;
-          }
-        } else {
-          finalImageUrl = brandedImageUrl;
-        }
-      }
+      // Resolve Final Media Asset: prefer branded image if enabled, otherwise raw image
+      let finalImageUrl = (isBrandified && brandedImageUrl) ? brandedImageUrl : imageUrl;
 
       // Ensure text strictly conforms to canonical verification facts prior to broadcast
       const sanitizedText = validateAndSanitizeCopy(content, verificationFacts, {
@@ -1662,6 +1634,60 @@ const SocialPostModal = ({
                                             title="Click to connect or refresh your Instagram connection"
                                         >
                                             <i className="fab fa-instagram"></i> {metaStatus?.instagram?.connected ? 'Reconnect' : 'Connect Meta'}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {platform === 'linkedin' && (
+                                    <div style={{
+                                        padding: '10px 14px', borderRadius: '10px',
+                                        background: linkedInStatus?.connected 
+                                            ? (isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4')
+                                            : (isDark ? 'rgba(10, 102, 194, 0.1)' : '#eff6ff'),
+                                        border: linkedInStatus?.connected
+                                            ? '1px solid rgba(34, 197, 94, 0.3)'
+                                            : '1px solid rgba(10, 102, 194, 0.25)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
+                                        color: linkedInStatus?.connected 
+                                            ? (isDark ? '#86efac' : '#15803d')
+                                            : (isDark ? '#93c5fd' : '#0a66c2')
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-linkedin text-blue-600" style={{ fontSize: '18px' }}></i>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    {linkedInStatus?.connected && (
+                                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
+                                                    )}
+                                                    <strong>{linkedInStatus?.connected ? 'Connected LinkedIn Organization:' : 'LinkedIn Company Page:'}</strong>
+                                                    <span style={{ fontWeight: 800 }}>{linkedInStatus?.connected ? `Org ID: ${linkedInStatus.orgId || '42752175'}` : 'Bharat Properties'}</span>
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                                                    {linkedInStatus?.connected 
+                                                        ? 'Token Active & Auto-Refreshing · Direct Organization Feed posting ready' 
+                                                        : 'Connect your LinkedIn Company Page via 1-Click LinkedIn Connect in Settings > Integrations.'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await marketingAPI.getLinkedInAuthUrl();
+                                                    if (res?.success && res.url) window.location.href = res.url;
+                                                } catch (e) {
+                                                    toast.error('Could not initiate LinkedIn login');
+                                                }
+                                            }}
+                                            style={{
+                                                background: linkedInStatus?.connected ? '#059669' : '#0a66c2', 
+                                                color: '#ffffff', border: 'none', padding: '4px 10px',
+                                                borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
+                                                whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                            title="Click to connect or refresh your LinkedIn connection"
+                                        >
+                                            <i className="fab fa-linkedin-in"></i> {linkedInStatus?.connected ? 'Reconnect' : 'Connect LinkedIn'}
                                         </button>
                                     </div>
                                 )}

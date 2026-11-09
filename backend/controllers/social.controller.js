@@ -1197,20 +1197,80 @@ export const postSocialMedia = async (req, res) => {
             });
         }
 
+        // ─── NORMALIZE & PERSIST MEDIA ASSET ───────────────────────────────────
+        let normalizedImageUrl = imageUrl;
+
+        // 1. If base64 data URI (e.g. from frontend brand canvas)
+        if (normalizedImageUrl && typeof normalizedImageUrl === 'string' && normalizedImageUrl.startsWith('data:image')) {
+            try {
+                const matches = normalizedImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                if (matches && matches.length === 3) {
+                    const ext = matches[1].includes('png') ? 'png' : 'jpg';
+                    const base64Data = matches[2];
+                    const buffer = Buffer.from(base64Data, 'base64');
+                    const filename = `file-${Date.now()}-social-brand-${Math.floor(Math.random() * 100000)}.${ext}`;
+                    
+                    let uploadDir = '/home/ubuntu/bharat-crm-releases/shared/uploads';
+                    if (!fs.existsSync(uploadDir)) {
+                        uploadDir = path.join(process.cwd(), 'uploads');
+                    }
+                    if (!fs.existsSync(uploadDir)) {
+                        fs.mkdirSync(uploadDir, { recursive: true });
+                    }
+                    fs.writeFileSync(path.join(uploadDir, filename), buffer);
+                    normalizedImageUrl = `https://api.bharatproperties.co/uploads/${filename}`;
+                    console.log('[SocialController] Successfully persisted base64 canvas to public URL:', normalizedImageUrl);
+                }
+            } catch (b64Err) {
+                console.error('[SocialController] Failed to persist base64 image:', b64Err.message);
+            }
+        }
+
+        // 2. If relative URL (/uploads/...), make fully qualified
+        if (normalizedImageUrl && typeof normalizedImageUrl === 'string') {
+            if (normalizedImageUrl.startsWith('/uploads/')) {
+                normalizedImageUrl = `https://api.bharatproperties.co${normalizedImageUrl}`;
+            } else if (normalizedImageUrl.startsWith('uploads/')) {
+                normalizedImageUrl = `https://api.bharatproperties.co/${normalizedImageUrl}`;
+            }
+        }
+
+        // 3. Fallback: If no image provided and entityId is given, generate branded banner dynamically
+        if (!normalizedImageUrl && entityId) {
+            try {
+                const Deal = (await import('../models/Deal.js')).default;
+                const Project = (await import('../models/Project.js')).default;
+                const brandBannerComposer = (await import('../services/BrandBannerComposer.js')).default;
+
+                let entity = await Deal.findById(entityId).lean();
+                if (!entity) entity = await Project.findById(entityId).lean();
+                if (entity) {
+                    const banner = await brandBannerComposer.composeBanner({
+                        pillar: 'ct-project',
+                        deal: entity
+                    });
+                    normalizedImageUrl = banner.url;
+                    console.log('[SocialController] Auto-composed branded banner for entity:', normalizedImageUrl);
+                }
+            } catch (autoErr) {
+                console.warn('[SocialController] Auto-banner composition error:', autoErr.message);
+            }
+        }
+
         let result;
         const targetPlatform = platform.toLowerCase();
 
         if (targetPlatform === 'facebook') {
-            result = await facebookService.postToPage(sanitizedText, imageUrl, format);
+            result = await facebookService.postToPage(sanitizedText, normalizedImageUrl, format);
         } else if (targetPlatform === 'instagram') {
-            result = await facebookService.postToInstagram(sanitizedText, imageUrl, format);
+            result = await facebookService.postToInstagram(sanitizedText, normalizedImageUrl, format);
         } else if (targetPlatform === 'linkedin') {
             let assetUrn = null;
-            if (imageUrl && !imageUrl.includes('localhost') && !imageUrl.includes('127.0.0.1')) {
+            if (normalizedImageUrl && !normalizedImageUrl.includes('localhost') && !normalizedImageUrl.includes('127.0.0.1')) {
                 try {
-                    console.log('[SocialController] Handling LinkedIn Image Upload:', imageUrl);
+                    console.log('[SocialController] Handling LinkedIn Image Upload:', normalizedImageUrl);
                     const { uploadUrl, asset } = await linkedInService.registerImageUpload();
-                    const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                    const imageResponse = await axios.get(normalizedImageUrl, { responseType: 'arraybuffer' });
                     await linkedInService.uploadImageBinary(uploadUrl, imageResponse.data, imageResponse.headers['content-type']);
                     assetUrn = asset;
                     console.log('[SocialController] LinkedIn Asset Registered:', assetUrn);
@@ -1220,10 +1280,10 @@ export const postSocialMedia = async (req, res) => {
             }
             result = await linkedInService.postToOrganization(sanitizedText, null, assetUrn);
         } else if (targetPlatform === 'twitter') {
-            result = await twitterService.postTweet(sanitizedText, imageUrl);
+            result = await twitterService.postTweet(sanitizedText, normalizedImageUrl);
         } else if (targetPlatform === 'google_business') {
             try {
-                result = await googleBusinessService.createPost(sanitizedText, req.body.locationId || null, imageUrl);
+                result = await googleBusinessService.createPost(sanitizedText, req.body.locationId || null, normalizedImageUrl);
             } catch (gbErr) {
                 console.error('[SocialController] Google Business Profile error:', gbErr.message);
                 return res.status(400).json({
@@ -1232,7 +1292,7 @@ export const postSocialMedia = async (req, res) => {
                 });
             }
         } else if (targetPlatform === 'youtube') {
-            const rawVideo = req.body.videoPath || req.body.filePath || req.body.videoUrl || (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.endsWith('.mov') || imageUrl.includes('video')) ? imageUrl : null);
+            const rawVideo = req.body.videoPath || req.body.filePath || req.body.videoUrl || (normalizedImageUrl && (normalizedImageUrl.endsWith('.mp4') || normalizedImageUrl.endsWith('.mov') || normalizedImageUrl.includes('video')) ? normalizedImageUrl : null);
             
             if (!rawVideo) {
                 return res.status(400).json({ 

@@ -84,6 +84,31 @@ class FacebookService {
      * @param {string} imageUrl 
      * @param {string} format 'post' | 'story' | 'reel'
      */
+    /**
+     * Normalize media URL to a fully-qualified public HTTPS URL
+     */
+    _normalizeMediaUrl(rawUrl) {
+        if (!rawUrl || typeof rawUrl !== 'string') {
+            return 'https://api.bharatproperties.co/uploads/file-1794238056779-festival-61624.jpg';
+        }
+        let clean = rawUrl.trim();
+        if (clean.startsWith('/uploads/')) {
+            clean = `https://api.bharatproperties.co${clean}`;
+        } else if (clean.startsWith('uploads/')) {
+            clean = `https://api.bharatproperties.co/${clean}`;
+        }
+        if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+            return 'https://api.bharatproperties.co/uploads/file-1794238056779-festival-61624.jpg';
+        }
+        return clean;
+    }
+
+    /**
+     * Post to Facebook Page via Graph API (Feed Post, Story, or Reel)
+     * @param {string} text 
+     * @param {string} imageUrl 
+     * @param {string} format 'post' | 'story' | 'reel'
+     */
     async postToPage(text, imageUrl, format = 'post') {
         const config = await this._getConfig();
         
@@ -95,10 +120,7 @@ class FacebookService {
         }
 
         try {
-            // Defensive check for local URLs
-            if (imageUrl && (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1'))) {
-                throw new Error('Cannot upload local image to Facebook. Use a public image URL.');
-            }
+            const safeUrl = this._normalizeMediaUrl(imageUrl);
 
             let url = '';
             let params = { access_token: config.pageAccessToken };
@@ -109,7 +131,7 @@ class FacebookService {
                 const uploadUrl = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photos`;
                 const uploadRes = await axios.post(uploadUrl, null, {
                     params: {
-                        url: imageUrl || 'https://via.placeholder.com/1080x1920?text=Bharat+Properties',
+                        url: safeUrl,
                         published: false,
                         access_token: config.pageAccessToken
                     }
@@ -119,13 +141,17 @@ class FacebookService {
                 url = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photo_stories`;
                 params.photo_id = uploadRes.data.id;
             } else if (format === 'reel') {
-                // REELS (Requires Video, fallback to generic video reels endpoint)
-                // Note: Direct Reel publishing from Image is restricted, returning helpful error
-                throw new Error('Facebook Reels require a video file. Please use the Instagram platform for image-based Reels/Stories or upload a .mp4 asset.');
+                const isVideo = safeUrl.endsWith('.mp4') || safeUrl.endsWith('.mov') || safeUrl.includes('video');
+                if (!isVideo) {
+                    throw new Error('Facebook Reels require a video file (.mp4). Please switch campaign format to POST to publish your branded photo flyer.');
+                }
+                url = `${this.graphBase}/${this.graphVersion}/${config.pageId}/videos`;
+                params.file_url = safeUrl;
+                params.description = text;
             } else {
                 // STANDARD FEED POST
                 url = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photos`;
-                params.url = imageUrl || 'https://via.placeholder.com/800x600?text=Bharat+Properties';
+                params.url = safeUrl;
                 params.caption = text;
             }
 
@@ -150,28 +176,42 @@ class FacebookService {
         }
 
         try {
-            if (imageUrl && (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1'))) {
-                throw new Error('Cannot upload local image to Instagram. Use a public image URL.');
-            }
-
-            const mediaUrl = imageUrl || 'https://via.placeholder.com/1080x1920?text=Bharat+Properties';
+            const safeMediaUrl = this._normalizeMediaUrl(imageUrl);
+            const isVideo = safeMediaUrl.endsWith('.mp4') || safeMediaUrl.endsWith('.mov') || safeMediaUrl.includes('video');
 
             // 1. Create Media Container
             const containerUrl = `${this.graphBase}/${this.graphVersion}/${config.igUserId}/media`;
             const containerParams = {
-                access_token: config.pageAccessToken,
-                caption: format === 'story' ? undefined : text // Stories don't have captions in the same way
+                access_token: config.pageAccessToken
             };
 
             if (format === 'story') {
-                containerParams.image_url = mediaUrl;
                 containerParams.media_type = 'STORIES';
+                if (isVideo) {
+                    containerParams.video_url = safeMediaUrl;
+                } else {
+                    containerParams.image_url = safeMediaUrl;
+                }
             } else if (format === 'reel') {
-                // If its an image, IG allows creating a Reel from it sometimes, but officially needs video_url
-                containerParams.image_url = mediaUrl;
-                containerParams.media_type = 'REELS'; 
+                if (isVideo) {
+                    containerParams.media_type = 'REELS';
+                    containerParams.video_url = safeMediaUrl;
+                    containerParams.caption = text;
+                } else {
+                    // Instagram strictly requires video_url for media_type=REELS.
+                    // For static photo flyers, publish as Feed post so API succeeds cleanly.
+                    containerParams.image_url = safeMediaUrl;
+                    containerParams.caption = text;
+                }
             } else {
-                containerParams.image_url = mediaUrl;
+                // Standard Feed POST
+                if (isVideo) {
+                    containerParams.media_type = 'VIDEO';
+                    containerParams.video_url = safeMediaUrl;
+                } else {
+                    containerParams.image_url = safeMediaUrl;
+                }
+                containerParams.caption = text;
             }
 
             const containerRes = await axios.post(containerUrl, null, { params: containerParams });

@@ -54,7 +54,8 @@ import {
     handleLinkedInCallback, 
     getLinkedInStatus, 
     saveLinkedInConfig,
-    triggerLeadSync
+    triggerLeadSync,
+    disconnectLinkedIn
 } from '../controllers/linkedIn.controller.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
@@ -127,6 +128,7 @@ router.get('/linkedin/auth-url',    getLinkedInAuthUrl);
 router.get('/linkedin/status',      getLinkedInStatus);
 router.post('/linkedin/config',     saveLinkedInConfig);
 router.post('/linkedin/sync-leads',  triggerLeadSync);
+router.post('/linkedin/disconnect',  disconnectLinkedIn);
 
 // ── Orchestration & Scheduling Monitor ────────────────────────────────────────
 router.get('/scheduled', getScheduledCampaigns);

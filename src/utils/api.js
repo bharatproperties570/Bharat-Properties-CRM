@@ -232,6 +232,7 @@ export const marketingAPI = {
     handleLinkedInCallback: (code) => api.post('/marketing/linkedin/callback', { code }).then(res => res.data),
     getLinkedInStatus: () => api.get('/marketing/linkedin/status').then(res => res.data),
     saveLinkedInConfig: (config) => api.post('/marketing/linkedin/config', config).then(res => res.data),
+    disconnectLinkedIn: () => api.post('/marketing/linkedin/disconnect').then(res => res.data),
 
     // ── Neural Persistence (Content CRUD) ──
     getContent: (params) => api.get('/marketing/content', { params }).then(res => res.data),
