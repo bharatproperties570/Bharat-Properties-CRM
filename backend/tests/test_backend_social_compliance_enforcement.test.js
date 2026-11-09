@@ -33,8 +33,14 @@ import publishService from '../services/PublishService.js';
 import marketingService from '../services/MarketingService.js';
 import marketingComplianceEnforcementService, {
     generateSystemServiceSignature,
-    verifySystemServiceSignature
+    verifySystemServiceSignature,
+    calculateShannonEntropy,
+    SystemServiceReplayLedger,
+    clearSystemServiceReplayLedger,
+    recordNonceConsumptionSync
 } from '../services/MarketingComplianceEnforcementService.js';
+import { AUDIT_CAPABILITY_TOKEN } from '../services/auditCapabilityToken.js';
+import { DocumentAuditService } from '../services/DocumentAuditService.js';
 import { postSocialMedia } from '../controllers/social.controller.js';
 import { syndicateToPortals } from '../controllers/marketing.controller.js';
 import {
@@ -44,6 +50,7 @@ import {
     hasAuthoritativeReadyPossession,
     validateAuthoritativeDocumentRecord,
     hasAuthoritativeDocumentProvenance,
+    validateExactSnapshotStates,
     isAuthorizedVerifier,
     hasStatutoryVerifierPermissions,
     TRUSTED_VERIFIER_ROLES,
@@ -1162,6 +1169,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 isRevoked: false,
                 isSynthetic: false,
                 provenance: 'LIVE',
+                dataQuality: { status: 'COMPLETE' },
                 _resolvedLink: {
                     _isResolverVerified: true,
                     tenantId: reraTestTenantId,
@@ -2501,6 +2509,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 isRevoked: false,
                 isSynthetic: false,
                 provenance: 'LIVE',
+                dataQuality: { status: 'COMPLETE' },
                 contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
                 observedAt: new Date(),
                 createdByWorkerId: 'WORKER-101',
@@ -3134,9 +3143,11 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             });
 
             const verifiedTime = new Date();
+            const sysNonce = 'sec14-nonce-001';
             const validSig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {
                 entityId: dealId,
-                documentId: 'doc-sys-auth'
+                documentId: 'doc-sys-auth',
+                nonce: sysNonce
             });
 
             await Document.create({
@@ -3154,7 +3165,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
                     verifiedAt: verifiedTime,
                     outcome: 'APPROVED',
-                    systemSignature: validSig
+                    systemSignature: validSig,
+                    systemNonce: sysNonce
                 }
             });
 
@@ -3752,33 +3764,41 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
 
         it('System Secret: Context tampering (entityId or documentId) fails closed', () => {
             const verifiedTime = new Date();
-            const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {
+            const sysNonce = 'sec14-context-nonce-001';
+            const ctx = {
                 entityId: 'deal-123',
-                documentId: 'doc-123'
-            });
+                documentId: 'doc-123',
+                nonce: sysNonce
+            };
+            const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, ctx);
 
             // Valid signature with exact matching context passes
             assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
                 entityId: 'deal-123',
-                documentId: 'doc-123'
+                documentId: 'doc-123',
+                nonce: sysNonce,
+                idempotencyKey: 'idemp-ctx-test'
             }), true);
 
             // Mismatched entityId fails
             assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
                 entityId: 'deal-TAMPERED',
-                documentId: 'doc-123'
+                documentId: 'doc-123',
+                nonce: sysNonce
             }), false);
 
             // Mismatched documentId fails
             assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
                 entityId: 'deal-123',
-                documentId: 'doc-TAMPERED'
+                documentId: 'doc-TAMPERED',
+                nonce: sysNonce
             }), false);
 
             // Wrong service ID fails
             assert.equal(verifySystemServiceSignature('FORGED_SERVICE_ID', verifiedTime, sig, {
                 entityId: 'deal-123',
-                documentId: 'doc-123'
+                documentId: 'doc-123',
+                nonce: sysNonce
             }), false);
         });
 
@@ -3830,6 +3850,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 isRevoked: false,
                 isSynthetic: false,
                 provenance: 'LIVE',
+                dataQuality: { status: 'COMPLETE' },
                 _resolvedLink: {
                     _isResolverVerified: true,
                     tenantId: tId,
@@ -4047,11 +4068,20 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 );
             }, /IMMUTABLE_VERIFICATION_AUDIT/);
 
-            // Authorized audit workflow succeeds
+            // Forged boolean flags fail closed (Round 8)
+            await assert.rejects(async () => {
+                await Document.updateOne(
+                    { _id: doc._id },
+                    { $set: { 'verificationAudit.outcome': 'REJECTED' } },
+                    { isAuthorizedAuditWorkflow: true }
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+            // Authorized audit workflow holding AUDIT_CAPABILITY_TOKEN succeeds
             await Document.updateOne(
                 { _id: doc._id },
                 { $set: { isRevoked: true } },
-                { isAuthorizedAuditWorkflow: true }
+                { [AUDIT_CAPABILITY_TOKEN]: true }
             );
         });
 
@@ -4093,6 +4123,749 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 }
             };
             assert.equal(hasAuthoritativeDocumentProvenance(docContradiction), false, 'Audit entityId mismatch with document entityId must fail closed');
+        });
+    });
+
+    // =========================================================================
+    // SECTION 15: ROUND 8 FINAL IMMUTABILITY, SNAPSHOT STATE & REPLAY SUITE
+    // =========================================================================
+    describe('Section 15: Round 8 Final Immutability, Snapshot State & Replay Security Suite', () => {
+        let tenantA;
+        let tenantB;
+        let statutoryUser;
+        let statutoryRole;
+
+        beforeEach(async () => {
+            tenantA = new mongoose.Types.ObjectId();
+            tenantB = new mongoose.Types.ObjectId();
+            clearSystemServiceReplayLedger();
+
+            statutoryRole = await Role.create({
+                name: 'STATUTORY_COMPLIANCE_ROUND8_' + Date.now(),
+                department: 'marketing',
+                isSystemRole: false,
+                moduleAccess: {
+                    authorityVerification: { view: true, edit: true }
+                },
+                approvalRights: {
+                    approveAuthorityChanges: true
+                }
+            });
+
+            statutoryUser = await User.create({
+                fullName: 'Statutory Verifier R8',
+                email: `statutory_r8_${Date.now()}@bharatproperties.test`,
+                password: 'HashedPassword123!',
+                department: 'marketing',
+                role: statutoryRole._id,
+                isActive: true,
+                status: 'active',
+                tenantId: tenantA
+            });
+        });
+
+        // ---------------------------------------------------------------------
+        // 1. P0 — DOCUMENT AUDIT IMMUTABILITY AUTHORIZATION
+        // ---------------------------------------------------------------------
+        it('Document Immutability: Ordinary save() mutating verificationAudit throws IMMUTABLE_VERIFICATION_AUDIT', async () => {
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-imm-save-1',
+                documentId: 'doc-imm-save-1',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                storageKey: 'documents/imm-save-1.pdf',
+                storageBucket: 'test-bucket',
+                objectKey: 'documents/imm-save-1.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            const doc = await Document.create({
+                documentId: 'doc-imm-save-1',
+                entityType: 'Deal',
+                entityId: new mongoose.Types.ObjectId(),
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-imm-save-1',
+                    versionId: String(docVer._id),
+                    entityId: new mongoose.Types.ObjectId(),
+                    entityType: 'Deal',
+                    verifierId: String(statutoryUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            // Attempting to modify audit and save() without capability token
+            const fetchedDoc = await Document.findById(doc._id);
+            fetchedDoc.verificationAudit = { ...fetchedDoc.verificationAudit, outcome: 'VERIFIED' };
+            await assert.rejects(async () => {
+                await fetchedDoc.save();
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+        });
+
+        it('Document Immutability: Ordinary updateOne() and findOneAndUpdate() reject audit mutation', async () => {
+            const doc = await Document.create({
+                documentId: 'doc-imm-ops-1',
+                entityType: 'Deal',
+                entityId: new mongoose.Types.ObjectId(),
+                state: 'ACTIVE',
+                verificationAudit: { outcome: 'APPROVED' }
+            });
+
+            // updateOne rejected
+            await assert.rejects(async () => {
+                await Document.updateOne(
+                    { _id: doc._id },
+                    { $set: { 'verificationAudit.outcome': 'TAMPERED' } }
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+            // findOneAndUpdate rejected
+            await assert.rejects(async () => {
+                await Document.findOneAndUpdate(
+                    { _id: doc._id },
+                    { $set: { 'metadata.verificationAudit.outcome': 'TAMPERED' } }
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+        });
+
+        it('Document Immutability: Forged caller boolean flags (isAuthorizedAuditWorkflow) are strictly rejected', async () => {
+            const doc = await Document.create({
+                documentId: 'doc-forged-flag-1',
+                entityType: 'Deal',
+                entityId: new mongoose.Types.ObjectId(),
+                state: 'ACTIVE',
+                verificationAudit: { outcome: 'APPROVED' }
+            });
+
+            // Passing { isAuthorizedAuditWorkflow: true } in query options
+            await assert.rejects(async () => {
+                await Document.updateOne(
+                    { _id: doc._id },
+                    { $set: { 'verificationAudit.outcome': 'TAMPERED' } },
+                    { isAuthorizedAuditWorkflow: true }
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+            // Passing doc._isAuthorizedAuditWorkflow on model instance
+            doc._isAuthorizedAuditWorkflow = true;
+            doc.verificationAudit = { outcome: 'TAMPERED' };
+            await assert.rejects(async () => {
+                await doc.save();
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+        });
+
+        it('Document Immutability: Aggregation update pipeline bypasses are rejected', async () => {
+            const doc = await Document.create({
+                documentId: 'doc-pipeline-bypass-1',
+                entityType: 'Deal',
+                entityId: new mongoose.Types.ObjectId(),
+                state: 'ACTIVE',
+                verificationAudit: { outcome: 'APPROVED' }
+            });
+
+            await assert.rejects(async () => {
+                await Document.updateOne(
+                    { _id: doc._id },
+                    [
+                        { $set: { 'verificationAudit.outcome': 'PIPELINE_HACK' } }
+                    ]
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+        });
+
+        it('Document Immutability: DocumentAuditService records genuine verification audit with capability token', async () => {
+            const entId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-audit-service-1',
+                documentId: 'doc-audit-service-1',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                storageKey: 'documents/audit-srv-1.pdf',
+                storageBucket: 'test-bucket',
+                objectKey: 'documents/audit-srv-1.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            await Document.create({
+                documentId: 'doc-audit-service-1',
+                entityType: 'Deal',
+                entityId: entId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE'
+            });
+
+            const verifiedAt = new Date();
+            const updatedDoc = await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-audit-service-1',
+                auditPayload: {
+                    documentId: 'doc-audit-service-1',
+                    versionId: String(docVer._id),
+                    entityId: entId,
+                    entityType: 'Deal',
+                    verifierId: String(statutoryUser._id),
+                    verifiedAt,
+                    outcome: 'APPROVED'
+                },
+                verifierUser: statutoryUser
+            });
+
+            assert.ok(updatedDoc);
+            assert.equal(updatedDoc.verificationAudit.outcome, 'APPROVED');
+            assert.equal(updatedDoc.verificationAudit.documentId, 'doc-audit-service-1');
+            assert.equal(String(updatedDoc.verificationAudit.verifierId), String(statutoryUser._id));
+        });
+
+        it('Document Immutability: Supersession preserves prior audit in auditHistory', async () => {
+            const entId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-supersede-1',
+                documentId: 'doc-supersede-1',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                storageKey: 'documents/sup-1.pdf',
+                storageBucket: 'test-bucket',
+                objectKey: 'documents/sup-1.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            await Document.create({
+                documentId: 'doc-supersede-1',
+                entityType: 'Deal',
+                entityId: entId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE'
+            });
+
+            // Initial audit
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-supersede-1',
+                auditPayload: {
+                    documentId: 'doc-supersede-1',
+                    versionId: String(docVer._id),
+                    entityId: entId,
+                    entityType: 'Deal',
+                    verifierId: String(statutoryUser._id),
+                    verifiedAt: new Date(Date.now() - 3600000),
+                    outcome: 'APPROVED'
+                },
+                verifierUser: statutoryUser
+            });
+
+            // Superseding audit
+            const supersededDoc = await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-supersede-1',
+                auditPayload: {
+                    documentId: 'doc-supersede-1',
+                    versionId: String(docVer._id),
+                    entityId: entId,
+                    entityType: 'Deal',
+                    verifierId: String(statutoryUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'VERIFIED'
+                },
+                verifierUser: statutoryUser
+            });
+
+            assert.equal(supersededDoc.verificationAudit.outcome, 'VERIFIED');
+            assert.equal(supersededDoc.auditHistory.length, 1);
+            assert.equal(supersededDoc.auditHistory[0].outcome, 'APPROVED');
+            assert.equal(supersededDoc.auditHistory[0].action, 'SUPERSEDED');
+        });
+
+        it('Document Immutability: DocumentAuditService revokes verification audit and records history', async () => {
+            const entId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-revoke-1',
+                documentId: 'doc-revoke-1',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                storageKey: 'documents/rev-1.pdf',
+                storageBucket: 'test-bucket',
+                objectKey: 'documents/rev-1.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            await Document.create({
+                documentId: 'doc-revoke-1',
+                entityType: 'Deal',
+                entityId: entId,
+                currentVersionId: docVer._id,
+                state: 'ACTIVE'
+            });
+
+            await DocumentAuditService.recordVerificationAudit({
+                documentId: 'doc-revoke-1',
+                auditPayload: {
+                    documentId: 'doc-revoke-1',
+                    versionId: String(docVer._id),
+                    entityId: entId,
+                    entityType: 'Deal',
+                    verifierId: String(statutoryUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                },
+                verifierUser: statutoryUser
+            });
+
+            // Revoke audit
+            const revokedDoc = await DocumentAuditService.revokeVerificationAudit({
+                documentId: 'doc-revoke-1',
+                revocationReason: 'Court injunction on Title deed',
+                revokedBy: String(statutoryUser._id),
+                verifierUser: statutoryUser
+            });
+
+            assert.equal(revokedDoc.isRevoked, true);
+            assert.equal(revokedDoc.verificationAudit.isRevoked, true);
+            assert.equal(revokedDoc.verificationAudit.revocationReason, 'Court injunction on Title deed');
+            assert.equal(revokedDoc.auditHistory.length, 1);
+            assert.equal(revokedDoc.auditHistory[0].action, 'REVOKED');
+        });
+
+        // ---------------------------------------------------------------------
+        // 2. P0 — EXACT SNAPSHOT STATE REQUIREMENTS
+        // ---------------------------------------------------------------------
+        describe('Exact Snapshot State Validations', () => {
+            const makeBaseSnap = () => ({
+                isSealed: true,
+                isRevoked: false,
+                isSynthetic: false,
+                provenance: 'LIVE',
+                dataQuality: { status: 'COMPLETE' },
+                dataQuality: { status: 'COMPLETE' }
+            });
+
+            const makeBaseLink = () => ({
+                isActive: true,
+                identityVerified: true,
+                matchEligibility: 'ELIGIBLE'
+            });
+
+            it('Positive Baseline: Exact positive states pass validation', () => {
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), makeBaseLink()), true);
+            });
+
+            it('isSealed: false, null, or undefined fails closed', () => {
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isSealed: false }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isSealed: null }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isSealed: undefined }, makeBaseLink()), false);
+            });
+
+            it('isRevoked: true, null, or undefined fails closed (strictly requires false)', () => {
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isRevoked: true }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isRevoked: null }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isRevoked: undefined }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), status: 'REVOKED' }, makeBaseLink()), false);
+            });
+
+            it('isSynthetic: true, null, or undefined fails closed (strictly requires false)', () => {
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isSynthetic: true }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isSynthetic: null }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), isSynthetic: undefined }, makeBaseLink()), false);
+            });
+
+            it('provenance: anything other than LIVE fails closed', () => {
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), provenance: 'SYNTHETIC_FIXTURE' }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), provenance: 'FIXTURE' }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), provenance: null }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), provenance: undefined }, makeBaseLink()), false);
+            });
+
+            it('dataQuality: RESTRICTED or missing dataQuality fails closed', () => {
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), dataQuality: { status: 'RESTRICTED' } }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), dataQuality: null }, makeBaseLink()), false);
+                assert.equal(validateExactSnapshotStates({ ...makeBaseSnap(), dataQuality: undefined }, makeBaseLink()), false);
+            });
+
+            it('link.isActive: false, null, or undefined fails closed', () => {
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), isActive: false }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), isActive: null }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), isActive: undefined }), false);
+            });
+
+            it('link.identityVerified: false, null, or undefined fails closed', () => {
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), identityVerified: false }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), identityVerified: null }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), identityVerified: undefined }), false);
+            });
+
+            it('link.matchEligibility: anything other than ELIGIBLE fails closed', () => {
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), matchEligibility: 'INELIGIBLE' }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), matchEligibility: 'NEEDS_REVIEW' }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), matchEligibility: 'PARTIAL' }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), matchEligibility: null }), false);
+                assert.equal(validateExactSnapshotStates(makeBaseSnap(), { ...makeBaseLink(), matchEligibility: undefined }), false);
+            });
+        });
+
+        // ---------------------------------------------------------------------
+        // 3. P1 — HMAC REPLAY PROTECTION & SECRET ENTROPY
+        // ---------------------------------------------------------------------
+        describe('HMAC Replay Protection & Secret Entropy', () => {
+            it('Replay Protection: First execution succeeds; duplicate replay fails closed', () => {
+                const verifiedTime = new Date();
+                const nonce = 'replay-test-nonce-001';
+                const ctx = {
+                    entityId: 'deal-rep-1',
+                    documentId: 'doc-rep-1',
+                    nonce
+                };
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, ctx);
+
+                // 1st call: valid -> ACCEPT
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, ctx), true);
+
+                // 2nd call: replay without idempotencyKey -> REJECT
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, ctx), false);
+            });
+
+            it('Replay Protection: Altered nonce fails HMAC verification', () => {
+                const verifiedTime = new Date();
+                const ctx = {
+                    entityId: 'deal-alt-1',
+                    documentId: 'doc-alt-1',
+                    nonce: 'nonce-original-001'
+                };
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, ctx);
+
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                    ...ctx,
+                    nonce: 'nonce-tampered-999'
+                }), false);
+            });
+
+            it('Replay Protection: Altered entityId or documentId fails HMAC verification', () => {
+                const verifiedTime = new Date();
+                const ctx = {
+                    entityId: 'deal-ctx-1',
+                    documentId: 'doc-ctx-1',
+                    nonce: 'nonce-ctx-001'
+                };
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, ctx);
+
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                    ...ctx,
+                    entityId: 'deal-tampered'
+                }), false);
+
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                    ...ctx,
+                    documentId: 'doc-tampered'
+                }), false);
+            });
+
+            it('Replay Protection: Expired signature (> 15 minutes old) fails closed', () => {
+                const expiredTime = new Date(Date.now() - 16 * 60 * 1000); // 16 mins ago
+                const ctx = {
+                    entityId: 'deal-exp-1',
+                    documentId: 'doc-exp-1',
+                    nonce: 'nonce-exp-001'
+                };
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', expiredTime, ctx);
+
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', expiredTime, sig, ctx), false);
+            });
+
+            it('Replay Protection: Future signature (> 1 minute ahead) fails closed', () => {
+                const futureTime = new Date(Date.now() + 5 * 60 * 1000); // 5 mins in future
+                const ctx = {
+                    entityId: 'deal-fut-1',
+                    documentId: 'doc-fut-1',
+                    nonce: 'nonce-fut-001'
+                };
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', futureTime, ctx);
+
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', futureTime, sig, ctx), false);
+            });
+
+            it('Replay Protection: Worker retry with matching idempotencyKey succeeds', () => {
+                const verifiedTime = new Date();
+                const ctx = {
+                    entityId: 'deal-retry-1',
+                    documentId: 'doc-retry-1',
+                    nonce: 'nonce-retry-001',
+                    idempotencyKey: 'worker-job-item-777'
+                };
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, ctx);
+
+                // Initial call
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, ctx), true);
+
+                // Legitimate worker retry with identical idempotencyKey and context -> ACCEPT
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, ctx), true);
+
+                // Attempt to use same idempotencyKey with mismatched entityId -> REJECT
+                assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                    ...ctx,
+                    entityId: 'deal-other'
+                }), false);
+            });
+
+            it('Secret Entropy: Rejects weak secrets, repeated patterns, and dictionary words', () => {
+                const verifiedTime = new Date();
+
+                // Secret length < 32
+                assert.throws(() => {
+                    generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {}, 'too-short');
+                }, /SYSTEM_SERVICE_SECRET_UNAVAILABLE/);
+
+                // Shannon entropy < 3.0 bits/symbol (repeated character)
+                assert.throws(() => {
+                    generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {}, '11111111111111111111111111111111');
+                }, /SYSTEM_SERVICE_SECRET_UNAVAILABLE/);
+
+                // Distinct characters < 8
+                assert.throws(() => {
+                    generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {}, 'abababababababababababababababab');
+                }, /SYSTEM_SERVICE_SECRET_UNAVAILABLE/);
+
+                // Insecure dictionary pattern (password)
+                assert.throws(() => {
+                    generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {}, 'myverysecretpasswordforcompliancetesting123');
+                }, /SYSTEM_SERVICE_SECRET_UNAVAILABLE/);
+
+                // Valid strong secret succeeds
+                const strongSecret = 'k9#mP$2vL@8xQ!5wR&7zT*3yU^6cB%4nD+1sF=';
+                const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {
+                    entityId: 'deal-1',
+                    documentId: 'doc-1',
+                    nonce: 'valid-nonce-001'
+                }, strongSecret);
+                assert.ok(sig);
+            });
+        });
+
+        // ---------------------------------------------------------------------
+        // 4. P1 — SINGLE-ORGANIZATION TENANT COMPATIBILITY
+        // ---------------------------------------------------------------------
+        describe('Single-Organization Tenant Compatibility', () => {
+            it('Legacy Deal with tenantId: null fails closed (REQUIRES_CONTROLLED_MIGRATION)', () => {
+                const legacyDeal = {
+                    _id: new mongoose.Types.ObjectId(),
+                    _entityType: 'Deal',
+                    tenantId: null, // Legacy null tenant
+                    dealId: 'DEAL-LEGACY-001',
+                    reraNumber: 'HRERA-PKL-123-2024',
+                    lastVerifiedAt: new Date(),
+                    _resolvedSnapshot: {
+                        _isResolverVerified: true,
+                        tenantId: tenantA,
+                        isSealed: true,
+                        isRevoked: false,
+                        isSynthetic: false,
+                        provenance: 'LIVE',
+                        authorityCode: 'HRERA',
+                        dataQuality: { status: 'COMPLETE' },
+                        createdByWorkerId: 'WORKER_RERA_SYNC',
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: tenantA,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: new mongoose.Types.ObjectId()
+                        }
+                    }
+                };
+
+                assert.equal(hasAuthoritativeReraApproval(legacyDeal), false, 'Legacy Deal with null tenant must fail closed');
+            });
+
+            it('Legacy Inventory with tenantId: null fails closed', () => {
+                const legacyInventory = {
+                    _id: new mongoose.Types.ObjectId(),
+                    _entityType: 'Inventory',
+                    tenantId: null,
+                    unitNumber: 'UNIT-101',
+                    reraNumber: 'HRERA-PKL-123-2024',
+                    lastVerifiedAt: new Date(),
+                    _resolvedSnapshot: {
+                        _isResolverVerified: true,
+                        tenantId: tenantA,
+                        isSealed: true,
+                        isRevoked: false,
+                        isSynthetic: false,
+                        provenance: 'LIVE',
+                        authorityCode: 'HRERA',
+                        dataQuality: { status: 'COMPLETE' },
+                        createdByWorkerId: 'WORKER_RERA_SYNC',
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: tenantA,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: new mongoose.Types.ObjectId()
+                        }
+                    }
+                };
+
+                assert.equal(hasAuthoritativeReraApproval(legacyInventory), false, 'Legacy Inventory with null tenant must fail closed');
+            });
+
+            it('Legacy Project with tenantId: null fails closed', () => {
+                const legacyProject = {
+                    _id: new mongoose.Types.ObjectId(),
+                    _entityType: 'Project',
+                    tenantId: null,
+                    name: 'Legacy Project',
+                    reraNumber: 'HRERA-PKL-123-2024',
+                    lastVerifiedAt: new Date(),
+                    _resolvedSnapshot: {
+                        _isResolverVerified: true,
+                        tenantId: tenantA,
+                        isSealed: true,
+                        isRevoked: false,
+                        isSynthetic: false,
+                        provenance: 'LIVE',
+                        authorityCode: 'HRERA',
+                        dataQuality: { status: 'COMPLETE' },
+                        createdByWorkerId: 'WORKER_RERA_SYNC',
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: tenantA,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: new mongoose.Types.ObjectId()
+                        }
+                    }
+                };
+
+                assert.equal(hasAuthoritativeReraApproval(legacyProject), false, 'Legacy Project with null tenant must fail closed');
+            });
+
+            it('Cross-tenant mismatch (snapshot tenant != canonical tenant) fails closed', () => {
+                const invId = new mongoose.Types.ObjectId();
+                const canonicalInv = {
+                    _id: invId,
+                    _entityType: 'Inventory',
+                    tenantId: tenantA,
+                    unitNumber: 'UNIT-TENANT-A',
+                    reraNumber: 'HRERA-PKL-123-2024',
+                    lastVerifiedAt: new Date(),
+                    _resolvedSnapshot: {
+                        _isResolverVerified: true,
+                        tenantId: tenantB, // Snapshot belongs to Tenant B!
+                        isSealed: true,
+                        isRevoked: false,
+                        isSynthetic: false,
+                        provenance: 'LIVE',
+                        authorityCode: 'HRERA',
+                        dataQuality: { status: 'COMPLETE' },
+                        createdByWorkerId: 'WORKER_RERA_SYNC',
+                        _resolvedLink: {
+                            _isResolverVerified: true,
+                            tenantId: tenantB,
+                            isActive: true,
+                            identityVerified: true,
+                            matchEligibility: 'ELIGIBLE',
+                            authorityCode: 'HRERA',
+                            inventoryId: invId
+                        }
+                    }
+                };
+
+                assert.equal(hasAuthoritativeReraApproval(canonicalInv), false, 'Tenant mismatch must fail closed');
+            });
+
+            it('Project entity matching via string/name is strictly rejected; schema-supported Inventory.projectId is accepted', () => {
+                const projectId = new mongoose.Types.ObjectId();
+                const invId = new mongoose.Types.ObjectId();
+
+                const canonicalProject = {
+                    _id: projectId,
+                    _entityType: 'Project',
+                    tenantId: tenantA,
+                    name: 'Prime Heights',
+                    reraNumber: 'HRERA-PKL-123-2024',
+                    reraStatus: 'APPROVED',
+                    lastVerifiedAt: new Date()
+                };
+
+                // String/name based matching: link._resolvedProjectInventory has string projectName but no valid ObjectId projectId -> REJECT
+                const stringMatchSnap = {
+                    _isResolverVerified: true,
+                    tenantId: tenantA,
+                    isSealed: true,
+                    isRevoked: false,
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    authorityCode: 'HRERA',
+                    contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    observedAt: new Date(),
+                    dataQuality: { status: 'COMPLETE' },
+                    createdByWorkerId: 'WORKER_RERA_SYNC',
+                    _resolvedLink: {
+                        _isResolverVerified: true,
+                        tenantId: tenantA,
+                        isActive: true,
+                        identityVerified: true,
+                        matchEligibility: 'ELIGIBLE',
+                        authorityCode: 'HRERA',
+                        inventoryId: invId,
+                        _resolvedProjectInventory: {
+                            projectName: 'Prime Heights', // String-based matching attempt!
+                            projectId: 'Prime Heights',   // Non-ObjectId string
+                            tenantId: tenantA
+                        }
+                    }
+                };
+
+                assert.equal(
+                    hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: stringMatchSnap }),
+                    false,
+                    'String or name-based project matching must be strictly rejected'
+                );
+
+                // Valid canonical relationship: Inventory.projectId as ObjectId matching Project._id -> ACCEPT
+                const validSchemaSnap = {
+                    _isResolverVerified: true,
+                    tenantId: tenantA,
+                    isSealed: true,
+                    isRevoked: false,
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    authorityCode: 'HRERA',
+                    contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    observedAt: new Date(),
+                    dataQuality: { status: 'COMPLETE' },
+                    createdByWorkerId: 'WORKER_RERA_SYNC',
+                    _resolvedLink: {
+                        _isResolverVerified: true,
+                        tenantId: tenantA,
+                        isActive: true,
+                        identityVerified: true,
+                        matchEligibility: 'ELIGIBLE',
+                        authorityCode: 'HRERA',
+                        inventoryId: invId,
+                        _resolvedProjectInventory: {
+                            _id: invId,
+                            projectId: projectId, // Valid ObjectId ref to Project
+                            tenantId: tenantA
+                        }
+                    }
+                };
+
+                assert.equal(
+                    hasAuthoritativeReraApproval({ ...canonicalProject, _resolvedSnapshot: validSchemaSnap }),
+                    true,
+                    'Schema-supported Project-to-Inventory ObjectId relationship must succeed'
+                );
+            });
         });
     });
 });

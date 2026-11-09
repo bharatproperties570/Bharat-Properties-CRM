@@ -53,13 +53,37 @@ const FORMER_INSECURE_SECRETS = Object.freeze([
 ]);
 
 /**
+ * Computes Shannon entropy in bits per symbol for a given string.
+ * @param {string} str
+ * @returns {number}
+ */
+export function calculateShannonEntropy(str) {
+    if (!str || typeof str !== 'string' || str.length === 0) return 0;
+    const len = str.length;
+    const freq = {};
+    for (let i = 0; i < len; i++) {
+        const c = str[i];
+        freq[c] = (freq[c] || 0) + 1;
+    }
+    let entropy = 0;
+    for (const c in freq) {
+        const p = freq[c] / len;
+        entropy -= p * Math.log2(p);
+    }
+    return entropy;
+}
+
+/**
  * Validates the configured SYSTEM_SERVICE_SECRET.
- * Requires:
- * - Environment variable process.env.SYSTEM_SERVICE_SECRET
- * - Adequate cryptographic entropy (minimum 32 characters)
- * - Must NOT be any known default or former hard-coded secret
+ * Requirements (Round 8):
+ * - Minimum 32 characters
+ * - Shannon entropy >= 3.0 bits/symbol
+ * - At least 8 distinct characters
+ * - Not in known default / insecure list
+ * - Rejects dictionary / trivial patterns
  * Fails closed (returns null) if any condition is not satisfied.
  * 
+ * @param {string|null} [customSecret=null]
  * @returns {string|null}
  */
 export function getValidatedSystemServiceSecret(customSecret = null) {
@@ -74,16 +98,109 @@ export function getValidatedSystemServiceSecret(customSecret = null) {
     if (FORMER_INSECURE_SECRETS.includes(secret)) {
         return null;
     }
+
+    // Check distinct character count (must be >= 8)
+    const distinctChars = new Set(secret).size;
+    if (distinctChars < 8) {
+        return null;
+    }
+
+    // Check Shannon entropy (must be >= 3.0 bits/symbol)
+    const entropy = calculateShannonEntropy(secret);
+    if (entropy < 3.0) {
+        return null;
+    }
+
+    // Reject common dictionary/insecure patterns
+    const lower = secret.toLowerCase();
+    const commonPatterns = ['password', 'secret123', 'admin123', 'qwertyuiop'];
+    for (const pat of commonPatterns) {
+        if (lower.includes(pat)) {
+            return null;
+        }
+    }
+
     return secret;
 }
 
 /**
+ * In-memory ledger for atomic signature and nonce replay protection.
+ * Key: signature string
+ * Value: { serviceId, entityId, documentId, nonce, idempotencyKey, consumedAt }
+ */
+export const SystemServiceReplayLedger = new Map();
+
+/**
+ * Clears the replay ledger (primarily for testing and cache reset).
+ */
+export function clearSystemServiceReplayLedger() {
+    SystemServiceReplayLedger.clear();
+}
+
+/**
+ * Atomically checks and records nonce consumption.
+ * Supports worker retries when an identical idempotencyKey is provided for the exact same signature and context.
+ * 
+ * @param {string} signature
+ * @param {Object} record - { serviceId, entityId, documentId, nonce, idempotencyKey, consumedAt }
+ * @returns {{ consumed: boolean, isIdempotentRetry: boolean, error?: string }}
+ */
+export function recordNonceConsumptionSync(signature, record) {
+    if (!signature || typeof signature !== 'string') {
+        return { consumed: false, isIdempotentRetry: false, error: 'INVALID_SIGNATURE' };
+    }
+
+    const existing = SystemServiceReplayLedger.get(signature);
+    if (existing) {
+        // Check for valid idempotent retry
+        const isSameIdempotency = Boolean(
+            record.idempotencyKey &&
+            existing.idempotencyKey &&
+            record.idempotencyKey === existing.idempotencyKey
+        );
+        const isSameContext = Boolean(
+            existing.entityId === record.entityId &&
+            existing.documentId === record.documentId &&
+            existing.nonce === record.nonce &&
+            existing.serviceId === record.serviceId
+        );
+
+        if (isSameIdempotency && isSameContext) {
+            return { consumed: true, isIdempotentRetry: true };
+        }
+
+        // Replay attempt detected!
+        return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
+    }
+
+    // Evict expired entries older than 20 minutes
+    const now = Date.now();
+    for (const [sig, rec] of SystemServiceReplayLedger.entries()) {
+        if (now - rec.consumedAt > 20 * 60 * 1000) {
+            SystemServiceReplayLedger.delete(sig);
+        }
+    }
+
+    // Atomically record consumption
+    SystemServiceReplayLedger.set(signature, {
+        serviceId: record.serviceId,
+        entityId: record.entityId,
+        documentId: record.documentId,
+        nonce: record.nonce,
+        idempotencyKey: record.idempotencyKey || null,
+        consumedAt: now
+    });
+
+    return { consumed: true, isIdempotentRetry: false };
+}
+
+/**
  * Generates an HMAC-SHA256 signature for trusted system services.
- * Cryptographically binds the service identity, verification timestamp, entity ID, and document ID.
+ * Cryptographically binds service ID, timestamp, entity ID, document ID, and a secure random nonce.
  * 
  * @param {string} serviceId
  * @param {Date|string} verifiedAt
- * @param {Object} [context={}] - { entityId, documentId }
+ * @param {Object} [context={}] - { entityId, documentId, nonce, idempotencyKey }
  * @param {string} [overrideSecret=null]
  * @returns {string}
  */
@@ -98,18 +215,26 @@ export function generateSystemServiceSignature(serviceId, verifiedAt, context = 
     const timeStr = verifiedAt instanceof Date ? verifiedAt.toISOString() : String(verifiedAt);
     const entityIdStr = context.entityId ? String(context.entityId).trim() : '';
     const docIdStr = context.documentId ? String(context.documentId).trim() : '';
-    const payload = `${String(serviceId).trim().toUpperCase()}:${timeStr}:${entityIdStr}:${docIdStr}`;
+    
+    // Bind unique random nonce (minimum 8 chars, defaults to 32-hex cryptographically random string)
+    const nonce = context.nonce || context.systemNonce || crypto.randomBytes(16).toString('hex');
+    if (context && typeof context === 'object') {
+        context.nonce = nonce;
+    }
+
+    const payload = `${String(serviceId).trim().toUpperCase()}:${timeStr}:${entityIdStr}:${docIdStr}:${nonce}`;
     return crypto.createHmac('sha256', secret).update(payload).digest('hex');
 }
 
 /**
  * Verifies an HMAC-SHA256 signature for trusted system services using constant-time comparison.
- * Rejects expired, replayed, or context-mismatched signatures.
+ * Rejects expired (> 15 mins), future, replayed, or context-mismatched signatures.
+ * Supports worker retries when matching idempotencyKey is supplied.
  * 
  * @param {string} serviceId
  * @param {Date|string} verifiedAt
  * @param {string} signature
- * @param {Object} [context={}] - { entityId, documentId }
+ * @param {Object} [context={}] - { entityId, documentId, nonce, idempotencyKey }
  * @param {string} [overrideSecret=null]
  * @returns {boolean}
  */
@@ -118,17 +243,46 @@ export function verifySystemServiceSignature(serviceId, verifiedAt, signature, c
     const secret = getValidatedSystemServiceSecret(overrideSecret);
     if (!secret) return false;
 
+    // 1. Enforce bounded validity window (15 minutes)
+    const now = Date.now();
+    const verifyTime = (verifiedAt instanceof Date ? verifiedAt : new Date(verifiedAt)).getTime();
+    if (isNaN(verifyTime)) return false;
+    // Disallow future timestamps (> 1 minute clock skew allowance)
+    if (verifyTime > now + 60 * 1000) return false;
+    // Disallow timestamps older than 15 minutes
+    if (now - verifyTime > 15 * 60 * 1000) return false;
+
+    // 2. Validate mandatory nonce
+    const nonce = String(context.nonce || context.systemNonce || '').trim();
+    if (!nonce || nonce.length < 8) return false;
+
     try {
         const timeStr = verifiedAt instanceof Date ? verifiedAt.toISOString() : String(verifiedAt);
         const entityIdStr = context.entityId ? String(context.entityId).trim() : '';
         const docIdStr = context.documentId ? String(context.documentId).trim() : '';
-        const payload = `${String(serviceId).trim().toUpperCase()}:${timeStr}:${entityIdStr}:${docIdStr}`;
+        const payload = `${String(serviceId).trim().toUpperCase()}:${timeStr}:${entityIdStr}:${docIdStr}:${nonce}`;
         const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
         const sigBuf = Buffer.from(signature, 'hex');
         const expBuf = Buffer.from(expected, 'hex');
         if (sigBuf.length !== expBuf.length || sigBuf.length !== 32) return false;
-        return crypto.timingSafeEqual(sigBuf, expBuf);
+        if (!crypto.timingSafeEqual(sigBuf, expBuf)) return false;
+
+        // 3. Atomically check and record replay protection in ledger
+        const ledgerRes = recordNonceConsumptionSync(signature, {
+            serviceId: String(serviceId).trim().toUpperCase(),
+            entityId: entityIdStr,
+            documentId: docIdStr,
+            nonce,
+            idempotencyKey: context.idempotencyKey || null,
+            consumedAt: now
+        });
+
+        if (!ledgerRes.consumed) {
+            return false;
+        }
+
+        return true;
     } catch (_) {
         return false;
     }
@@ -514,7 +668,9 @@ class MarketingComplianceEnforcementService {
                     const sysId = verifierStr.toUpperCase();
                     const context = {
                         entityId: entityIdStr || String(entity._id || ''),
-                        documentId: String(docRecord.documentId || '').trim()
+                        documentId: String(docRecord.documentId || '').trim(),
+                        nonce: audit.systemNonce || audit.nonce,
+                        idempotencyKey: audit.idempotencyKey
                     };
                     // Plain JS object from untrusted caller context is NEVER accepted
                     // System verifier authorization strictly requires cryptographic HMAC-SHA256 signature verification

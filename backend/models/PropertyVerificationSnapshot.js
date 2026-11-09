@@ -167,6 +167,22 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         default: true
     },
 
+    // ========== Revocation Status (Round 8) ==========
+    isRevoked: {
+        type: Boolean,
+        required: true,
+        default: false,
+        index: true
+    },
+    revokedAt: {
+        type: Date,
+        default: null
+    },
+    revocationReason: {
+        type: String,
+        default: null
+    },
+
     // ========== Provenance & Fixture Protection ==========
     isSynthetic: {
         type: Boolean,

@@ -696,6 +696,59 @@ function isValidReraReference(ref) {
 }
 
 /**
+ * Round 8: Validates exact positive states for snapshot and authority link.
+ * Strict fail-closed policy: missing, null, undefined, unexpected, or contradictory values fail.
+ * 
+ * Requirements:
+ * - snap.isSealed === true (strictly boolean true)
+ * - snap.isRevoked === false (strictly boolean false; null/undefined/missing/true fails)
+ * - snap.status !== 'REVOKED'
+ * - snap.isSynthetic === false (strictly boolean false; null/undefined/missing/true fails)
+ * - snap.provenance === 'LIVE' (strictly string 'LIVE')
+ * - snap.dataQuality.status !== 'RESTRICTED' (dataQuality object must exist)
+ * - link.isActive === true (strictly boolean true)
+ * - link.identityVerified === true (strictly boolean true)
+ * - link.matchEligibility === 'ELIGIBLE' (strictly string 'ELIGIBLE')
+ * 
+ * @param {Object} snap - Snapshot record
+ * @param {Object} link - PropertyAuthorityLink record
+ * @returns {boolean}
+ */
+export function validateExactSnapshotStates(snap, link) {
+    if (!snap || typeof snap !== 'object' || !link || typeof link !== 'object') {
+        return false;
+    }
+
+    // 1. isSealed must be strictly boolean true
+    if (snap.isSealed !== true) return false;
+
+    // 2. isRevoked must be strictly boolean false
+    if (snap.isRevoked !== false || snap.status === 'REVOKED') return false;
+
+    // 3. isSynthetic must be strictly boolean false
+    if (snap.isSynthetic !== false) return false;
+
+    // 4. provenance must be strictly 'LIVE'
+    if (snap.provenance !== 'LIVE') return false;
+
+    // 5. dataQuality must exist and status must not be 'RESTRICTED'
+    if (!snap.dataQuality || typeof snap.dataQuality !== 'object' || !snap.dataQuality.status || snap.dataQuality.status === 'RESTRICTED') {
+        return false;
+    }
+
+    // 6. link.isActive must be strictly boolean true
+    if (link.isActive !== true) return false;
+
+    // 7. link.identityVerified must be strictly boolean true
+    if (link.identityVerified !== true) return false;
+
+    // 8. link.matchEligibility must be strictly 'ELIGIBLE'
+    if (link.matchEligibility !== 'ELIGIBLE') return false;
+
+    return true;
+}
+
+/**
  * Validates whether an RERA record or approval entry has authoritative source provenance.
  * Round 3 Hardening:
  * - Mandatory non-future verification timestamp within 180 days on EVERY accepted evidence path.
@@ -742,30 +795,15 @@ function hasReraProvenance(item, parentEntity = null) {
             return false;
         }
 
-        // P0 (Round 7): Operational status must be explicit positive state
-        if (link.isActive !== true) return false;
-
-        // P0: Require explicit positive state identityVerified === true
-        if (link.identityVerified !== true) {
+        // P0 (Round 8): Exact positive states on snapshot and link
+        if (!validateExactSnapshotStates(snap, link)) {
             return false;
         }
 
-        // P0: Require exact permitted match eligibility state (strictly 'ELIGIBLE')
-        // Reject missing, null, undefined, INCOMPLETE, AMBIGUOUS, NEEDS_REVIEW, INELIGIBLE
-        if (link.matchEligibility !== 'ELIGIBLE') {
-            return false;
-        }
-
-        // P0 (Round 7): Positive state and synthetic protection on snapshot
-        if (snap.isSealed !== true) return false;
-        if (snap.isRevoked === true || snap.status === 'REVOKED') return false;
-        if (snap.dataQuality?.status === 'RESTRICTED') return false;
-        if (snap.isSynthetic === true) return false;
-        if (snap.provenance === 'SYNTHETIC_FIXTURE') return false;
-        // Require authentic permitted production evidence provenance ('LIVE')
-        if (!snap.provenance || snap.provenance !== 'LIVE') return false;
-
-        // P0 (Round 7): Strict 3-way tenant binding across snapshot, link, and canonical entity
+        // P0 (Round 7 & 8): Strict 3-way tenant binding across snapshot, link, and canonical entity
+        // Single-organization Bharat Properties tenant contract:
+        // Canonical entity must have explicit tenantId. Legacy records with null/undefined tenantId fail closed:
+        // REQUIRES_CONTROLLED_MIGRATION: Canonical entities without explicit tenantId must undergo controlled tenant migration before marketing approval.
         const parentTenantId = String(parentEntity?.tenantId?._id || parentEntity?.tenantId || '').trim();
         if (!parentTenantId) {
             // Canonical entity lacks mandatory tenantId -> FAIL CLOSED
@@ -827,17 +865,25 @@ function hasReraProvenance(item, parentEntity = null) {
             }
         } else if (parentType === 'Project') {
             // Project: resolve genuine schema-supported Project-to-Inventory relationship
+            // Inventory.projectId is ObjectId ref 'Project'.
+            // Strictly REJECT string/name matching (such as projectName or project name strings).
             const projInv = link._resolvedProjectInventory;
-            if (projInv && String(projInv.projectId?._id || projInv.projectId) === parentId) {
-                // Verify project inventory belongs to same canonical tenant
-                const projInvTenant = String(projInv.tenantId?._id || projInv.tenantId || '').trim();
-                if (projInvTenant && projInvTenant !== parentTenantId) {
-                    return false;
-                }
-                matchesEntity = true;
-            } else {
-                return false; // No verified project inventory relationship -> FAIL CLOSED
+            if (!projInv || typeof projInv !== 'object') {
+                return false;
             }
+            const projInvProjectId = projInv.projectId?._id || projInv.projectId;
+            if (!projInvProjectId || !/^[a-fA-F0-9]{24}$/.test(String(projInvProjectId))) {
+                return false;
+            }
+            if (String(projInvProjectId) !== parentId) {
+                return false;
+            }
+            // Verify project inventory belongs to same canonical tenant
+            const projInvTenant = String(projInv.tenantId?._id || projInv.tenantId || '').trim();
+            if (projInvTenant && projInvTenant !== parentTenantId) {
+                return false;
+            }
+            matchesEntity = true;
         }
 
         if (!matchesEntity) {

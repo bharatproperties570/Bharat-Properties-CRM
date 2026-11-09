@@ -326,8 +326,10 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             _resolvedSnapshot: {
                 _isResolverVerified: true,
                 isSealed: true,
+                isRevoked: false,
                 isSynthetic: false,
                 provenance: 'LIVE',
+                dataQuality: { status: 'COMPLETE' },
                 tenantId: testTenant,
                 authorityCode: 'PBRERA',
                 observedAt: new Date(),
@@ -596,8 +598,10 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             _resolvedSnapshot: {
                 _isResolverVerified: true,
                 isSealed: true,
+                isRevoked: false,
                 isSynthetic: false,
                 provenance: 'LIVE',
+                dataQuality: { status: 'COMPLETE' },
                 tenantId: testTenant,
                 authorityCode: 'HRERA',
                 observedAt: new Date(),

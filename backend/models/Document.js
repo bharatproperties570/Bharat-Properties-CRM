@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import softDeletePlugin from "../plugins/softDelete.plugin.js";
+import { AUDIT_CAPABILITY_TOKEN } from "../services/auditCapabilityToken.js";
 
 const documentStates = [
     'PENDING',
@@ -75,7 +76,14 @@ const DocumentSchema = new mongoose.Schema({
         type: String, 
         enum: legacyMigrationStates,
         index: true
-    }
+    },
+
+    // Round 8: Verification Audit History & Revocation
+    auditHistory: [{ type: mongoose.Schema.Types.Mixed }],
+    isRevoked: { type: Boolean, default: false, index: true },
+    revocationReason: { type: String, default: null },
+    revokedAt: { type: Date, default: null },
+    revokedBy: { type: String, default: null }
 }, {
     timestamps: true 
 });
@@ -83,52 +91,124 @@ const DocumentSchema = new mongoose.Schema({
 DocumentSchema.index({ entityType: 1, entityId: 1 });
 DocumentSchema.plugin(softDeletePlugin);
 
-// ========== Immutability Protection for Verification Audit (Round 7) ==========
+// ========== Immutability Protection for Verification Audit (Round 8) ==========
 // Prevents ordinary Document update operations from modifying or replacing accepted verification audit evidence.
-// Only explicitly authorized verification workflows (options.isAuthorizedAuditWorkflow === true or doc._isAuthorizedAuditWorkflow === true)
-// may write or mutate verificationAudit.
+// Only internal trusted DocumentAuditService possessing AUDIT_CAPABILITY_TOKEN may mutate verification audit fields.
+// Arbitrary caller-provided authorization booleans (isAuthorizedAuditWorkflow) are strictly rejected.
 DocumentSchema.post('init', function () {
     this._originalVerificationAudit = JSON.stringify(this.verificationAudit || null);
     this._originalMetadataVerificationAudit = JSON.stringify(this.metadata?.verificationAudit || null);
+    this._originalAuditEvidence = JSON.stringify(this.auditEvidence || null);
+    this._originalMetadataAuditEvidence = JSON.stringify(this.metadata?.auditEvidence || null);
 });
 
+function detectAuditMutationInUpdate(update) {
+    if (!update) return false;
+
+    // Check aggregation update pipelines: e.g. [ { $set: ... }, { $unset: ... } ]
+    if (Array.isArray(update)) {
+        return update.some(stage => detectAuditMutationInUpdate(stage));
+    }
+
+    if (typeof update !== 'object') return false;
+
+    const checkKey = (k) => {
+        return k === 'verificationAudit' ||
+               k.startsWith('verificationAudit.') ||
+               k === 'metadata.verificationAudit' ||
+               k.startsWith('metadata.verificationAudit.') ||
+               k === 'auditEvidence' ||
+               k.startsWith('auditEvidence.') ||
+               k === 'metadata.auditEvidence' ||
+               k.startsWith('metadata.auditEvidence.');
+    };
+
+    // Check top-level keys
+    for (const k of Object.keys(update)) {
+        if (checkKey(k)) return true;
+    }
+
+    // Check MongoDB update operators
+    const operators = ['$set', '$unset', '$setOnInsert', '$replaceRoot', '$project'];
+    for (const op of operators) {
+        if (update[op] && typeof update[op] === 'object') {
+            for (const k of Object.keys(update[op])) {
+                if (checkKey(k)) return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 DocumentSchema.pre('save', function (next) {
+    // Explicitly reject forged boolean flags
+    if (this._isAuthorizedAuditWorkflow !== undefined) {
+        return next(new Error('IMMUTABLE_VERIFICATION_AUDIT: Caller-provided authorization booleans are strictly prohibited.'));
+    }
+
     if (!this.isNew) {
         const currentAudit = JSON.stringify(this.verificationAudit || null);
         const currentMetaAudit = JSON.stringify(this.metadata?.verificationAudit || null);
+        const currentAuditEv = JSON.stringify(this.auditEvidence || null);
+        const currentMetaAuditEv = JSON.stringify(this.metadata?.auditEvidence || null);
+
         const isModified = this.isModified('verificationAudit') ||
                            this.isModified('metadata.verificationAudit') ||
+                           this.isModified('auditEvidence') ||
+                           this.isModified('metadata.auditEvidence') ||
                            (this._originalVerificationAudit && currentAudit !== this._originalVerificationAudit) ||
-                           (this._originalMetadataVerificationAudit && currentMetaAudit !== this._originalMetadataVerificationAudit);
-        if (isModified && this._isAuthorizedAuditWorkflow !== true) {
-            return next(new Error('IMMUTABLE_VERIFICATION_AUDIT: Verified audit records cannot be mutated or replaced by ordinary document updates.'));
+                           (this._originalMetadataVerificationAudit && currentMetaAudit !== this._originalMetadataVerificationAudit) ||
+                           (this._originalAuditEvidence && currentAuditEv !== this._originalAuditEvidence) ||
+                           (this._originalMetadataAuditEvidence && currentMetaAuditEv !== this._originalMetadataAuditEvidence);
+
+        if (isModified) {
+            if (this[AUDIT_CAPABILITY_TOKEN] !== true) {
+                return next(new Error('IMMUTABLE_VERIFICATION_AUDIT: Verified audit records cannot be mutated or replaced by ordinary document updates. Requires trusted DocumentAuditService capability.'));
+            }
         }
     }
     next();
 });
 
 DocumentSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate'], function (next) {
+    const options = (typeof this.getOptions === 'function') ? this.getOptions() : {};
+
+    // Explicitly reject forged boolean flags
+    if (options.isAuthorizedAuditWorkflow !== undefined || this._isAuthorizedAuditWorkflow !== undefined) {
+        return next(new Error('IMMUTABLE_VERIFICATION_AUDIT: Caller-provided authorization booleans are strictly prohibited.'));
+    }
+
     const update = this.getUpdate();
     if (!update) return next();
 
-    const checkAuditPath = (obj) => {
-        if (!obj || typeof obj !== 'object') return false;
-        return Object.keys(obj).some(k => 
-            k === 'verificationAudit' || 
-            k.startsWith('verificationAudit.') || 
-            k === 'metadata.verificationAudit' || 
-            k.startsWith('metadata.verificationAudit.')
-        );
-    };
-
-    const isAuditUpdate = checkAuditPath(update) || checkAuditPath(update.$set) || checkAuditPath(update.$unset);
+    const isAuditUpdate = detectAuditMutationInUpdate(update);
     if (isAuditUpdate) {
-        const options = (typeof this.getOptions === 'function') ? this.getOptions() : {};
-        if (options.isAuthorizedAuditWorkflow !== true) {
-            return next(new Error('IMMUTABLE_VERIFICATION_AUDIT: Ordinary Document update operations cannot modify or replace verification audit evidence.'));
+        if (options[AUDIT_CAPABILITY_TOKEN] !== true && this[AUDIT_CAPABILITY_TOKEN] !== true) {
+            return next(new Error('IMMUTABLE_VERIFICATION_AUDIT: Ordinary Document update operations cannot modify or replace verification audit evidence. Requires trusted DocumentAuditService capability.'));
         }
     }
     next();
 });
 
-export default mongoose.model("Document", DocumentSchema);
+const DocumentModel = mongoose.model("Document", DocumentSchema);
+
+// Wrap model query methods to safely preserve unforgeable Symbol capability token across Mongoose query instantiation
+const wrapWithCapabilityTransfer = (fnName) => {
+    const orig = DocumentModel[fnName];
+    if (typeof orig === 'function') {
+        DocumentModel[fnName] = function (filter, update, options, callback) {
+            const q = orig.call(this, filter, update, options, callback);
+            if (options && options[AUDIT_CAPABILITY_TOKEN] === true) {
+                q[AUDIT_CAPABILITY_TOKEN] = true;
+            }
+            return q;
+        };
+    }
+};
+
+wrapWithCapabilityTransfer('updateOne');
+wrapWithCapabilityTransfer('updateMany');
+wrapWithCapabilityTransfer('findOneAndUpdate');
+
+export default DocumentModel;
