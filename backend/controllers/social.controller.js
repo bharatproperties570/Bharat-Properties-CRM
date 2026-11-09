@@ -1145,6 +1145,7 @@ export const postSocialMedia = async (req, res) => {
         // 🛡️ Enterprise Statutory Compliance Enforcement (Server-Side Security Boundary)
         // Resolve authoritative canonical record from DB and extract facts strictly from backend
         // Never trust client-supplied verificationFacts, isVerified, or authority claims
+        // If entityId is inaccessible or missing, resolveAuthoritativeEntity fails closed (returns null)
         const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType, req.user);
         const { sanitizedText, facts, entityResolved } = marketingComplianceEnforcementService.enforceCompliance(
             text,

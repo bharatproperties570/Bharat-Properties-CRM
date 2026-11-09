@@ -26,7 +26,7 @@ class MarketingPublishingService {
         // Re-extract authoritative facts and sanitize copy before dispatch
         const entityId = content.dealId || content.metadata?.dealId || content.metadata?.projectId || content.metadata?.inventoryId;
         const entityType = content.metadata?.projectId ? 'project' : (content.metadata?.inventoryId ? 'inventory' : 'deal');
-        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType);
+        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType, { isSystem: true });
         const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
             content.content,
             canonicalEntity,
@@ -113,7 +113,7 @@ class MarketingPublishingService {
         // 🛡️ Enterprise Server-Side Compliance Enforcement
         const entityId = content.dealId || content.metadata?.dealId || content.metadata?.projectId || content.metadata?.inventoryId;
         const entityType = content.metadata?.projectId ? 'project' : (content.metadata?.inventoryId ? 'inventory' : 'deal');
-        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType);
+        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType, { isSystem: true });
         const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
             content.content,
             canonicalEntity,

@@ -35,12 +35,27 @@ class PublishService {
             portals: null
         };
 
+        // 🛡️ Enterprise Record-Level RBAC & Visibility Enforcement (Gate 5)
+        // If publishing as an authenticated user (non-system), verify that the user has visibility to this record
+        let authoritativeSource = data;
+        if (user && user.isSystem !== true && data?._id) {
+            const authorizedEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                data._id,
+                itemType,
+                user
+            );
+            if (!authorizedEntity) {
+                throw new Error(`Record ${data._id} is inaccessible or unauthorized for user under visibility rules`);
+            }
+            authoritativeSource = authorizedEntity;
+        }
+
         // 1. Prepare Masked Content for Privacy & Server-Side Compliance
-        const processedData = this._applyPrivacyMasking(data, privacy);
+        const processedData = this._applyPrivacyMasking(authoritativeSource, privacy);
         const rawPostText = this._generateCaption(processedData, itemType, privacy);
         const { sanitizedText: postText } = marketingComplianceEnforcementService.enforceCompliance(
             rawPostText,
-            data,
+            authoritativeSource,
             'facebook'
         );
 

@@ -84,7 +84,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         testAdminUser = {
             _id: new mongoose.Types.ObjectId(),
             fullName: 'Compliance Admin',
-            role: 'admin',
+            email: 'admin@bharatproperties.co',
+            role: { name: 'admin' },
+            dataScope: 'all',
             tenantId: testTenantId
         };
 
@@ -128,6 +130,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             location: 'Sector 10, Kurukshetra',
             price: 7500000,
             tenantId: testTenantId,
+            assignedTo: testAdminUser._id,
+            owner: testAdminUser._id,
             // No authorityVerification, no approvals
             isVerified: false
         });
@@ -138,6 +142,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             location: 'Sector 13, Kurukshetra',
             price: 15000000,
             tenantId: testTenantId,
+            assignedTo: testAdminUser._id,
+            owner: testAdminUser._id,
             authorityVerification: {
                 authorityCode: 'HSVP',
                 status: 'VERIFIED',
@@ -157,11 +163,15 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 bankName: 'SBI',
                 status: 'APPROVED',
                 sanctionLetterNumber: 'SBI/RE/2024/8892',
+                documentId: 'doc-sbi-8892',
+                verificationStatus: 'VERIFIED',
                 sanctionDate: new Date()
             },
             occupancyCertificate: {
                 certificateNumber: 'OC-KUK-2024-101',
                 status: 'ISSUED',
+                documentId: 'doc-oc-101',
+                verificationStatus: 'VERIFIED',
                 issueDate: new Date()
             }
         });
@@ -601,12 +611,52 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         };
         assert.equal(hasAuthoritativeBankApproval(booleanOnly), false);
 
-        // Valid evidence-backed bank approval passes
+        // Loan assistance alone must fail closed
+        const loanAssistance = {
+            bankApproval: {
+                bankName: 'SBI',
+                status: 'APPROVED',
+                category: 'LOAN_ASSISTANCE',
+                sanctionLetterNumber: 'SBI-ASSIST-101',
+                documentId: 'doc-sbi-assist-101',
+                verificationStatus: 'VERIFIED'
+            }
+        };
+        assert.equal(hasAuthoritativeBankApproval(loanAssistance), false, 'Loan assistance must never qualify as bank sanction');
+
+        // Loan eligibility check alone must fail closed
+        const loanEligibility = {
+            bankApproval: {
+                bankName: 'HDFC BANK',
+                status: 'ELIGIBLE',
+                label: 'ELIGIBILITY_CHECK',
+                sanctionLetterNumber: 'HDFC-ELIG-202',
+                documentId: 'doc-hdfc-elig-202',
+                verificationStatus: 'VERIFIED'
+            }
+        };
+        assert.equal(hasAuthoritativeBankApproval(loanEligibility), false, 'Loan eligibility must never qualify as bank sanction');
+
+        // Manual string without real CRM document record or immutable hash must fail closed
+        const manualBankWithoutDoc = {
+            bankApproval: {
+                bankName: 'AXIS BANK',
+                status: 'APPROVED',
+                sanctionLetterNumber: 'AXIS-SANCT-303',
+                isManual: true
+                // Missing documentId and contentHash
+            }
+        };
+        assert.equal(hasAuthoritativeBankApproval(manualBankWithoutDoc), false, 'Manual string without document linkage or immutable hash must fail closed');
+
+        // Valid evidence-backed bank approval with real CRM document record and verified status passes
         const validBank = {
             bankApproval: {
                 bankName: 'ICICI BANK',
                 status: 'APPROVED',
                 sanctionLetterNumber: 'ICICI-SANCT-2024-998',
+                documentId: 'doc-icici-sanct-998',
+                verificationStatus: 'VERIFIED',
                 sanctionDate: new Date()
             }
         };
@@ -624,10 +674,37 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             possessionStatus: 'READY',
             occupancyCertificate: {
                 certificateNumber: 'OC-1234',
-                status: 'ISSUED'
+                status: 'ISSUED',
+                documentId: 'doc-oc-1234',
+                verificationStatus: 'VERIFIED'
             }
         };
         assert.equal(hasAuthoritativeReadyPossession(underConstruction), false, 'Under-construction property must never be ready possession');
+
+        // Incomplete progress percentage (< 100) must fail closed
+        const incompleteProgress = {
+            progressPercentage: 85,
+            possessionStatus: 'READY',
+            occupancyCertificate: {
+                certificateNumber: 'OC-1234',
+                status: 'ISSUED',
+                documentId: 'doc-oc-1234',
+                verificationStatus: 'VERIFIED'
+            }
+        };
+        assert.equal(hasAuthoritativeReadyPossession(incompleteProgress), false, 'Incomplete progress must never qualify as ready possession');
+
+        // Missing certificate status must fail closed (no default approval)
+        const missingStatusOC = {
+            possessionStatus: 'READY',
+            occupancyCertificate: {
+                certificateNumber: 'OC-KUK-2024-551',
+                documentId: 'doc-oc-551',
+                verificationStatus: 'VERIFIED'
+                // Missing status/approvalStatus
+            }
+        };
+        assert.equal(hasAuthoritativeReadyPossession(missingStatusOC), false, 'Missing certificate status must not default to approved');
 
         // Bare status string without evidence
         const bareStatus = {
@@ -655,6 +732,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             occupancyCertificate: {
                 certificateNumber: 'OC-KUK-2024-551',
                 status: 'ISSUED',
+                documentId: 'doc-oc-551',
+                verificationStatus: 'VERIFIED',
                 issueDate: new Date()
             }
         };
@@ -667,7 +746,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 {
                     documentType: 'OCCUPANCY_CERTIFICATE',
                     status: 'APPROVED',
-                    referenceNo: 'OC-HR-2024-99'
+                    referenceNo: 'OC-HR-2024-99',
+                    documentId: 'doc-oc-99',
+                    verificationStatus: 'VERIFIED',
+                    issueDate: new Date()
                 }
             ]
         };
@@ -675,10 +757,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
     });
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GATE 4: RERA PROVENANCE CONTRACT
+    // GATE 4: RERA PROVENANCE CONTRACT HARDENING
     // ─────────────────────────────────────────────────────────────────────────
 
-    it('Gate 4: RERA approval requires approved status, valid reference, and authoritative source provenance', () => {
+    it('Gate 4: RERA approval requires approved status, valid reference, and immutable evidence provenance', () => {
         // Manually entered registration without provenance fails closed
         const manualWithoutProvenance = {
             reraNumber: 'HRERA-PKL-KUK-2024-11',
@@ -686,6 +768,15 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             // No source, no snapshot, no authority link
         };
         assert.equal(hasAuthoritativeReraApproval(manualWithoutProvenance), false, 'Manual registration without provenance must fail closed');
+
+        // Merely having string source: 'RERA_PORTAL' without immutable hash/record/signature/snapshot fails closed!
+        const bareReraPortalString = {
+            reraNumber: 'HRERA-PKL-KUK-2024-11',
+            reraStatus: 'APPROVED',
+            source: 'RERA_PORTAL'
+            // Missing snapshot, missing hash, missing documentId, missing reviewer signature
+        };
+        assert.equal(hasAuthoritativeReraApproval(bareReraPortalString), false, 'Bare string source: RERA_PORTAL alone must fail closed');
 
         // Explicit manual source fails closed
         const explicitManual = {
@@ -695,7 +786,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         };
         assert.equal(hasAuthoritativeReraApproval(explicitManual), false, 'Explicit manual source must fail closed');
 
-        // Valid RERA with official portal provenance passes
+        // Valid RERA with official portal provenance AND immutable verificationSnapshotId passes
         const verifiedProvenance = {
             reraNumber: 'HRERA-PKL-KUK-2024-11',
             reraStatus: 'APPROVED',
@@ -704,7 +795,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
         };
         assert.equal(hasAuthoritativeReraApproval(verifiedProvenance), true);
 
-        // Approvals array entry with official provenance passes
+        // Approvals array entry with official provenance AND linked document record passes
         const approvalWithProvenance = {
             approvals: [
                 {
@@ -720,10 +811,85 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
     });
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GATE 5: SANITIZER ADVERSARIAL VARIATIONS (PUNCTUATION, SPACING, CASING)
+    // GATE 5: RECORD-LEVEL RBAC AND VISIBILITY
     // ─────────────────────────────────────────────────────────────────────────
 
-    it('Gate 5: Sanitizer catches adversarial spacing, hyphenation, and casing variations', () => {
+    it('Gate 5: Enforces record-level RBAC & visibility filtering without leaking record existence', async () => {
+        const otherTenantId = new mongoose.Types.ObjectId();
+        const unauthorizedUser = {
+            _id: new mongoose.Types.ObjectId(),
+            email: 'unauthorized_agent@otherorg.com',
+            role: { name: 'agent' },
+            dataScope: 'assigned',
+            tenantId: otherTenantId
+        };
+
+        // 1. Unauthorized user attempting to resolve deal in another tenant returns null (fail closed)
+        const resolvedForOtherTenant = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+            verifiedDeal._id.toString(),
+            'deal',
+            unauthorizedUser
+        );
+        assert.equal(resolvedForOtherTenant, null, 'Cross-tenant or unauthorized entity resolution must return null');
+
+        // 2. postSocialMedia with unauthorized entity fails closed (canonicalEntity is null -> treated as unverified)
+        const unauthReq = {
+            body: {
+                platform: 'facebook',
+                entityId: verifiedDeal._id.toString(),
+                entityType: 'deal',
+                text: 'Exclusive Villa with 100% Verified Title!'
+            },
+            user: unauthorizedUser
+        };
+        const unauthRes = mockResponse();
+        await postSocialMedia(unauthReq, unauthRes);
+        assert.equal(unauthRes.statusCode, 200);
+        assert.equal(providerCalls.facebook.length, 1);
+        assert.doesNotMatch(providerCalls.facebook[0].text, /100% verified title/i, 'Unauthorized entity must fail closed to unverified');
+
+        // 3. Authorized internal system execution path (user.isSystem === true) succeeds
+        const systemResolved = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+            verifiedDeal._id.toString(),
+            'deal',
+            { isSystem: true }
+        );
+        assert.ok(systemResolved, 'System worker execution path must successfully resolve entity');
+        assert.equal(systemResolved._id.toString(), verifiedDeal._id.toString());
+
+        // 4. PublishService.publish() rejects unauthorized user
+        await assert.rejects(
+            async () => {
+                await publishService.publish(verifiedDeal, {
+                    platforms: { facebook: true },
+                    itemType: 'deal',
+                    user: unauthorizedUser
+                });
+            },
+            /inaccessible or unauthorized/i,
+            'PublishService.publish must reject unauthorized user'
+        );
+
+        // 5. broadcastToHub rejects unauthorized user with 404
+        const { broadcastToHub } = await import('../controllers/marketing.controller.js');
+        const broadcastReq = {
+            body: {
+                id: verifiedDeal._id.toString(),
+                type: 'deal',
+                platforms: { facebook: true }
+            },
+            user: unauthorizedUser
+        };
+        const broadcastRes = mockResponse();
+        await broadcastToHub(broadcastReq, broadcastRes);
+        assert.equal(broadcastRes.statusCode, 404, 'broadcastToHub must return 404 for unauthorized user');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GATE 6: ADVERSARIAL SANITIZER VARIATIONS & NEUTRAL WORDING
+    // ─────────────────────────────────────────────────────────────────────────
+
+    it('Gate 6: Sanitizer catches adversarial spacing, hyphenation, casing, and neutralizes without promotional alternatives', () => {
         const unverifiedFacts = {
             isTitleVerified: false,
             isReraApproved: false,
@@ -738,7 +904,11 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             '100%   Verified   Title with Clear---Registry!',
             'R-E-R-A   Approved & RERA-Compliant project!',
             'Bank - Loan - Approved by SBI!',
-            'Ready---Possession and Immediate   Possession available now!'
+            'Ready---Possession and Immediate   Possession available now!',
+            'Double your investment in 3 years with 18% annual returns!',
+            'Guaranteed monthly rental income with 100% safe property!',
+            '100% bank finance available with Government-approved title!',
+            'High Potential Rental Yields and assured rental yield!'
         ];
 
         for (const text of samples) {
@@ -753,6 +923,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             assert.doesNotMatch(sanitized, /bank[\s\-_/]*loan[\s\-_/]+approved/i, `Failed on: ${text}`);
             assert.doesNotMatch(sanitized, /ready[\s\-_/]+possession/i, `Failed on: ${text}`);
             assert.doesNotMatch(sanitized, /immediate[\s\-_/]+possession/i, `Failed on: ${text}`);
+            assert.doesNotMatch(sanitized, /18%[\s\-_/]+annual/i, `Failed on: ${text}`);
+            assert.doesNotMatch(sanitized, /double[\s\-_/]+your[\s\-_/]+investment/i, `Failed on: ${text}`);
+            assert.doesNotMatch(sanitized, /100%[\s\-_/]+bank[\s\-_/]+finance/i, `Failed on: ${text}`);
+            assert.doesNotMatch(sanitized, /govt[\s\-_/]+approved[\s\-_/]+title/i, `Failed on: ${text}`);
+            // CRITICAL: NEVER replace with promotional alternatives like "High Potential Rental Yields"!
+            assert.doesNotMatch(sanitized, /high[\s\-_/]*potential[\s\-_/]+rental[\s\-_/]+yield/i, `Sanitizer must not output promotional alternatives: ${sanitized}`);
         }
     });
 });

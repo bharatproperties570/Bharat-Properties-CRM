@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
+import marketingComplianceEnforcementService from '../services/MarketingComplianceEnforcementService.js';
 import unifiedAIService from '../services/UnifiedAIService.js';
 import AIGovernance from '../services/ai/AIGovernance.js';
 import publishService from '../services/PublishService.js';
@@ -1902,9 +1903,8 @@ export async function _dispatchBNADirectly(data) {
 export const broadcastToHub = async (req, res) => {
     try {
         const { id, type, platforms, privacy } = req.body;
-        const Model = type === 'deal' ? Deal : Project;
-        const data = await Model.findById(id).lean();
-        if (!data) return res.status(404).json({ success: false, message: 'Item not found' });
+        const data = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(id, type || 'deal', req.user);
+        if (!data) return res.status(404).json({ success: false, message: 'Item not found or inaccessible' });
         const results = await publishService.publish(data, { 
             platforms, 
             privacy, 
@@ -1974,13 +1974,15 @@ export const testPortalConnection = async (req, res) => {
 export const syndicateToPortals = async (req, res) => {
     try {
         const { id, type, portalIds, privacy, propertyData } = req.body;
-        const Model = type === 'deal' ? Deal : Project;
         let data = null;
-        if (Model?.db?.readyState === 1) {
-            data = await Model.findById(id).lean();
-        } else {
-            // Defensive offline / unit-test fallback
-            data = propertyData || { _id: id, name: 'Test Property', price: 10000000 };
+        if (id) {
+            data = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(id, type || 'deal', req.user);
+            if (!data && !propertyData) {
+                return res.status(404).json({ success: false, message: 'Property not found or inaccessible' });
+            }
+        }
+        if (!data) {
+            data = propertyData;
         }
         if (!data) return res.status(404).json({ success: false, message: 'Property not found' });
         

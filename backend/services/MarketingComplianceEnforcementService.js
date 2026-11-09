@@ -13,10 +13,13 @@
  * - Never trust client-supplied verification facts, `isVerified`, or authority claims.
  * - Facts are extracted exclusively from authoritative canonical Deal, Inventory, or Project records.
  * - Missing or inaccessible entities fail closed (all claims treated as unverified).
+ * - Enforces record-level RBAC & visibility (via getVisibilityFilter) so unauthorized users cannot access or leak records.
+ * - Supports authorized internal system execution path (`user.isSystem === true`) for BullMQ background workers.
  * - Post-sanitization audit guarantees zero unsupported or prohibited claims reach providers.
  */
 
 import mongoose from 'mongoose';
+import { getVisibilityFilter } from '../utils/visibility.js';
 import {
     hasAuthoritativeTitleVerification,
     hasAuthoritativeReraApproval,
@@ -34,7 +37,7 @@ class MarketingComplianceEnforcementService {
      * 
      * @param {string|mongoose.Types.ObjectId} entityId - Entity identifier
      * @param {string} [entityType='deal'] - 'deal' | 'inventory' | 'project'
-     * @param {Object} [user=null] - Authenticated user context
+     * @param {Object} [user=null] - Authenticated user context (or { isSystem: true } for workers)
      * @returns {Promise<Object|null>} Canonical entity document (or null if missing/inaccessible)
      */
     async resolveAuthoritativeEntity(entityId, entityType = 'deal', user = null) {
@@ -49,13 +52,26 @@ class MarketingComplianceEnforcementService {
 
         try {
             let entity = null;
+            const isSystemExecution = Boolean(user && user.isSystem === true);
+
+            // Compute visibility filter unless executing as authorized internal system worker
+            let visibilityFilter = {};
+            if (!isSystemExecution) {
+                // If user is null/undefined, getVisibilityFilter(null) safely locks down to { _id: null }
+                visibilityFilter = await getVisibilityFilter(user);
+            }
+
+            const query = {
+                _id: new mongoose.Types.ObjectId(idStr),
+                ...visibilityFilter
+            };
 
             if (normType === 'project') {
                 const Project = mongoose.model('Project');
-                entity = await Project.findById(idStr).lean();
+                entity = await Project.findOne(query).lean();
             } else if (normType === 'inventory') {
                 const Inventory = mongoose.model('Inventory');
-                entity = await Inventory.findById(idStr).lean();
+                entity = await Inventory.findOne(query).lean();
                 if (entity?.projectId) {
                     const Project = mongoose.model('Project');
                     const proj = await Project.findById(entity.projectId).lean();
@@ -64,7 +80,7 @@ class MarketingComplianceEnforcementService {
             } else {
                 // Default: Deal
                 const Deal = mongoose.model('Deal');
-                entity = await Deal.findById(idStr).lean();
+                entity = await Deal.findOne(query).lean();
                 
                 // If Deal has linked inventory, hydrate authority verification if not on Deal
                 if (entity?.inventoryId) {
@@ -87,7 +103,7 @@ class MarketingComplianceEnforcementService {
 
             if (!entity) return null;
 
-            // Authorization / tenant verification check
+            // Authorization / tenant verification check (defense-in-depth)
             if (user && user.tenantId && entity.tenantId) {
                 if (String(user.tenantId) !== String(entity.tenantId)) {
                     console.warn(`[ComplianceEnforcement] Tenant mismatch: user=${user.tenantId}, entity=${entity.tenantId}`);
@@ -168,8 +184,8 @@ class MarketingComplianceEnforcementService {
     async revalidateScheduledPost(jobData) {
         const { entityId, entityType, text, platform, format } = jobData;
 
-        // Fetch fresh canonical record from database at time of worker execution
-        const canonicalEntity = await this.resolveAuthoritativeEntity(entityId, entityType);
+        // Fetch fresh canonical record from database at time of worker execution via authorized system execution path
+        const canonicalEntity = await this.resolveAuthoritativeEntity(entityId, entityType, { isSystem: true });
 
         // Re-extract authoritative facts and sanitize copy against latest status
         const { sanitizedText, facts } = this.enforceCompliance(
