@@ -389,28 +389,11 @@ const SocialPostModal = ({
         } else {
           setImageUrl(res.url);
           setVideoUrl('');
-          // Auto-apply Bharat Brand Kit to the fresh render
-          try {
-            const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
-              ? String(initialData.location).trim()
-              : 'Kurukshetra, Haryana';
-            const propData = {
-              title: initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity',
-              location: cleanLoc,
-              price: initialData?.price || 'Price on Request',
-              format: format === 'story' || format === 'reel' ? '9:16' : '1:1'
-            };
-            const branded = await brandifyPropertyImage(res.url, propData);
-            setBrandedImageUrl(branded.dataUrl);
-            setIsBrandified(true);
-            setPreviewBrandedMode(true);
-            toast.success('✨ AI Image Rendered & Branded with Bharat Kit!', { id: toastId });
-          } catch (e) {
-            console.warn('[SocialPostModal] Brandify error on generated image:', e);
-            setIsBrandified(false);
-            setBrandedImageUrl('');
-            toast.success('✨ AI Real Estate Image Generated!', { id: toastId });
-          }
+          // res.url is rendered by Enterprise BrandBannerComposer on backend
+          setBrandedImageUrl(res.url);
+          setIsBrandified(true);
+          setPreviewBrandedMode(true);
+          toast.success('✨ High-Resolution Branded Flyer Generated!', { id: toastId });
         }
       } else {
         throw new Error(res?.error || 'Visual generation failed');
@@ -500,28 +483,8 @@ const SocialPostModal = ({
     const entityType = initialData?.type || (initialData?.unitNo ? 'Deal' : 'System');
 
     try {
-      // Resolve Final Media Asset: If brandified, ensure public URL or robust asset reference
-      let finalImageUrl = imageUrl;
-      if (isBrandified && brandedImageUrl) {
-        if (brandedImageUrl.startsWith('data:image')) {
-          try {
-            const blobRes = await fetch(brandedImageUrl);
-            const blob = await blobRes.blob();
-            const uploadFormData = new FormData();
-            uploadFormData.append('file', blob, `bharat_branded_${Date.now()}.jpg`);
-            const upRes = await api.post('/upload', uploadFormData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-              _silentError: true
-            });
-            finalImageUrl = upRes.data?.url || upRes.data?.downloadUrl || brandedImageUrl;
-          } catch (e) {
-            console.warn('[SocialPostModal] Branded upload fallback:', e);
-            finalImageUrl = brandedImageUrl;
-          }
-        } else {
-          finalImageUrl = brandedImageUrl;
-        }
-      }
+      // Resolve Final Media Asset: prefer branded image if enabled, otherwise raw image
+      let finalImageUrl = (isBrandified && brandedImageUrl) ? brandedImageUrl : imageUrl;
 
       const res = await socialAPI.postContent({
         platform,
