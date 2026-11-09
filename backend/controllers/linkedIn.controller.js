@@ -144,3 +144,27 @@ export const triggerLeadSync = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+/**
+ * Disconnect LinkedIn Integration
+ */
+export const disconnectLinkedIn = async (req, res) => {
+    try {
+        await SystemSetting.findOneAndUpdate(
+            { key: 'linkedin_integration' },
+            {
+                $set: {
+                    'value.accessToken': '',
+                    'value.refreshToken': '',
+                    'value.status': 'Disconnected',
+                    'value.health': 'DISCONNECTED',
+                    'value.expiresAt': null,
+                    'value.disconnectedAt': new Date().toISOString()
+                }
+            }
+        );
+        res.json({ success: true, message: 'LinkedIn disconnected successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
