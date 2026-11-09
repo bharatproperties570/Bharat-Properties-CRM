@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BRAND_COLORS, brandifyPropertyImage, isAuthoritativelyVerified } from '../brandCanvasEngine';
+import { hasAuthoritativeTitleVerification } from '../propertyComplianceValidator';
 
 describe('brandCanvasEngine — Enterprise Visual Engine & Compliance', () => {
   it('exports correct official brand palette colors', () => {
@@ -13,7 +14,7 @@ describe('brandCanvasEngine — Enterprise Visual Engine & Compliance', () => {
     await expect(brandifyPropertyImage(null, {})).rejects.toThrow('Image source is required');
   });
 
-  describe('isAuthoritativelyVerified predicate', () => {
+  describe('isAuthoritativelyVerified predicate (Canonical Contract)', () => {
     it('returns false for generic boolean fields alone without statutory evidence', () => {
       expect(isAuthoritativelyVerified({ isVerified: true })).toBe(false);
       expect(isAuthoritativelyVerified({ titleVerified: true })).toBe(false);
@@ -24,78 +25,173 @@ describe('brandCanvasEngine — Enterprise Visual Engine & Compliance', () => {
       expect(isAuthoritativelyVerified({})).toBe(false);
     });
 
-    it('returns false for unrecognized authority or unapproved status or missing snapshot', () => {
-      // Unrecognized authority
-      expect(isAuthoritativelyVerified({
-        authorityVerification: {
-          authorityCode: 'UNKNOWN_MUNICIPAL',
-          status: 'VERIFIED',
-          verificationSnapshotId: 'snap-1'
-        }
-      })).toBe(false);
-
-      // Unapproved status (PENDING)
-      expect(isAuthoritativelyVerified({
-        authorityVerification: {
-          authorityCode: 'HSVP',
-          status: 'PENDING',
-          verificationSnapshotId: 'snap-1'
-        }
-      })).toBe(false);
-
-      // Missing snapshot audit trail
-      expect(isAuthoritativelyVerified({
-        authorityVerification: {
-          authorityCode: 'HSVP',
-          status: 'VERIFIED'
-        }
-      })).toBe(false);
-
-      // Active litigation dispute
+    it('returns false for missing litigation, active litigation, or unapproved status', () => {
+      // Missing litigationStatus
       expect(isAuthoritativelyVerified({
         authorityVerification: {
           authorityCode: 'HSVP',
           status: 'VERIFIED',
           verificationSnapshotId: 'snap-1',
-          litigationStatus: 'ACTIVE_DISPUTE'
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date()
+          // litigationStatus is missing
+        }
+      })).toBe(false);
+
+      // Active litigation
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'HSVP',
+          status: 'VERIFIED',
+          verificationSnapshotId: 'snap-1',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date(),
+          litigationStatus: 'LITIGATION_REPORTED'
+        }
+      })).toBe(false);
+
+      // ALLOTTED / TRANSFERRED status without explicit title verification
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'GMADA',
+          status: 'ALLOTTED',
+          verificationSnapshotId: 'snap-2',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date(),
+          litigationStatus: 'CLEAN'
+        }
+      })).toBe(false);
+
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'HSVP',
+          status: 'TRANSFERRED',
+          verificationSnapshotId: 'snap-3',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date(),
+          litigationStatus: 'CLEAN'
+        }
+      })).toBe(false);
+    });
+
+    it('returns false for expired (>180 days) or future verification timestamps', () => {
+      // Older than 180 days (e.g. 185 days)
+      const oldDate = new Date(Date.now() - 185 * 24 * 60 * 60 * 1000);
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'HSVP',
+          status: 'VERIFIED',
+          verificationSnapshotId: 'snap-old',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: oldDate,
+          litigationStatus: 'CLEAN'
+        }
+      })).toBe(false);
+
+      // Future date (e.g. 2 days ahead)
+      const futureDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'HSVP',
+          status: 'VERIFIED',
+          verificationSnapshotId: 'snap-future',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: futureDate,
+          litigationStatus: 'CLEAN'
+        }
+      })).toBe(false);
+    });
+
+    it('returns false for structurally invalid snapshot ID or content hash', () => {
+      // Snapshot ID too short or placeholder
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'HSVP',
+          status: 'VERIFIED',
+          verificationSnapshotId: 'no',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date(),
+          litigationStatus: 'CLEAN'
+        }
+      })).toBe(false);
+
+      // Hash missing or placeholder
+      expect(isAuthoritativelyVerified({
+        authorityVerification: {
+          authorityCode: 'HSVP',
+          status: 'VERIFIED',
+          verificationSnapshotId: 'snap-valid',
+          snapshotContentHash: 'none',
+          lastVerifiedAt: new Date(),
+          litigationStatus: 'CLEAN'
         }
       })).toBe(false);
     });
 
     it('returns true when valid authoritative verification evidence is present', () => {
-      expect(isAuthoritativelyVerified({
+      const validHsvp = {
         authorityVerification: {
           authorityCode: 'HSVP',
           status: 'VERIFIED',
           verificationSnapshotId: 'snap-hsvp-9988',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date(),
           litigationStatus: 'CLEAN'
         }
-      })).toBe(true);
+      };
+      expect(isAuthoritativelyVerified(validHsvp)).toBe(true);
 
-      expect(isAuthoritativelyVerified({
-        inventory: {
-          authorityVerification: {
-            authorityCode: 'GMADA',
-            status: 'ALLOTTED',
-            snapshotContentHash: 'hash-abc-123',
-            litigationStatus: 'NO_DISPUTE'
-          }
-        }
-      })).toBe(true);
-
-      expect(isAuthoritativelyVerified({
+      const validLink = {
         authorityLink: {
           authorityCode: 'CHD',
+          status: 'VERIFIED',
           identityVerified: true,
           identityVerifiedAt: new Date(),
-          latestSnapshotId: 'snap-chd-44'
+          latestSnapshotId: 'snap-chd-44',
+          snapshotContentHash: 'f0e1d2c3b4a59876543210fedcba9876',
+          litigationStatus: 'NO_DISPUTE'
         }
-      })).toBe(true);
+      };
+      expect(isAuthoritativelyVerified(validLink)).toBe(true);
+    });
+
+    // Requirement 19: Consistency between Brand Canvas and backend validator
+    it('Requirement 19: Brand Canvas and backend return identical outcomes for identical evidence', () => {
+      const testCases = [
+        { isVerified: true },
+        { titleVerified: true },
+        { authorityVerification: { authorityCode: 'HSVP', status: 'VERIFIED' } },
+        { authorityVerification: { authorityCode: 'HSVP', status: 'ALLOTTED' } },
+        {
+          authorityVerification: {
+            authorityCode: 'HSVP',
+            status: 'VERIFIED',
+            verificationSnapshotId: 'snap-1',
+            snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+            lastVerifiedAt: new Date(),
+            litigationStatus: 'CLEAN'
+          }
+        },
+        {
+          authorityLink: {
+            authorityCode: 'GMADA',
+            status: 'VERIFIED',
+            latestSnapshotId: 'snap-gmada-1',
+            snapshotContentHash: '1234567890abcdef1234567890abcdef',
+            identityVerifiedAt: new Date(),
+            litigationStatus: 'CLEAN'
+          }
+        }
+      ];
+
+      for (const tc of testCases) {
+        expect(isAuthoritativelyVerified(tc)).toBe(hasAuthoritativeTitleVerification(tc));
+      }
     });
   });
 
   describe('Canvas Rendering & Badge Sanitization', () => {
-    it('sanitizes untrusted generic boolean or forged badgeText to FEATURED PROPERTY', async () => {
+    it('Requirement 18: Malicious or stale badgeText cannot override Brand Canvas verification', async () => {
       const mockContext = {
         drawImage: vi.fn(),
         save: vi.fn(),
@@ -161,6 +257,8 @@ describe('brandCanvasEngine — Enterprise Visual Engine & Compliance', () => {
           authorityCode: 'HSVP',
           status: 'VERIFIED',
           verificationSnapshotId: 'snap-verified-101',
+          snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+          lastVerifiedAt: new Date(),
           litigationStatus: 'CLEAN'
         }
       });

@@ -42,7 +42,15 @@ import {
 } from 'lucide-react';
 import { socialAPI, marketingAPI, googleSettingsAPI, api } from '../utils/api';
 import toast from 'react-hot-toast';
-import { brandifyPropertyImage, BRAND_COLORS, isAuthoritativelyVerified } from '../utils/brandCanvasEngine';
+import { brandifyPropertyImage, BRAND_COLORS } from '../utils/brandCanvasEngine';
+import {
+  hasAuthoritativeTitleVerification,
+  hasAuthoritativeReraApproval,
+  extractVerificationFacts,
+  validateAndSanitizeCopy,
+  generateCompliantFallback,
+  isAuthoritativelyVerified
+} from '../utils/propertyComplianceValidator';
 
 /**
  * SocialPostModal - Enterprise Promote Studio
@@ -148,6 +156,24 @@ const SocialPostModal = ({
     }
   }, [isActuallyOpen]);
 
+  // 🛡️ Canonical statutory verification facts (never trusts generic booleans)
+  const verificationFacts = useMemo(() => {
+    return extractVerificationFacts(initialData || {});
+  }, [initialData]);
+
+  // 🛡️ Secure content setter: validates and sanitizes against canonical verification facts
+  const applyCompliantContent = (rawText, contextOverrides = {}) => {
+    const sanitized = validateAndSanitizeCopy(rawText, verificationFacts, {
+      deal: initialData || {},
+      platform,
+      tone: aiTone,
+      format,
+      ...contextOverrides
+    });
+    setContent(sanitized);
+    return sanitized;
+  };
+
   useEffect(() => {
     if (initialData) {
       // 🛡️ Ensure clean, human-readable location — strictly filter out raw 24-character hex ObjectIds, null, undefined
@@ -160,10 +186,15 @@ const SocialPostModal = ({
         const sanitized = initialData.text
           .replace(/📍 Location: [0-9a-fA-F]{24}/g, `📍 Location: ${cleanLoc}`)
           .replace(/📍 Location: (null|undefined)/g, `📍 Location: ${cleanLoc}`);
-        setContent(sanitized);
+        applyCompliantContent(sanitized);
       } else {
-        const defaultText = `🏠 ${initialData.name || initialData.title || initialData.unitNo || 'New Property Alert'}\n📍 Location: ${cleanLoc}\n💰 Price: ${initialData.price || 'Price on Request'}\n\n${initialData.description || 'Explore this prime real estate opportunity with Bharat Properties!'}`;
-        setContent(defaultText);
+        const defaultText = generateCompliantFallback(
+          { ...initialData, location: cleanLoc },
+          platform,
+          { tone: aiTone || 'urgent', format },
+          verificationFacts
+        );
+        applyCompliantContent(defaultText);
       }
 
       if (initialData.mediaUrl) {
@@ -191,10 +222,10 @@ const SocialPostModal = ({
 
       setCustomHeadline(initialData.name || initialData.title || 'Exclusive Prime Real Estate Opportunity');
     } else if (initialContent || explicitImageUrl) {
-      setContent(initialContent || '');
+      applyCompliantContent(initialContent || '');
       setImageUrl(explicitImageUrl || '');
     }
-  }, [initialData, initialContent, explicitImageUrl, isActuallyOpen]);
+  }, [initialData, initialContent, explicitImageUrl, isActuallyOpen, verificationFacts]);
 
   // 🖼️ Extract All High-Res Property Gallery Images from Deal / Project
   const galleryImages = useMemo(() => {
@@ -234,45 +265,38 @@ const SocialPostModal = ({
       if (propertyId) {
         const res = await marketingAPI.generateSocial(propertyId, platform, overrideTone, format);
         if (res?.success && res.content) {
-          setContent(res.content);
+          applyCompliantContent(res.content, { tone: overrideTone });
           toast.success(`✨ ${overrideTone.toUpperCase()} Narrative Generated!`);
           return;
         }
       }
-      // Enterprise Resilient Fallback based on Selected Tone
-      const title = initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity';
+      // Enterprise Resilient Fallback based on Selected Tone and Canonical Facts
       const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
         ? String(initialData.location).trim()
         : (initialData?.locationSearch && !/^[0-9a-fA-F]{24}$/.test(String(initialData.locationSearch).trim()))
           ? String(initialData.locationSearch).trim()
           : 'Kurukshetra, Haryana';
-      const price = initialData?.price || 'Price on Request';
-      const isMohali = cleanLoc.toLowerCase().includes('mohali');
-      const regionalPhone = isMohali ? '+91 99910 00570' : '+91 99913 33570';
-      const website = 'www.bharatproperties.co';
 
-      let aiDraft = '';
-      if (overrideTone === 'luxury') {
-        aiDraft = `💎 EXCLUSIVE LUXURY LIVING | ${title}\n\nIndulge in refined architecture and serene living at ${cleanLoc}. Designed for those who value timeless quality, expansive spaces, and unmatched lifestyle amenities.\n\n✨ Unit: ${title}\n📍 Location: ${cleanLoc}\n💰 Investment: ${price}\n📜 Verified Title & RERA Compliant\n\nPrivate viewings available on prior appointment:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #LuxuryHomes #PrimeRealEstate #Kurukshetra`;
-      } else if (overrideTone === 'investor') {
-        aiDraft = `📈 HIGH-YIELD INVESTMENT OPPORTUNITY | ${title}\n\nStrategic property located in the high-growth development corridor of ${cleanLoc}. Outstanding capital appreciation and rental yield potential.\n\n🔑 Property: ${title}\n📍 Location: ${cleanLoc}\n💵 Price: ${price}\n🛡️ 100% Verified Title & Clear Registry\n\nRequest complete financial breakdown & advisory:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #RealEstateInvestment #CapitalGrowth #CommercialProperty`;
-      } else if (overrideTone === 'short_hook') {
-        aiDraft = `🚨 Prime Deal Alert in ${cleanLoc}! ${title} at ${price}. 100% verified registry title. Call ${regionalPhone} to book site visit now! 🌐 ${website} #BharatProperties #HotDeal`;
-      } else {
-        // Urgent Deal (Hinglish)
-        aiDraft = `🔥 URGENT DEAL ALERT: ${title}!\n\nKurukshetra ke prime location ${cleanLoc} par ready possession opportunity! Verified title, bank loan approval, aur prime road connectivity.\n\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\nLimited units available — aaj hi apni private site visit book karein!\n📞 Call/WhatsApp: ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #Kurukshetra #HotProperty #RealEstateDeals`;
-      }
-
-      setContent(aiDraft);
+      const compliantDraft = generateCompliantFallback(
+        { ...(initialData || {}), location: cleanLoc },
+        platform,
+        { tone: overrideTone, format },
+        verificationFacts
+      );
+      applyCompliantContent(compliantDraft, { tone: overrideTone });
       toast.success(`✨ ${overrideTone.toUpperCase()} Narrative Generated!`);
     } catch (error) {
       console.warn('[SocialPostModal] AI generation service fallback:', error);
-      const title = initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity';
       const cleanLoc = (initialData?.location && !/^[0-9a-fA-F]{24}$/.test(String(initialData.location).trim()))
         ? String(initialData.location).trim()
         : 'Kurukshetra, Haryana';
-      const price = initialData?.price || 'Price on Request';
-      setContent(`🔥 URGENT DEAL: ${title}\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\nVerified title and prime connectivity. Contact Bharat Properties today!\n📞 +91 99913 33570 | 🌐 www.bharatproperties.co\n\n#BharatProperties #RealEstate`);
+      const safeFallback = generateCompliantFallback(
+        { ...(initialData || {}), location: cleanLoc },
+        platform,
+        { tone: overrideTone, format },
+        verificationFacts
+      );
+      applyCompliantContent(safeFallback, { tone: overrideTone });
       toast.success('Narrative Generated! ✨');
     } finally {
       setIsGenerating(false);
@@ -293,17 +317,16 @@ const SocialPostModal = ({
           ? String(initialData.locationSearch).trim()
           : 'Kurukshetra, Haryana';
 
-      const isVerified = isAuthoritativelyVerified(initialData);
-
+      // Pass canonical evidence to brandifyPropertyImage (no spoofable presentation overrides)
       const propData = {
         title: initialData?.name || initialData?.title || initialData?.unitNo || 'Prime Real Estate Opportunity',
         location: cleanLoc,
         price: initialData?.price || 'Price on Request',
         format: format === 'story' || format === 'reel' ? '9:16' : '1:1',
-        isVerified,
-        badgeText: isVerified ? '🛡️ VERIFIED PROPERTY' : '✨ FEATURED PROPERTY',
         authorityVerification: initialData?.authorityVerification,
         inventory: initialData?.inventory,
+        authorityLink: initialData?.authorityLink || initialData?.propertyAuthorityLink,
+        propertyAuthorityLink: initialData?.propertyAuthorityLink,
         approvals: initialData?.approvals,
         reraNumber: initialData?.reraNumber,
         reraStatus: initialData?.reraStatus,
@@ -519,9 +542,17 @@ const SocialPostModal = ({
         }
       }
 
+      // Ensure text strictly conforms to canonical verification facts prior to broadcast
+      const sanitizedText = validateAndSanitizeCopy(content, verificationFacts, {
+        deal: initialData || {},
+        platform,
+        tone: aiTone,
+        format
+      });
+
       const res = await socialAPI.postContent({
         platform,
-        text: content,
+        text: sanitizedText,
         imageUrl: finalImageUrl,
         videoUrl: videoUrl,
         videoPath: videoUrl,
@@ -669,9 +700,21 @@ const SocialPostModal = ({
         : rawLoc;
       
       const price = next.priceOnRequest ? 'Price on Request' : (initialData?.price || 'Price on Request');
-      const pUpper = platform.toUpperCase();
-      const updatedDraft = `✨ ${title}\n📍 Location: ${cleanLoc}\n💰 Price: ${price}\n\n${initialData?.description || 'Explore this premier property with Bharat Properties. Verified title and prime connectivity. Schedule a private site visit today!'}\n\n#BharatProperties #RealEstate #${pUpper} #Investment`;
-      setContent(updatedDraft);
+      const updatedDeal = {
+        ...(initialData || {}),
+        unitNo: title,
+        name: title,
+        title,
+        location: cleanLoc,
+        price
+      };
+      const updatedDraft = generateCompliantFallback(
+        updatedDeal,
+        platform,
+        { tone: aiTone || 'urgent', format },
+        verificationFacts
+      );
+      applyCompliantContent(updatedDraft);
       return next;
     });
   };

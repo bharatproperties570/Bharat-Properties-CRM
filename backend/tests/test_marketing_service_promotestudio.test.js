@@ -27,144 +27,329 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     });
 
     // ─────────────────────────────────────────────────────────────
-    // SCENARIO 1: isVerified: true alone without authoritative evidence -> UNVERIFIED
+    // TITLE REQUIREMENT 1: Missing litigation status -> UNVERIFIED
     // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 1: Generic boolean (isVerified: true, titleVerified: true) alone is UNVERIFIED', async () => {
+    await t.test('Title Requirement 1: Missing litigation status must NOT qualify as verified title', async () => {
+        const deal = {
+            authorityVerification: {
+                authorityCode: 'HSVP',
+                status: 'VERIFIED',
+                verificationSnapshotId: 'snap-101',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: new Date()
+                // litigationStatus missing
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(deal), false, 'Missing litigation status must be rejected');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 2: Active litigation -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 2: Active litigation must NOT qualify as verified title', async () => {
+        const disputedStatuses = ['LITIGATION_REPORTED', 'ACTIVE_DISPUTE', 'PENDING', 'DISPUTED', 'COURT_STAY'];
+        for (const lit of disputedStatuses) {
+            const deal = {
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    status: 'VERIFIED',
+                    verificationSnapshotId: 'snap-102',
+                    snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: lit
+                }
+            };
+            assert.equal(hasAuthoritativeTitleVerification(deal), false, `Litigation status ${lit} must be rejected`);
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 3: Missing or invalid snapshot hash -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 3: Missing, short, or placeholder snapshot hash must be rejected', async () => {
+        const invalidHashes = [undefined, null, '', '   ', 'none', 'null', 'abc', 'short_hash_123'];
+        for (const hash of invalidHashes) {
+            const deal = {
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    status: 'VERIFIED',
+                    verificationSnapshotId: 'snap-103',
+                    snapshotContentHash: hash,
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: 'CLEAN'
+                }
+            };
+            assert.equal(hasAuthoritativeTitleVerification(deal), false, `Invalid hash ${hash} must be rejected`);
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 4: Missing or invalid snapshot identifier -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 4: Missing, short, or placeholder snapshot ID must be rejected', async () => {
+        const invalidIds = [undefined, null, '', '  ', 'no', 'null', 'undefined', 'none'];
+        for (const sid of invalidIds) {
+            const deal = {
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    status: 'VERIFIED',
+                    verificationSnapshotId: sid,
+                    snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: 'CLEAN'
+                }
+            };
+            assert.equal(hasAuthoritativeTitleVerification(deal), false, `Invalid snapshot ID ${sid} must be rejected`);
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 5: Verification older than 180 days -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 5: Verification older than 180 days must be rejected', async () => {
+        const expiredDate = new Date(Date.now() - (181 * 24 * 60 * 60 * 1000));
+        const deal = {
+            authorityVerification: {
+                authorityCode: 'HSVP',
+                status: 'VERIFIED',
+                verificationSnapshotId: 'snap-105',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: expiredDate,
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(deal), false, '181-day old verification must be rejected');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 6: Future verification timestamp -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 6: Future verification timestamp or malformed date must be rejected', async () => {
+        const futureDate = new Date(Date.now() + (2 * 24 * 60 * 60 * 1000));
+        const futureDeal = {
+            authorityVerification: {
+                authorityCode: 'HSVP',
+                status: 'VERIFIED',
+                verificationSnapshotId: 'snap-106',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: futureDate,
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(futureDeal), false, 'Future date must be rejected');
+
+        const malformedDeal = {
+            authorityVerification: {
+                authorityCode: 'HSVP',
+                status: 'VERIFIED',
+                verificationSnapshotId: 'snap-106b',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: 'not-a-valid-date-string',
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(malformedDeal), false, 'Malformed date string must be rejected');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 7: ALLOTTED and TRANSFERRED without explicit verification -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 7: ALLOTTED and TRANSFERRED must NOT be treated as verified legal title', async () => {
+        const unapprovedStatuses = ['ALLOTTED', 'TRANSFERRED', 'REGISTRY_COMPLETED', 'PENDING', 'RESUMED'];
+        for (const st of unapprovedStatuses) {
+            const deal = {
+                authorityVerification: {
+                    authorityCode: 'HSVP',
+                    status: st,
+                    verificationSnapshotId: 'snap-107',
+                    snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                    lastVerifiedAt: new Date(),
+                    litigationStatus: 'CLEAN'
+                }
+            };
+            assert.equal(hasAuthoritativeTitleVerification(deal), false, `Authority status ${st} must NOT qualify as verified title`);
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TITLE REQUIREMENT 8: PropertyAuthorityLink cannot bypass canonical contract
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Title Requirement 8: PropertyAuthorityLink cannot bypass evidence, freshness or litigation requirements', async () => {
+        // Link missing litigation
+        const linkMissingLit = {
+            authorityLink: {
+                authorityCode: 'GMADA',
+                status: 'VERIFIED',
+                identityVerified: true,
+                identityVerifiedAt: new Date(),
+                latestSnapshotId: 'snap-gmada-108',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0'
+                // missing litigationStatus
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(linkMissingLit), false, 'Link missing litigation must be rejected');
+
+        // Link with expired date
+        const linkExpired = {
+            authorityLink: {
+                authorityCode: 'GMADA',
+                status: 'VERIFIED',
+                identityVerified: true,
+                identityVerifiedAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+                latestSnapshotId: 'snap-gmada-108',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(linkExpired), false, 'Link with expired date must be rejected');
+
+        // Link with missing hash
+        const linkMissingHash = {
+            authorityLink: {
+                authorityCode: 'GMADA',
+                status: 'VERIFIED',
+                identityVerified: true,
+                identityVerifiedAt: new Date(),
+                latestSnapshotId: 'snap-gmada-108',
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(linkMissingHash), false, 'Link missing hash must be rejected');
+
+        // Valid link
+        const validLink = {
+            authorityLink: {
+                authorityCode: 'GMADA',
+                status: 'VERIFIED',
+                identityVerified: true,
+                identityVerifiedAt: new Date(),
+                latestSnapshotId: 'snap-gmada-108',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                litigationStatus: 'CLEAN'
+            }
+        };
+        assert.equal(hasAuthoritativeTitleVerification(validLink), true, 'Valid link must pass');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // RERA REQUIREMENT 9: Registration number without approved status -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('RERA Requirement 9: RERA registration number without approved status must remain unverified', async () => {
+        const deal = {
+            reraNumber: 'HRERA-PKL-KUK-2024-999'
+            // reraStatus missing
+        };
+        assert.equal(hasAuthoritativeReraApproval(deal), false);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // RERA REQUIREMENT 10: Registration number with PENDING status -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('RERA Requirement 10: RERA registration number with PENDING status must remain unverified', async () => {
+        const deal = {
+            reraNumber: 'HRERA-PKL-KUK-2024-999',
+            reraStatus: 'PENDING'
+        };
+        assert.equal(hasAuthoritativeReraApproval(deal), false);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // RERA REQUIREMENT 11: Approvals array with registrationNo but no approved status -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('RERA Requirement 11: Approvals array entry with registrationNo but unapproved status must NOT qualify', async () => {
+        const deal = {
+            approvals: [
+                {
+                    authority: 'RERA',
+                    documentType: 'RERA',
+                    registrationNo: 'HRERA-PKL-123',
+                    status: 'PENDING' // Not approved
+                }
+            ]
+        };
+        assert.equal(hasAuthoritativeReraApproval(deal), false, 'Approvals array with pending status must not qualify');
+
+        const dealMissingStatus = {
+            approvals: [
+                {
+                    authority: 'RERA',
+                    documentType: 'RERA',
+                    registrationNo: 'HRERA-PKL-123'
+                    // status missing
+                }
+            ]
+        };
+        assert.equal(hasAuthoritativeReraApproval(dealMissingStatus), false, 'Approvals array with missing status must not qualify');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // RERA REQUIREMENT 12: Expired, suspended, revoked, and rejected registrations -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('RERA Requirement 12: Expired, suspended, revoked, and rejected registrations must be rejected', async () => {
+        const disallowed = ['EXPIRED', 'SUSPENDED', 'REVOKED', 'REJECTED', 'UNDER_REVIEW', 'UNKNOWN'];
+        for (const st of disallowed) {
+            const dealDirect = {
+                reraNumber: 'HRERA-PKL-KUK-101',
+                reraStatus: st
+            };
+            assert.equal(hasAuthoritativeReraApproval(dealDirect), false, `Direct RERA status ${st} must be rejected`);
+
+            const dealApproval = {
+                approvals: [
+                    {
+                        authority: 'RERA',
+                        registrationNo: 'HRERA-PKL-101',
+                        status: st
+                    }
+                ]
+            };
+            assert.equal(hasAuthoritativeReraApproval(dealApproval), false, `Approvals RERA status ${st} must be rejected`);
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // RERA REQUIREMENT 13: Valid explicitly approved registration -> VERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('RERA Requirement 13: Valid explicitly approved registration passes', async () => {
+        const approvedDirect = {
+            reraNumber: 'PBRERA-SAS80-PR0456',
+            reraStatus: 'APPROVED'
+        };
+        assert.equal(hasAuthoritativeReraApproval(approvedDirect), true);
+
+        const approvedArray = {
+            approvals: [
+                {
+                    approvalAuthority: 'RERA',
+                    registrationNo: 'HRERA-PKL-KUK-2024-88',
+                    status: 'APPROVED',
+                    date: new Date()
+                }
+            ]
+        };
+        assert.equal(hasAuthoritativeReraApproval(approvedArray), true);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // SCENARIO: Generic boolean alone without evidence -> UNVERIFIED
+    // ─────────────────────────────────────────────────────────────
+    await t.test('Scenario: Generic boolean alone is UNVERIFIED', async () => {
         const genericDeal = {
             unitNo: 'Unit 101',
-            projectName: 'Sunrise Residency',
-            location: 'Sector 7, Kurukshetra',
             isVerified: true,
             titleVerified: true,
             isTitleVerified: true
         };
-
-        assert.equal(hasAuthoritativeTitleVerification(genericDeal), false, 'Generic booleans must NOT qualify as verified title');
+        assert.equal(hasAuthoritativeTitleVerification(genericDeal), false);
         const facts = extractVerificationFacts(genericDeal);
         assert.equal(facts.isTitleVerified, false);
         assert.equal(facts.titleEvidenceCode, null);
     });
 
     // ─────────────────────────────────────────────────────────────
-    // SCENARIO 2: RERA ID present but registration status not approved -> UNVERIFIED
+    // SCENARIO: Every fallback tone on unverified property produces zero unsupported claims
     // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 2: RERA ID present without explicit approved status -> UNVERIFIED', async () => {
-        const unapprovedReraDeal = {
-            unitNo: 'Unit 202',
-            projectName: 'Palm Greens',
-            location: 'Kurukshetra',
-            reraId: 'HRERA-PKL-KUK-2024-999'
-            // reraStatus is missing / not approved
-        };
-
-        assert.equal(hasAuthoritativeReraApproval(unapprovedReraDeal), false, 'RERA ID alone without approved status must NOT qualify');
-        const facts = extractVerificationFacts(unapprovedReraDeal);
-        assert.equal(facts.isReraApproved, false);
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // SCENARIO 3: RERA status expired, rejected, pending, or unknown -> UNVERIFIED
-    // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 3: RERA status expired, rejected, pending, or unknown -> UNVERIFIED', async () => {
-        const statuses = ['EXPIRED', 'REJECTED', 'PENDING', 'UNDER_REVIEW', 'UNKNOWN', 'REVOKED'];
-        for (const status of statuses) {
-            const deal = {
-                unitNo: 'Unit 303',
-                projectName: 'Lotus Heights',
-                location: 'Kurukshetra',
-                reraNumber: 'HRERA-PKL-KUK-101',
-                reraStatus: status
-            };
-            assert.equal(hasAuthoritativeReraApproval(deal), false, `RERA status ${status} must be UNVERIFIED`);
-            const facts = extractVerificationFacts(deal);
-            assert.equal(facts.isReraApproved, false);
-        }
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // SCENARIO 4: Verified title with missing or invalid evidence -> UNVERIFIED
-    // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 4: Title verification with missing snapshot or active litigation -> UNVERIFIED', async () => {
-        // Missing audit trail snapshot
-        const missingSnapshotDeal = {
-            unitNo: 'Plot 10',
-            location: 'Kurukshetra',
-            authorityVerification: {
-                authorityCode: 'HSVP',
-                status: 'VERIFIED'
-                // No verificationSnapshotId, snapshotContentHash, or lastVerifiedAt
-            }
-        };
-        assert.equal(hasAuthoritativeTitleVerification(missingSnapshotDeal), false, 'Missing snapshot/audit trail must be UNVERIFIED');
-
-        // Active litigation dispute
-        const activeLitigationDeal = {
-            unitNo: 'Plot 11',
-            location: 'Kurukshetra',
-            authorityVerification: {
-                authorityCode: 'HSVP',
-                status: 'VERIFIED',
-                verificationSnapshotId: 'snap-456',
-                litigationStatus: 'ACTIVE_DISPUTE'
-            }
-        };
-        assert.equal(hasAuthoritativeTitleVerification(activeLitigationDeal), false, 'Active litigation must be UNVERIFIED');
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // SCENARIO 5: Valid authoritative title verification -> VERIFIED
-    // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 5: Valid authoritative title verification (HSVP/CHD/GMADA with snapshot) -> VERIFIED', async () => {
-        const validHsvpDeal = {
-            unitNo: 'Plot 88',
-            projectName: 'Urban Estate',
-            location: 'Sector 32, Kurukshetra',
-            authorityVerification: {
-                authorityCode: 'HSVP',
-                status: 'VERIFIED',
-                verificationSnapshotId: 'snap-hsvp-888',
-                litigationStatus: 'CLEAN'
-            }
-        };
-        assert.equal(hasAuthoritativeTitleVerification(validHsvpDeal), true, 'Valid HSVP verification must be VERIFIED');
-        const facts = extractVerificationFacts(validHsvpDeal);
-        assert.equal(facts.isTitleVerified, true);
-        assert.equal(facts.titleEvidenceCode, 'HSVP');
-
-        // PropertyAuthorityLink
-        const validLinkDeal = {
-            unitNo: 'Plot 99',
-            authorityLink: {
-                authorityCode: 'GMADA',
-                identityVerified: true,
-                identityVerifiedAt: new Date(),
-                latestSnapshotId: 'snap-gmada-99'
-            }
-        };
-        assert.equal(hasAuthoritativeTitleVerification(validLinkDeal), true, 'Valid authority link must be VERIFIED');
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // SCENARIO 6: Valid approved RERA evidence -> VERIFIED
-    // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 6: Valid approved RERA evidence -> VERIFIED', async () => {
-        const approvedReraDeal = {
-            unitNo: 'Tower A 501',
-            projectName: 'Grand Vista',
-            location: 'Mohali',
-            reraNumber: 'PBRERA-SAS80-PR0456',
-            reraStatus: 'APPROVED'
-        };
-        assert.equal(hasAuthoritativeReraApproval(approvedReraDeal), true, 'Approved RERA status with number must be VERIFIED');
-        const facts = extractVerificationFacts(approvedReraDeal);
-        assert.equal(facts.isReraApproved, true);
-        assert.equal(facts.reraNumber, 'PBRERA-SAS80-PR0456');
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // SCENARIO 7: Every fallback tone with unverified records -> zero unsupported claims
-    // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 7: Every fallback tone on unverified property produces zero unsupported claims', async () => {
+    await t.test('Scenario: Every fallback tone on unverified property produces zero unsupported claims', async () => {
         const unverifiedProperty = {
             unitNo: 'Plot 55',
             projectName: 'Green Enclave',
@@ -176,8 +361,6 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
         const tones = ['urgent', 'luxury', 'investor', 'short_hook'];
         for (const tone of tones) {
             const fallback = generateCompliantFallback(unverifiedProperty, 'facebook', tone, 'post');
-            
-            // Strictly check for prohibited claim strings
             assert.ok(!/verified title/i.test(fallback), `Tone ${tone} must NOT claim verified title`);
             assert.ok(!/rera compliant/i.test(fallback), `Tone ${tone} must NOT claim RERA compliant`);
             assert.ok(!/clear registry/i.test(fallback), `Tone ${tone} must NOT claim clear registry`);
@@ -190,15 +373,14 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             assert.ok(!/proven capital appreciation/i.test(fallback), `Tone ${tone} must NOT claim proven capital appreciation`);
             assert.ok(!/strong rental yield potential/i.test(fallback), `Tone ${tone} must NOT claim strong rental yield`);
 
-            // Check that it contains neutral phrasing
-            assert.ok(fallback.includes('Property details') || fallback.includes('Documentation status'), `Tone ${tone} must provide neutral factual presentation`);
+            assert.ok(fallback.includes('Property details') || fallback.includes('Documentation status'));
         }
     });
 
     // ─────────────────────────────────────────────────────────────
-    // SCENARIO 8: Every fallback tone with verified records -> verified claims properly qualified
+    // SCENARIO: Verified property fallback tones include qualified claims
     // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 8: Fallback tones on verified property include qualified verification claims', async () => {
+    await t.test('Scenario: Fallback tones on verified property include qualified verification claims', async () => {
         const fullyVerifiedDeal = {
             unitNo: 'Villa 12',
             projectName: 'Royal Heritage',
@@ -208,6 +390,8 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                 authorityCode: 'HSVP',
                 status: 'VERIFIED',
                 verificationSnapshotId: 'snap-1234',
+                snapshotContentHash: 'a1b2c3d4e5f67890123456789abcdef0',
+                lastVerifiedAt: new Date(),
                 litigationStatus: 'CLEAN'
             },
             reraNumber: 'HRERA-PKL-KUK-2024-88',
@@ -223,9 +407,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     });
 
     // ─────────────────────────────────────────────────────────────
-    // SCENARIO 9: AI-generated unsupported claims safely sanitized/corrected
+    // SCENARIO: Post-generation validator sanitizes AI hallucinations
     // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 9: Post-generation validator sanitizes AI hallucinations and unsupported claims', async () => {
+    await t.test('Scenario: Post-generation validator sanitizes AI hallucinations and unsupported claims', async () => {
         const unverifiedFacts = {
             isTitleVerified: false,
             isReraApproved: false,
@@ -239,8 +423,6 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             '100% Bank Loan Approved and Ready Possession guaranteed!';
 
         const validatedCopy = validateAndSanitizeCopy(hallucinatedAICopy, unverifiedFacts, { platform: 'facebook', tone: 'urgent' });
-
-        // Ensure all hallucinated claims were stripped or neutralized
         assert.ok(!/guaranteed return/i.test(validatedCopy), 'Guaranteed returns must be sanitized');
         assert.ok(!/proven capital appreciation/i.test(validatedCopy), 'Proven capital appreciation must be sanitized');
         assert.ok(!/verified title/i.test(validatedCopy), 'Verified title must be sanitized');
@@ -250,9 +432,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     });
 
     // ─────────────────────────────────────────────────────────────
-    // SCENARIO 10: AI-generated compliant copy preserved without corruption
+    // SCENARIO: Compliant AI copy preserved accurately
     // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 10: AI-generated compliant copy is preserved accurately', async () => {
+    await t.test('Scenario: AI-generated compliant copy is preserved accurately', async () => {
         const verifiedFacts = {
             isTitleVerified: true,
             titleEvidenceCode: 'HSVP',
@@ -272,28 +454,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
     });
 
     // ─────────────────────────────────────────────────────────────
-    // SCENARIO 11: Missing verification data defaults to neutral badge and neutral copy
+    // SCENARIO: Regional phone resolution and character limits
     // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 11: Completely missing verification fields defaults to neutral copy', async () => {
-        const emptyDeal = {
-            location: 'Railway Road, Kurukshetra'
-        };
-        const facts = extractVerificationFacts(emptyDeal);
-        assert.equal(facts.isTitleVerified, false);
-        assert.equal(facts.isReraApproved, false);
-        assert.equal(facts.isBankLoanApproved, false);
-        assert.equal(facts.isReadyPossession, false);
-
-        const fallback = generateCompliantFallback(emptyDeal, 'facebook', 'urgent');
-        assert.ok(!fallback.includes('Verified Title'));
-        assert.ok(!fallback.includes('RERA'));
-        assert.ok(fallback.includes('Documentation status can be checked during due diligence') || fallback.includes('Property details'));
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // SCENARIO 12: Regional phone resolution and character limits
-    // ─────────────────────────────────────────────────────────────
-    await t.test('Scenario 12: Regional phone resolution and short_hook character limits', async () => {
+    await t.test('Scenario: Regional phone resolution and short_hook character limits', async () => {
         unifiedAIService.generate = async () => {
             throw new Error('AI Offline');
         };

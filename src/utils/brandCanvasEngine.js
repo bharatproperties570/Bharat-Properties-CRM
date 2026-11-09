@@ -79,52 +79,15 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+import { hasAuthoritativeTitleVerification } from './propertyComplianceValidator.js';
+
 /**
  * Authoritative verification predicate for visual marketing assets.
+ * Re-exports the single canonical contract from propertyComplianceValidator.js.
  * Generic booleans alone (isVerified: true, titleVerified: true, etc.) NEVER qualify.
- * Requires concrete statutory authority verification evidence.
- * 
- * @param {Object} propertyData
- * @returns {boolean}
+ * Caller overrides cannot bypass this check.
  */
-export function isAuthoritativelyVerified(propertyData) {
-  if (!propertyData || typeof propertyData !== 'object') return false;
-
-  // Check authorityVerification subdocument
-  const av = propertyData.authorityVerification || propertyData.inventory?.authorityVerification;
-  if (av && typeof av === 'object') {
-    const code = String(av.authorityCode || '').toUpperCase();
-    const hasRecognizedCode = ['HSVP', 'CHD', 'GMADA', 'DDA', 'PUDA', 'HRERA'].includes(code);
-    const status = String(av.authorityStatus || av.status || '').toUpperCase();
-    const hasApprovedStatus = ['VERIFIED', 'ALLOTTED', 'TRANSFERRED', 'REGISTRY_COMPLETED'].includes(status);
-    const hasAuditTrail = Boolean(
-      av.verificationSnapshotId ||
-      av.snapshotContentHash ||
-      av.lastVerifiedAt
-    );
-    const litStatus = String(av.litigationStatus || '').toUpperCase();
-    const isCleanLitigation = !av.litigationStatus || ['CLEAN', 'NONE', 'NO_DISPUTE', 'CLEAR'].includes(litStatus);
-
-    if (hasRecognizedCode && hasApprovedStatus && hasAuditTrail && isCleanLitigation) {
-      return true;
-    }
-  }
-
-  // Check PropertyAuthorityLink
-  const link = propertyData.authorityLink || propertyData.propertyAuthorityLink;
-  if (link && typeof link === 'object') {
-    const code = String(link.authorityCode || '').toUpperCase();
-    const hasRecognizedCode = ['HSVP', 'CHD', 'GMADA', 'DDA', 'PUDA', 'HRERA'].includes(code);
-    const isIdentityVerified = Boolean(link.identityVerified && link.identityVerifiedAt);
-    const hasSnapshot = Boolean(link.latestSnapshotId || link.compositeKey);
-    if (hasRecognizedCode && isIdentityVerified && hasSnapshot) {
-      return true;
-    }
-  }
-
-  // Generic booleans alone (deal.isVerified, deal.titleVerified, etc.) must NEVER bypass evidence
-  return false;
-}
+export const isAuthoritativelyVerified = hasAuthoritativeTitleVerification;
 
 /**
  * Brandifies any raw property photo with Bharat Properties enterprise kit
@@ -237,22 +200,9 @@ export async function brandifyPropertyImage(imageSource, propertyData = {}) {
   ctx.restore();
 
   // 3b. Top-Left: Property Badge (Verified Title vs Neutral Featured/Listing)
-  const isVerified = isAuthoritativelyVerified(propertyData);
-
-  // Secure badge text: an unverified property must NEVER render a verified / RERA / registry badge
-  let badgeText = '✨ FEATURED PROPERTY';
-  if (isVerified) {
-    badgeText = (propertyData.badgeText && propertyData.badgeText.includes('VERIFIED'))
-      ? propertyData.badgeText
-      : '🛡️ VERIFIED PROPERTY';
-  } else {
-    // If caller attempted to pass a verified/RERA badge on unverified data, sanitize to neutral badge
-    if (propertyData.badgeText && !/verified|rera|registry|guarantee/i.test(propertyData.badgeText)) {
-      badgeText = propertyData.badgeText;
-    } else {
-      badgeText = '✨ FEATURED PROPERTY';
-    }
-  }
+  // Canonical verification: caller cannot override using badgeText, isVerified or any presentation prop
+  const isVerified = hasAuthoritativeTitleVerification(propertyData);
+  const badgeText = isVerified ? '🛡️ VERIFIED PROPERTY' : '✨ FEATURED PROPERTY';
 
   ctx.save();
   roundRect(ctx, 36, 36, 260, 58, 10);

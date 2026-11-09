@@ -8,17 +8,134 @@
  * - Deterministic post-generation compliance validation & sanitization
  */
 
-export const RECOGNIZED_AUTHORITY_CODES = ['HSVP', 'CHD', 'GMADA', 'DDA', 'PUDA', 'HRERA'];
-export const APPROVED_AUTHORITY_STATUSES = ['VERIFIED', 'ALLOTTED', 'TRANSFERRED', 'REGISTRY_COMPLETED'];
-export const APPROVED_RERA_STATUSES = ['APPROVED', 'REGISTERED', 'ACTIVE', 'VALID'];
-export const DISALLOWED_RERA_STATUSES = ['EXPIRED', 'REJECTED', 'PENDING', 'REVOKED', 'UNDER_REVIEW', 'SUSPENDED'];
+export const RECOGNIZED_AUTHORITY_CODES = Object.freeze([
+    'HSVP',
+    'CHD',
+    'ESTATE_OFFICE_CHD',
+    'GMADA',
+    'DDA',
+    'PUDA'
+]);
+
+export const APPROVED_AUTHORITY_STATUSES = Object.freeze(['VERIFIED']);
+export const APPROVED_RERA_STATUSES = Object.freeze(['APPROVED', 'REGISTERED', 'ACTIVE', 'VALID']);
+export const DISALLOWED_RERA_STATUSES = Object.freeze([
+    'EXPIRED',
+    'REJECTED',
+    'PENDING',
+    'REVOKED',
+    'UNDER_REVIEW',
+    'SUSPENDED',
+    'UNKNOWN',
+    'NOT_APPROVED',
+    'APPLIED',
+    'IN_PROCESS'
+]);
+
+export const CLEAN_LITIGATION_STATUSES = Object.freeze([
+    'CLEAN',
+    'NONE',
+    'NO_DISPUTE',
+    'CLEAR',
+    'NO_LITIGATION'
+]);
+
+const MAX_VERIFICATION_AGE_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
+const CLOCK_SKEW_TOLERANCE_MS = 60 * 1000; // 1 minute
+
+/**
+ * Validates whether a snapshot identifier is structurally valid.
+ * Must be a non-empty string of at least 3 characters and not a placeholder.
+ */
+function isValidSnapshotId(id) {
+    if (!id || typeof id !== 'string') return false;
+    const s = id.trim();
+    if (s.length < 3) return false;
+    if (['null', 'undefined', 'none', 'n/a', 'false'].includes(s.toLowerCase())) return false;
+    return true;
+}
+
+/**
+ * Validates whether a snapshot content hash is structurally valid.
+ * Requires at least 16 hex or base64/url-safe alphanumeric characters.
+ */
+function isValidContentHash(hash) {
+    if (!hash || typeof hash !== 'string') return false;
+    const s = hash.trim();
+    if (s.length < 16) return false;
+    if (['null', 'undefined', 'none', 'n/a', 'false'].includes(s.toLowerCase())) return false;
+    return /^[0-9a-fA-F]{16,}$/.test(s) || /^[0-9a-zA-Z_-]{16,}$/.test(s);
+}
+
+/**
+ * Validates timestamp freshness within 180 days and rejects future timestamps and malformed dates.
+ */
+function isValidVerificationDate(rawDate) {
+    if (!rawDate) return false;
+    const d = new Date(rawDate);
+    const time = d.getTime();
+    if (isNaN(time)) return false;
+    const now = Date.now();
+    // Reject future timestamps beyond minor clock skew
+    if (time > now + CLOCK_SKEW_TOLERANCE_MS) return false;
+    // Reject timestamps older than 180 days
+    if (now - time > MAX_VERIFICATION_AGE_MS) return false;
+    return true;
+}
+
+/**
+ * Validates explicit clean litigation status.
+ * Missing, null, undefined, or empty litigation information must NEVER automatically be clean.
+ */
+function isExplicitlyCleanLitigation(litStatus) {
+    if (!litStatus || typeof litStatus !== 'string') return false;
+    const norm = litStatus.trim().toUpperCase();
+    return CLEAN_LITIGATION_STATUSES.includes(norm);
+}
+
+/**
+ * Evaluates an authoritative verification evidence block (from authorityVerification or authorityLink).
+ */
+function evaluateAuthoritativeEvidence(evidence) {
+    if (!evidence || typeof evidence !== 'object') return false;
+
+    // 1. Authority code check
+    const rawCode = evidence.authorityCode || evidence.authority;
+    if (!rawCode || typeof rawCode !== 'string') return false;
+    const code = rawCode.trim().toUpperCase();
+    if (!RECOGNIZED_AUTHORITY_CODES.includes(code)) return false;
+
+    // 2. Explicitly approved status (strictly 'VERIFIED')
+    const rawStatus = evidence.authorityStatus || evidence.status || evidence.verificationStatus;
+    if (!rawStatus || typeof rawStatus !== 'string') return false;
+    const status = rawStatus.trim().toUpperCase();
+    // Do NOT treat ALLOTTED or TRANSFERRED as verified legal title
+    if (!APPROVED_AUTHORITY_STATUSES.includes(status)) return false;
+
+    // 3. Freshness date check (within 180 days, not future, not malformed)
+    const rawDate = evidence.lastVerifiedAt || evidence.verifiedAt || evidence.identityVerifiedAt;
+    if (!isValidVerificationDate(rawDate)) return false;
+
+    // 4. Structural validation of snapshot identifier
+    const snapshotId = evidence.verificationSnapshotId || evidence.latestSnapshotId || evidence.snapshotId;
+    if (!isValidSnapshotId(snapshotId)) return false;
+
+    // 5. Structural validation of snapshot content hash
+    const contentHash = evidence.snapshotContentHash || evidence.rawSnapshotHash || evidence.contentHash;
+    if (!isValidContentHash(contentHash)) return false;
+
+    // 6. Explicit clean litigation check (missing litigation NEVER defaults to clean)
+    if (!isExplicitlyCleanLitigation(evidence.litigationStatus)) return false;
+
+    return true;
+}
 
 /**
  * 1. Authoritative Title Verification Contract
  * 
  * Must require a recognized statutory authority verification result backed by
- * concrete evidence (snapshot ID, content hash, or verified audit timestamp)
- * and absence of adverse litigation.
+ * concrete evidence (snapshot ID, content hash, verified audit timestamp within 180 days)
+ * and explicit presence of clean litigation result.
  * Generic booleans (deal.isVerified, deal.titleVerified, etc.) ALONE NEVER qualify.
  * 
  * @param {Object} entity - Deal, Inventory, or Project record
@@ -29,42 +146,31 @@ export function hasAuthoritativeTitleVerification(entity) {
 
     // Check authorityVerification subdocument on entity or entity.inventory
     const av = entity.authorityVerification || entity.inventory?.authorityVerification;
-    if (av && typeof av === 'object') {
-        const code = String(av.authorityCode || '').toUpperCase();
-        const hasRecognizedCode = RECOGNIZED_AUTHORITY_CODES.includes(code);
-        
-        const status = String(av.authorityStatus || av.status || '').toUpperCase();
-        const hasApprovedStatus = APPROVED_AUTHORITY_STATUSES.includes(status);
-        
-        const hasAuditTrail = Boolean(
-            av.verificationSnapshotId ||
-            av.snapshotContentHash ||
-            (av.lastVerifiedAt && !isNaN(new Date(av.lastVerifiedAt).getTime()))
-        );
-
-        const litStatus = String(av.litigationStatus || '').toUpperCase();
-        const isCleanLitigation = !av.litigationStatus || ['CLEAN', 'NONE', 'NO_DISPUTE', 'CLEAR'].includes(litStatus);
-
-        if (hasRecognizedCode && hasApprovedStatus && hasAuditTrail && isCleanLitigation) {
-            return true;
-        }
+    if (av && evaluateAuthoritativeEvidence(av)) {
+        return true;
     }
 
-    // Check PropertyAuthorityLink if attached/present
-    const link = entity.authorityLink || entity.propertyAuthorityLink;
-    if (link && typeof link === 'object') {
-        const code = String(link.authorityCode || '').toUpperCase();
-        const hasRecognizedCode = RECOGNIZED_AUTHORITY_CODES.includes(code);
-        const isIdentityVerified = Boolean(link.identityVerified && link.identityVerifiedAt && !isNaN(new Date(link.identityVerifiedAt).getTime()));
-        const hasSnapshot = Boolean(link.latestSnapshotId || link.compositeKey);
-
-        if (hasRecognizedCode && isIdentityVerified && hasSnapshot) {
-            return true;
-        }
+    // Check PropertyAuthorityLink if attached/present (enforces identical evidence, freshness & litigation)
+    const link = entity.authorityLink || entity.propertyAuthorityLink || entity.inventory?.authorityLink;
+    if (link && evaluateAuthoritativeEvidence(link)) {
+        return true;
     }
 
     // Generic booleans alone (deal.isVerified, deal.titleVerified, etc.) must NEVER bypass evidence
     return false;
+}
+
+export const isAuthoritativelyVerified = hasAuthoritativeTitleVerification;
+
+/**
+ * Validates RERA registration reference string.
+ */
+function isValidReraReference(ref) {
+    if (!ref || typeof ref !== 'string') return false;
+    const s = ref.trim();
+    if (s.length < 3) return false;
+    if (['null', 'undefined', 'pending', 'applied', 'none', 'n/a', 'false'].includes(s.toLowerCase())) return false;
+    return true;
 }
 
 /**
@@ -80,18 +186,28 @@ export function hasAuthoritativeTitleVerification(entity) {
 export function hasAuthoritativeReraApproval(entity) {
     if (!entity || typeof entity !== 'object') return false;
 
-    // Direct reraStatus or reraApprovalStatus
-    const reraStatus = String(entity.reraStatus || entity.reraApprovalStatus || entity.project?.reraStatus || entity.project?.reraApprovalStatus || '').toUpperCase();
+    // Extract potential direct status
+    const rawDirectStatus = entity.reraStatus || entity.reraApprovalStatus || entity.project?.reraStatus || entity.project?.reraApprovalStatus;
+    const directStatus = rawDirectStatus ? String(rawDirectStatus).trim().toUpperCase() : '';
 
-    // Explicitly reject disallowed/unverified states
-    if (DISALLOWED_RERA_STATUSES.includes(reraStatus) || reraStatus === 'UNKNOWN') {
+    // If direct status is explicitly disallowed, immediately fail
+    if (directStatus && DISALLOWED_RERA_STATUSES.includes(directStatus)) {
         return false;
     }
 
-    const hasApprovedStatus = APPROVED_RERA_STATUSES.includes(reraStatus);
-    const hasRegNumber = Boolean(entity.reraNumber || entity.reraRegistrationNumber || entity.project?.reraNumber || entity.reraId);
+    const regNumber = entity.reraNumber || entity.reraRegistrationNumber || entity.project?.reraNumber || entity.project?.reraRegistrationNumber || entity.reraId;
+    const hasValidRegNumber = isValidReraReference(regNumber);
 
-    if (hasApprovedStatus && hasRegNumber) {
+    // Direct status must be explicitly approved AND have valid registration reference
+    if (directStatus && APPROVED_RERA_STATUSES.includes(directStatus) && hasValidRegNumber) {
+        // Check if expiry date is present
+        const expiry = entity.reraValidUntil || entity.reraExpiryDate || entity.project?.reraValidUntil || entity.project?.reraExpiryDate;
+        if (expiry) {
+            const expTime = new Date(expiry).getTime();
+            if (isNaN(expTime) || expTime <= Date.now()) {
+                return false; // Expired or malformed expiry date
+            }
+        }
         return true;
     }
 
@@ -100,19 +216,40 @@ export function hasAuthoritativeReraApproval(entity) {
         ? entity.approvals 
         : (Array.isArray(entity.project?.approvals) ? entity.project.approvals : []);
 
-    const reraApproval = approvals.find(a => {
-        const auth = String(a.approvalAuthority || '').toUpperCase();
-        const docType = String(a.documentType || '').toUpperCase();
-        const isRera = auth === 'RERA' || docType === 'RERA';
-        const itemStatus = String(a.status || '').toUpperCase();
-        const isApproved = APPROVED_RERA_STATUSES.includes(itemStatus) || Boolean(a.registrationNo);
-        const notDisallowed = !DISALLOWED_RERA_STATUSES.includes(itemStatus);
-        const hasValidDate = a.date && !isNaN(new Date(a.date).getTime());
+    for (const a of approvals) {
+        if (!a || typeof a !== 'object') continue;
+        const auth = String(a.approvalAuthority || a.authority || '').trim().toUpperCase();
+        const docType = String(a.documentType || '').trim().toUpperCase();
+        const isRera = auth === 'RERA' || docType === 'RERA' || auth.includes('RERA');
+        if (!isRera) continue;
 
-        return isRera && isApproved && notDisallowed && hasValidDate;
-    });
+        const itemStatus = String(a.status || a.approvalStatus || '').trim().toUpperCase();
+        
+        // Explicitly reject disallowed/unknown statuses
+        if (!itemStatus || DISALLOWED_RERA_STATUSES.includes(itemStatus)) {
+            continue;
+        }
 
-    if (reraApproval) {
+        // Must have an explicitly approved status - NEVER use Boolean(a.registrationNo) as substitute!
+        if (!APPROVED_RERA_STATUSES.includes(itemStatus)) {
+            continue;
+        }
+
+        // Must have a valid registration reference
+        const regRef = a.registrationNo || a.registrationNumber || a.referenceNo || a.approvalNo || a.documentNumber;
+        if (!isValidReraReference(regRef)) {
+            continue;
+        }
+
+        // If expiryDate or validUntil is provided, check that it is not expired
+        const expiryDate = a.expiryDate || a.validUntil || a.validTill;
+        if (expiryDate) {
+            const exp = new Date(expiryDate);
+            if (isNaN(exp.getTime()) || exp.getTime() <= Date.now()) {
+                continue; // Expired or malformed date
+            }
+        }
+
         return true;
     }
 
@@ -129,7 +266,7 @@ export function hasAuthoritativeReraApproval(entity) {
  */
 export function hasAuthoritativeBankApproval(entity) {
     if (!entity || typeof entity !== 'object') return false;
-    const status = String(entity.bankApprovalStatus || entity.project?.bankApprovalStatus || '').toUpperCase();
+    const status = String(entity.bankApprovalStatus || entity.project?.bankApprovalStatus || '').trim().toUpperCase();
     const bank = entity.approvedBank || entity.project?.approvedBank || entity.bankName;
     return Boolean(status === 'APPROVED' && bank);
 }
@@ -144,7 +281,7 @@ export function hasAuthoritativeBankApproval(entity) {
  */
 export function hasAuthoritativeReadyPossession(entity) {
     if (!entity || typeof entity !== 'object') return false;
-    const posStatus = String(entity.possessionStatus || entity.authorityVerification?.possessionStatus || '').toUpperCase();
+    const posStatus = String(entity.possessionStatus || entity.authorityVerification?.possessionStatus || '').trim().toUpperCase();
     if (['READY', 'READY_TO_MOVE', 'IMMEDIATE', 'COMPLETED'].includes(posStatus)) {
         return true;
     }
@@ -174,8 +311,11 @@ export function extractVerificationFacts(entity) {
     const isReadyPossession = hasAuthoritativeReadyPossession(entity);
 
     const av = entity?.authorityVerification || entity?.inventory?.authorityVerification;
-    const authorityCode = av?.authorityCode || entity?.authorityLink?.authorityCode || null;
-    const reraNumber = entity?.reraNumber || entity?.reraRegistrationNumber || entity?.project?.reraNumber || null;
+    const link = entity?.authorityLink || entity?.propertyAuthorityLink || entity?.inventory?.authorityLink;
+    const rawCode = av?.authorityCode || av?.authority || link?.authorityCode || link?.authority || null;
+    const authorityCode = rawCode ? String(rawCode).trim().toUpperCase() : null;
+    const rawRera = entity?.reraNumber || entity?.reraRegistrationNumber || entity?.project?.reraNumber || null;
+    const reraNumber = isValidReraReference(rawRera) ? String(rawRera).trim() : null;
 
     return {
         isTitleVerified,
@@ -183,14 +323,14 @@ export function extractVerificationFacts(entity) {
         isBankApproved,
         isBankLoanApproved: isBankApproved,
         isReadyPossession,
-        authorityCode,
-        titleEvidenceCode: authorityCode,
-        reraNumber
+        authorityCode: isTitleVerified ? authorityCode : null,
+        titleEvidenceCode: isTitleVerified ? authorityCode : null,
+        reraNumber: isReraApproved ? reraNumber : null
     };
 }
 
 /**
- * Generate compliant, neutral fallback copy for all tones
+ * Generate compliant, neutral fallback copy for all tones.
  * Ensures zero unsupported claims when evidence is missing.
  */
 export function generateCompliantFallback(deal = {}, platform = 'facebook', options = {}, facts = null) {
@@ -291,15 +431,17 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     let sanitized = text;
 
     // A. PROHIBITED INVESTMENT CLAIMS (Strictly prohibited regardless of verification status)
-    // Real estate regulations prohibit guaranteeing returns or appreciation
     const prohibitedGuarantees = [
         /\bguaranteed\s+(returns?|yield|appreciation|growth|rental)\b/gi,
         /\bproven\s+capital\s+appreciation\b/gi,
         /\bstrong\s+rental\s+yield(\s+potential)?\b/gi,
+        /\b(high-yield|high\s+yield)\s+(investment|opportunity|asset|returns?)\b/gi,
+        /\b(high-yield|high\s+yield)\b/gi,
         /\bassured\s+(returns?|appreciation|growth|rental)\b/gi,
-        /\brisk-free\s+investment\b/gi,
-        /\bzero\s+risk\s+investment\b/gi,
-        /\b100%\s+guaranteed\b/gi
+        /\brisk-free\s+(investment|asset)?\b/gi,
+        /\bzero\s+risk\s+(investment|asset)?\b/gi,
+        /\b100%\s+guaranteed\b/gi,
+        /\b100%\s+safe\s+investment\b/gi
     ];
 
     for (const pat of prohibitedGuarantees) {
@@ -313,7 +455,8 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
 
     // B. TITLE & REGISTRY CLAIMS
     const titlePatterns = [
-        /\b100%\s+verified\s+title\s*(&\s*clear\s+registry)?\b/gi,
+        /\b100%\s+verified\s+(registry\s+)?title\s*(&\s*clear\s+registry)?\b/gi,
+        /\b100%\s+verified\s+registry\s+title\b/gi,
         /\bverified\s+title\s*(&\s*clear\s+registry)?\b/gi,
         /\bclear\s+registry\b/gi,
         /\bclear\s+title\b/gi,
@@ -352,6 +495,7 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     // D. BANK LOAN CLAIMS
     const loanPatterns = [
         /\bbank\s+loan\s+approved\b/gi,
+        /\bbank\s+loan\s+approval\b/gi,
         /\bpre-approved\s+loan[s]?\b/gi,
         /\bloan\s+approved\b/gi
     ];
@@ -386,7 +530,7 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
     // Check if any unsupported claim stubbornly remains
     let hasRemainingViolations = false;
     if (!facts?.isTitleVerified) {
-        if (/verified title|clear registry|clear documentation|documented property/i.test(sanitized)) {
+        if (/verified title|clear registry|clear documentation|documented property|verified registry/i.test(sanitized)) {
             hasRemainingViolations = true;
         }
     }
@@ -395,7 +539,7 @@ export function validateAndSanitizeCopy(text, facts, context = {}) {
             hasRemainingViolations = true;
         }
     }
-    if (/guaranteed (returns?|yield|appreciation)|proven capital appreciation|strong rental yield/i.test(sanitized)) {
+    if (/guaranteed (returns?|yield|appreciation)|proven capital appreciation|strong rental yield|high-yield/i.test(sanitized)) {
         hasRemainingViolations = true;
     }
 
