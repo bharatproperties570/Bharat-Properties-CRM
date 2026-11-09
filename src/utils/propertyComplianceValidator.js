@@ -38,13 +38,49 @@ export const TRUSTED_SYSTEM_SERVICES = Object.freeze([
 
 export const TRUSTED_SYSTEM_VERIFIER_IDS = TRUSTED_SYSTEM_SERVICES;
 
+export const STATUTORY_VERIFIER_PERMISSIONS = Object.freeze({
+    module: 'authorityVerification',
+    actions: Object.freeze(['view', 'edit']),
+    approvalRight: 'approveAuthorityChanges'
+});
+
+/**
+ * Checks whether a freshly populated Role document satisfies the complete statutory verifier permission contract.
+ * Rejects:
+ * - Role name alone as authorization.
+ * - `canApproveDeal` alone.
+ * - Generic module access alone (e.g. view only).
+ * - Approval right alone (without authorityVerification edit permission).
+ * - Missing or deleted Role.
+ * 
+ * @param {Object} role - Populated Role document
+ * @returns {boolean} True only if role contains complete compliance permission set
+ */
+export function hasStatutoryVerifierPermissions(role) {
+    if (!role || typeof role !== 'object') return false;
+    if (role.isDeleted === true || role.deletedAt) return false;
+
+    const authModule = role.moduleAccess?.authorityVerification;
+    const approvalRights = role.approvalRights;
+    if (!authModule || !approvalRights) return false;
+
+    // Must hold full statutory verification authority:
+    // View + Edit within authorityVerification module AND approveAuthorityChanges approval right
+    const hasView = authModule.view === true;
+    const hasEdit = authModule.edit === true;
+    const hasApprovalRight = approvalRights.approveAuthorityChanges === true;
+
+    return (hasView && hasEdit && hasApprovalRight);
+}
+
 /**
  * Enforces the trusted verifier authorization contract.
  * Rejects:
  * - Bare verifierId strings without verified authorization context.
  * - Bare verifierRole strings from untrusted audit documents (untrusted role claims).
- * - Inactive users (isActive: false or status !== 'active').
- * - Revoked or non-compliance permissions.
+ * - Inactive, suspended, or deleted users.
+ * - Trusted role names without required statutory verification permissions.
+ * - canApproveDeal alone or generic approval rights alone.
  * - Arbitrary ObjectIds or structured IDs matching regexes without trusted authorization proof.
  * - Arbitrary system ID strings without authentic internal system execution authentication / HMAC signature.
  * 
@@ -82,28 +118,18 @@ export function isAuthorizedVerifier(verifierId, auditContext = null, parentEnti
         const userIdStr = String(user._id || user.id || '').trim();
         if (!userIdStr || userIdStr !== vId) return false;
 
-        // Active state verification
+        // Active state verification: must be active, not suspended/inactive, not soft-deleted
         if (user.isActive !== true || user.status !== 'active') return false;
         if (user.isDeleted === true || user.deletedAt) return false;
 
-        // Role & permission check: User must hold compliance authorization
-        const roleName = String(user.roleName || user.role?.name || user.role || '').trim().toUpperCase().replace(/\s+/g, '_');
-        const hasTrustedRole = TRUSTED_VERIFIER_ROLES.includes(roleName) || roleName === 'COMPLIANCE_OFFICER' || roleName === 'COMPLIANCE_ADMIN' || roleName === 'BANK_OFFICER';
+        // Role & permission check: User must hold the complete statutory verifier permission set
+        // Role name alone is NOT authorization; canApproveDeal alone is NOT authority verification
+        const role = user.role;
+        if (!role || typeof role !== 'object' || role.isDeleted === true || role.deletedAt) {
+            return false;
+        }
 
-        const roleObj = (user.role && typeof user.role === 'object') ? user.role : {};
-        const hasModuleAccess = Boolean(
-            roleObj.moduleAccess?.authorityVerification?.view &&
-            (roleObj.moduleAccess?.authorityVerification?.create || roleObj.moduleAccess?.authorityVerification?.edit)
-        );
-        const hasApprovalRight = Boolean(
-            roleObj.approvalRights?.approveAuthorityChanges ||
-            roleObj.approvalRights?.manageAuthoritySettings ||
-            user.approvalRights?.approveAuthorityChanges ||
-            user.approvalRights?.manageAuthoritySettings
-        );
-        const hasDealApproval = Boolean(user.financialPermissions?.canApproveDeal || roleObj.approvalRights?.approveDeal);
-
-        if (!hasTrustedRole && !hasModuleAccess && !hasApprovalRight && !hasDealApproval) {
+        if (!hasStatutoryVerifierPermissions(role)) {
             return false;
         }
 
@@ -115,7 +141,7 @@ export function isAuthorizedVerifier(verifierId, auditContext = null, parentEnti
         if (!TRUSTED_SYSTEM_SERVICES.includes(sysId)) {
             return false;
         }
-        // Must be authenticated by trusted internal system execution / HMAC signature
+        // Must be authenticated by trusted internal system execution / cryptographic HMAC signature
         if (auditContext._systemAuthenticated !== true) {
             return false;
         }
@@ -531,15 +557,25 @@ export function hasAuthoritativeDocumentProvenance(doc, parentEntity = null) {
     if (currentVerId && auditVerId !== currentVerId) return false;
     if (resolvedVerId && auditVerId !== resolvedVerId) return false;
 
-    // 3. entityId (mandatory)
+    // 3. entityId (mandatory, must match rec.entityId so Document ownership and audit ownership never contradict)
     if (!audit.entityId) return false;
     const auditEntId = String(audit.entityId?._id || audit.entityId).trim();
     if (!auditEntId) return false;
+    const recEntId = String(rec.entityId?._id || rec.entityId || '').trim();
+    if (recEntId && auditEntId !== recEntId) {
+        // Document ownership and audit ownership contradict each other -> FAIL CLOSED
+        return false;
+    }
 
-    // 4. entityType (mandatory)
+    // 4. entityType (mandatory, must match rec.entityType)
     if (!audit.entityType) return false;
     const auditEntType = String(audit.entityType).trim();
     if (!['Deal', 'Project', 'Inventory'].includes(auditEntType)) {
+        return false;
+    }
+    const recEntType = String(rec.entityType || '').trim();
+    if (recEntType && auditEntType !== recEntType) {
+        // Document entityType and audit entityType contradict each other -> FAIL CLOSED
         return false;
     }
 
@@ -706,22 +742,41 @@ function hasReraProvenance(item, parentEntity = null) {
             return false;
         }
 
-        // Operational status
-        if (link.isActive === false) return false;
+        // P0 (Round 7): Operational status must be explicit positive state
+        if (link.isActive !== true) return false;
 
-        // P0: Require identityVerified === true
+        // P0: Require explicit positive state identityVerified === true
         if (link.identityVerified !== true) {
             return false;
         }
 
         // P0: Require exact permitted match eligibility state (strictly 'ELIGIBLE')
-        // Reject INCOMPLETE, AMBIGUOUS, NEEDS_REVIEW, INELIGIBLE
+        // Reject missing, null, undefined, INCOMPLETE, AMBIGUOUS, NEEDS_REVIEW, INELIGIBLE
         if (link.matchEligibility !== 'ELIGIBLE') {
             return false;
         }
 
-        // P0: Tenant alignment between snapshot and link
-        if (!snap.tenantId || !link.tenantId || String(snap.tenantId) !== String(link.tenantId)) {
+        // P0 (Round 7): Positive state and synthetic protection on snapshot
+        if (snap.isSealed !== true) return false;
+        if (snap.isRevoked === true || snap.status === 'REVOKED') return false;
+        if (snap.dataQuality?.status === 'RESTRICTED') return false;
+        if (snap.isSynthetic === true) return false;
+        if (snap.provenance === 'SYNTHETIC_FIXTURE') return false;
+        // Require authentic permitted production evidence provenance ('LIVE')
+        if (!snap.provenance || snap.provenance !== 'LIVE') return false;
+
+        // P0 (Round 7): Strict 3-way tenant binding across snapshot, link, and canonical entity
+        const parentTenantId = String(parentEntity?.tenantId?._id || parentEntity?.tenantId || '').trim();
+        if (!parentTenantId) {
+            // Canonical entity lacks mandatory tenantId -> FAIL CLOSED
+            return false;
+        }
+
+        const snapTenantId = String(snap.tenantId?._id || snap.tenantId || '').trim();
+        const linkTenantId = String(link.tenantId?._id || link.tenantId || '').trim();
+
+        if (!snapTenantId || !linkTenantId || snapTenantId !== linkTenantId || snapTenantId !== parentTenantId || linkTenantId !== parentTenantId) {
+            // Tenant mismatch across snapshot, link, or canonical entity -> FAIL CLOSED
             return false;
         }
 
@@ -762,11 +817,23 @@ function hasReraProvenance(item, parentEntity = null) {
                 // Deal has no linked inventory -> FAIL CLOSED
                 return false;
             }
-            matchesEntity = (linkInventoryId === dealInvId);
+            if (linkInventoryId === dealInvId) {
+                // Verify linked inventory tenant matches canonical organization boundary
+                const dealInvTenant = String(link._resolvedDealInventory?.tenantId?._id || link._resolvedDealInventory?.tenantId || parentEntity?.inventory?.tenantId?._id || parentEntity?.inventory?.tenantId || '').trim();
+                if (dealInvTenant && dealInvTenant !== parentTenantId) {
+                    return false;
+                }
+                matchesEntity = true;
+            }
         } else if (parentType === 'Project') {
             // Project: resolve genuine schema-supported Project-to-Inventory relationship
             const projInv = link._resolvedProjectInventory;
             if (projInv && String(projInv.projectId?._id || projInv.projectId) === parentId) {
+                // Verify project inventory belongs to same canonical tenant
+                const projInvTenant = String(projInv.tenantId?._id || projInv.tenantId || '').trim();
+                if (projInvTenant && projInvTenant !== parentTenantId) {
+                    return false;
+                }
                 matchesEntity = true;
             } else {
                 return false; // No verified project inventory relationship -> FAIL CLOSED
@@ -777,12 +844,6 @@ function hasReraProvenance(item, parentEntity = null) {
             // Snapshot linked to another property -> FAIL CLOSED
             return false;
         }
-
-        // Sealing and revocation
-        if (snap.isRevoked === true || snap.status === 'REVOKED' || snap.isSealed === false) return false;
-
-        // Data quality restrictions
-        if (snap.dataQuality?.status === 'RESTRICTED') return false;
 
         // Validate verification audit / authorized verifier
         const verifier = snap.createdByWorkerId || snap.verifiedBy || snap.verifierId || snap.runItemId || snap.fenceToken;

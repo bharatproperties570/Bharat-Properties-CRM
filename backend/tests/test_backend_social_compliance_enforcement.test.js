@@ -1,5 +1,6 @@
 process.env.NODE_ENV = 'test';
 process.env.ALLOW_TRANSACTION_TEST_FALLBACK = 'true';
+process.env.SYSTEM_SERVICE_SECRET = 'a-secure-32-byte-system-service-secret-for-testing-entropy-001';
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -44,6 +45,7 @@ import {
     validateAuthoritativeDocumentRecord,
     hasAuthoritativeDocumentProvenance,
     isAuthorizedVerifier,
+    hasStatutoryVerifierPermissions,
     TRUSTED_VERIFIER_ROLES,
     TRUSTED_SYSTEM_VERIFIER_IDS,
     extractVerificationFacts,
@@ -379,6 +381,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             linkId: authLink._id,
             isSealed: true,
             isRevoked: false,
+            isSynthetic: false,
+            provenance: 'LIVE',
             contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
             observedAt: new Date(),
             createdByWorkerId: 'WORKER-AUTH-101',
@@ -897,7 +901,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                             fullName: 'Compliance Officer',
                             isActive: true,
                             status: 'active',
-                            roleName: 'BANK_OFFICER'
+                            roleName: 'BANK_OFFICER',
+                            role: {
+                                name: 'Compliance Officer',
+                                moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                approvalRights: { approveAuthorityChanges: true }
+                            }
                         },
                         verifierId: String(complianceUser._id),
                         verifiedAt: new Date(),
@@ -1014,7 +1023,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                             fullName: 'Compliance Officer',
                             isActive: true,
                             status: 'active',
-                            roleName: 'COMPLIANCE_OFFICER'
+                            roleName: 'COMPLIANCE_OFFICER',
+                            role: {
+                                name: 'Compliance Officer',
+                                moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                approvalRights: { approveAuthorityChanges: true }
+                            }
                         },
                         verifierId: String(complianceUser._id),
                         verifiedAt: new Date(),
@@ -1069,7 +1083,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                                 fullName: 'Compliance Officer',
                                 isActive: true,
                                 status: 'active',
-                                roleName: 'COMPLIANCE_OFFICER'
+                                roleName: 'COMPLIANCE_OFFICER',
+                                role: {
+                                    name: 'Compliance Officer',
+                                    moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                    approvalRights: { approveAuthorityChanges: true }
+                                }
                             },
                             verifierId: String(complianceUser._id),
                             verifiedAt: new Date(),
@@ -1139,6 +1158,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 verifiedAt: new Date(),
                 status: 'APPROVED',
                 createdByWorkerId: 'WORKER_RERA_SYNC',
+                isSealed: true,
+                isRevoked: false,
+                isSynthetic: false,
+                provenance: 'LIVE',
                 _resolvedLink: {
                     _isResolverVerified: true,
                     tenantId: reraTestTenantId,
@@ -1191,7 +1214,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                                 fullName: 'Senior Compliance Officer',
                                 isActive: true,
                                 status: 'active',
-                                roleName: 'COMPLIANCE_OFFICER'
+                                roleName: 'COMPLIANCE_OFFICER',
+                                role: {
+                                    name: 'Compliance Officer',
+                                    moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                    approvalRights: { approveAuthorityChanges: true }
+                                }
                             },
                             verifierId: String(complianceUser._id),
                             verifiedAt: new Date(),
@@ -2146,7 +2174,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                                 fullName: 'Senior Compliance Officer',
                                 isActive: true,
                                 status: 'active',
-                                roleName: 'COMPLIANCE_OFFICER'
+                                roleName: 'COMPLIANCE_OFFICER',
+                                role: {
+                                    name: 'Compliance Officer',
+                                    moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                    approvalRights: { approveAuthorityChanges: true }
+                                }
                             },
                             verifierId: String(complianceUser._id),
                             verifiedAt: new Date(),
@@ -2377,7 +2410,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                             fullName: 'Senior Compliance Officer',
                             roleName: 'COMPLIANCE_OFFICER',
                             isActive: true,
-                            status: 'active'
+                            status: 'active',
+                            role: {
+                                name: 'Compliance Officer',
+                                moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                approvalRights: { approveAuthorityChanges: true }
+                            }
                         },
                         verifierId: validVerId,
                         verifiedAt: new Date(),
@@ -2461,6 +2499,8 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 linkId: link._id,
                 isSealed: true,
                 isRevoked: false,
+                isSynthetic: false,
+                provenance: 'LIVE',
                 contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
                 observedAt: new Date(),
                 createdByWorkerId: 'WORKER-101',
@@ -3094,7 +3134,10 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             });
 
             const verifiedTime = new Date();
-            const validSig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime);
+            const validSig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {
+                entityId: dealId,
+                documentId: 'doc-sys-auth'
+            });
 
             await Document.create({
                 documentId: 'doc-sys-auth',
@@ -3170,7 +3213,12 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     _id: String(complianceUser._id),
                     isActive: true,
                     status: 'active',
-                    roleName: 'COMPLIANCE_OFFICER'
+                    roleName: 'COMPLIANCE_OFFICER',
+                    role: {
+                        name: 'Compliance Officer',
+                        moduleAccess: { authorityVerification: { view: true, edit: true } },
+                        approvalRights: { approveAuthorityChanges: true }
+                    }
                 },
                 verifierId: String(complianceUser._id),
                 verifiedAt: new Date(),
@@ -3467,6 +3515,584 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
             await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(fakeEntity);
             assert.equal(fakeEntity._resolvedSnapshot, null, 'Client-injected snapshot must be wiped by resolver');
             assert.equal(fakeEntity.authorityVerification.snapshotRecord, null, 'Client-injected snapshotRecord must be wiped by resolver');
+        });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SECTION 14: ROUND 7 FINAL TRUST BOUNDARY HARDENING SUITE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe('Section 14 — Round 7 Final Trust Boundary Hardening Suite', () => {
+        // ========== 1. STRICT STATUTORY VERIFIER AUTHORIZATION ==========
+        it('Statutory Verifier: Trusted role name without required permissions fails closed', () => {
+            const auditContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    role: {
+                        name: 'COMPLIANCE_OFFICER',
+                        moduleAccess: { authorityVerification: { view: true, edit: false } },
+                        approvalRights: { approveAuthorityChanges: true }
+                    }
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', auditContext), false, 'Missing edit permission must fail closed');
+        });
+
+        it('Statutory Verifier: canApproveDeal alone fails closed', () => {
+            const auditContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    role: {
+                        name: 'Manager',
+                        canApproveDeal: true,
+                        moduleAccess: {},
+                        approvalRights: {}
+                    }
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', auditContext), false, 'canApproveDeal alone must not grant statutory verification rights');
+        });
+
+        it('Statutory Verifier: view permission alone fails closed', () => {
+            const auditContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    role: {
+                        name: 'Auditor',
+                        moduleAccess: { authorityVerification: { view: true, edit: false } },
+                        approvalRights: { approveAuthorityChanges: false }
+                    }
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', auditContext), false, 'View-only access must fail closed');
+        });
+
+        it('Statutory Verifier: approvalRights alone without module edit fails closed', () => {
+            const auditContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    role: {
+                        name: 'Approver',
+                        moduleAccess: { authorityVerification: { view: false, edit: false } },
+                        approvalRights: { approveAuthorityChanges: true }
+                    }
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', auditContext), false, 'Approval rights without module edit must fail closed');
+        });
+
+        it('Statutory Verifier: Inactive, suspended, or deleted user fails closed', () => {
+            const validRole = {
+                moduleAccess: { authorityVerification: { view: true, edit: true } },
+                approvalRights: { approveAuthorityChanges: true }
+            };
+
+            const inactiveContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: false, // Inactive!
+                    status: 'active',
+                    role: validRole
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', inactiveContext), false);
+
+            const suspendedContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'suspended', // Suspended!
+                    role: validRole
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', suspendedContext), false);
+
+            const deletedContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    isDeleted: true, // Deleted!
+                    role: validRole
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', deletedContext), false);
+        });
+
+        it('Statutory Verifier: Missing or deleted Role fails closed', () => {
+            const noRoleContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    role: null
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', noRoleContext), false);
+
+            const deletedRoleContext = {
+                _verifierAuthorized: true,
+                _authorizedVerifierType: 'USER',
+                _verifierUser: {
+                    _id: '66f19ce95b90dffc37482fed',
+                    isActive: true,
+                    status: 'active',
+                    role: {
+                        isDeleted: true,
+                        moduleAccess: { authorityVerification: { view: true, edit: true } },
+                        approvalRights: { approveAuthorityChanges: true }
+                    }
+                }
+            };
+            assert.equal(isAuthorizedVerifier('66f19ce95b90dffc37482fed', deletedRoleContext), false);
+        });
+
+        it('Statutory Verifier: Immediate revocation enforcement on fresh verification resolution', async () => {
+            const revRole = await Role.create({
+                name: 'Temporary Compliance Lead',
+                department: 'marketing',
+                moduleAccess: { authorityVerification: { view: true, edit: true } },
+                approvalRights: { approveAuthorityChanges: true }
+            });
+            const revUser = await User.create({
+                fullName: 'Revocable Verifier',
+                email: 'revocable@bharatproperties.co',
+                password: 'MockHashedPassword123!',
+                department: 'marketing',
+                role: revRole._id,
+                isActive: true,
+                status: 'active',
+                tenantId: verifiedDeal.tenantId
+            });
+
+            const dealId = new mongoose.Types.ObjectId();
+            const docVer = await DocumentVersion.create({
+                versionId: 'ver-rev-test',
+                documentId: 'doc-rev-test',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/rev-test.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            await Document.create({
+                documentId: 'doc-rev-test',
+                entityType: 'Deal',
+                entityId: dealId,
+                metadata: { documentCategory: 'BANK_APPROVAL' },
+                currentVersionId: docVer._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-rev-test',
+                    versionId: String(docVer._id),
+                    entityId: dealId,
+                    entityType: 'Deal',
+                    verifierId: String(revUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            // 1. Initial resolution succeeds
+            const testCandidate = { documentId: 'doc-rev-test' };
+            const dealTest = { _id: dealId, _entityType: 'Deal', bankApproval: testCandidate };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(dealTest);
+            assert.ok(testCandidate.documentRecord, 'Must resolve with active permissions');
+
+            // 2. Revoke approval permission on Role
+            revRole.approvalRights.approveAuthorityChanges = false;
+            await revRole.save();
+
+            // 3. Fresh resolution must fail closed
+            const freshCandidate = { documentId: 'doc-rev-test' };
+            const freshDealTest = { _id: dealId, _entityType: 'Deal', bankApproval: freshCandidate };
+            await marketingComplianceEnforcementService.resolveAuthoritativeEvidence(freshDealTest);
+            assert.equal(freshCandidate.documentRecord, null, 'Must fail closed immediately when permission is revoked');
+        });
+
+        // ========== 2. SYSTEM HMAC SECRET INTEGRITY ==========
+        it('System Secret: Missing or weak secret fails closed', () => {
+            const verifiedTime = new Date();
+            // Test weak secret (< 32 chars)
+            assert.throws(() => {
+                generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {}, 'short-secret');
+            }, /SYSTEM_SERVICE_SECRET_UNAVAILABLE/);
+
+            // Test former insecure hard-coded fallback secret
+            assert.throws(() => {
+                generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {}, 'crm-system-service-internal-secret-phase6-compliance');
+            }, /SYSTEM_SERVICE_SECRET_UNAVAILABLE/);
+        });
+
+        it('System Secret: Context tampering (entityId or documentId) fails closed', () => {
+            const verifiedTime = new Date();
+            const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, {
+                entityId: 'deal-123',
+                documentId: 'doc-123'
+            });
+
+            // Valid signature with exact matching context passes
+            assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                entityId: 'deal-123',
+                documentId: 'doc-123'
+            }), true);
+
+            // Mismatched entityId fails
+            assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                entityId: 'deal-TAMPERED',
+                documentId: 'doc-123'
+            }), false);
+
+            // Mismatched documentId fails
+            assert.equal(verifySystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', verifiedTime, sig, {
+                entityId: 'deal-123',
+                documentId: 'doc-TAMPERED'
+            }), false);
+
+            // Wrong service ID fails
+            assert.equal(verifySystemServiceSignature('FORGED_SERVICE_ID', verifiedTime, sig, {
+                entityId: 'deal-123',
+                documentId: 'doc-123'
+            }), false);
+        });
+
+        it('System Secret: Forged plain JS object without valid HMAC signature fails closed', async () => {
+            const fakeSysDoc = {
+                documentId: 'doc-fake-sys',
+                documentRecord: {
+                    _isResolverVerified: true,
+                    documentId: 'doc-fake-sys',
+                    entityType: 'Deal',
+                    entityId: '66f19ce95b90dffc37482fed',
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-fake-1',
+                    currentVersion: { _id: 'ver-fake-1', checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        _verifierAuthorized: true,
+                        _authorizedVerifierType: 'SYSTEM',
+                        _systemAuthenticated: false, // Not cryptographically authenticated!
+                        verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        verifiedAt: new Date(),
+                        outcome: 'APPROVED',
+                        documentId: 'doc-fake-sys',
+                        versionId: 'ver-fake-1',
+                        entityId: '66f19ce95b90dffc37482fed',
+                        entityType: 'Deal'
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(fakeSysDoc), false, 'System verifier without authenticated HMAC must fail closed');
+        });
+
+        // ========== 3. POSITIVE VERIFIED STATES & SYNTHETIC SNAPSHOT PROTECTION ==========
+        it('Positive Verified States: Missing or false states fail closed', () => {
+            const tId = new mongoose.Types.ObjectId();
+            const propId = new mongoose.Types.ObjectId();
+            const baseSnap = {
+                _isResolverVerified: true,
+                snapshotId: 'snap-test-pos',
+                authorityCode: 'HRERA',
+                source: 'RERA_PORTAL',
+                tenantId: tId,
+                contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                verifiedAt: new Date(),
+                observedAt: new Date(),
+                status: 'APPROVED',
+                createdByWorkerId: 'WORKER_RERA_SYNC',
+                isSealed: true,
+                isRevoked: false,
+                isSynthetic: false,
+                provenance: 'LIVE',
+                _resolvedLink: {
+                    _isResolverVerified: true,
+                    tenantId: tId,
+                    inventoryId: propId,
+                    propertyId: 'PLOT-POS-1',
+                    authorityCode: 'HRERA',
+                    identityVerified: true,
+                    matchEligibility: 'ELIGIBLE',
+                    isActive: true
+                }
+            };
+
+            const baseEntity = {
+                _id: propId,
+                _entityType: 'Inventory',
+                tenantId: tId,
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                source: 'RERA_PORTAL',
+                lastVerifiedAt: new Date()
+            };
+
+            // 1. isSealed missing/false
+            const unsealed = { ...baseEntity, _resolvedSnapshot: { ...baseSnap, isSealed: false } };
+            assert.equal(hasAuthoritativeReraApproval(unsealed), false, 'Unsealed snapshot must fail');
+
+            // 2. isRevoked === true
+            const revoked = { ...baseEntity, _resolvedSnapshot: { ...baseSnap, isRevoked: true } };
+            assert.equal(hasAuthoritativeReraApproval(revoked), false, 'Revoked snapshot must fail');
+
+            // 3. dataQuality status RESTRICTED
+            const restricted = { ...baseEntity, _resolvedSnapshot: { ...baseSnap, dataQuality: { status: 'RESTRICTED' } } };
+            assert.equal(hasAuthoritativeReraApproval(restricted), false, 'Restricted snapshot must fail');
+
+            // 4. isSynthetic === true
+            const synthetic = { ...baseEntity, _resolvedSnapshot: { ...baseSnap, isSynthetic: true } };
+            assert.equal(hasAuthoritativeReraApproval(synthetic), false, 'Synthetic snapshot must fail');
+
+            // 5. provenance === 'SYNTHETIC_FIXTURE'
+            const fixture = { ...baseEntity, _resolvedSnapshot: { ...baseSnap, provenance: 'SYNTHETIC_FIXTURE' } };
+            assert.equal(hasAuthoritativeReraApproval(fixture), false, 'Synthetic fixture provenance must fail');
+
+            // 6. missing/unrecognized provenance
+            const unknownProv = { ...baseEntity, _resolvedSnapshot: { ...baseSnap, provenance: undefined } };
+            assert.equal(hasAuthoritativeReraApproval(unknownProv), false, 'Missing provenance must fail');
+
+            // 7. link.isActive === false
+            const inactiveLink = {
+                ...baseEntity,
+                _resolvedSnapshot: {
+                    ...baseSnap,
+                    _resolvedLink: { ...baseSnap._resolvedLink, isActive: false }
+                }
+            };
+            assert.equal(hasAuthoritativeReraApproval(inactiveLink), false, 'Inactive link must fail');
+
+            // 8. link.matchEligibility !== 'ELIGIBLE'
+            const ineligibleLink = {
+                ...baseEntity,
+                _resolvedSnapshot: {
+                    ...baseSnap,
+                    _resolvedLink: { ...baseSnap._resolvedLink, matchEligibility: 'NEEDS_REVIEW' }
+                }
+            };
+            assert.equal(hasAuthoritativeReraApproval(ineligibleLink), false, 'Non-ELIGIBLE match eligibility must fail');
+
+            // 9. Authentic live sealed snapshot passes
+            const authentic = { ...baseEntity, _resolvedSnapshot: baseSnap };
+            assert.equal(hasAuthoritativeReraApproval(authentic), true, 'Authentic live sealed snapshot must pass');
+        });
+
+        // ========== 4. STRICT 3-WAY TENANT BINDING ==========
+        it('Tenant Binding: Mismatches across snapshot, link, canonical entity, or inventory fail closed', () => {
+            const orgTenant = new mongoose.Types.ObjectId();
+            const foreignTenant = new mongoose.Types.ObjectId();
+            const propId = new mongoose.Types.ObjectId();
+
+            const createValidSetup = (snapT, linkT, entT) => ({
+                _id: propId,
+                _entityType: 'Inventory',
+                tenantId: entT,
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: {
+                    _isResolverVerified: true,
+                    snapshotId: 'snap-tenant-test',
+                    authorityCode: 'HRERA',
+                    source: 'RERA_PORTAL',
+                    tenantId: snapT,
+                    contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    verifiedAt: new Date(),
+                    status: 'APPROVED',
+                    isSealed: true,
+                    isRevoked: false,
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    _resolvedLink: {
+                        _isResolverVerified: true,
+                        tenantId: linkT,
+                        inventoryId: propId,
+                        propertyId: 'PLOT-T-1',
+                        authorityCode: 'HRERA',
+                        identityVerified: true,
+                        matchEligibility: 'ELIGIBLE',
+                        isActive: true
+                    }
+                }
+            });
+
+            // Missing canonical entity tenant
+            const missingEntT = createValidSetup(orgTenant, orgTenant, undefined);
+            assert.equal(hasAuthoritativeReraApproval(missingEntT), false, 'Missing entity tenant must fail');
+
+            // Snapshot tenant mismatch
+            const snapMismatch = createValidSetup(foreignTenant, orgTenant, orgTenant);
+            assert.equal(hasAuthoritativeReraApproval(snapMismatch), false, 'Snapshot foreign tenant must fail');
+
+            // Link tenant mismatch
+            const linkMismatch = createValidSetup(orgTenant, foreignTenant, orgTenant);
+            assert.equal(hasAuthoritativeReraApproval(linkMismatch), false, 'Link foreign tenant must fail');
+
+            // Entity tenant mismatch with snapshot/link
+            const entMismatch = createValidSetup(orgTenant, orgTenant, foreignTenant);
+            assert.equal(hasAuthoritativeReraApproval(entMismatch), false, 'Entity foreign tenant must fail');
+
+            // Deal linked Inventory foreign tenant mismatch
+            const dealWithForeignInv = {
+                _id: new mongoose.Types.ObjectId(),
+                _entityType: 'Deal',
+                tenantId: orgTenant,
+                inventoryId: propId,
+                reraNumber: 'HRERA-101',
+                reraStatus: 'APPROVED',
+                _resolvedSnapshot: {
+                    _isResolverVerified: true,
+                    snapshotId: 'snap-tenant-deal',
+                    authorityCode: 'HRERA',
+                    source: 'RERA_PORTAL',
+                    tenantId: orgTenant,
+                    contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                    verifiedAt: new Date(),
+                    status: 'APPROVED',
+                    isSealed: true,
+                    isRevoked: false,
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    _resolvedLink: {
+                        _isResolverVerified: true,
+                        tenantId: orgTenant,
+                        inventoryId: propId,
+                        propertyId: 'PLOT-T-1',
+                        authorityCode: 'HRERA',
+                        identityVerified: true,
+                        matchEligibility: 'ELIGIBLE',
+                        isActive: true,
+                        _resolvedDealInventory: {
+                            _id: propId,
+                            tenantId: foreignTenant // Foreign inventory tenant!
+                        }
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeReraApproval(dealWithForeignInv), false, 'Deal linked inventory with foreign tenant must fail');
+        });
+
+        // ========== 5. DOCUMENT AUDIT IMMUTABILITY & LINKAGE ==========
+        it('Document Audit Immutability: Ordinary mutations to verificationAudit are rejected', async () => {
+            const ver = await DocumentVersion.create({
+                versionId: 'ver-immut-1',
+                documentId: 'doc-immut-1',
+                versionNumber: 1,
+                providerInstanceId: 's3-primary',
+                objectKey: 'documents/immut-1.pdf',
+                checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                mimeType: 'application/pdf',
+                sizeBytes: 1024
+            });
+
+            const doc = await Document.create({
+                documentId: 'doc-immut-1',
+                entityType: 'Deal',
+                entityId: new mongoose.Types.ObjectId(),
+                currentVersionId: ver._id,
+                state: 'ACTIVE',
+                verificationAudit: {
+                    documentId: 'doc-immut-1',
+                    versionId: String(ver._id),
+                    entityId: new mongoose.Types.ObjectId(),
+                    entityType: 'Deal',
+                    verifierId: String(complianceUser._id),
+                    verifiedAt: new Date(),
+                    outcome: 'APPROVED'
+                }
+            });
+
+            // Ordinary save attempt to mutate verificationAudit throws error
+            doc.verificationAudit = { ...doc.verificationAudit, outcome: 'VERIFIED' };
+            await assert.rejects(async () => {
+                await doc.save();
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+            // Ordinary updateOne attempt to mutate verificationAudit throws error
+            await assert.rejects(async () => {
+                await Document.updateOne(
+                    { _id: doc._id },
+                    { $set: { 'verificationAudit.outcome': 'REJECTED' } }
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+            // Ordinary findOneAndUpdate attempt to mutate metadata.verificationAudit throws error
+            await assert.rejects(async () => {
+                await Document.findOneAndUpdate(
+                    { _id: doc._id },
+                    { $set: { 'metadata.verificationAudit.outcome': 'REJECTED' } }
+                );
+            }, /IMMUTABLE_VERIFICATION_AUDIT/);
+
+            // Authorized audit workflow succeeds
+            await Document.updateOne(
+                { _id: doc._id },
+                { $set: { isRevoked: true } },
+                { isAuthorizedAuditWorkflow: true }
+            );
+        });
+
+        it('Document Audit Linkage: Document ownership and audit ownership contradiction fails closed', () => {
+            const dealId = new mongoose.Types.ObjectId();
+            const otherDealId = new mongoose.Types.ObjectId();
+
+            const docContradiction = {
+                documentId: 'doc-contra-1',
+                documentRecord: {
+                    _isResolverVerified: true,
+                    documentId: 'doc-contra-1',
+                    entityType: 'Deal',
+                    entityId: dealId,
+                    state: 'ACTIVE',
+                    isDeleted: false,
+                    currentVersionId: 'ver-contra-1',
+                    currentVersion: { _id: 'ver-contra-1', checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+                    verificationAudit: {
+                        _verifierAuthorized: true,
+                        _authorizedVerifierType: 'USER',
+                        _verifierUser: {
+                            _id: String(complianceUser._id),
+                            isActive: true,
+                            status: 'active',
+                            role: {
+                                moduleAccess: { authorityVerification: { view: true, edit: true } },
+                                approvalRights: { approveAuthorityChanges: true }
+                            }
+                        },
+                        verifierId: String(complianceUser._id),
+                        verifiedAt: new Date(),
+                        outcome: 'APPROVED',
+                        documentId: 'doc-contra-1',
+                        versionId: 'ver-contra-1',
+                        entityId: otherDealId, // Contradicts docRecord.entityId!
+                        entityType: 'Deal'
+                    }
+                }
+            };
+            assert.equal(hasAuthoritativeDocumentProvenance(docContradiction), false, 'Audit entityId mismatch with document entityId must fail closed');
         });
     });
 });

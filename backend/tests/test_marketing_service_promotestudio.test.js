@@ -325,6 +325,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             lastVerifiedAt: new Date(),
             _resolvedSnapshot: {
                 _isResolverVerified: true,
+                isSealed: true,
+                isSynthetic: false,
+                provenance: 'LIVE',
                 tenantId: testTenant,
                 authorityCode: 'PBRERA',
                 observedAt: new Date(),
@@ -381,7 +384,16 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
                                 fullName: 'Authorized Officer',
                                 isActive: true,
                                 status: 'active',
-                                roleName: 'COMPLIANCE_OFFICER'
+                                roleName: 'COMPLIANCE_OFFICER',
+                                role: {
+                                    name: 'COMPLIANCE_OFFICER',
+                                    moduleAccess: {
+                                        authorityVerification: { view: true, edit: true }
+                                    },
+                                    approvalRights: {
+                                        approveAuthorityChanges: true
+                                    }
+                                }
                             },
                             verifierId: '66f19ce95b90dffc37482fff',
                             verifiedAt: new Date(),
@@ -583,6 +595,9 @@ test('MarketingService — Promote Studio Authoritative Verification & Complianc
             lastVerifiedAt: new Date(),
             _resolvedSnapshot: {
                 _isResolverVerified: true,
+                isSealed: true,
+                isSynthetic: false,
+                provenance: 'LIVE',
                 tenantId: testTenant,
                 authorityCode: 'HRERA',
                 observedAt: new Date(),
