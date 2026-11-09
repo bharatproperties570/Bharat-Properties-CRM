@@ -409,7 +409,8 @@ export const CONTROLLED_AUTHORITY_METADATA_KEYS = new Set([
     'newVersion', 'newContentHash', 'policyReference', 'reviewerName', 'approverName',
     'minIntervalMs', 'maxRequestsPerMinute', 'maxRequestsPerHour', 'maxRequestsPerDay',
     'effectiveFrom', 'expiresAt', 'redisSyncError', 'reconciliationAction',
-    'host', 'searchKey', 'recordCount', 'wasSanitized', 'changedKeys', 'code'
+    'host', 'searchKey', 'recordCount', 'wasSanitized', 'changedKeys', 'code',
+    'searchMode', 'quotaReservationId'
 ]);
 
 export function validateAuthorityMetadata(metadata, contextPath = 'metadata') {
