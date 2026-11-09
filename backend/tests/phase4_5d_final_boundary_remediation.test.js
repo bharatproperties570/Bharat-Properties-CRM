@@ -613,7 +613,7 @@ test('Activation Bypass 1: Existing UNDER_REVIEW record + updateOne({$set:{isEna
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.updateOne(
-                { _id: setting._id },
+                { _id: setting._id, tenantId: testTenantId },
                 { $set: { isEnabled: true } }
             );
         },
@@ -627,7 +627,7 @@ test('Activation Bypass 1: Existing UNDER_REVIEW record + updateOne({$set:{isEna
     assert.strictEqual(settingAfter.isEnabled, false);
     assert.strictEqual(settingAfter.reviewStatus, 'UNDER_REVIEW');
 
-    await AuthoritySourceSettings.deleteOne({ _id: setting._id });
+    await AuthoritySourceSettings.deleteOne({ _id: setting._id, tenantId: testTenantId });
 });
 
 test('Activation Bypass 2: Existing UNDER_REVIEW record + findOneAndUpdate({$set:{schedulingEnabled:true}}) is rejected', async () => {
@@ -643,7 +643,7 @@ test('Activation Bypass 2: Existing UNDER_REVIEW record + findOneAndUpdate({$set
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.findOneAndUpdate(
-                { _id: setting._id },
+                { _id: setting._id, tenantId: testTenantId },
                 { $set: { schedulingEnabled: true } }
             );
         },
@@ -656,14 +656,14 @@ test('Activation Bypass 2: Existing UNDER_REVIEW record + findOneAndUpdate({$set
     const settingAfter = await AuthoritySourceSettings.findById(setting._id);
     assert.strictEqual(settingAfter.schedulingEnabled, false);
 
-    await AuthoritySourceSettings.deleteOne({ _id: setting._id });
+    await AuthoritySourceSettings.deleteOne({ _id: setting._id, tenantId: testTenantId });
 });
 
 test('Activation Bypass 3: Direct bulkWrite on AuthoritySourceSettings throws DIRECT_BULK_WRITE_PROHIBITED', async () => {
     await assert.rejects(
         async () => {
             await AuthoritySourceSettings.bulkWrite([
-                { updateOne: { filter: { authorityCode: 'HSVP' }, update: { $set: { isEnabled: true } } } }
+                { updateOne: { filter: { authorityCode: 'HSVP', tenantId: testTenantId }, update: { $set: { isEnabled: true } } } }
             ]);
         },
         (err) => {

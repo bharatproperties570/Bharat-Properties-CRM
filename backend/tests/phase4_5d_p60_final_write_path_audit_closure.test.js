@@ -12,7 +12,9 @@ import AuditLog, {
 } from '../models/AuditLog.js';
 import AuthoritySourceSettings, {
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken,
+    issueApproverWorkflowToken,
+    issueReviewerWorkflowToken,
+    issueEnsureDefaultsToken,
     verifyAuthorizedInternalWorkflow,
     validateOrganizationFilter,
     extractCanonicalTenantFromFilter,
@@ -319,19 +321,19 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
         });
 
         test('2.4 Authority audit events accept server-generated controlled descriptions', async () => {
-            const controlledDescs = [
-                'Authority source authorization APPROVED for HSVP',
-                'Authority source authorization REJECTED for GMADA',
-                'Authority verification run created for 10 items',
-                'Batch of 5 items processed for run 67890',
-                'Orphaned snapshot 123 purged after worker lease preemption',
-                'Rotated canonical policy for HSVP to version 2',
-                'Run completed with status SUCCESS'
+            const controlledItems = [
+                { eventType: 'authority_source_approved', desc: 'Authority source authorization APPROVED for HSVP' },
+                { eventType: 'authority_source_rejected', desc: 'Authority source authorization REJECTED for GMADA' },
+                { eventType: 'authority_run_created', desc: 'Authority run 10 created' },
+                { eventType: 'authority_run_batch_processed', desc: 'Batch of 5 items processed for run 67890' },
+                { eventType: 'authority_orphan_snapshot_purged', desc: 'Orphan snapshot 123 purged' },
+                { eventType: 'canonical_policy_rotated', desc: 'Rotated canonical policy for authority HSVP to version 2' },
+                { eventType: 'authority_run_completed', desc: 'Authority run 123 completed' }
             ];
 
-            for (const desc of controlledDescs) {
+            for (const { eventType, desc } of controlledItems) {
                 const created = await AuditLog.create({
-                    eventType: 'authority_settings_updated',
+                    eventType,
                     description: desc,
                     status: 'success'
                 });
@@ -549,7 +551,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
         });
 
         test('3.7 Bulk ensureDefaults strictly enforces canonical authorities allowlist (HSVP, GMADA, CHD)', async () => {
-            const token = createAuthorizedInternalWorkflowToken('ensureDefaults', {
+            const token = issueEnsureDefaultsToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: 'ENSURE_DEFAULTS_ALL',
                 authorityCode: 'HSVP,GMADA,CHD',
@@ -609,23 +611,53 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
     describe('4. Finding E: HMAC Capability Token Operation & Nonce Lifecycle', () => {
 
         test('4.1 Wildcard targetId or evidenceVersion rejected for recordSourceApprover and reviewSourceApproval', () => {
-            // Wildcard targetId
-            const tokenWithWildcardTarget = createAuthorizedInternalWorkflowToken('recordSourceApprover', {
-                tenantId: CANONICAL_ORGANIZATION_ID,
+            // Wildcard targetId rejected at issuance
+            assert.throws(
+                () => issueApproverWorkflowToken({
+                    tenantId: CANONICAL_ORGANIZATION_ID,
+                    targetId: '*',
+                    authorityCode: 'HSVP',
+                    evidenceVersion: 1
+                }),
+                /TARGET_ID_REQUIRED/
+            );
+
+            // Raw token with wildcard targetId rejected by verifier
+            const rawWildcardTarget = {
+                workflowName: 'recordSourceApprover',
+                tenantId: CANONICAL_ORGANIZATION_ID_STRING,
                 targetId: '*',
                 authorityCode: 'HSVP',
-                evidenceVersion: 1
-            });
-            assert.strictEqual(verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: tokenWithWildcardTarget }), false);
+                evidenceVersion: '1',
+                nonce: 'abc',
+                timestamp: Date.now(),
+                hmac: 'fake'
+            };
+            assert.strictEqual(verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: rawWildcardTarget }), false);
 
-            // Wildcard evidenceVersion
-            const tokenWithWildcardVer = createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
-                tenantId: CANONICAL_ORGANIZATION_ID,
+            // Wildcard evidenceVersion rejected at issuance
+            assert.throws(
+                () => issueReviewerWorkflowToken({
+                    tenantId: CANONICAL_ORGANIZATION_ID,
+                    targetId: '6af0c70c1bb9c8518e54587a',
+                    authorityCode: 'HSVP',
+                    evidenceVersion: '*'
+                }),
+                /EVIDENCE_VERSION_REQUIRED/
+            );
+
+            // Raw token with wildcard evidenceVersion rejected by verifier
+            const rawWildcardVer = {
+                workflowName: 'reviewSourceApproval',
+                tenantId: CANONICAL_ORGANIZATION_ID_STRING,
                 targetId: '6af0c70c1bb9c8518e54587a',
                 authorityCode: 'HSVP',
-                evidenceVersion: '*'
-            });
-            assert.strictEqual(verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: tokenWithWildcardVer }), false);
+                evidenceVersion: '*',
+                nonce: 'def',
+                timestamp: Date.now(),
+                hmac: 'fake'
+            };
+            assert.strictEqual(verifyAuthorizedInternalWorkflow({ [INTERNAL_WORKFLOW_OPTION]: rawWildcardVer }), false);
         });
 
         test('4.2 recordSourceApprover scope validation rejects reviewer fields with SCOPE_VIOLATION_PROHIBITED', async () => {
@@ -633,7 +665,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             const setting = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORGANIZATION_ID, authorityCode: 'HSVP' });
 
             const reviewerId = new mongoose.Types.ObjectId();
-            const token = createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+            const token = issueApproverWorkflowToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: setting._id,
                 authorityCode: 'HSVP',
@@ -665,7 +697,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             const setting = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORGANIZATION_ID, authorityCode: 'HSVP' });
 
             const approverId = new mongoose.Types.ObjectId();
-            const token = createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
+            const token = issueReviewerWorkflowToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: setting._id,
                 authorityCode: 'HSVP',
@@ -695,7 +727,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             await AuthoritySourceSettings.ensureDefaults(CANONICAL_ORGANIZATION_ID);
             const setting = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORGANIZATION_ID, authorityCode: 'HSVP' });
 
-            const token = createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+            const token = issueApproverWorkflowToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: setting._id,
                 authorityCode: 'HSVP',
@@ -726,7 +758,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             const setting = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORGANIZATION_ID, authorityCode: 'HSVP' });
 
             // Wrong authorityCode in token
-            const wrongAuthToken = createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+            const wrongAuthToken = issueApproverWorkflowToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: setting._id,
                 authorityCode: 'GMADA', // Mismatch: setting is HSVP
@@ -750,7 +782,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             );
 
             // Wrong evidenceVersion in token
-            const wrongVerToken = createAuthorizedInternalWorkflowToken('recordSourceApprover', {
+            const wrongVerToken = issueApproverWorkflowToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: setting._id,
                 authorityCode: 'HSVP',
@@ -775,7 +807,7 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
         });
 
         test('4.6 Single-use nonce replay prevention and expiry cleanup', () => {
-            const token = createAuthorizedInternalWorkflowToken('ensureDefaults', {
+            const token = issueEnsureDefaultsToken({
                 tenantId: CANONICAL_ORGANIZATION_ID,
                 targetId: 'ENSURE_DEFAULTS_ALL',
                 authorityCode: 'HSVP',

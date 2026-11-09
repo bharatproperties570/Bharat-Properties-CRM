@@ -9,7 +9,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import config from '../src/config/env.js';
 import AuthoritySourceSettings, {
     INTERNAL_WORKFLOW_OPTION,
-    createAuthorizedInternalWorkflowToken
+    issueInternalSeedWorkflowToken
 } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
@@ -135,7 +135,7 @@ describe('Phase 4.3 — Durable Saga Crash-Safety, Compensation Integrity & Inve
                 }
             },
             {
-                [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('internal_seed', { tenantId: tenantA })
+                [INTERNAL_WORKFLOW_OPTION]: issueInternalSeedWorkflowToken({ tenantId: tenantA })
             }
         );
     }

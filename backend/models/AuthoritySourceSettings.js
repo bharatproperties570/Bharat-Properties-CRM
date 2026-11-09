@@ -58,7 +58,7 @@ export function _getConsumedWorkflowNoncesCount() {
     return CONSUMED_WORKFLOW_NONCES.size;
 }
 
-export function createAuthorizedInternalWorkflowToken(workflowName, context = {}) {
+function createAuthorizedInternalWorkflowToken(workflowName, context = {}) {
     const timestamp = Date.now();
     const nonce = crypto.randomBytes(16).toString('hex');
     const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
@@ -82,10 +82,12 @@ export function createAuthorizedInternalWorkflowToken(workflowName, context = {}
     };
 }
 
-export function issueApproverWorkflowToken({ tenantId, targetId, authorityCode, evidenceVersion }) {
-    if (!tenantId || String(tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+export function issueApproverWorkflowToken(context = {}) {
+    const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
+    if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
         throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Approver workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
     }
+    const { targetId, authorityCode, evidenceVersion } = context;
     if (!targetId || targetId === '*') {
         throw new Error('TARGET_ID_REQUIRED: Approver workflow token requires an exact targetId.');
     }
@@ -96,17 +98,19 @@ export function issueApproverWorkflowToken({ tenantId, targetId, authorityCode, 
         throw new Error('EVIDENCE_VERSION_REQUIRED: Approver workflow token requires an exact evidenceVersion.');
     }
     return createAuthorizedInternalWorkflowToken('recordSourceApprover', {
-        tenantId: String(tenantId),
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
         targetId: String(targetId),
         authorityCode: String(authorityCode),
         evidenceVersion: String(evidenceVersion)
     });
 }
 
-export function issueReviewerWorkflowToken({ tenantId, targetId, authorityCode, evidenceVersion }) {
-    if (!tenantId || String(tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+export function issueReviewerWorkflowToken(context = {}) {
+    const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
+    if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
         throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Reviewer workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
     }
+    const { targetId, authorityCode, evidenceVersion } = context;
     if (!targetId || targetId === '*') {
         throw new Error('TARGET_ID_REQUIRED: Reviewer workflow token requires an exact targetId.');
     }
@@ -117,20 +121,49 @@ export function issueReviewerWorkflowToken({ tenantId, targetId, authorityCode, 
         throw new Error('EVIDENCE_VERSION_REQUIRED: Reviewer workflow token requires an exact evidenceVersion.');
     }
     return createAuthorizedInternalWorkflowToken('reviewSourceApproval', {
-        tenantId: String(tenantId),
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
         targetId: String(targetId),
         authorityCode: String(authorityCode),
         evidenceVersion: String(evidenceVersion)
     });
 }
 
-export function issueEnsureDefaultsToken({ tenantId = CANONICAL_ORGANIZATION_ID_STRING, authorityCode } = {}) {
-    if (tenantId && String(tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+export function issueEnsureDefaultsToken(context = {}) {
+    const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
+    if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
         throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: EnsureDefaults workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
     }
     return createAuthorizedInternalWorkflowToken('ensureDefaults', {
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
-        authorityCode: authorityCode ? String(authorityCode) : '*'
+        authorityCode: context.authorityCode ? String(context.authorityCode) : 'HSVP,GMADA,CHD',
+        targetId: context.targetId ? String(context.targetId) : 'ENSURE_DEFAULTS_ALL',
+        evidenceVersion: context.evidenceVersion !== undefined ? String(context.evidenceVersion) : 0
+    });
+}
+
+export function issueOwnerConfirmationWorkflowToken(context = {}) {
+    const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
+    if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
+        throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Owner confirmation workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+    }
+    return createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
+        authorityCode: context.authorityCode ? String(context.authorityCode) : '*',
+        targetId: context.targetId ? String(context.targetId) : '*',
+        evidenceVersion: context.evidenceVersion !== undefined ? String(context.evidenceVersion) : '*'
+    });
+}
+
+export function issueInternalSeedWorkflowToken(context = {}) {
+    const tenantId = context.tenantId ? String(context.tenantId) : CANONICAL_ORGANIZATION_ID_STRING;
+    if (tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
+        throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Internal seed workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+    }
+    return createAuthorizedInternalWorkflowToken('internal_seed', {
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
+        authorityCode: context.authorityCode ? String(context.authorityCode) : '*',
+        targetId: context.targetId ? String(context.targetId) : '*',
+        evidenceVersion: context.evidenceVersion !== undefined ? String(context.evidenceVersion) : '*'
     });
 }
 
@@ -642,14 +675,51 @@ function isSafeDeactivationReset(setObj) {
 
 export const ALLOWED_TENANT_OPERATORS = new Set(['$eq', '$in']);
 
-export function validateOrganizationFilter(filter, { isUpsert = false, path = '' } = {}) {
+export function isConclusivelyScopedToCanonicalTenant(filter) {
+    if (!filter || typeof filter !== 'object') return false;
+    if ('$nor' in filter) return false;
+
+    // Direct tenantId check at current level
+    if ('tenantId' in filter) {
+        const val = filter.tenantId;
+        if (val && String(val) === CANONICAL_ORGANIZATION_ID_STRING) return true;
+        if (val && typeof val === 'object') {
+            if (val.$eq && String(val.$eq) === CANONICAL_ORGANIZATION_ID_STRING) return true;
+            if (Array.isArray(val.$in) && val.$in.length > 0 && val.$in.every(item => String(item) === CANONICAL_ORGANIZATION_ID_STRING)) return true;
+        }
+    }
+
+    // If $and is present, if ANY branch is conclusively scoped to canonical tenant, the whole conjunction is scoped
+    if (Array.isArray(filter.$and) && filter.$and.length > 0) {
+        if (filter.$and.some(branch => isConclusivelyScopedToCanonicalTenant(branch))) {
+            return true;
+        }
+    }
+
+    // If $or is present, EVERY branch must be conclusively scoped to canonical tenant
+    if (Array.isArray(filter.$or) && filter.$or.length > 0) {
+        if (filter.$or.every(branch => isConclusivelyScopedToCanonicalTenant(branch))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+export function validateOrganizationFilter(filter, { isWrite = true, isUpsert = false, path = '' } = {}) {
     if (!filter || typeof filter !== 'object') {
-        if (isUpsert) {
-            const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
+        if (isWrite || isUpsert) {
+            const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Write operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
             err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
             throw err;
         }
         return;
+    }
+
+    if ('$nor' in filter) {
+        const err = new Error("ORGANIZATION_OVERRIDE_PROHIBITED: '$nor' operator is prohibited in organization-scoped queries.");
+        err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+        throw err;
     }
 
     // Check tenantId at current level
@@ -698,29 +768,38 @@ export function validateOrganizationFilter(filter, { isUpsert = false, path = ''
         }
     }
 
-    // Recursively validate logical operators: $and, $or, $nor
-    for (const op of ['$and', '$or', '$nor']) {
-        if (op in filter && Array.isArray(filter[op])) {
-            for (const subFilter of filter[op]) {
-                validateOrganizationFilter(subFilter, { isUpsert: false, path: `${path}.${op}` });
-            }
+    // Recursively validate logical operators: $and, $or
+    if (Array.isArray(filter.$and)) {
+        for (const subFilter of filter.$and) {
+            validateOrganizationFilter(subFilter, { isWrite: false, isUpsert: false, path: `${path}.$and` });
         }
     }
 
-    if (isUpsert && !extractCanonicalTenantFromFilter(filter)) {
-        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Upsert operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
+    if (Array.isArray(filter.$or)) {
+        if (filter.$or.length === 0) {
+            const err = new Error('ORGANIZATION_OVERRIDE_PROHIBITED: Filter $or cannot be empty.');
+            err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
+            throw err;
+        }
+        for (const subFilter of filter.$or) {
+            validateOrganizationFilter(subFilter, { isWrite: false, isUpsert: false, path: `${path}.$or` });
+        }
+        if ((isWrite || isUpsert) && !('tenantId' in filter) && !filter.$or.every(b => isConclusivelyScopedToCanonicalTenant(b))) {
+            const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Every branch in $or must be explicitly scoped to canonical organization '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+            err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+            throw err;
+        }
+    }
+
+    if ((isWrite || isUpsert) && !isConclusivelyScopedToCanonicalTenant(filter)) {
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Write operations must explicitly include canonical tenantId '${CANONICAL_ORGANIZATION_ID_STRING}' in the filter.`);
         err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
         throw err;
     }
 }
 
 export function extractCanonicalTenantFromFilter(filter) {
-    if (!filter || typeof filter !== 'object') return false;
-    if (filter.tenantId && String(filter.tenantId) === CANONICAL_ORGANIZATION_ID_STRING) return true;
-    if (Array.isArray(filter.$and)) {
-        return filter.$and.some(sub => extractCanonicalTenantFromFilter(sub));
-    }
-    return false;
+    return isConclusivelyScopedToCanonicalTenant(filter);
 }
 
 // Prohibit generic replaceOne and findOneAndReplace on AuthoritySourceSettings
@@ -730,6 +809,12 @@ AuthoritySourceSettingsSchema.pre(['replaceOne', 'findOneAndReplace'], function 
         const err = new Error('UNAUTHORIZED_INTERNAL_WORKFLOW: Caller-controlled boolean override is prohibited on AuthoritySourceSettings.');
         err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
         return next(err);
+    }
+    const queryFilter = this.getQuery() || {};
+    try {
+        validateOrganizationFilter(queryFilter, { isWrite: true, isUpsert: Boolean(options.upsert) });
+    } catch (filterErr) {
+        return next(filterErr);
     }
     if (!verifyAuthorizedInternalWorkflow(options, ['authorizedReplacement'])) {
         const err = new Error('REPLACEMENT_PROHIBITED: Generic replacement operations (replaceOne, findOneAndReplace) are prohibited on AuthoritySourceSettings to prevent lifecycle circumvention.');
@@ -773,7 +858,7 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
     // Canonical organization enforcement on query filter
     const queryFilter = this.getQuery() || {};
     try {
-        validateOrganizationFilter(queryFilter, { isUpsert: Boolean(options.upsert) });
+        validateOrganizationFilter(queryFilter, { isWrite: true, isUpsert: Boolean(options.upsert) });
     } catch (filterErr) {
         return next(filterErr);
     }
@@ -1177,7 +1262,7 @@ AuthoritySourceSettingsSchema.statics.bulkWrite = async function (ops, options =
             const action = op.updateOne || op.updateMany;
             if (action) {
                 const filter = action.filter || {};
-                validateOrganizationFilter(filter, { isUpsert: Boolean(action.upsert) });
+                validateOrganizationFilter(filter, { isWrite: true, isUpsert: Boolean(action.upsert) });
 
                 const u = action.update || {};
                 if (Array.isArray(u)) {
@@ -1586,11 +1671,9 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
         };
     });
     return this.bulkWrite(ops, {
-        [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('ensureDefaults', {
+        [INTERNAL_WORKFLOW_OPTION]: issueEnsureDefaultsToken({
             tenantId: effectiveTenantId,
-            targetId: 'ENSURE_DEFAULTS_ALL',
-            authorityCode: 'HSVP,GMADA,CHD',
-            evidenceVersion: 0
+            authorityCode: 'HSVP,GMADA,CHD'
         })
     });
 };
@@ -1623,7 +1706,7 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         {
             new: true,
             upsert: true,
-            [INTERNAL_WORKFLOW_OPTION]: createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
+            [INTERNAL_WORKFLOW_OPTION]: issueOwnerConfirmationWorkflowToken({
                 tenantId: effectiveTenantId,
                 authorityCode,
                 targetId: authorityCode,
