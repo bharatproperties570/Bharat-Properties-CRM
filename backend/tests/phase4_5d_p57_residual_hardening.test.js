@@ -7,7 +7,8 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import AuthoritySourceSettings, {
     checkActivationEligibility,
-    checkInternalMakerCheckerReviewEligibility
+    checkInternalMakerCheckerReviewEligibility,
+    _testOnlyResetAuthoritySettings
 } from '../models/AuthoritySourceSettings.js';
 import AuditLog, { maskScalarPII, redactSensitive } from '../models/AuditLog.js';
 import User from '../models/User.js';
@@ -178,7 +179,7 @@ test.after(async () => {
 });
 
 test.beforeEach(async () => {
-    await AuthoritySourceSettings.deleteMany({});
+    await _testOnlyResetAuthoritySettings({});
     await AuditLog.deleteMany({});
 });
 

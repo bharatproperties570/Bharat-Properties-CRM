@@ -31,7 +31,7 @@ import {
 } from '../services/authority/portal/canonicalPolicyService.js';
 import AuthorityCanonicalPolicy from '../models/AuthorityCanonicalPolicy.js';
 import AuthorityGlobalFenceWatermark from '../models/AuthorityGlobalFenceWatermark.js';
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
@@ -844,7 +844,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp12, policyDoc: canonicalPolicyDoc });
 
         // 12.2 Setup AuthoritySourceSettings for Tenant Alpha
-        await AuthoritySourceSettings.deleteMany({ authorityCode });
+        await _testOnlyResetAuthoritySettings({ authorityCode });
         await AuthoritySourceSettings.create({
             tenantId: tenantAlpha,
             authorityCode,
@@ -1273,7 +1273,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp14, policyDoc: canonicalPolicyDoc });
 
         // 14.2 Settings for Tenant
-        await AuthoritySourceSettings.deleteMany({ tenantId, authorityCode });
+        await _testOnlyResetAuthoritySettings({ tenantId, authorityCode });
         await AuthoritySourceSettings.create({
             tenantId,
             authorityCode,
@@ -1552,7 +1552,7 @@ test('--- AUTHORITY PORTAL REAL REDIS INTEGRATION SUITE ---', async (t) => {
         await publishCanonicalPolicyToRedis({ authorityCode, quotaProvider: qp15, policyDoc: canonicalPolicyDoc });
 
         // Ensure authority source settings are approved
-        await AuthoritySourceSettings.deleteMany({ authorityCode });
+        await _testOnlyResetAuthoritySettings({ authorityCode });
         await AuthoritySourceSettings.create({
             tenantId,
             authorityCode,

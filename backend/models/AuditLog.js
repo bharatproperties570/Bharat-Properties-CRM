@@ -413,7 +413,381 @@ export const CONTROLLED_AUTHORITY_METADATA_KEYS = new Set([
     'searchMode', 'quotaReservationId', 'parserVersion'
 ]);
 
-export function validateAuthorityMetadata(metadata, contextPath = 'metadata') {
+export const CONTROLLED_AUTHORITY_METADATA_SCHEMA = {
+    // Authority and Source References
+    authorityCode: { type: 'string', pattern: /^[A-Z0-9_-]{2,20}$/ },
+    authoritySource: { type: 'string', pattern: /^[A-Z0-9_]{2,50}$/ },
+    source: { type: 'string', maxLength: 100 },
+    evidenceVersion: { type: ['number', 'string'], pattern: /^\d+$/ },
+    evidenceHash: { type: 'string', pattern: /^[a-zA-Z0-9_.-]{3,128}$/ },
+    snapshotContentHash: { type: 'string', pattern: /^[a-zA-Z0-9_.-]{3,128}$/ },
+    contentHash: { type: 'string', pattern: /^[a-zA-Z0-9_.-]{3,128}$/ },
+    previousContentHash: { type: 'string', pattern: /^[a-zA-Z0-9_.-]{3,128}$/ },
+    newContentHash: { type: 'string', pattern: /^[a-zA-Z0-9_.-]{3,128}$/ },
+    criteriaHash: { type: 'string', maxLength: 128 },
+    policyReference: { type: 'string', pattern: /^[a-zA-Z0-9_/-]{2,100}$/ },
+
+    // References & IDs (must be IDs/tokens, not citizen names)
+    settingsId: { type: 'id' },
+    submitterId: { type: 'id' },
+    submittedBy: { type: 'id' },
+    approverId: { type: 'id' },
+    approvedBy: { type: 'id' },
+    reviewerId: { type: 'id' },
+    reviewedBy: { type: 'id' },
+    auditLogId: { type: 'id' },
+    makerCheckerAuditLogId: { type: 'id' },
+    approvalReference: { type: 'string', pattern: /^[a-zA-Z0-9_/:.-]{2,100}$/ },
+    contractEvidenceReference: { type: 'string', pattern: /^[a-zA-Z0-9_/:.-]{2,100}$/ },
+    permissionArtifactUri: { type: 'string', maxLength: 250 },
+    secureEvidenceId: { type: 'id' },
+    runId: { type: 'id' },
+    runItemId: { type: 'id' },
+    workerId: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_-]+$/ },
+    orphanedByWorkerId: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_-]+$/ },
+    recoveredByWorkerId: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_-]+$/ },
+    targetId: { type: 'id' },
+    targetName: { type: 'string', maxLength: 100 },
+    originalAuditId: { type: 'id' },
+    snapshotId: { type: 'id' },
+    tenantId: { type: 'id' },
+    organizationId: { type: 'id' },
+    linkId: { type: 'id' },
+    propertyId: { type: 'string', maxLength: 100 },
+    itemId: { type: 'id' },
+    inventoryId: { type: 'id' },
+    assignedBy: { type: 'id' },
+    triggeredBy: { type: 'id' },
+    lastRunId: { type: 'id' },
+    claimId: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_-]+$/ },
+    compensationClaimId: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_-]+$/ },
+    workerLeaseToken: { type: 'string', maxLength: 100 },
+    workerLease: { type: 'string', maxLength: 100 },
+    leaseOwner: { type: 'string', maxLength: 100 },
+    correlationId: { type: 'string', maxLength: 100 },
+    operationId: { type: 'string', maxLength: 100 },
+    portalName: { type: 'string', maxLength: 100 },
+    host: { type: 'string', pattern: /^[a-zA-Z0-9_.-]{2,100}$/ },
+    searchKey: { type: 'string', maxLength: 200 },
+    code: { type: 'string', maxLength: 100, pattern: /^[A-Z0-9_ -]+$/ },
+    searchMode: { type: 'string', maxLength: 100, pattern: /^[A-Z0-9_ -]+$/ },
+    quotaReservationId: { type: 'string', maxLength: 100 },
+    parserVersion: { type: 'string', maxLength: 50, pattern: /^[0-9a-zA-Z_.-]+$/ },
+    compositeKey: { type: 'string', maxLength: 200 },
+
+    // Role / Name fields: strictly store IDs or controlled role tokens, NOT arbitrary citizen names
+    reviewerName: { type: 'string', pattern: /^(?:[0-9a-fA-F]{24}|[a-zA-Z0-9_ -]{2,50})$/ },
+    approverName: { type: 'string', pattern: /^(?:[0-9a-fA-F]{24}|[a-zA-Z0-9_ -]{2,50})$/ },
+
+    // Error & Diagnostic fields: normalized error codes / technical strings only
+    errorMessage: { type: 'string', maxLength: 200, pattern: /^[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,120})?$/ },
+    redisSyncError: { type: 'string', maxLength: 200, pattern: /^[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,120})?$/ },
+    error: { type: 'string', maxLength: 200, pattern: /^[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,120})?$/ },
+    errorCode: { type: 'string', maxLength: 100, pattern: /^[A-Z0-9_]+$/ },
+
+    // Reason & Status fields: controlled reason codes
+    reconciledReason: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_ -]+$/ },
+    reason: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_ -]+$/ },
+    reasonCode: { type: 'string', maxLength: 100, pattern: /^[A-Z0-9_]+$/ },
+    rollbackReason: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_ -]+$/ },
+    reconciliationAction: { type: 'string', maxLength: 100, pattern: /^[a-zA-Z0-9_ -]+$/ },
+    status: { type: 'string', maxLength: 50 },
+    syncPhase: { type: 'string', maxLength: 50 },
+    redisSyncStatus: { type: 'string', maxLength: 50 },
+    compensationStatus: { type: 'string', maxLength: 50 },
+    originalStatus: { type: 'string', maxLength: 50 },
+    lastRunStatus: { type: 'string', maxLength: 50 },
+    decision: { type: 'string', maxLength: 50 },
+    matchEligibility: { type: 'string', maxLength: 50 },
+    runMode: { type: 'string', maxLength: 50 },
+    mode: { type: 'string', maxLength: 50 },
+    fixtureMode: { type: ['boolean', 'string'] },
+    stage: { type: 'string', maxLength: 50 },
+    origin: { type: 'string', maxLength: 50 },
+    action: { type: 'string', maxLength: 50 },
+    field: { type: 'string', maxLength: 100 },
+
+    // Citizen Name fields: strictly redacted/minimized
+    allotteeName: { type: 'string', pattern: /^(?:\[REDACTED CITIZEN NAME\]|\[PII_MINIMIZED\])$/ },
+    buyerName: { type: 'string', pattern: /^(?:\[REDACTED CITIZEN NAME\]|\[PII_MINIMIZED\])$/ },
+
+    // Controlled Text Notes: Free-text is strictly PROHIBITED; only empty string or minimized token
+    notes: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
+    reviewNotes: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
+    comments: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
+    reviewerComments: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
+    freeText: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
+    rawCitizenNote: { type: 'string', maxLength: 300 },
+
+    // Numbers & Counts
+    totalItems: { type: 'number', min: 0 },
+    processedItems: { type: 'number', min: 0 },
+    failedItems: { type: 'number', min: 0 },
+    successItems: { type: 'number', min: 0 },
+    succeededItems: { type: 'number', min: 0 },
+    batchSize: { type: 'number', min: 0 },
+    batchIndex: { type: 'number', min: 0 },
+    batchSucceeded: { type: 'number', min: 0 },
+    batchFailed: { type: 'number', min: 0 },
+    durationMs: { type: 'number', min: 0 },
+    startTime: { type: ['number', 'date'] },
+    endTime: { type: ['number', 'date'] },
+    retryCount: { type: 'number', min: 0 },
+    attempt: { type: 'number', min: 0 },
+    itemsProcessed: { type: 'number', min: 0 },
+    itemCount: { type: 'number', min: 0 },
+    snapshotCount: { type: 'number', min: 0 },
+    compensatedCount: { type: 'number', min: 0 },
+    purgedCount: { type: 'number', min: 0 },
+    recordCount: { type: 'number', min: 0 },
+    version: { type: ['number', 'string'], pattern: /^\d+$/ },
+    policyVersion: { type: ['number', 'string'], pattern: /^\d+$/ },
+    previousVersion: { type: ['number', 'string'], pattern: /^\d+$/ },
+    newVersion: { type: ['number', 'string'], pattern: /^\d+$/ },
+    minIntervalMs: { type: 'number', min: 0 },
+    maxRequestsPerMinute: { type: 'number', min: 0 },
+    maxRequestsPerHour: { type: 'number', min: 0 },
+    maxRequestsPerDay: { type: 'number', min: 0 },
+    recoveryAttempts: { type: 'number', min: 0 },
+
+    // Booleans
+    compensated: { type: 'boolean' },
+    isFixtureMode: { type: 'boolean' },
+    wasSanitized: { type: 'boolean' },
+    identityVerified: { type: 'boolean' },
+    identityContractAttestation: {
+        type: ['boolean', 'object'],
+        allowedKeys: ['evidenceReference', 'evidenceVersion', 'evidenceHash', 'attestedAt', 'attestedBy', 'status', 'verified']
+    },
+    test: { type: 'boolean' },
+    reconciled: { type: 'boolean' },
+    reconciledAfterCrash: { type: 'boolean' },
+
+    // Dates
+    approvalExpiryDate: { type: 'date' },
+    internalReviewExpiryDate: { type: 'date' },
+    nextScheduledAt: { type: 'date' },
+    finalizingAt: { type: 'date' },
+    reconciledAt: { type: 'date' },
+    recoveryClaimedAt: { type: 'date' },
+    syncedAt: { type: 'date' },
+    failedAt: { type: 'date' },
+    effectiveFrom: { type: 'date' },
+    expiresAt: { type: 'date' },
+    leaseExpiresAt: { type: 'date' },
+    lastHeartbeatAt: { type: 'date' },
+    lastSyncedAt: { type: 'date' },
+    compensatedAt: { type: 'date' },
+    timestamp: { type: 'date' },
+
+    // String Arrays
+    permittedFields: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+    appliedFields: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+    rejectedFields: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+    fieldsApplied: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+    revertedChanges: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+    blockers: { type: 'array', itemType: 'string', itemPattern: /^[A-Z0-9_ -]{2,100}$/ },
+    changedKeys: { type: 'array', itemType: 'string', itemPattern: /^[a-zA-Z0-9_]{1,60}$/ },
+
+    // Structured Objects
+    searchCriteria: {
+        type: 'object',
+        allowedKeys: ['propertyId', 'sectorNumber', 'sector', 'urbanEstate', 'authorityCode', 'plotNo', 'unitNo', 'compositeKey'],
+        valueType: ['string', 'number']
+    },
+    changes: {
+        type: ['array', 'object'],
+        allowedKeys: ['before', 'after', 'field', 'path', 'from', 'to', 'claimId'],
+        itemType: 'object',
+        itemAllowedKeys: ['field', 'before', 'after', 'path', 'from', 'to']
+    },
+    before: { type: 'any' },
+    after: { type: 'any' },
+    testKey: { type: ['string', 'number', 'boolean'] },
+    identityRequirements: {
+        type: 'object',
+        allowedKeys: ['verified', 'contractAttestation', 'required', 'evidenceRef']
+    },
+    ratePolicy: {
+        type: 'object',
+        allowedKeys: ['maxConcurrent', 'maxRequestsPerMinute', 'maxRequestsPerHour', 'maxRequestsPerDay', 'minIntervalMs', 'minimumIntervalMs', 'policySource']
+    },
+    userReportedEvidence: {
+        type: 'object',
+        allowedKeys: ['reportedBy', 'reportedAt', 'claimedAuthorityRole', 'notes', 'verificationStatus']
+    },
+    ownerAttestation: {
+        type: 'object',
+        allowedKeys: ['confirmed', 'confirmedAt', 'confirmedBy', 'evidence', 'status']
+    },
+    description: { type: 'string', maxLength: 300 }
+};
+
+export function validateAuthorityMetadataValue(key, value, fullPath, eventType = null) {
+    if (value === null || value === undefined) return;
+
+    const schema = CONTROLLED_AUTHORITY_METADATA_SCHEMA[key];
+    if (!schema) {
+        const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled metadata key '${fullPath}' is prohibited for authority audit events.`);
+        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+        throw err;
+    }
+
+    // Free text check for prohibited text fields
+    if (FREE_TEXT_FIELDS.includes(key)) {
+        if (typeof value === 'string' && value.trim() !== '' && value !== '[CONTROLLED_AUDIT_NOTE]' && value !== '[PII_MINIMIZED]') {
+            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text is prohibited in field '${fullPath}'.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        if (typeof value !== 'string') {
+            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Field '${fullPath}' must be a string or omitted.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+        return;
+    }
+
+    // Type check
+    const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
+    let matchedType = false;
+
+    for (const expectedType of allowedTypes) {
+        if (expectedType === 'id') {
+            if (typeof value === 'string' || value instanceof mongoose.Types.ObjectId) {
+                const str = String(value).trim();
+                if (str.length <= 100 && !/\s{2,}/.test(str)) {
+                    matchedType = true;
+                    break;
+                }
+            }
+        } else if (expectedType === 'string') {
+            if (typeof value === 'string') {
+                if (schema.maxLength && value.length > schema.maxLength) {
+                    const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' exceeds maximum length of ${schema.maxLength}.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
+                if (schema.pattern && !schema.pattern.test(value)) {
+                    const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' value '${value}' does not conform to the controlled metadata value contract.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
+                matchedType = true;
+                break;
+            }
+        } else if (expectedType === 'number') {
+            if (typeof value === 'number' && !isNaN(value)) {
+                if (schema.min !== undefined && value < schema.min) {
+                    const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' must be >= ${schema.min}.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
+                }
+                matchedType = true;
+                break;
+            } else if (typeof value === 'string' && /^\d+$/.test(value)) {
+                matchedType = true;
+                break;
+            }
+        } else if (expectedType === 'boolean') {
+            if (typeof value === 'boolean') {
+                matchedType = true;
+                break;
+            }
+        } else if (expectedType === 'date') {
+            if (value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value))) || typeof value === 'number') {
+                matchedType = true;
+                break;
+            }
+        } else if (expectedType === 'array') {
+            if (Array.isArray(value)) {
+                if (schema.itemType === 'string') {
+                    for (let i = 0; i < value.length; i++) {
+                        const item = value[i];
+                        if (typeof item !== 'string') {
+                            const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' must be a string.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (schema.itemPattern && !schema.itemPattern.test(item)) {
+                            const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' value '${item}' does not conform to pattern.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                    }
+                } else if (schema.itemType === 'object') {
+                    for (let i = 0; i < value.length; i++) {
+                        const item = value[i];
+                        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                            const err = new Error(`METADATA_VALUE_INVALID: Item at '${fullPath}[${i}]' must be an object.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (schema.itemAllowedKeys) {
+                            for (const k of Object.keys(item)) {
+                                if (!schema.itemAllowedKeys.includes(k)) {
+                                    const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled nested key '${fullPath}[${i}].${k}'.`);
+                                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                                    throw err;
+                                }
+                            }
+                        }
+                    }
+                }
+                matchedType = true;
+                break;
+            }
+        } else if (expectedType === 'object') {
+            if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+                if (schema.allowedKeys) {
+                    for (const [childKey, childVal] of Object.entries(value)) {
+                        if (!schema.allowedKeys.includes(childKey)) {
+                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Uncontrolled nested metadata key '${fullPath}.${childKey}'.`);
+                            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                            throw err;
+                        }
+                        if (schema.valueType) {
+                            const valTypes = Array.isArray(schema.valueType) ? schema.valueType : [schema.valueType];
+                            const actualType = typeof childVal;
+                            if (!valTypes.includes(actualType) && childVal !== null && childVal !== undefined) {
+                                const err = new Error(`METADATA_VALUE_INVALID: Nested metadata field '${fullPath}.${childKey}' must be of type ${schema.valueType}.`);
+                                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                                throw err;
+                            }
+                            if (actualType === 'string' && childVal.length > 150) {
+                                const err = new Error(`METADATA_VALUE_INVALID: Nested metadata field '${fullPath}.${childKey}' exceeds maximum length.`);
+                                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                                throw err;
+                            }
+                        }
+                    }
+                }
+                matchedType = true;
+                break;
+            }
+        } else if (expectedType === 'any') {
+            matchedType = true;
+            break;
+        }
+    }
+
+    if (!matchedType) {
+        const err = new Error(`METADATA_TYPE_INVALID: Metadata key '${fullPath}' expected type '${allowedTypes.join('|')}', got '${typeof value}'.`);
+        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+        throw err;
+    }
+
+    // If description is in metadata:
+    if (key === 'description' && eventType) {
+        if (!isControlledAuthorityDescriptionForEvent(eventType, value)) {
+            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Metadata description does not match registered event template for '${eventType}'.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+    }
+}
+
+export function validateAuthorityMetadata(metadata, contextPath = 'metadata', eventType = null) {
     if (!metadata || typeof metadata !== 'object') return;
     for (const [key, value] of Object.entries(metadata)) {
         const fullPath = contextPath ? `${contextPath}.${key}` : key;
@@ -423,6 +797,7 @@ export function validateAuthorityMetadata(metadata, contextPath = 'metadata') {
             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
             throw err;
         }
+        validateAuthorityMetadataValue(normalizedKey, value, fullPath, eventType);
     }
 }
 
@@ -463,7 +838,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
     ],
     authority_review_submitted: [
         /^(?:Test: )?Review submission$/i,
-        /^Authority (?:verification )?review(?: submitted)?:? (?:APPROVED|REJECTED|MODIFIED|[a-zA-Z0-9_-]+)?/i,
+        /^Authority (?:verification )?review(?: submitted)?(?: for [a-zA-Z0-9_-]+|:? (?:APPROVED|REJECTED|MODIFIED|[a-zA-Z0-9_-]+))?$/i,
         /^Test event for authority_review_submitted$/i,
         /^PII review log$/i
     ],
@@ -488,7 +863,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^Test (?:run created|event for authority_run_created)$/i
     ],
     authority_run_policy_rejected: [
-        /^(?:Verification|Bulk) run POLICY_REJECTED for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)(?:: [a-zA-Z0-9_ -]+)?$/i,
+        /^(?:Verification|Bulk) run POLICY_REJECTED for (?:HSVP|GMADA|CHD|[A-Z0-9_-]+)(?:: (?:source not activated|max concurrent exceeded|policy invalid|[A-Z0-9_]+))?$/i,
         /^Authority run [a-zA-Z0-9_-]+ policy rejected$/i,
         /^(?:Test: )?Run policy rejection$/i,
         /^Test event for authority_run_policy_rejected$/i
@@ -507,7 +882,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^Batch of \d+ items$/i
     ],
     authority_run_paused: [
-        /^Verification run [a-zA-Z0-9_-]+ paused(?:: [a-zA-Z0-9_ -]+)?$/i,
+        /^Verification run [a-zA-Z0-9_-]+ paused(?:: (?:Paused by user|[A-Z0-9_]+))?$/i,
         /^Authority run [a-zA-Z0-9_-]+ paused$/i
     ],
     authority_run_resumed: [
@@ -520,7 +895,7 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^(?:Authority )?Run completed$/i
     ],
     authority_run_cancelled: [
-        /^Verification run [a-zA-Z0-9_-]+ cancelled(?:: [a-zA-Z0-9_ -]+)?$/i,
+        /^Verification run [a-zA-Z0-9_-]+ cancelled(?:: (?:Cancelled by user|[A-Z0-9_]+))?$/i,
         /^Authority run [a-zA-Z0-9_-]+ cancelled$/i
     ],
     authority_orphan_snapshot_purged: [
@@ -531,36 +906,36 @@ export const EVENT_DESCRIPTION_TEMPLATES_REGISTRY = {
         /^(?:Initial audit insert|Duplicate audit insert|First record \(earliest\)|Second record|Third record|Original|Duplicate|To keep|To archive \d+|Conflict test|Conflict duplicate|Record \d+|Original purge description|Tampered description|Record to retain.*|Record to archive.*|Original record to archive.*|Record dup \d+ to archive.*|Record to mutate.*|Record to replace.*|ReplicaSet Retained Record.*|ReplicaSet Duplicate.*|MUTATED_AFTER_.*|Concurrent audit race entry \d+)$/i
     ],
     authority_orphan_cleanup_failed: [
-        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+(?: after preemption| in transaction)?: [a-zA-Z0-9_ :,-]+$/i,
-        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+: [a-zA-Z0-9_ :,-]+$/i
+        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+(?: after preemption| in transaction)?: (?:ORPHAN_DELETION_UNCONFIRMED|TRANSACTION_ABORTED|PREEMPTION_ERROR|MOCK_ERROR|[A-Z0-9_]+)$/i,
+        /^Failed to purge orphaned snapshot [a-zA-Z0-9_-]+: (?:ORPHAN_DELETION_UNCONFIRMED|TRANSACTION_ABORTED|PREEMPTION_ERROR|MOCK_ERROR|[A-Z0-9_]+)$/i
     ],
     canonical_policy_rotated: [
-        /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|[A-Z0-9_\s-]+)$/i,
+        /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|(?:HSVP|GMADA|CHD) (?:Test \d+|V\d+)|[A-Z0-9_-]+)$/i,
         /^Initial (?:V\d+ )?Canonical Policy Rotation$/i,
         /^Initial V\d+ Rotation$/i,
         /^Test policy rotation$/i,
         /^(?:Mismatched audit record|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i
     ],
     authority_canonical_policy_rotated: [
-        /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|[A-Z0-9_\s-]+)$/i,
+        /^Rotated canonical policy for (?:authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to version \d+|(?:HSVP|GMADA|CHD) (?:Test \d+|V\d+)|[A-Z0-9_-]+)$/i,
         /^(?:Mismatched audit record|Future audit|Expired audit|Valid audit|Boundary audit|GMADA audit)$/i
     ],
     canonical_policy_synced: [
         /^Synchronized canonical policy for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
         /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i,
         /^Manual sync initiated for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)$/i,
-        /^Simulated (?:abandoned pre-sync intent|post-sync unfinalized intent|expired worker lease [^]+|expired lease [^]+|worker whose lease was stolen before finalization|pending reconciliation [^]+)$/i,
+        /^Simulated (?:abandoned pre-sync intent|post-sync unfinalized intent|expired worker lease [a-zA-Z0-9_ -]+|expired lease [a-zA-Z0-9_ -]+|worker whose lease was stolen before finalization|pending reconciliation [a-zA-Z0-9_ -]+)$/i,
         /^(?:Initial failed sync|Abandoned sync intent|Initial intent for preemption test|Pre-existing audit record|Prior publishing state)$/i,
-        /^Redis synced but durable policy update threw: [a-zA-Z0-9_ :,-]+$/i,
+        /^Redis synced but durable policy update threw: (?:MOCK_ERROR|WRITE_TIMEOUT|DOCUMENT_UNACKNOWLEDGED|[A-Z0-9_]+)$/i,
         /^Redis synced but policy document update was unacknowledged or unmatched$/i
     ],
     authority_canonical_policy_synced: [
         /^Synchronized canonical policy for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)(?: \[[^\]]+\])?$/i,
         /^Recovered abandoned intent and completed canonical policy sync for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) \(version \d+\)$/i,
         /^Manual sync initiated for authority (?:HSVP|GMADA|CHD|[A-Z0-9_-]+) to Redis \(version \d+\)$/i,
-        /^Simulated (?:abandoned pre-sync intent|post-sync unfinalized intent|expired worker lease [^]+|expired lease [^]+|worker whose lease was stolen before finalization|pending reconciliation [^]+)$/i,
+        /^Simulated (?:abandoned pre-sync intent|post-sync unfinalized intent|expired worker lease [a-zA-Z0-9_ -]+|expired lease [a-zA-Z0-9_ -]+|worker whose lease was stolen before finalization|pending reconciliation [a-zA-Z0-9_ -]+)$/i,
         /^(?:Initial failed sync|Abandoned sync intent|Initial intent for preemption test|Pre-existing audit record|Prior publishing state)$/i,
-        /^Redis synced but durable policy update threw: [a-zA-Z0-9_ :,-]+$/i,
+        /^Redis synced but durable policy update threw: (?:MOCK_ERROR|WRITE_TIMEOUT|DOCUMENT_UNACKNOWLEDGED|[A-Z0-9_]+)$/i,
         /^Redis synced but policy document update was unacknowledged or unmatched$/i
     ],
     canonical_policy_sync_reconciled: [
@@ -662,8 +1037,12 @@ export function isControlledAuthorityDescription(desc) {
 export function isControlledAuthorityDescriptionForEvent(eventType, desc) {
     if (!desc || typeof desc !== 'string') return false;
     const trimmed = desc.trim();
-    if (eventType && EVENT_DESCRIPTION_TEMPLATES_REGISTRY[eventType]) {
-        return EVENT_DESCRIPTION_TEMPLATES_REGISTRY[eventType].some(regex => regex.test(trimmed));
+    if (isAuthorityAuditEvent(eventType)) {
+        const templates = EVENT_DESCRIPTION_TEMPLATES_REGISTRY[eventType];
+        if (!templates || !Array.isArray(templates) || templates.length === 0) {
+            return false;
+        }
+        return templates.some(regex => regex.test(trimmed));
     }
     return isControlledAuthorityDescription(trimmed);
 }
@@ -694,7 +1073,7 @@ export function normalizeDottedObject(obj) {
     return normalized;
 }
 
-export function validateControlledTextFields(obj, contextPath = '', seen = new WeakSet()) {
+export function validateControlledTextFields(obj, contextPath = '', seen = new WeakSet(), eventType = null) {
     if (!obj || typeof obj !== 'object') return;
     if (seen.has(obj)) return;
     seen.add(obj);
@@ -717,7 +1096,7 @@ export function validateControlledTextFields(obj, contextPath = '', seen = new W
                     }
                 }
             } else if (typeof item === 'object' && item !== null) {
-                validateControlledTextFields(item, itemPath, seen);
+                validateControlledTextFields(item, itemPath, seen, eventType);
             }
         }
         return;
@@ -747,8 +1126,8 @@ export function validateControlledTextFields(obj, contextPath = '', seen = new W
                 if (seg === 'description') {
                     if (value !== undefined && value !== null) {
                         const strVal = String(value).trim();
-                        if (strVal !== '' && !isControlledAuthorityDescription(strVal)) {
-                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text description in '${fullPath}' is prohibited for authority audit events.`);
+                        if (strVal !== '' && !isControlledAuthorityDescriptionForEvent(eventType, strVal)) {
+                            const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text description or mismatched templates in '${fullPath}' is prohibited for authority audit events.`);
                             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                             throw err;
                         }
@@ -783,8 +1162,8 @@ export function validateControlledTextFields(obj, contextPath = '', seen = new W
         // 3. Check if key is 'description'
         if (normalizedKey === 'description' && value !== undefined && value !== null) {
             const strVal = String(value).trim();
-            if (strVal !== '' && !isControlledAuthorityDescription(strVal)) {
-                const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text description in '${fullPath}' is prohibited for authority audit events. Use server-generated controlled descriptions.`);
+            if (strVal !== '' && !isControlledAuthorityDescriptionForEvent(eventType, strVal)) {
+                const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text description or mismatched templates in '${fullPath}' is prohibited for authority audit events. Use server-generated controlled descriptions.`);
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
             }
@@ -792,7 +1171,7 @@ export function validateControlledTextFields(obj, contextPath = '', seen = new W
 
         // 4. Recurse into nested objects/arrays
         if (typeof value === 'object' && value !== null && !Buffer.isBuffer(value) && !(value instanceof Date) && !value._bsontype) {
-            validateControlledTextFields(value, fullPath, seen);
+            validateControlledTextFields(value, fullPath, seen, eventType);
         }
     }
 }
@@ -806,7 +1185,7 @@ export function sanitizeAuditDocument(doc, targetEventContext = null) {
     // Authority audit events: reject free-text comments or unstructured narrative descriptions
     if (isAuthority) {
         // Individually validate every single supplied free-text field
-        validateControlledTextFields(raw);
+        validateControlledTextFields(raw, '', new WeakSet(), eventType);
 
         if (raw.description) {
             const maskedDesc = maskScalarPII(raw.description);
@@ -822,9 +1201,9 @@ export function sanitizeAuditDocument(doc, targetEventContext = null) {
 
         // Validate nested metadata
         if (raw.metadata && typeof raw.metadata === 'object') {
-            validateAuthorityMetadata(raw.metadata);
-            validateControlledTextFields(raw.metadata, 'metadata');
-            if (raw.metadata.description && !isControlledAuthorityDescription(raw.metadata.description)) {
+            validateAuthorityMetadata(raw.metadata, 'metadata', eventType);
+            validateControlledTextFields(raw.metadata, 'metadata', new WeakSet(), eventType);
+            if (raw.metadata.description && !isControlledAuthorityDescriptionForEvent(eventType, raw.metadata.description)) {
                 const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text descriptions are prohibited in authority audit metadata.');
                 err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                 throw err;
@@ -833,7 +1212,7 @@ export function sanitizeAuditDocument(doc, targetEventContext = null) {
 
         // Validate changes
         if (raw.changes && typeof raw.changes === 'object') {
-            validateControlledTextFields(raw.changes, 'changes');
+            validateControlledTextFields(raw.changes, 'changes', new WeakSet(), eventType);
         }
     } else {
         if (raw.description) {
@@ -916,7 +1295,7 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
             const normalized = normalizeDottedObject(update[op]);
             sanitizeAuditDocument(normalized, eventContext);
             if (isAuthority) {
-                validateControlledTextFields(update[op]);
+                validateControlledTextFields(update[op], '', new WeakSet(), eventContext?.eventType);
             }
         }
     }
@@ -934,19 +1313,19 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
                         });
                         if (isAuthority) {
                             for (const item of v.$each) {
-                                validateControlledTextFields({ [k]: item }, op);
+                                validateControlledTextFields({ [k]: item }, op, new WeakSet(), eventContext?.eventType);
                             }
                         }
                     } else {
                         update[op][k] = redactSensitive(v);
                         if (isAuthority) {
-                            validateControlledTextFields({ [k]: v }, op);
+                            validateControlledTextFields({ [k]: v }, op, new WeakSet(), eventContext?.eventType);
                         }
                     }
                 } else if (typeof v === 'string') {
                     update[op][k] = maskScalarPII(v);
                     if (isAuthority) {
-                        validateControlledTextFields({ [k]: v }, op);
+                        validateControlledTextFields({ [k]: v }, op, new WeakSet(), eventContext?.eventType);
                     }
                 }
             }
@@ -971,7 +1350,7 @@ export function sanitizeAuditUpdate(update, queryFilter = null, targetEventConte
         const normalized = normalizeDottedObject(update);
         sanitizeAuditDocument(normalized, eventContext);
         if (isAuthority) {
-            validateControlledTextFields(update);
+            validateControlledTextFields(update, '', new WeakSet(), eventContext?.eventType);
         }
     }
 
@@ -1116,21 +1495,73 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             throw err;
                         }
                         if (doc.status === 'compensated') {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensated audit record status is terminal and cannot be modified.`);
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensated audit record status is terminal and cannot be modified. Record has already been compensated and is terminally immutable.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
-                        const candidateStatus = update?.$set?.status || update?.status;
+                        // Inspect EVERY operator in update
+                        const ops = Object.keys(update || {}).filter(k => k.startsWith('$'));
+                        for (const op of ops) {
+                            if (op !== '$set') {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Operator '${op}' is strictly prohibited during saga compensation on 'authority_changes_applied'. Only '$set' is permitted.`);
+                                err.code = 'AUDIT_LOG_IMMUTABLE';
+                                throw err;
+                            }
+                        }
+
+                        // Check $set or direct fields
+                        const setPayload = update.$set || update;
+                        if (!setPayload || typeof setPayload !== 'object') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Saga compensation requires valid update payload.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
+                        // Prohibit entire metadata object replacement
+                        if ('metadata' in setPayload && typeof setPayload.metadata === 'object') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Entire metadata object replacement is prohibited during saga compensation; use targeted metadata dot paths only.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
+                        // Status MUST be 'compensated'
+                        const candidateStatus = setPayload.status;
                         if (candidateStatus !== 'compensated') {
                             const err = new Error(`AUDIT_LOG_IMMUTABLE: Audit event 'authority_changes_applied' only permits state transition to status: 'compensated' during saga compensation.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
-                        const updateKeys = Object.keys(update.$set || update);
-                        for (const k of updateKeys) {
-                            const rootKey = k.split('.')[0];
-                            if (!['status', 'metadata', 'updatedAt'].includes(rootKey)) {
-                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Mutating historical field '${k}' on 'authority_changes_applied' is prohibited during saga compensation.`);
+
+                        // Allowed keys in setPayload:
+                        // 'status', 'metadata.compensated', 'metadata.compensationClaimId', 'metadata.compensatedAt', 'updatedAt'
+                        const allowedCompensationKeys = new Set([
+                            'status',
+                            'metadata.compensated',
+                            'metadata.compensationClaimId',
+                            'metadata.compensatedAt',
+                            'updatedAt'
+                        ]);
+
+                        for (const k of Object.keys(setPayload)) {
+                            if (!allowedCompensationKeys.has(k)) {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Mutating field '${k}' on 'authority_changes_applied' is prohibited during saga compensation.`);
+                                err.code = 'AUDIT_LOG_IMMUTABLE';
+                                throw err;
+                            }
+                        }
+
+                        // Validate metadata.compensated is boolean true
+                        if (setPayload['metadata.compensated'] !== undefined && setPayload['metadata.compensated'] !== true) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: metadata.compensated must be true during saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
+                        // Validate compensationClaimId
+                        if (setPayload['metadata.compensationClaimId'] !== undefined) {
+                            const claimId = String(setPayload['metadata.compensationClaimId']).trim();
+                            if (!claimId || !/^[a-zA-Z0-9_-]+$/.test(claimId)) {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Invalid compensation claim ID during saga compensation.`);
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
                             }

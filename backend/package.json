@@ -50,7 +50,8 @@
         "test:phase4.5d-p59-canonical-org-write-boundary": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p59_canonical_org_write_boundary.test.js",
         "test:phase4.5d-p60-final-write-path-audit-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p60_final_write_path_audit_closure.test.js",
         "test:phase4.5d-p61-final-security-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p61_final_security_closure.test.js",
-        "test:phase4.5d-p62-final-privacy-tenant-scope-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p62_final_privacy_tenant_scope_closure.test.js"
+        "test:phase4.5d-p62-final-privacy-tenant-scope-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p62_final_privacy_tenant_scope_closure.test.js",
+        "test:phase4.5d-p63-final-delete-metadata-capability-closure": "node --test --test-force-exit --test-concurrency=1 tests/phase4_5d_p63_final_delete_metadata_capability_closure.test.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1159.0",

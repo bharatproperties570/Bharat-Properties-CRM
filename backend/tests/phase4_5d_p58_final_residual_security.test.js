@@ -7,7 +7,8 @@ import AuthoritySourceSettings, {
     isProtectedPath,
     checkActivationEligibility,
     checkInternalMakerCheckerReviewEligibility,
-    INTERNAL_WORKFLOW_OPTION
+    INTERNAL_WORKFLOW_OPTION,
+    _testOnlyResetAuthoritySettings
 } from '../models/AuthoritySourceSettings.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
@@ -178,7 +179,7 @@ test.after(async () => {
 });
 
 test.beforeEach(async () => {
-    await AuthoritySourceSettings.deleteMany({});
+    await _testOnlyResetAuthoritySettings({});
     await AuditLog.deleteMany({});
 });
 

@@ -47,7 +47,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import AuthoritySourceSettings, { _testOnlyResetAuthoritySettings } from '../models/AuthoritySourceSettings.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import Inventory from '../models/Inventory.js';
@@ -396,7 +396,7 @@ test('P0 Maker-Checker: Authentic maker-checker with genuine users and roles suc
     assert.strictEqual(String(updated.reviewedBy), String(reviewer._id));
 
     // Cleanup
-    await AuthoritySourceSettings.deleteOne({ tenantId: testTenantId, authorityCode: 'HSVP' });
+    await _testOnlyResetAuthoritySettings({ tenantId: testTenantId, authorityCode: 'HSVP' });
     await AuditLog.deleteOne({ _id: auditEntry._id }).catch(() => {});
     await User.deleteMany({ _id: { $in: [submitter._id, approver._id, reviewer._id] } });
     await Role.deleteMany({ _id: { $in: [submitterRole._id, approverRole._id, reviewerRole._id] } });
