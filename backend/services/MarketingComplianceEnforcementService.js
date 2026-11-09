@@ -152,6 +152,7 @@ export function recordNonceConsumptionSync(signature, record) {
         return { consumed: false, isIdempotentRetry: false, error: 'INVALID_SIGNATURE' };
     }
 
+    const claimToken = crypto.randomUUID();
     const existing = SystemServiceReplayLedger.get(signature);
     if (existing) {
         // Check for valid idempotent retry
@@ -168,7 +169,7 @@ export function recordNonceConsumptionSync(signature, record) {
         );
 
         if (isSameIdempotency && isSameContext) {
-            return { consumed: true, isIdempotentRetry: true };
+            return { consumed: true, isIdempotentRetry: true, isCommitted: true, claimToken: existing.claimToken };
         }
 
         // Replay attempt detected!
@@ -190,10 +191,12 @@ export function recordNonceConsumptionSync(signature, record) {
         documentId: record.documentId,
         nonce: record.nonce,
         idempotencyKey: record.idempotencyKey || null,
+        claimToken,
+        status: 'COMMITTED',
         consumedAt: now
     });
 
-    return { consumed: true, isIdempotentRetry: false };
+    return { consumed: true, isIdempotentRetry: false, isCommitted: true, claimToken };
 }
 
 /**
@@ -391,10 +394,9 @@ export async function recordNonceConsumptionDurable(signature, record) {
                         if (isLeaseActive) {
                             if (isSameIdempotency) {
                                 return {
-                                    consumed: true,
-                                    isIdempotentRetry: true,
-                                    isCommitted: false,
-                                    claimToken: existing.claimToken
+                                    consumed: false,
+                                    isIdempotentRetry: false,
+                                    error: 'OPERATION_IN_PROGRESS: Operation is currently being processed by another worker lease.'
                                 };
                             }
                             return { consumed: false, isIdempotentRetry: false, error: 'SIGNATURE_REPLAY_DETECTED' };
@@ -457,14 +459,16 @@ export async function recordNonceConsumptionDurable(signature, record) {
  * Fenced with claimToken so one worker cannot commit another worker's lease.
  * 
  * @param {string} signature
- * @param {string} [claimToken=null]
+ * @param {string} claimToken
+ * @returns {Promise<{ committed: boolean }>}
  */
-export async function commitNonceConsumptionDurable(signature, claimToken = null) {
-    if (!signature) return;
+export async function commitNonceConsumptionDurable(signature, claimToken) {
+    if (!signature || !claimToken) {
+        throw new Error('STALE_CLAIM_SUPERSEDED: Signature and claimToken are required to commit nonce consumption.');
+    }
     if (mongoose.connection && mongoose.connection.readyState === 1) {
-        const filter = { signature, status: 'CONSUMED' };
-        if (claimToken) filter.claimToken = claimToken;
-        await SystemServiceReplayLedgerModel.updateOne(
+        const filter = { signature, claimToken, status: 'CONSUMED' };
+        const writeRes = await SystemServiceReplayLedgerModel.updateOne(
             filter,
             { 
                 $set: { 
@@ -474,7 +478,24 @@ export async function commitNonceConsumptionDurable(signature, claimToken = null
                 } 
             }
         );
+        if (!writeRes || writeRes.matchedCount === 0) {
+            throw new Error('STALE_CLAIM_SUPERSEDED: Nonce claim has expired or been reclaimed by another worker.');
+        }
+        return { committed: true };
     }
+
+    if (process.env.ALLOW_IN_MEMORY_REPLAY_TEST_MODE === 'true') {
+        const memRec = SystemServiceReplayLedger.get(signature);
+        if (memRec && memRec.claimToken === claimToken && memRec.status === 'CONSUMED') {
+            memRec.status = 'COMMITTED';
+            memRec.committedAt = new Date();
+            memRec.leaseExpiresAt = null;
+            return { committed: true };
+        }
+        throw new Error('STALE_CLAIM_SUPERSEDED: In-memory nonce lease has expired or been reclaimed.');
+    }
+
+    throw new Error('DURABLE_STORAGE_UNAVAILABLE: Cannot commit nonce lease without active database connection.');
 }
 
 /**
@@ -482,15 +503,17 @@ export async function commitNonceConsumptionDurable(signature, claimToken = null
  * Fenced with claimToken so one worker cannot fail another worker's lease.
  * 
  * @param {string} signature
- * @param {string} [claimToken=null]
+ * @param {string} claimToken
  * @param {string} [reason='FAILED']
+ * @returns {Promise<{ failed: boolean, error?: string }>}
  */
-export async function failNonceConsumptionDurable(signature, claimToken = null, reason = 'FAILED') {
-    if (!signature) return;
+export async function failNonceConsumptionDurable(signature, claimToken, reason = 'FAILED') {
+    if (!signature || !claimToken) {
+        return { failed: false, error: 'STALE_CLAIM_SUPERSEDED' };
+    }
     if (mongoose.connection && mongoose.connection.readyState === 1) {
-        const filter = { signature, status: 'CONSUMED' };
-        if (claimToken) filter.claimToken = claimToken;
-        await SystemServiceReplayLedgerModel.updateOne(
+        const filter = { signature, claimToken, status: 'CONSUMED' };
+        const writeRes = await SystemServiceReplayLedgerModel.updateOne(
             filter,
             { 
                 $set: { 
@@ -501,7 +524,25 @@ export async function failNonceConsumptionDurable(signature, claimToken = null, 
                 } 
             }
         );
+        if (!writeRes || writeRes.matchedCount === 0) {
+            return { failed: false, error: 'STALE_CLAIM_SUPERSEDED' };
+        }
+        return { failed: true };
     }
+
+    if (process.env.ALLOW_IN_MEMORY_REPLAY_TEST_MODE === 'true') {
+        const memRec = SystemServiceReplayLedger.get(signature);
+        if (memRec && memRec.claimToken === claimToken && memRec.status === 'CONSUMED') {
+            memRec.status = 'FAILED';
+            memRec.failureReason = String(reason || 'FAILED');
+            memRec.failedAt = new Date();
+            memRec.leaseExpiresAt = null;
+            return { failed: true };
+        }
+        return { failed: false, error: 'STALE_CLAIM_SUPERSEDED' };
+    }
+
+    return { failed: false, error: 'DURABLE_STORAGE_UNAVAILABLE' };
 }
 
 /**

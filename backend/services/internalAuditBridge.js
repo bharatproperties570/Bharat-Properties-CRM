@@ -10,9 +10,18 @@
  * - Any attempt by unauthorized callers to bind, rebind, or invoke the bridge fails closed.
  */
 
-let isRegistered = false;
-let isBound = false;
-let registeredExecutor = null;
+var _bridgeState;
+function _getState() {
+    if (!_bridgeState) {
+        _bridgeState = {
+            isRegistered: false,
+            isBound: false,
+            registeredExecutor: null,
+            pendingConsumer: null
+        };
+    }
+    return _bridgeState;
+}
 
 /**
  * Registers the privileged audit write executor from Document.js.
@@ -21,14 +30,21 @@ let registeredExecutor = null;
  * @param {Function} executor - Privileged mutation executor
  */
 export function registerAuditExecutor(executor) {
-    if (isRegistered || registeredExecutor) {
+    const state = _getState();
+    if (state.isRegistered || state.registeredExecutor) {
         throw new Error('ILLEGAL_REBINDING: Audit executor is already registered and cannot be rebound.');
     }
     if (typeof executor !== 'function') {
         throw new Error('INVALID_EXECUTOR: Executor must be a function.');
     }
-    isRegistered = true;
-    registeredExecutor = executor;
+    state.isRegistered = true;
+    if (state.pendingConsumer) {
+        const consumer = state.pendingConsumer;
+        state.pendingConsumer = null;
+        consumer(executor);
+    } else {
+        state.registeredExecutor = executor;
+    }
 }
 
 /**
@@ -40,17 +56,29 @@ export function registerAuditExecutor(executor) {
  * @param {Function} consumer - Receiver callback in DocumentAuditService
  */
 export function bindAuditPersistence(consumer) {
-    if (isBound) {
+    const state = _getState();
+    if (state.isBound) {
         throw new Error('AUDIT_CHANNEL_ALREADY_BOUND: The audit persistence channel is already bound and cannot be accessed.');
     }
     if (typeof consumer !== 'function') {
         throw new Error('INVALID_CONSUMER: Consumer must be a function.');
     }
-    if (!registeredExecutor) {
-        throw new Error('AUDIT_BRIDGE_UNAVAILABLE: Document audit executor has not been registered.');
+    state.isBound = true;
+    if (state.registeredExecutor) {
+        const executor = state.registeredExecutor;
+        state.registeredExecutor = null; // Clear bridge reference permanently
+        consumer(executor);
+    } else {
+        state.pendingConsumer = consumer;
     }
-    isBound = true;
-    const executor = registeredExecutor;
-    registeredExecutor = null; // Clear bridge reference permanently
-    consumer(executor);
 }
+
+// Eagerly import Document and DocumentAuditService so that registration and binding
+// complete synchronously at module evaluation time.
+// Any caller importing internalAuditBridge.js will find isBound === true and isRegistered === true,
+// preventing any pre-binding hijack or executor replacement.
+import '../models/Document.js';
+import './DocumentAuditService.js';
+
+
+

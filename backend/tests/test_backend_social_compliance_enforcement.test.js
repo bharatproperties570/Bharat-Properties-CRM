@@ -31,7 +31,10 @@ import portalSyndicationService from '../services/PortalSyndicationService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import publishService from '../services/PublishService.js';
 import marketingService from '../services/MarketingService.js';
-import { fork } from 'node:child_process';
+import { fork, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import path from 'node:path';
+const execFileAsync = promisify(execFile);
 import SystemServiceReplayLedgerModel from '../models/SystemServiceReplayLedger.js';
 import * as internalAuditBridge from '../services/internalAuditBridge.js';
 import marketingComplianceEnforcementService, {
@@ -5528,6 +5531,7 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     };
                     const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
 
+                    // 1. Initial consumption acquires active lease
                     const res1 = await recordNonceConsumptionDurable(sig, {
                         serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
                         entityId: ctx.entityId,
@@ -5537,8 +5541,23 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     });
                     assert.equal(res1.consumed, true);
                     assert.equal(res1.isIdempotentRetry, false);
+                    assert.ok(res1.claimToken);
 
-                    // Retry with exact matching key and context succeeds as idempotent retry
+                    // 2. Active lease rejects concurrent worker retry with OPERATION_IN_PROGRESS
+                    const resActive = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+                    assert.equal(resActive.consumed, false);
+                    assert.ok(resActive.error.includes('OPERATION_IN_PROGRESS'));
+
+                    // 3. Worker 1 finishes and commits lease
+                    await commitNonceConsumptionDurable(sig, res1.claimToken);
+
+                    // 4. Subsequent retry with exact matching key and context succeeds as idempotent retry
                     const res2 = await recordNonceConsumptionDurable(sig, {
                         serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
                         entityId: ctx.entityId,
@@ -5548,8 +5567,9 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     });
                     assert.equal(res2.consumed, true);
                     assert.equal(res2.isIdempotentRetry, true);
+                    assert.equal(res2.isCommitted, true);
 
-                    // Retry with altered key fails closed
+                    // 5. Retry with altered key fails closed
                     const res3 = await recordNonceConsumptionDurable(sig, {
                         serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
                         entityId: ctx.entityId,
@@ -5992,6 +6012,326 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     }, /UNAUTHORIZED_VERIFIER/);
                 });
             });
+
+            describe('Section 17: Round 10 Final Security Closure & Replay Fencing Suite', () => {
+                it('1.1 Child process pre-binding hijack cannot capture privileged audit writer', async () => {
+                    const backendDir = path.resolve(import.meta.dirname, '..');
+                    const { stdout } = await execFileAsync(process.execPath, [
+                        '--input-type=module',
+                        '-e',
+                        `
+                        import { bindAuditPersistence, registerAuditExecutor } from './services/internalAuditBridge.js';
+                        let stolenWriter = null;
+                        let bindError = null;
+                        try {
+                            bindAuditPersistence((w) => { stolenWriter = w; });
+                        } catch (e) {
+                            bindError = e.message;
+                        }
+                        console.log(JSON.stringify({ stolenWriter, bindError }));
+                        `
+                    ], { cwd: backendDir });
+
+                    const jsonLine = stdout.split('\n').filter(l => l.trim().startsWith('{')).pop();
+                    const parsed = JSON.parse(jsonLine);
+                    assert.strictEqual(parsed.stolenWriter, null);
+                    assert.ok(parsed.bindError && parsed.bindError.includes('AUDIT_CHANNEL_ALREADY_BOUND'));
+                });
+
+                it('1.2 Child process replacement executor registration fails closed with ILLEGAL_REBINDING', async () => {
+                    const backendDir = path.resolve(import.meta.dirname, '..');
+                    const { stdout } = await execFileAsync(process.execPath, [
+                        '--input-type=module',
+                        '-e',
+                        `
+                        import { registerAuditExecutor } from './services/internalAuditBridge.js';
+                        let registerError = null;
+                        try {
+                            registerAuditExecutor(() => {});
+                        } catch (e) {
+                            registerError = e.message;
+                        }
+                        console.log(JSON.stringify({ registerError }));
+                        `
+                    ], { cwd: backendDir });
+
+                    const jsonLine = stdout.split('\n').filter(l => l.trim().startsWith('{')).pop();
+                    const parsed = JSON.parse(jsonLine);
+                    assert.ok(parsed.registerError && parsed.registerError.includes('ILLEGAL_REBINDING'));
+                });
+
+                it('1.3 Concurrent workers with matching idempotencyKey receive OPERATION_IN_PROGRESS on active lease', async () => {
+                    const now = new Date();
+                    const nonce = `test-inprog-${Date.now()}`;
+                    const idKey = `idkey-inprog-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    // Worker 1 acquires lease
+                    const w1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+                    assert.strictEqual(w1.consumed, true);
+                    assert.ok(w1.claimToken);
+
+                    // Worker 2 attempts same operation with matching idempotency key while Worker 1 is still processing
+                    const w2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+                    assert.strictEqual(w2.consumed, false);
+                    assert.strictEqual(w2.isIdempotentRetry, false);
+                    assert.ok(w2.error && w2.error.includes('OPERATION_IN_PROGRESS'));
+
+                    // Worker 1 completes and commits
+                    const commitRes = await commitNonceConsumptionDurable(sig, w1.claimToken);
+                    assert.strictEqual(commitRes.committed, true);
+
+                    // Subsequent worker retry succeeds with completed idempotent result
+                    const w3 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+                    assert.strictEqual(w3.consumed, true);
+                    assert.strictEqual(w3.isIdempotentRetry, true);
+                    assert.strictEqual(w3.isCommitted, true);
+                });
+
+                it('1.4 Stale worker cannot commit lease after expiry and reclamation (STALE_CLAIM_SUPERSEDED)', async () => {
+                    const now = new Date();
+                    const nonce = `test-stale-commit-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    // Worker 1 acquires initial lease
+                    const w1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w1.consumed, true);
+
+                    // Lease expires due to network delay / hang
+                    await SystemServiceReplayLedgerModel.updateOne(
+                        { signature: sig },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    // Worker 2 reclaims expired nonce
+                    const w2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w2.consumed, true);
+                    assert.notStrictEqual(w2.claimToken, w1.claimToken);
+
+                    // Stale Worker 1 attempts to commit with expired claimToken -> fails closed
+                    await assert.rejects(async () => {
+                        await commitNonceConsumptionDurable(sig, w1.claimToken);
+                    }, /STALE_CLAIM_SUPERSEDED/);
+
+                    // Worker 2 commits legitimate claim -> succeeds
+                    const commitRes = await commitNonceConsumptionDurable(sig, w2.claimToken);
+                    assert.strictEqual(commitRes.committed, true);
+                });
+
+                it('1.5 Stale worker failNonceConsumptionDurable fails closed without overriding new lease', async () => {
+                    const now = new Date();
+                    const nonce = `test-stale-fail-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const w1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+
+                    // Lease expires
+                    await SystemServiceReplayLedgerModel.updateOne(
+                        { signature: sig },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    // Worker 2 reclaims
+                    const w2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w2.consumed, true);
+
+                    // Stale Worker 1 attempts to fail with stale token
+                    const failRes = await failNonceConsumptionDurable(sig, w1.claimToken, 'STALE_CRASH');
+                    assert.strictEqual(failRes.failed, false);
+                    assert.strictEqual(failRes.error, 'STALE_CLAIM_SUPERSEDED');
+
+                    // Worker 2 lease is preserved in CONSUMED status
+                    const currentLedger = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                    assert.strictEqual(currentLedger.status, 'CONSUMED');
+                    assert.strictEqual(currentLedger.claimToken, w2.claimToken);
+                });
+
+                it('1.6 Stale worker cannot write document audit after lease expiration', async () => {
+                    const now = new Date();
+                    const nonce = `test-stale-audit-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    // Simulate worker starting execution and acquiring lease
+                    const claimRes = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(claimRes.consumed, true);
+
+                    // Lease expires and gets reclaimed by another worker
+                    await SystemServiceReplayLedgerModel.updateOne(
+                        { signature: sig },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    // Worker 2 reclaims
+                    const claim2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(claim2.consumed, true);
+
+                    // Now if stale worker (holding claimRes.claimToken) attempts to record audit:
+                    // We verify that DocumentAuditService rejects stale worker write
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                verifiedAt: now,
+                                outcome: 'VERIFIED'
+                            },
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                systemSignature: sig,
+                                nonce: ctx.nonce
+                            }
+                        });
+                    }, /SIGNATURE_REPLAY_DETECTED|STALE_CLAIM_SUPERSEDED/);
+
+                    // Document remains without verificationAudit
+                    const untouched = await Document.findById(replDoc._id);
+                    assert.strictEqual(untouched.verificationAudit, undefined);
+                });
+
+                it('1.7 Database disconnect fails closed for both claim and commit operations', async () => {
+                    const prevMode = process.env.ALLOW_IN_MEMORY_REPLAY_TEST_MODE;
+                    delete process.env.ALLOW_IN_MEMORY_REPLAY_TEST_MODE;
+
+                    // Simulate disconnected state by temporarily swapping readyState with writable descriptor
+                    const origDesc = Object.getOwnPropertyDescriptor(mongoose.connection, 'readyState');
+                    const origReadyState = mongoose.connection.readyState;
+                    Object.defineProperty(mongoose.connection, 'readyState', { value: 0, writable: true, configurable: true });
+
+                    try {
+                        const claimRes = await recordNonceConsumptionDurable('dummy-sig', {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            nonce: 'nonce-12345678'
+                        });
+                        assert.strictEqual(claimRes.consumed, false);
+                        assert.ok(claimRes.error && claimRes.error.includes('DURABLE_STORAGE_UNAVAILABLE'));
+
+                        await assert.rejects(async () => {
+                            await commitNonceConsumptionDurable('dummy-sig', 'dummy-token');
+                        }, /DURABLE_STORAGE_UNAVAILABLE/);
+                    } finally {
+                        if (origDesc) {
+                            Object.defineProperty(mongoose.connection, 'readyState', origDesc);
+                        } else {
+                            Object.defineProperty(mongoose.connection, 'readyState', { value: origReadyState, writable: true, configurable: true });
+                        }
+                        if (prevMode !== undefined) process.env.ALLOW_IN_MEMORY_REPLAY_TEST_MODE = prevMode;
+                    }
+                });
+
+                it('1.8 Multi-process race with identical idempotencyKey grants exactly one lease and rejects competitor', async () => {
+                    const now = new Date();
+                    const nonce = `test-mp-race-${Date.now()}`;
+                    const idKey = `idkey-race-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+                    const recordPayload = JSON.stringify({
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    });
+
+                    const mongoUri = mongoose.connection.client.s.url;
+                    const workerScript = new URL('./helpers/concurrencyReplayWorker.js', import.meta.url).pathname;
+
+                    const runChild = () => new Promise((resolve) => {
+                        const child = fork(workerScript, [mongoUri, sig, recordPayload], { silent: true });
+                        child.on('message', (msg) => resolve(msg));
+                        child.on('exit', (code) => resolve({ code }));
+                    });
+
+                    const [result1, result2] = await Promise.all([runChild(), runChild()]);
+                    const results = [result1, result2];
+
+                    const successCount = results.filter(r => r.success === true).length;
+                    const failureCount = results.filter(r => r.success === false).length;
+
+                    assert.strictEqual(successCount, 1, 'Exactly one worker process must acquire the active lease');
+                    assert.strictEqual(failureCount, 1, 'Competing worker must be rejected with in-progress error');
+                    const failedWorker = results.find(r => r.success === false);
+                    assert.ok(failedWorker.error.includes('OPERATION_IN_PROGRESS') || failedWorker.error.includes('SIGNATURE_REPLAY_DETECTED'));
+                });
+            });
+
         });
     });
 });

@@ -3,6 +3,7 @@ import Document from '../models/Document.js';
 import DocumentVersion from '../models/DocumentVersion.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
+import SystemServiceReplayLedgerModel from '../models/SystemServiceReplayLedger.js';
 import { hasStatutoryVerifierPermissions } from '../utils/propertyComplianceValidator.js';
 import { 
     verifySystemServiceSignatureDurable, 
@@ -245,6 +246,19 @@ export class DocumentAuditService {
 
         // 6. Mutate Document via privileged internal bridge with atomic state fencing
         try {
+            // Fence mutation against expired/superseded worker lease
+            if (consumedSignature && consumedClaimToken && mongoose.connection && mongoose.connection.readyState === 1) {
+                const activeLease = await SystemServiceReplayLedgerModel.findOne({
+                    signature: consumedSignature,
+                    claimToken: consumedClaimToken,
+                    status: 'CONSUMED',
+                    leaseExpiresAt: { $gt: new Date() }
+                }).lean();
+                if (!activeLease) {
+                    throw new Error('STALE_CLAIM_SUPERSEDED: Worker lease expired or was superseded before write could be executed.');
+                }
+            }
+
             const atomicFilter = {
                 _id: doc._id,
                 isRevoked: { $ne: true },
@@ -256,13 +270,13 @@ export class DocumentAuditService {
             }
 
             // Commit nonce in distributed ledger if system service
-            if (consumedSignature) {
+            if (consumedSignature && consumedClaimToken) {
                 await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
             }
 
             return Document.findById(doc._id);
         } catch (err) {
-            if (consumedSignature) {
+            if (consumedSignature && consumedClaimToken) {
                 await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
             }
             throw err;
@@ -387,13 +401,26 @@ export class DocumentAuditService {
 
         // Mutate Document via privileged internal bridge with atomic filter
         try {
+            // Fence mutation against expired/superseded worker lease
+            if (consumedSignature && consumedClaimToken && mongoose.connection && mongoose.connection.readyState === 1) {
+                const activeLease = await SystemServiceReplayLedgerModel.findOne({
+                    signature: consumedSignature,
+                    claimToken: consumedClaimToken,
+                    status: 'CONSUMED',
+                    leaseExpiresAt: { $gt: new Date() }
+                }).lean();
+                if (!activeLease) {
+                    throw new Error('STALE_CLAIM_SUPERSEDED: Worker lease expired or was superseded before write could be executed.');
+                }
+            }
+
             const atomicFilter = { _id: doc._id, isRevoked: { $ne: true } };
             const writeRes = await executePrivilegedAuditWrite(atomicFilter, updateOps);
             // If already revoked concurrently, it's idempotent
             if (!writeRes || writeRes.matchedCount === 0) {
                 const refreshed = await Document.findById(doc._id);
                 if (refreshed && refreshed.isRevoked === true) {
-                    if (consumedSignature) {
+                    if (consumedSignature && consumedClaimToken) {
                         await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
                     }
                     return refreshed;
@@ -402,13 +429,13 @@ export class DocumentAuditService {
             }
 
             // Commit nonce if system service
-            if (consumedSignature) {
+            if (consumedSignature && consumedClaimToken) {
                 await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
             }
 
             return Document.findById(doc._id);
         } catch (err) {
-            if (consumedSignature) {
+            if (consumedSignature && consumedClaimToken) {
                 await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
             }
             throw err;
