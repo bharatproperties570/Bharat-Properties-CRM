@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import { CANONICAL_ORGANIZATION_ID, CANONICAL_ORGANIZATION_ID_STRING } from '../config/canonicalOrganization.js';
+import { isProductionEnvironment } from '../services/authority/databaseEnvironmentSafety.js';
 
 /**
  * AuthoritySourceSettings
@@ -148,22 +149,27 @@ export function issueOwnerConfirmationWorkflowToken(context = {}) {
         throw new Error(`CANONICAL_ORGANIZATION_REQUIRED: Owner confirmation workflow token requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
     }
     const { targetId, authorityCode, evidenceVersion } = context;
-    if (authorityCode && authorityCode !== '*' && !AUTHORITY_CODES.includes(String(authorityCode))) {
+    if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) {
         const err = new Error(`AUTHORITY_CODE_REQUIRED: Owner confirmation workflow token requires a valid supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
         err.code = 'AUTHORITY_CODE_REQUIRED';
+        throw err;
+    }
+    if (targetId === '*') {
+        const err = new Error('TARGET_ID_REQUIRED: Owner confirmation workflow token requires an exact targetId.');
+        err.code = 'TARGET_ID_REQUIRED';
         throw err;
     }
     return createAuthorizedInternalWorkflowToken('recordOwnerConfirmation', {
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
         targetId: targetId ? String(targetId) : '*',
-        authorityCode: authorityCode ? String(authorityCode) : '*',
+        authorityCode: String(authorityCode),
         evidenceVersion: evidenceVersion !== undefined ? String(evidenceVersion) : '*'
     });
 }
 
 export function issueInternalSeedWorkflowToken(context = {}) {
-    if (process.env.NODE_ENV === 'production' || (process.env.NODE_ENV && process.env.NODE_ENV !== 'test')) {
-        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited in non-test environments.');
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited outside NODE_ENV=test.');
         err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
         throw err;
     }
@@ -233,8 +239,8 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
         return false;
     }
 
-    // In production, internal_seed and testCleanup are strictly invalid
-    if ((workflowName === 'internal_seed' || workflowName === 'testCleanup') && process.env.NODE_ENV === 'production') {
+    // In non-test environments, internal_seed and testCleanup are strictly invalid
+    if ((workflowName === 'internal_seed' || workflowName === 'testCleanup') && process.env.NODE_ENV !== 'test') {
         return false;
     }
 
@@ -247,7 +253,8 @@ export function verifyAuthorizedInternalWorkflow(options, allowedWorkflows = ['r
 
     // Rule 3: Owner confirmation requires valid supported authorityCode
     if (workflowName === 'recordOwnerConfirmation') {
-        if (authorityCode !== '*' && !AUTHORITY_CODES.includes(String(authorityCode))) return false;
+        if (!authorityCode || authorityCode === '*' || !AUTHORITY_CODES.includes(String(authorityCode))) return false;
+        if (expectedContext.targetId && (!targetId || targetId === '*' || String(targetId) !== String(expectedContext.targetId))) return false;
     }
 
     // Rule 4: Delete authority requires exact targetId and supported authorityCode
@@ -1137,8 +1144,8 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                 return next(err);
             }
         } else if (workflowName === 'internal_seed') {
-            if (process.env.NODE_ENV === 'production') {
-                const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited in production.');
+            if (process.env.NODE_ENV !== 'test') {
+                const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Internal seed workflow token is strictly prohibited outside NODE_ENV=test.');
                 err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
                 return next(err);
             }
@@ -1344,9 +1351,20 @@ AuthoritySourceSettingsSchema.pre('insertMany', async function (next, docs) {
 
 // Guard against direct deletion attempts via query methods
 AuthoritySourceSettingsSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete', 'findOneAndRemove'], async function (next) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || isProductionEnvironment()) {
         const err = new Error('DELETION_PROHIBITED: Application-level deletion of AuthoritySourceSettings is unconditionally prohibited in production.');
         err.code = 'DELETION_PROHIBITED';
+        return next(err);
+    }
+
+    if (this.op === 'deleteMany') {
+        const filter = this.getQuery() || {};
+        if (Object.keys(filter).length === 0 && isVerifiedEphemeralTestDatabase() && process.env.NODE_ENV !== 'production' && !isProductionEnvironment()) {
+            return next();
+        }
+        const err = new Error('DELETE_MANY_PROHIBITED: Multi-document deletion of AuthoritySourceSettings is strictly prohibited.');
+        err.code = 'DELETION_PROHIBITED';
+        err.subCode = 'DELETE_MANY_PROHIBITED';
         return next(err);
     }
 
@@ -1358,34 +1376,37 @@ AuthoritySourceSettingsSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete'
     }
 
     const options = this.getOptions() || {};
-    const isAuthorized = verifyAuthorizedInternalWorkflow(options, ['deleteAuthoritySource', 'testCleanup']);
+    const isAuthorized = verifyAuthorizedInternalWorkflow(options, ['deleteAuthoritySource']);
     if (!isAuthorized) {
         const err = new Error('DELETION_PROHIBITED: Deletion of AuthoritySourceSettings is prohibited without authorized internal delete capability token.');
         err.code = 'DELETION_PROHIBITED';
         return next(err);
     }
 
-    const token = options[INTERNAL_WORKFLOW_OPTION];
-    if (token && token.workflowName === 'deleteAuthoritySource') {
-        const authCode = filter.authorityCode;
-        if (!authCode || !AUTHORITY_CODES.includes(authCode)) {
-            const err = new Error(`AUTHORITY_CODE_REQUIRED: Deletion requires an exact supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
-            err.code = 'DELETION_PROHIBITED';
-            return next(err);
-        }
-        if (token.authorityCode && String(token.authorityCode) !== String(authCode)) {
-            const err = new Error(`AUTHORITY_CODE_MISMATCH: Delete token authorityCode '${token.authorityCode}' does not match query authorityCode '${authCode}'.`);
-            err.code = 'AUTHORITY_CODE_MISMATCH';
-            return next(err);
-        }
-        if (filter._id && token.targetId && token.targetId !== '*' && String(filter._id) !== String(token.targetId)) {
-            const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Delete token targetId '${token.targetId}' does not match query _id '${filter._id}'.`);
-            err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
-            return next(err);
-        }
+    const targetId = filter._id ? String(filter._id) : null;
+    if (!targetId || targetId === '*' || targetId.trim() === '') {
+        const err = new Error('TARGET_ID_REQUIRED: Exact target _id is mandatory for AuthoritySourceSettings deletion.');
+        err.code = 'TARGET_ID_REQUIRED';
+        return next(err);
     }
 
-    if (token && token.nonce) {
+    const authCode = filter.authorityCode ? String(filter.authorityCode) : null;
+    if (!authCode || !AUTHORITY_CODES.includes(authCode)) {
+        const err = new Error(`AUTHORITY_CODE_REQUIRED: Deletion requires an exact supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
+        err.code = 'AUTHORITY_CODE_REQUIRED';
+        return next(err);
+    }
+
+    const token = options[INTERNAL_WORKFLOW_OPTION];
+    if (!token || token.workflowName !== 'deleteAuthoritySource' ||
+        String(token.targetId) !== targetId ||
+        String(token.authorityCode) !== authCode) {
+        const err = new Error(`UNAUTHORIZED_INTERNAL_WORKFLOW: Delete token does not match target context.`);
+        err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+        return next(err);
+    }
+
+    if (token.nonce) {
         const sig = crypto.createHmac('sha256', PRIVATE_INTERNAL_WORKFLOW_SECRET)
             .update(`QUERY_DELETE:${token.nonce}`)
             .digest('hex');
@@ -1860,14 +1881,33 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
  * Records or updates explicit owner confirmation in userReportedEvidence.
  */
 AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (tenantId, authorityCode, details = {}) {
-    if (tenantId && String(tenantId) !== String(CANONICAL_ORGANIZATION_ID)) {
-        const err = new Error('ORGANIZATION_OVERRIDE_PROHIBITED');
+    if (!tenantId || String(tenantId) !== String(CANONICAL_ORGANIZATION_ID)) {
+        const err = new Error(`ORGANIZATION_OVERRIDE_PROHIBITED: Owner confirmation requires canonical organization ID '${CANONICAL_ORGANIZATION_ID}'.`);
         err.code = 'ORGANIZATION_OVERRIDE_PROHIBITED';
         throw err;
     }
+    if (!authorityCode || !AUTHORITY_CODES.includes(String(authorityCode))) {
+        const err = new Error(`AUTHORITY_CODE_REQUIRED: Owner confirmation requires a valid supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
+        err.code = 'AUTHORITY_CODE_REQUIRED';
+        throw err;
+    }
     const effectiveTenantId = CANONICAL_ORGANIZATION_ID;
+    const existing = await this.findOne({ tenantId: effectiveTenantId, authorityCode: String(authorityCode) });
+    if (!existing) {
+        const err = new Error(`AUTHORITY_SOURCE_NOT_FOUND: Authority source settings for authorityCode '${authorityCode}' not found.`);
+        err.code = 'AUTHORITY_SOURCE_NOT_FOUND';
+        throw err;
+    }
+
+    const token = issueOwnerConfirmationWorkflowToken({
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
+        authorityCode: String(authorityCode),
+        targetId: String(existing._id),
+        evidenceVersion: existing.evidenceVersion !== undefined ? existing.evidenceVersion : 0
+    });
+
     return this.findOneAndUpdate(
-        { tenantId: effectiveTenantId, authorityCode },
+        { _id: existing._id, tenantId: effectiveTenantId, authorityCode: String(authorityCode) },
         {
             $set: {
                 'userReportedEvidence.reportedBy': details.reportedBy || 'Bharat Properties Owner',
@@ -1875,21 +1915,12 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
                 'userReportedEvidence.claimedAuthorityRole': details.claimedAuthorityRole || 'Authorized Broker',
                 'userReportedEvidence.notes': details.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized. Official written documentation and authority rate policy pending.',
                 'userReportedEvidence.verificationStatus': details.verificationStatus || 'PENDING_WRITTEN_REFERENCE'
-            },
-            $setOnInsert: {
-                tenantId: effectiveTenantId,
-                authorityCode
             }
         },
         {
             new: true,
-            upsert: true,
-            [INTERNAL_WORKFLOW_OPTION]: issueOwnerConfirmationWorkflowToken({
-                tenantId: effectiveTenantId,
-                authorityCode,
-                targetId: authorityCode,
-                evidenceVersion: 0
-            })
+            upsert: false,
+            [INTERNAL_WORKFLOW_OPTION]: token
         }
     );
 };
@@ -2581,23 +2612,40 @@ export function checkInternalMakerCheckerReviewEligibility(doc = {}) {
 
 const AuthoritySourceSettings = mongoose.models.AuthoritySourceSettings || mongoose.model('AuthoritySourceSettings', AuthoritySourceSettingsSchema);
 
-// Wrap underlying MongoDB collection delete methods to intercept raw driver calls
-const rawDeleteOne = AuthoritySourceSettings.collection.deleteOne;
-const rawDeleteMany = AuthoritySourceSettings.collection.deleteMany;
-const rawFindOneAndDelete = AuthoritySourceSettings.collection.findOneAndDelete;
+// Private symbol used exclusively for test teardown on verified ephemeral test databases
+const INTERNAL_TEST_RESET_KEY = Symbol('INTERNAL_TEST_RESET');
 
-function checkCollectionDeleteAuthorization(filter, options) {
-    if (process.env.NODE_ENV === 'production') {
+function isVerifiedEphemeralTestDatabase() {
+    if (!mongoose.connection || !mongoose.connection.host) return false;
+    const host = String(mongoose.connection.host).toLowerCase();
+    const dbName = String(mongoose.connection.name || '').toLowerCase();
+    const isLocalHost = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    const isMemoryDb = dbName.includes('test') || dbName.includes('memory') || host.includes('127.0.0.1');
+    return isLocalHost || isMemoryDb;
+}
+
+function checkCollectionDeleteAuthorization(filter, options, operationType = 'deleteOne') {
+    if (process.env.NODE_ENV === 'production' || isProductionEnvironment()) {
         const err = new Error('DELETION_PROHIBITED: Raw collection deletion of AuthoritySourceSettings is unconditionally prohibited in production.');
         err.code = 'DELETION_PROHIBITED';
         return err;
     }
-    if (process.env.NODE_ENV !== 'production' && (!filter || Object.keys(filter).length === 0)) {
-        return null;
+
+    if (operationType === 'deleteMany' && (!filter || Object.keys(filter).length === 0)) {
+        if (isVerifiedEphemeralTestDatabase() && process.env.NODE_ENV !== 'production' && !isProductionEnvironment()) {
+            return null;
+        }
     }
-    if (options && options._internalTestDeleteAllowed === true) {
-        return null;
+
+    if (options && options[INTERNAL_TEST_RESET_KEY] === true) {
+        if (isVerifiedEphemeralTestDatabase() && process.env.NODE_ENV !== 'production') {
+            return null;
+        }
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Resetting AuthoritySourceSettings is strictly prohibited outside verified ephemeral test environments.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        return err;
     }
+
     const token = options ? options[INTERNAL_WORKFLOW_OPTION] : null;
     if (options && options[QUERY_DELETE_AUTHORIZED_KEY] && token && token.nonce) {
         const expectedSig = crypto.createHmac('sha256', PRIVATE_INTERNAL_WORKFLOW_SECRET)
@@ -2607,61 +2655,180 @@ function checkCollectionDeleteAuthorization(filter, options) {
             return null;
         }
     }
+
+    // Direct collection delete without authorization token throws DELETION_PROHIBITED
     const isAuthorized = verifyAuthorizedInternalWorkflow(options, ['deleteAuthoritySource', 'testCleanup']);
     if (!isAuthorized) {
         const err = new Error('DELETION_PROHIBITED: Raw collection deletion of AuthoritySourceSettings is prohibited without authorized internal capability token.');
         err.code = 'DELETION_PROHIBITED';
         return err;
     }
+
+    // Multi-document deletion is strictly prohibited
+    if (operationType === 'deleteMany') {
+        const err = new Error('DELETE_MANY_PROHIBITED: Multi-document deletion of AuthoritySourceSettings is strictly prohibited.');
+        err.code = 'DELETION_PROHIBITED';
+        err.subCode = 'DELETE_MANY_PROHIBITED';
+        return err;
+    }
+
+    // Empty filter deletion is strictly prohibited
+    if (!filter || Object.keys(filter).length === 0) {
+        const err = new Error('EMPTY_FILTER_PROHIBITED: Empty filter deletion of AuthoritySourceSettings is strictly prohibited.');
+        err.code = 'DELETION_PROHIBITED';
+        err.subCode = 'EMPTY_FILTER_PROHIBITED';
+        return err;
+    }
+
+    // Canonical tenant check
+    const tenantId = filter.tenantId ? String(filter.tenantId) : null;
+    if (!tenantId || tenantId !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Raw collection deletion requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+        return err;
+    }
+
+    // Exact target document ID check
+    const targetId = filter._id ? String(filter._id) : null;
+    if (!targetId || targetId === '*' || targetId.trim() === '') {
+        const err = new Error('TARGET_ID_REQUIRED: Exact target _id is mandatory for AuthoritySourceSettings deletion.');
+        err.code = 'TARGET_ID_REQUIRED';
+        return err;
+    }
+
+    // Exact authority code check
+    const authCode = filter.authorityCode ? String(filter.authorityCode) : null;
+    if (!authCode || !AUTHORITY_CODES.includes(authCode)) {
+        const err = new Error(`AUTHORITY_CODE_REQUIRED: Raw collection deletion requires an exact supported authorityCode (${AUTHORITY_CODES.join(', ')}).`);
+        err.code = 'AUTHORITY_CODE_REQUIRED';
+        return err;
+    }
+
+    if (!token || token.workflowName !== 'deleteAuthoritySource' ||
+        String(token.targetId) !== targetId ||
+        String(token.authorityCode) !== authCode ||
+        String(token.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error('UNAUTHORIZED_INTERNAL_WORKFLOW: Delete token does not match target context.');
+        err.code = 'UNAUTHORIZED_INTERNAL_WORKFLOW';
+        return err;
+    }
+
     return null;
 }
 
-AuthoritySourceSettings.collection.deleteOne = function (filter, options, callback) {
-    if (typeof options === 'function') {
-        callback = options;
-        options = {};
-    }
-    const err = checkCollectionDeleteAuthorization(filter, options);
-    if (err) {
-        if (typeof callback === 'function') return callback(err);
-        return Promise.reject(err);
-    }
-    return rawDeleteOne.call(this, filter, options, callback);
-};
+function hookNativeCollection(coll) {
+    if (!coll || coll.__authorityDeleteGuarded) return coll;
+    const origDeleteOne = coll.deleteOne;
+    const origDeleteMany = coll.deleteMany;
+    const origFindOneAndDelete = coll.findOneAndDelete;
 
-AuthoritySourceSettings.collection.deleteMany = function (filter, options, callback) {
-    if (typeof options === 'function') {
-        callback = options;
-        options = {};
-    }
-    const err = checkCollectionDeleteAuthorization(filter, options);
-    if (err) {
-        if (typeof callback === 'function') return callback(err);
-        return Promise.reject(err);
-    }
-    return rawDeleteMany.call(this, filter, options, callback);
-};
+    coll.deleteOne = function (filter, options, callback) {
+        if (typeof options === 'function') {
+            callback = options;
+            options = {};
+        }
+        const err = checkCollectionDeleteAuthorization(filter, options, 'deleteOne');
+        if (err) {
+            if (typeof callback === 'function') return callback(err);
+            return Promise.reject(err);
+        }
+        return origDeleteOne.call(this, filter, options, callback);
+    };
 
-AuthoritySourceSettings.collection.findOneAndDelete = function (filter, options, callback) {
-    if (typeof options === 'function') {
-        callback = options;
-        options = {};
+    coll.deleteMany = function (filter, options, callback) {
+        if (typeof options === 'function') {
+            callback = options;
+            options = {};
+        }
+        const err = checkCollectionDeleteAuthorization(filter, options, 'deleteMany');
+        if (err) {
+            if (typeof callback === 'function') return callback(err);
+            return Promise.reject(err);
+        }
+        return origDeleteMany.call(this, filter, options, callback);
+    };
+
+    coll.findOneAndDelete = function (filter, options, callback) {
+        if (typeof options === 'function') {
+            callback = options;
+            options = {};
+        }
+        const err = checkCollectionDeleteAuthorization(filter, options, 'findOneAndDelete');
+        if (err) {
+            if (typeof callback === 'function') return callback(err);
+            return Promise.reject(err);
+        }
+        return origFindOneAndDelete.call(this, filter, options, callback);
+    };
+
+    coll.__authorityDeleteGuarded = true;
+    return coll;
+}
+
+function hookDb(db) {
+    if (!db || db.__authorityDbGuarded) return;
+    const origCollection = db.collection;
+    db.collection = function (name, options, callback) {
+        const coll = origCollection.call(this, name, options, callback);
+        if (name === 'authority_source_settings' || name === 'authoritysourcesettings') {
+            hookNativeCollection(coll);
+        }
+        return coll;
+    };
+    db.__authorityDbGuarded = true;
+}
+
+// Hook current model collection
+hookNativeCollection(AuthoritySourceSettings.collection);
+
+// Hook mongoose.connection and client for native collection calls
+if (mongoose.connection) {
+    if (mongoose.connection.db) {
+        hookDb(mongoose.connection.db);
     }
-    const err = checkCollectionDeleteAuthorization(filter, options);
-    if (err) {
-        if (typeof callback === 'function') return callback(err);
-        return Promise.reject(err);
+    mongoose.connection.on('open', () => {
+        if (mongoose.connection.db) {
+            hookDb(mongoose.connection.db);
+        }
+    });
+    const origGetClient = mongoose.connection.getClient;
+    if (typeof origGetClient === 'function') {
+        mongoose.connection.getClient = function () {
+            const client = origGetClient.apply(this, arguments);
+            if (client && !client.__authorityClientGuarded) {
+                const origClientDb = client.db;
+                if (typeof origClientDb === 'function') {
+                    client.db = function (dbName, options) {
+                        const db = origClientDb.call(this, dbName, options);
+                        hookDb(db);
+                        return db;
+                    };
+                }
+                client.__authorityClientGuarded = true;
+            }
+            return client;
+        };
     }
-    return rawFindOneAndDelete.call(this, filter, options, callback);
-};
+}
 
 export async function _testOnlyResetAuthoritySettings(filter = {}, options = {}) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || isProductionEnvironment()) {
         const err = new Error('DELETION_PROHIBITED: Resetting AuthoritySourceSettings is strictly prohibited in production.');
         err.code = 'DELETION_PROHIBITED';
         throw err;
     }
-    return await rawDeleteMany.call(AuthoritySourceSettings.collection, filter, { ...options, _internalTestDeleteAllowed: true });
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Resetting AuthoritySourceSettings is strictly prohibited outside NODE_ENV=test.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
+    if (!isVerifiedEphemeralTestDatabase()) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Resetting AuthoritySourceSettings is strictly prohibited on non-ephemeral databases.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+    const rawDeleteManyMethod = Object.getPrototypeOf(AuthoritySourceSettings.collection).deleteMany || AuthoritySourceSettings.collection.deleteMany;
+    return await rawDeleteManyMethod.call(AuthoritySourceSettings.collection, filter, { ...options, [INTERNAL_TEST_RESET_KEY]: true });
 }
 
 export { AUTHORITY_CODES, PERMISSION_STATUSES, ACCESS_METHODS };
