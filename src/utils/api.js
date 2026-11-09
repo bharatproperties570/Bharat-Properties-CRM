@@ -249,6 +249,11 @@ export const marketingAPI = {
     // ── Orchestration & Scheduling Monitor ──
     getScheduled: () => api.get('/marketing/scheduled').then(res => res.data),
     deleteScheduled: (id, type) => api.delete(`/marketing/scheduled/${id}`, { params: { type } }).then(res => res.data),
+
+    // ── Autonomous Marketing OS Autopilot ──
+    triggerAutonomousCycle: (payload = {}) => api.post('/marketing/autonomous-cycle', payload).then(res => res.data),
+    getAutopilotConfig: () => api.get('/marketing/autopilot-config').then(res => res.data),
+    saveAutopilotConfig: (config) => api.post('/marketing/autopilot-config', { config }).then(res => res.data),
 };
 
 export const whatsappOnboardingAPI = {

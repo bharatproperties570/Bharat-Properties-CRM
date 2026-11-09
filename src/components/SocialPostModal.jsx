@@ -127,7 +127,20 @@ const SocialPostModal = ({
       priceOnRequest: false    // Masks price with "Price on Request"
   });
 
+  const [metaStatus, setMetaStatus] = useState(null);
+
   const isActuallyOpen = isOpen || show;
+
+  // 🛡️ Fetch Live Meta & Portal Connection Statuses from Backend
+  useEffect(() => {
+    if (isActuallyOpen && typeof socialAPI?.getFacebookOAuthStatus === 'function') {
+      socialAPI.getFacebookOAuthStatus()
+        .then(res => {
+          if (res?.success) setMetaStatus(res);
+        })
+        .catch(e => console.warn('Could not fetch Meta OAuth status', e));
+    }
+  }, [isActuallyOpen]);
 
   // 🛡️ Enterprise Phase 3: Fetch Live Portal Connection Statuses from Backend
   useEffect(() => {
@@ -1546,19 +1559,31 @@ const SocialPostModal = ({
                                 {platform === 'facebook' && (
                                     <div style={{
                                         padding: '10px 14px', borderRadius: '10px',
-                                        background: isDark ? 'rgba(24, 119, 242, 0.1)' : '#eff6ff',
-                                        border: '1px solid rgba(24, 119, 242, 0.25)',
+                                        background: metaStatus?.facebook?.connected 
+                                            ? (isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4')
+                                            : (isDark ? 'rgba(24, 119, 242, 0.1)' : '#eff6ff'),
+                                        border: metaStatus?.facebook?.connected
+                                            ? '1px solid rgba(34, 197, 94, 0.3)'
+                                            : '1px solid rgba(24, 119, 242, 0.25)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
-                                        color: isDark ? '#93c5fd' : '#1d4ed8'
+                                        color: metaStatus?.facebook?.connected 
+                                            ? (isDark ? '#86efac' : '#15803d')
+                                            : (isDark ? '#93c5fd' : '#1d4ed8')
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fab fa-facebook text-blue-600" style={{ fontSize: '18px' }}></i>
                                             <div>
-                                                <div>
-                                                    <strong>Facebook Page Hub:</strong> Publishes property updates directly to your Facebook Page feed or story.
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    {metaStatus?.facebook?.connected && (
+                                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
+                                                    )}
+                                                    <strong>{metaStatus?.facebook?.connected ? 'Connected Page:' : 'Facebook Page Hub:'}</strong>
+                                                    <span style={{ fontWeight: 800 }}>{metaStatus?.facebook?.connected ? (metaStatus.facebook.pageName || 'Bharat Properties') : 'Publishes to Facebook Page'}</span>
                                                 </div>
                                                 <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                                                    Connect or manage your Page via 1-Click Meta Connect in Settings &gt; Integrations.
+                                                    {metaStatus?.facebook?.connected 
+                                                        ? `Page ID: ${metaStatus.facebook.pageId || '1056305730890717'} · Ready for instant 1-click publishing` 
+                                                        : 'Connect your Facebook Page via 1-Click Meta Connect in Settings > Integrations.'}
                                                 </div>
                                             </div>
                                         </div>
@@ -1573,13 +1598,14 @@ const SocialPostModal = ({
                                                 }
                                             }}
                                             style={{
-                                                background: '#1877F2', color: '#ffffff', border: 'none', padding: '4px 10px',
+                                                background: metaStatus?.facebook?.connected ? '#059669' : '#1877F2', 
+                                                color: '#ffffff', border: 'none', padding: '4px 10px',
                                                 borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
                                                 whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
                                             }}
                                             title="Click to connect or refresh your Facebook connection"
                                         >
-                                            <i className="fab fa-facebook-f"></i> Connect Meta
+                                            <i className="fab fa-facebook-f"></i> {metaStatus?.facebook?.connected ? 'Reconnect' : 'Connect Meta'}
                                         </button>
                                     </div>
                                 )}
@@ -1587,19 +1613,31 @@ const SocialPostModal = ({
                                 {platform === 'instagram' && (
                                     <div style={{
                                         padding: '10px 14px', borderRadius: '10px',
-                                        background: isDark ? 'rgba(228, 64, 95, 0.1)' : '#fdf2f8',
-                                        border: '1px solid rgba(228, 64, 95, 0.25)',
+                                        background: metaStatus?.instagram?.connected
+                                            ? (isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4')
+                                            : (isDark ? 'rgba(228, 64, 95, 0.1)' : '#fdf2f8'),
+                                        border: metaStatus?.instagram?.connected
+                                            ? '1px solid rgba(34, 197, 94, 0.3)'
+                                            : '1px solid rgba(228, 64, 95, 0.25)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.72rem',
-                                        color: isDark ? '#f472b6' : '#be185d'
+                                        color: metaStatus?.instagram?.connected
+                                            ? (isDark ? '#86efac' : '#15803d')
+                                            : (isDark ? '#f472b6' : '#be185d')
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fab fa-instagram text-pink-600" style={{ fontSize: '18px' }}></i>
                                             <div>
-                                                <div>
-                                                    <strong>Instagram Business Hub:</strong> Publishes property posts, stories, and reels via your connected Facebook Page.
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    {metaStatus?.instagram?.connected && (
+                                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
+                                                    )}
+                                                    <strong>{metaStatus?.instagram?.connected ? 'Connected Instagram:' : 'Instagram Business Hub:'}</strong>
+                                                    <span style={{ fontWeight: 800 }}>{metaStatus?.instagram?.connected ? `@${metaStatus.instagram.igUsername || 'bhaaratproperties'}` : 'Publishes to Instagram'}</span>
                                                 </div>
                                                 <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                                                    Connect or manage your Instagram Business profile in Settings &gt; Integrations.
+                                                    {metaStatus?.instagram?.connected
+                                                        ? `Linked via Facebook Page · Feed, Stories & Reels ready`
+                                                        : 'Connect your Instagram Business account via 1-Click Meta Connect in Settings > Integrations.'}
                                                 </div>
                                             </div>
                                         </div>
@@ -1614,14 +1652,16 @@ const SocialPostModal = ({
                                                 }
                                             }}
                                             style={{
-                                                background: 'linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)',
+                                                background: metaStatus?.instagram?.connected
+                                                    ? '#059669'
+                                                    : 'linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)',
                                                 color: '#ffffff', border: 'none', padding: '4px 10px',
                                                 borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer',
                                                 whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px'
                                             }}
                                             title="Click to connect or refresh your Instagram connection"
                                         >
-                                            <i className="fab fa-instagram"></i> Connect Meta
+                                            <i className="fab fa-instagram"></i> {metaStatus?.instagram?.connected ? 'Reconnect' : 'Connect Meta'}
                                         </button>
                                     </div>
                                 )}
