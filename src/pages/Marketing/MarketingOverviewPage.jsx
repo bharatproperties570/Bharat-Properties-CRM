@@ -166,6 +166,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [realStats, setRealStats] = useState({ totalCaptured: 0, hotLeads: 0, nurturedToday: 0, recentLeads: [], recentActivities: [] });
   const [realLeads, setRealLeads] = useState([]);
   const [realDeals, setRealDeals] = useState([]);
+  const [selectedTargetDealId, setSelectedTargetDealId] = useState('');
   const [realAgents, setRealAgents] = useState([]); // Phase B: real AI agents from backend
   const [activeSmsStatus, setActiveSmsStatus] = useState(null);
   const [realSocialStatus, setRealSocialStatus] = useState({ 
@@ -371,15 +372,26 @@ export default function MarketingOverviewPage({ onNavigate }) {
     }
   };
 
-  const handleRunAutopilotCycle = async () => {
+  const handleRunAutopilotCycle = async (opts = {}) => {
+    const immediate = typeof opts === 'object' ? !!opts.immediate : false;
+    const customDealId = typeof opts === 'object' ? opts.dealId : (typeof opts === 'string' ? opts : null);
     setIsRunningAutopilot(true);
-    addLog('$ [Autonomous Marketing OS] Triggering live 4-agent autonomous pipeline...', 'cmd');
-    toast.loading('Running 4-Agent Autonomous Pipeline (Instant Live Dispatch)...', { id: 'auto-cycle' });
+    const actionLabel = immediate ? 'Instant Live Broadcast' : 'Scheduled Peak Dispatch';
+    addLog(`$ [Autonomous Marketing OS] Triggering 4-Agent Pipeline (${actionLabel})...`, 'cmd');
+    toast.loading(`Running 4-Agent Pipeline (${actionLabel})...`, { id: 'auto-cycle' });
     try {
-      const res = await marketingAPI.triggerAutonomousCycle({ force: true, forceImmediate: true });
+      const targetDealId = customDealId || selectedTargetDealId || undefined;
+      const res = await marketingAPI.triggerAutonomousCycle({ 
+        force: true, 
+        forceImmediate: immediate,
+        dealId: targetDealId 
+      });
       if (res?.success) {
-        toast.success(`4-Agent Pipeline executed! Broadcast dispatched across ${res.channels?.length || 4} channels (${res.pillar})`, { id: 'auto-cycle' });
-        addLog(`✓ 4-Agent Pipeline success! Pillar: ${res.pillar} · Broadcast Dispatched`, 'success');
+        const successMsg = immediate
+          ? `🚀 Live Broadcast Complete! Published across ${res.channels?.length || 5} channels.`
+          : `📅 Pipeline complete! Scheduled for ${res.scheduledTime} (${res.pillar}) across ${res.channels?.length || 5} channels.`;
+        toast.success(successMsg, { id: 'auto-cycle' });
+        addLog(`✓ 4-Agent Pipeline success! Pillar: ${res.pillar} · Scheduled: ${res.scheduledFor}`, 'success');
         if (res.visualUrl) {
           addLog(`  🎨 Sharp Canvas Asset Render: ${res.visualUrl}`, 'info');
           setAgentVisuals(prev => ({ ...prev, designer: res.visualUrl }));
@@ -389,10 +401,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
         }
         fetchLiveData();
       } else {
-        toast.error(`Pipeline error: ${res.reason || 'Could not complete cycle'}`, { id: 'auto-cycle' });
+        toast.error(`Autopilot error: ${res.reason || 'Could not complete cycle'}`, { id: 'auto-cycle' });
       }
     } catch(err) {
-      toast.error(`Pipeline failed: ${err.message}`, { id: 'auto-cycle' });
+      toast.error(`Cycle failed: ${err.message}`, { id: 'auto-cycle' });
     } finally {
       setIsRunningAutopilot(false);
     }
@@ -2641,141 +2653,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
           {/* ════ AI AGENTS ════ */}
           {activePage === 'agents' && (
             <div>
-              {/* Master Agent Runner Card */}
-              <div className="card orchestration-card high-fid" style={{ marginBottom: '1.25rem' }}>
-                <div className="card-header">
-                  <div className="card-title">
-                    <Workflow className="card-title-icon" />
-                    AI Master Agent Suite — 6-Step Auto Orchestration
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
-                    {apiDataLoaded && <span style={{ fontSize: '10px', color: 'var(--green)', background: 'rgba(53,185,122,0.1)', padding: '2px 8px', borderRadius: '8px', border: '1px solid rgba(53,185,122,0.2)' }}>● Live Data</span>}
-                    <button className="tact-btn" onClick={resetAgent} disabled={isRunningAgent} style={{ fontSize: '11px', padding: '5px 10px' }}>↺ Reset</button>
-                    <button className="tact-btn primary" onClick={runFullOrchestration} disabled={isRunningAgent}>
-                      {isRunningAgent ? <span className="spinner-sm"></span> : '▶'}
-                      {isRunningAgent ? 'Running...' : `Run Full Suite (${realDeals.length || 'Demo'} deals)`}
-                    </button>
-                  </div>
-                </div>
-                <div className="card-body">
-                  {/* 6-Step Stepper */}
-                  <div className="orch-stepper fidel" style={{ gridTemplateColumns: 'repeat(6,1fr)' }}>
-                    {[
-                      { id: 1, n: 'CRM Load' },
-                      { id: 2, n: 'AI Nurture' },
-                      { id: 3, n: 'Schedule' },
-                      { id: 4, n: 'Campaigns' },
-                      { id: 5, n: 'AI Replies' },
-                      { id: 6, n: 'Analytics' },
-                    ].map(s => (
-                      <div key={s.id} className={`orch-node-fid ${agentStep >= s.id ? (agentStep > s.id ? 'done' : 'active') : ''}`}>
-                        <div className="on-fid-left">
-                          <div className="on-fid-num">{agentStep > s.id ? '✓' : s.id}</div>
-                        </div>
-                        <div className="on-fid-right">
-                          <div className="on-fid-name">{s.n}</div>
-                          <div className="on-fid-status">{agentStep > s.id ? 'done' : (agentStep === s.id ? 'running...' : 'waiting')}</div>
-                        </div>
-                        {s.id < 6 && <div className="on-fid-line"></div>}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Terminal Output */}
-                  <div style={{ marginTop: '1rem', background: '#0a0f1c', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', overflow: 'hidden' }}>
-                    <div style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff5f56', display: 'inline-block' }}></span>
-                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ffbd2e', display: 'inline-block' }}></span>
-                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#27c93f', display: 'inline-block' }}></span>
-                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginLeft: '8px' }}>AI Agent Terminal</span>
-                      {isRunningAgent && <span style={{ fontSize: '10px', color: 'var(--gold)', marginLeft: 'auto' }}>● Running</span>}
-                      {agentDone && <span style={{ fontSize: '10px', color: 'var(--green)', marginLeft: 'auto' }}>✅ Complete</span>}
-                    </div>
-                    <div ref={termBodyRef} style={{ padding: '12px 16px', maxHeight: '220px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11.5px', lineHeight: 1.7 }}>
-                      {terminalLogs.map((l, i) => (
-                        <div key={i} style={{ color: l.type === 'success' ? '#27c93f' : l.type === 'info' ? '#7dd3fc' : l.type === 'warn' ? '#fbbf24' : l.type === 'cmd' ? '#c9921a' : 'rgba(200,210,230,0.55)' }}>
-                          {l.text}
-                        </div>
-                      ))}
-                      {isRunningAgent && <div style={{ color: 'var(--gold)', animation: 'pulse 1s infinite' }}>▌</div>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Generated Posts Panel — appears after agent run */}
-              {agentPosts.length > 0 && (
-                <div className="card" style={{ marginBottom: '1.25rem' }}>
-                  <div className="card-header">
-                    <div className="card-title">🤖 AI-Generated Posts — Review & Approve</div>
-                    <span style={{ fontSize: '10px', color: 'var(--gold)', marginLeft: 'auto', background: 'rgba(201,146,26,0.1)', padding: '2px 8px', borderRadius: '8px', border: '1px solid rgba(201,146,26,0.2)' }}>
-                      {agentPosts.filter(p => p.approved).length}/{agentPosts.length} Approved
-                    </span>
-                  </div>
-                  <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: '12px' }}>
-                    {agentPosts.map(p => (
-                      <div key={p.id} style={{ background: p.approved ? 'rgba(53,185,122,0.06)' : 'rgba(255,255,255,0.03)', border: `1px solid ${p.approved ? 'rgba(53,185,122,0.25)' : 'var(--border)'}`, borderRadius: '10px', padding: '14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '.05em' }}>{p.platform} · {p.dealTitle}</div>
-                          {p.approved && <span style={{ fontSize: '10px', color: 'var(--green)' }}>✅ Approved</span>}
-                        </div>
-                        {editAgentPost === p.id ? (
-                          <>
-                            <textarea value={editAgentPostText} onChange={e => setEditAgentPostText(e.target.value)} style={{ width: '100%', minHeight: '80px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px', padding: '8px', resize: 'vertical' }} />
-                            <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                              <button className="tact-btn primary" style={{ fontSize: '10px' }} onClick={() => { setAgentPosts(prev => prev.map(x => x.id === p.id ? { ...x, content: editAgentPostText } : x)); setEditAgentPost(null); toast.success('Post updated!'); }}>Save</button>
-                              <button className="tact-btn" style={{ fontSize: '10px' }} onClick={() => setEditAgentPost(null)}>Cancel</button>
-                            </div>
-                          </>
-                        ) : (
-                          <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: 1.6, marginBottom: '10px', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>{p.content}</div>
-                        )}
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          <button className="tact-btn" style={{ fontSize: '10px', padding: '3px 10px', borderColor: 'rgba(53,185,122,0.3)', color: 'var(--green)' }} onClick={() => approveAgentPost(p.id)}>✓ Approve</button>
-                          <button className="tact-btn" style={{ fontSize: '10px', padding: '3px 10px' }} onClick={() => { setEditAgentPost(p.id); setEditAgentPostText(p.content); }}>✎ Edit</button>
-                          <button className="tact-btn" style={{ fontSize: '10px', padding: '3px 10px', borderColor: 'rgba(201,146,26,0.3)', color: 'var(--gold)' }} onClick={() => regenAgentPost(p.id, p.platform, p.dealTitle)}>↻ Regen</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* AI Reply Agent Panel */}
-              <div className="card" style={{ marginBottom: '1.25rem' }}>
-                <div className="card-header">
-                  <div className="card-title">💬 AI Reply Agent — Multi-Channel Comment Responses</div>
-                  <span style={{ fontSize: '10px', color: 'var(--text3)', marginLeft: 'auto' }}>{agentReplies.length > 0 ? `${agentReplies.length} replied` : 'Run Engine to activate'}</span>
-                </div>
-                <div className="card-body">
-                  {agentReplies.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text3)', fontSize: '12px' }}>
-                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>💬</div>
-                      No replies yet. Run the Agent Suite to auto-respond to leads across Instagram, Facebook, WhatsApp & Email.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {agentReplies.map((c, i) => (
-                        <div key={i} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: c.color || 'var(--gold)' }}>{c.ch}</div>
-                            <div style={{ fontSize: '10px', color: 'var(--text3)' }}>{c.t} ago</div>
-                          </div>
-                          <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 10px', marginBottom: '8px' }}>
-                            <div style={{ fontSize: '10px', color: 'var(--text3)', marginBottom: '3px' }}>@{c.u}:</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text2)' }}>"{ c.txt}"</div>
-                          </div>
-                          <div style={{ background: 'rgba(53,185,122,0.06)', border: '1px solid rgba(53,185,122,0.15)', borderRadius: '6px', padding: '8px 10px' }}>
-                            <div style={{ fontSize: '10px', color: 'var(--green)', marginBottom: '3px' }}>🤖 AI Reply:</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text)' }}>{c.reply}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {/* 📡 Live Social Telemetry & Inbound Analytics Hub */}
               <div className="card" style={{ marginBottom: '1.25rem', background: 'linear-gradient(135deg, rgba(66,133,244,0.06) 0%, rgba(16,163,127,0.04) 100%)', border: '1px solid rgba(66,133,244,0.2)' }}>
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -2863,70 +2740,276 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
               </div>
 
-              {/* ⚡ Enterprise 4-Agent Pipeline Execution Bar */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(124,58,237,0.12) 100%)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '14px', padding: '18px 22px', marginBottom: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                  <div>
-                    <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span>⚡ Unified 4-Agent Marketing Pipeline</span>
-                      <span style={{ fontSize: '0.70rem', padding: '3px 10px', borderRadius: '12px', background: autopilotConfig.enabled ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: autopilotConfig.enabled ? '#22c55e' : '#eab308', border: `1px solid ${autopilotConfig.enabled ? 'rgba(34,197,94,0.3)' : 'rgba(234,179,8,0.3)'}`, fontWeight: 800 }}>
-                        {autopilotConfig.enabled ? '● Autopilot Active (Daily Auto-Post)' : '⏸ Autopilot Paused (Manual Only)'}
-                      </span>
+              {/* ⚡ Enterprise 4-Agent Pipeline & Unified Autopilot Console */}
+              <div className="card orchestration-card high-fid" style={{ 
+                marginBottom: "1.25rem",
+                border: autopilotConfig.enabled ? "1px solid rgba(53,185,122,0.35)" : "1px solid var(--border)",
+                background: "linear-gradient(180deg, rgba(16,24,39,0.95) 0%, rgba(10,15,28,0.95) 100%)"
+              }}>
+                <div className="card-header" style={{ flexWrap: "wrap", gap: "10px" }}>
+                  <div className="card-title" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div style={{
+                      width: "32px", height: "32px", borderRadius: "8px",
+                      background: autopilotConfig.enabled ? "linear-gradient(135deg, #10b981 0%, #059669 100%)" : "#334155",
+                      display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "16px"
+                    }}>
+                      ⚡
                     </div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.5' }}>
-                      Step 1: <strong>Metrics Manager (Gemini 3.5)</strong> ➔ Step 2: <strong>Social Media Manager (GPT-4o)</strong> ➔ Step 3: <strong>Designer AI (Sharp Studio)</strong> ➔ Step 4: <strong>Scheduling Manager (BullMQ)</strong>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text)" }}>
+                        Unified 4-Agent Marketing Pipeline &amp; Autopilot Console
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text3)", fontWeight: 500 }}>
+                        Autonomous Omnichannel Publishing · Gemini 3.5 &amp; GPT-4o &amp; Sharp Canvas Studio &amp; BullMQ
+                      </div>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
+                    {/* Live Status Pill */}
+                    <span style={{ 
+                      fontSize: "11px", fontWeight: 800,
+                      color: autopilotConfig.enabled ? "#34d399" : "#94a3b8",
+                      background: autopilotConfig.enabled ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.1)",
+                      padding: "4px 12px", borderRadius: "20px",
+                      border: autopilotConfig.enabled ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(148,163,184,0.2)",
+                      display: "flex", alignItems: "center", gap: "6px"
+                    }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: autopilotConfig.enabled ? "#10b981" : "#64748b" }}></span>
+                      {autopilotConfig.enabled ? `AUTOPILOT LIVE · ${autopilotConfig.dailyFrequency || 2} POSTS/DAY` : "AUTOPILOT PAUSED (MANUAL ONLY)"}
+                    </span>
+
                     {/* Autopilot Master Toggle */}
-                    <button
-                      type="button"
+                    <button 
+                      className="tact-btn" 
                       onClick={() => handleToggleAutopilot(!autopilotConfig.enabled)}
                       disabled={isSavingAutopilot}
-                      style={{
-                        padding: '8px 14px', borderRadius: '10px', fontSize: '0.78rem', fontWeight: 700,
-                        background: autopilotConfig.enabled ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                        border: `1px solid ${autopilotConfig.enabled ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)'}`,
-                        color: autopilotConfig.enabled ? '#ef4444' : '#22c55e',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                      style={{ 
+                        fontSize: "11px", padding: "5px 12px", fontWeight: 700,
+                        borderColor: autopilotConfig.enabled ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.4)",
+                        color: autopilotConfig.enabled ? "#f87171" : "#34d399"
                       }}
                     >
-                      {autopilotConfig.enabled ? <><i className="fas fa-pause"></i> Pause Autopilot</> : <><i className="fas fa-play"></i> Activate Autopilot</>}
+                      {autopilotConfig.enabled ? "⏸ Pause Autopilot" : "▶ Activate Autopilot"}
                     </button>
 
-                    {/* Run Full 4-Agent Pipeline Button */}
+                    {/* Dual Execution Trigger 1: Instant Dispatch */}
                     <button 
                       className="tact-btn primary" 
-                      onClick={() => handleRunAutopilotCycle()} 
+                      onClick={() => handleRunAutopilotCycle({ immediate: true })} 
                       disabled={isRunningAutopilot}
-                      style={{ padding: '9px 22px', fontSize: '0.84rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 16px rgba(79, 70, 229, 0.45)', cursor: isRunningAutopilot ? 'not-allowed' : 'pointer' }}
+                      style={{ 
+                        fontSize: "11px", padding: "6px 14px", fontWeight: 800,
+                        background: "linear-gradient(135deg, #10b981 0%, #047857 100%)",
+                        border: "none", color: "#fff", boxShadow: "0 2px 10px rgba(16,185,129,0.3)"
+                      }}
+                      title="Bypass peak-hour wait: generate copy + 1080x1080 flyer and publish immediately"
                     >
-                      {isRunningAutopilot ? <><span className="spinner-sm"></span> Orchestrating 4 Agents...</> : <>🚀 Run Full 4-Agent Cycle</>}
+                      {isRunningAutopilot ? <span className="spinner-sm"></span> : "🚀"}
+                      {isRunningAutopilot ? "Orchestrating..." : "Run & Publish Now (Instant)"}
+                    </button>
+
+                    {/* Dual Execution Trigger 2: Scheduled Peak Window */}
+                    <button 
+                      className="tact-btn" 
+                      onClick={() => handleRunAutopilotCycle({ immediate: false })} 
+                      disabled={isRunningAutopilot}
+                      style={{ 
+                        fontSize: "11px", padding: "6px 14px", fontWeight: 700,
+                        background: "rgba(79,70,229,0.15)",
+                        borderColor: "rgba(124,58,237,0.4)",
+                        color: "#a78bfa"
+                      }}
+                      title="Queue in BullMQ for optimal engagement window (10:00 AM or 18:00 PM IST)"
+                    >
+                      ⏱ Run &amp; Schedule (Peak Hours)
                     </button>
                   </div>
                 </div>
 
-                {/* Autonomous Pipeline Intelligence Bar */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap', fontSize: '0.74rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', flexWrap: 'wrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#a78bfa', fontWeight: 700 }}>
-                      <i className="fas fa-brain"></i> Autonomous Chain:
-                    </span>
-                    <span style={{ color: 'var(--text-muted)' }}>
-                      Metrics Manager ➔ Social Media Manager picks highest-demand CRM deal (80% Deals Rule, 14-day anti-cannibalization) ➔ Designer Studio renders 1080x1080 flyer ➔ Scheduling Manager dispatches.
-                    </span>
+                <div className="card-body">
+                  {/* Target CRM Deal Selector (80% Content Rule) */}
+                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "10px", padding: "12px 16px", marginBottom: "14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 800, color: "#e2e8f0", display: "flex", alignItems: "center", gap: "6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        <i className="fas fa-bullseye" style={{ color: "#a78bfa" }}></i> Target CRM Deal Mandate (80% Content Pillar)
+                      </span>
+                      <span style={{ fontSize: "10.5px", color: "var(--text3)" }}>
+                        Social Media Manager chooses deal ➔ Hands verified identity to Designer AI ➔ Designer Studio creates flyer
+                      </span>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <select
+                        value={selectedTargetDealId}
+                        onChange={(e) => setSelectedTargetDealId(e.target.value)}
+                        style={{
+                          background: "rgba(15, 23, 42, 0.95)",
+                          border: "1px solid rgba(124, 58, 237, 0.45)",
+                          borderRadius: "8px",
+                          color: "#f8fafc",
+                          fontSize: "11.5px",
+                          padding: "7px 12px",
+                          outline: "none",
+                          minWidth: "320px",
+                          maxWidth: "520px",
+                          cursor: "pointer",
+                          flex: 1
+                        }}
+                      >
+                        <option value="">✨ Auto-Select Top CRM Deal (Demand Heatmap &amp; 14-Day Anti-Cannibalization)</option>
+                        {realDeals.map(d => (
+                          <option key={d._id || d.id} value={d._id || d.id}>
+                            {d.unitNo || d.name || "Unit"} - {d.projectName || d.location || "Kurukshetra"} ({d.price ? `₹${Number(d.price).toLocaleString("en-IN")}` : "Best Offer"})
+                          </option>
+                        ))}
+                      </select>
+                      {selectedTargetDealId ? (
+                        <span style={{ fontSize: "10.5px", color: "#34d399", background: "rgba(16, 185, 129, 0.12)", padding: "5px 12px", borderRadius: "6px", border: "1px solid rgba(16, 185, 129, 0.25)", fontWeight: 700 }}>
+                          ✓ Specific Deal Locked for Execution
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: "10.5px", color: "#a78bfa", background: "rgba(124, 58, 237, 0.12)", padding: "5px 12px", borderRadius: "6px", border: "1px solid rgba(124, 58, 237, 0.25)" }}>
+                          🤖 Autonomous Intelligence Active: Top Unposted Deal will be selected
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(59,130,246,0.25)', fontSize: '0.68rem', fontWeight: 700 }}>
-                      80% Deals · 10% Edu · 7% Trust · 3% Festival
-                    </span>
-                    <span style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(16,185,129,0.25)', fontSize: '0.68rem', fontWeight: 700 }}>
-                      Meta + LinkedIn + YouTube + GBP
-                    </span>
-                    <span style={{ background: 'rgba(234,179,8,0.12)', color: '#facc15', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(234,179,8,0.25)', fontSize: '0.68rem', fontWeight: 700 }}>
-                      10:00 AM &amp; 18:00 PM IST
-                    </span>
+
+                  {/* Channels & Slots Controls */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "14px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "8px", padding: "12px 14px", marginBottom: "14px" }}>
+                    <div>
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text2)", marginBottom: "8px" }}>
+                        Active Syndication Channels
+                      </div>
+                      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                        {[
+                          { id: "facebook", label: "Facebook", icon: "fab fa-facebook", color: "#1877F2" },
+                          { id: "instagram", label: "Instagram", icon: "fab fa-instagram", color: "#E4405F" },
+                          { id: "linkedin", label: "LinkedIn", icon: "fab fa-linkedin", color: "#0A66C2" },
+                          { id: "youtube", label: "YouTube Shorts", icon: "fab fa-youtube", color: "#FF0000" },
+                          { id: "google_business", label: "Google Business", icon: "fab fa-google", color: "#4285F4" },
+                        ].map(ch => {
+                          const isChecked = (autopilotConfig.channels || []).includes(ch.id);
+                          return (
+                            <label key={ch.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", cursor: "pointer", color: isChecked ? "var(--text)" : "var(--text3)" }}>
+                              <input 
+                                type="checkbox" 
+                                checked={isChecked} 
+                                onChange={(e) => {
+                                  const current = autopilotConfig.channels || [];
+                                  const next = e.target.checked 
+                                    ? [...current, ch.id]
+                                    : current.filter(x => x !== ch.id);
+                                  handleUpdateAutopilot({ channels: next });
+                                }}
+                              />
+                              <i className={ch.icon} style={{ color: ch.color }}></i>
+                              {ch.label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text2)", marginBottom: "8px" }}>
+                        Peak Publishing Slots &amp; Frequency
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px" }}>
+                          <span style={{ color: "var(--text3)" }}>Morning:</span>
+                          <span style={{ fontWeight: 800, color: "var(--gold)", background: "rgba(201,146,26,0.1)", padding: "2px 6px", borderRadius: "4px" }}>
+                            {autopilotConfig.morningTime || "10:00"} IST
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px" }}>
+                          <span style={{ color: "var(--text3)" }}>Evening:</span>
+                          <span style={{ fontWeight: 800, color: "var(--gold)", background: "rgba(201,146,26,0.1)", padding: "2px 6px", borderRadius: "4px" }}>
+                            {autopilotConfig.eveningTime || "18:00"} IST
+                          </span>
+                        </div>
+                        <div style={{ marginLeft: "auto", display: "flex", gap: "4px" }}>
+                          {[1, 2].map(freq => (
+                            <button
+                              key={freq}
+                              className="tact-btn"
+                              onClick={() => handleUpdateAutopilot({ dailyFrequency: freq })}
+                              style={{
+                                fontSize: "10px", padding: "2px 8px",
+                                background: autopilotConfig.dailyFrequency === freq ? "rgba(53,185,122,0.2)" : "transparent",
+                                borderColor: autopilotConfig.dailyFrequency === freq ? "var(--green)" : "var(--border)",
+                                color: autopilotConfig.dailyFrequency === freq ? "var(--green)" : "var(--text3)"
+                              }}
+                            >
+                              {freq} Post/Day
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Content Pillars Visual Grid */}
+                  <div style={{ marginBottom: "14px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 800, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
+                      Enterprise Content Cadence Rules
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "10px" }}>
+                      <div style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: "8px", padding: "10px 12px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: 800, color: "#60a5fa" }}>🏢 Project Deals</span>
+                          <span style={{ fontSize: "10px", fontWeight: 800, color: "#93c5fd", background: "rgba(59,130,246,0.15)", padding: "1px 6px", borderRadius: "4px" }}>70–80%</span>
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text3)", lineHeight: 1.4 }}>
+                          Top deals, 14-day anti-cannibalization, 1080x1080 branded Sharp canvas flyer.
+                        </div>
+                      </div>
+
+                      <div style={{ background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.2)", borderRadius: "8px", padding: "10px 12px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: 800, color: "#c084fc" }}>📚 Educational</span>
+                          <span style={{ fontSize: "10px", fontWeight: 800, color: "#d8b4fe", background: "rgba(168,85,247,0.15)", padding: "1px 6px", borderRadius: "4px" }}>10% (Thu)</span>
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text3)", lineHeight: 1.4 }}>
+                          HRERA rules, registry stamp duty calculation, and Marla/Gaj conversion guides.
+                        </div>
+                      </div>
+
+                      <div style={{ background: "rgba(234,179,8,0.06)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: "8px", padding: "10px 12px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: 800, color: "#facc15" }}>🛡️ Trust &amp; Proof</span>
+                          <span style={{ fontSize: "10px", fontWeight: 800, color: "#fef08a", background: "rgba(234,179,8,0.15)", padding: "1px 6px", borderRadius: "4px" }}>7% (Wed/Sun)</span>
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text3)", lineHeight: 1.4 }}>
+                          15+ years trusted leadership, 100% verified registry titles, zero dispute guarantee.
+                        </div>
+                      </div>
+
+                      <div style={{ background: "rgba(236,72,153,0.06)", border: "1px solid rgba(236,72,153,0.2)", borderRadius: "8px", padding: "10px 12px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: 800, color: "#f472b6" }}>🪔 Festivals</span>
+                          <span style={{ fontSize: "10px", fontWeight: 800, color: "#fbcfe8", background: "rgba(236,72,153,0.15)", padding: "1px 6px", borderRadius: "4px" }}>3% (Auto)</span>
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text3)", lineHeight: 1.4 }}>
+                          48-hr auto festival detection: Diwali, Holi, Baisakhi, Gurpurab with brand greetings.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Autopilot Telemetry Footer */}
+                  <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10.5px", color: "var(--text3)", flexWrap: "wrap", gap: "6px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span>⚙️ <strong>Autonomous Engine:</strong> 4-Agent Pipeline operates continuously under daily frequency rules or via on-demand triggers.</span>
+                    </div>
+                    <div>
+                      {autopilotConfig.lastRunAt ? (
+                        <span>Last Cycle: <strong style={{ color: "var(--text2)" }}>{new Date(autopilotConfig.lastRunAt).toLocaleDateString()} {new Date(autopilotConfig.lastRunAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</strong> ({autopilotConfig.lastPillar || "Project"}) · Cycles: {autopilotConfig.totalCyclesRun || 0}</span>
+                      ) : (
+                        <span>Ready for first autonomous cycle execution</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3032,6 +3115,39 @@ export default function MarketingOverviewPage({ onNavigate }) {
                     )}
                   </div>
                 ))}
+              </div>
+
+              {/* 💻 AI Master Agent Real-Time Terminal Output */}
+              <div style={{ marginTop: "1.25rem", marginBottom: "1.25rem", background: "#0a0f1c", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+                <div style={{ padding: "10px 16px", background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#ff5f56", display: "inline-block" }}></span>
+                  <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#ffbd2e", display: "inline-block" }}></span>
+                  <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#27c93f", display: "inline-block" }}></span>
+                  <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.6)", marginLeft: "8px", fontWeight: 700, fontFamily: "monospace" }}>
+                    terminal@bharatproperties:~/ai-agents-pipeline
+                  </span>
+                  {isRunningAutopilot && <span style={{ fontSize: "10.5px", color: "var(--gold)", marginLeft: "auto", fontWeight: 700 }}>● Orchestrating 4 Agents...</span>}
+                  <button 
+                    onClick={() => setTerminalLogs([])}
+                    style={{ marginLeft: isRunningAutopilot ? "12px" : "auto", background: "transparent", border: "none", color: "var(--text3)", fontSize: "10px", cursor: "pointer" }}
+                  >
+                    Clear Logs
+                  </button>
+                </div>
+                <div ref={termBodyRef} style={{ padding: "14px 18px", maxHeight: "240px", overflowY: "auto", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontSize: "11.5px", lineHeight: 1.75 }}>
+                  {terminalLogs.length === 0 ? (
+                    <div style={{ color: "rgba(255,255,255,0.3)", fontStyle: "italic" }}>
+                      Ready. Click "🚀 Run &amp; Publish Now (Instant)" or trigger any individual agent to see live telemetry and execution logs.
+                    </div>
+                  ) : (
+                    terminalLogs.map((l, i) => (
+                      <div key={i} style={{ color: l.type === "success" ? "#27c93f" : l.type === "info" ? "#7dd3fc" : l.type === "warn" ? "#fbbf24" : l.type === "cmd" ? "#c9921a" : "rgba(200,210,230,0.65)" }}>
+                        {l.text}
+                      </div>
+                    ))
+                  )}
+                  {isRunningAutopilot && <div style={{ color: "var(--gold)", animation: "pulse 1s infinite" }}>▌</div>}
+                </div>
               </div>
 
               <div className="card agent-chain-code-card">
