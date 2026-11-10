@@ -304,9 +304,10 @@ class BrandBannerComposer {
         const unitNo = deal.unitNo || deal.name || deal.title || 'Prime Plot';
         const projName = deal.projectName?.name || deal.projectName || 'Prime Location';
         const loc = deal.location || deal.locCity || 'Kurukshetra, Haryana';
-        const size = deal.size ? `${deal.size} ${deal.sizeUnit || 'sq.yd'}` : '10 Marla (250 sq.yd)';
+        const size = deal.sizeLabel || (deal.size ? `${deal.size} ${deal.sizeUnit || 'sq.yd'}` : '10 Marla (250 sq.yd)');
         const priceStr = deal.price ? `₹${Number(deal.price).toLocaleString('en-IN')}` : 'Best Offer';
 
+        const facingRoad = [deal.facing ? `${deal.facing} Facing` : null, deal.roadWidth ? `${deal.roadWidth} Road` : null].filter(Boolean).join(' • ') || 'Wide Road Access • Green Belt';
         const safeHeadline = this.escapeXml(`${unitNo.toUpperCase()} AVAILABLE FOR SALE`);
         const safeSub = this.escapeXml(`At ${projName}, ${loc}`);
         const safePhone = this.escapeXml(phone);
@@ -314,6 +315,10 @@ class BrandBannerComposer {
         const safeWebsite = this.escapeXml(website);
         const safePrice = this.escapeXml(priceStr);
         const safeSize = this.escapeXml(size);
+        const safeFacingRoad = this.escapeXml(facingRoad);
+        const safePill2Title = this.escapeXml(deal.facing ? `${deal.facing} Facing` : 'HUDA Approved');
+        const safePill2Sub = this.escapeXml(deal.roadWidth ? `${deal.roadWidth} Road` : 'Planned Sector');
+        const safePill2Desc = this.escapeXml(deal.dimensions ? `Dim: ${deal.dimensions}` : 'Sewer, Water, Power');
 
         const svg = `
         <svg width="${this.width}" height="${this.height}" viewBox="0 0 ${this.width} ${this.height}" xmlns="http://www.w3.org/2000/svg">
@@ -394,7 +399,7 @@ class BrandBannerComposer {
                     🏡 READY POSSESSION &amp; DIRECT REGISTRY
                 </text>
                 <text x="480" y="210" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="600" fill="#94A3B8" text-anchor="middle">
-                    Wide Roads • Green Belt • Immediate Construction
+                    ${safeFacingRoad}
                 </text>
 
                 <!-- Floating Price Tag on Photo -->
@@ -429,9 +434,9 @@ class BrandBannerComposer {
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#2563EB" />
                     <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">HUDA Approved</text>
-                    <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Planned Sector</text>
-                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Sewer, Water, Power</text>
+                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">${safePill2Title}</text>
+                    <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">${safePill2Sub}</text>
+                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">${safePill2Desc}</text>
                 </g>
 
                 <!-- Pill 3 -->

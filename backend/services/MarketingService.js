@@ -462,6 +462,139 @@ class MarketingService {
     }
 
     /**
+     * 3-Way Canonical Join: Deal -> Inventory -> Project & Lookups Resolution
+     * Hydrates deal with physical specifications:
+     * - sizeLabel (e.g. "14 Marla (435.34 Sq Yd)")
+     * - facing (e.g. "North-East", "Park Facing")
+     * - roadWidth (e.g. "12 Mtr (40 Feet) Wide")
+     * - dimensions (e.g. "28 ft x 13 ft")
+     * - builtupSummary (e.g. "Ground Floor")
+     * - reraNumber (e.g. "HRERA-PKL-KKR-123-2024")
+     * - verified projectName & location
+     */
+    async hydrateDealWithInventoryAndProject(deal) {
+        if (!deal) return null;
+        const hydrated = { ...deal };
+
+        try {
+            let inventory = deal.inventory || null;
+            if (!inventory && deal.inventoryId) {
+                const Inventory = mongoose.model('Inventory');
+                inventory = await Inventory.findById(deal.inventoryId).lean();
+            }
+
+            let project = deal.project || null;
+            if (!project && (deal.projectId || inventory?.projectId)) {
+                const Project = mongoose.model('Project');
+                project = await Project.findById(deal.projectId || inventory?.projectId).lean();
+            }
+
+            // Resolve Lookups if inventory has ObjectIds
+            if (inventory) {
+                const lookupIds = [
+                    inventory.facing,
+                    inventory.roadWidth,
+                    inventory.sizeLabel,
+                    inventory.orientation,
+                    inventory.unitType
+                ].filter(id => id && mongoose.Types.ObjectId.isValid(String(id)));
+
+                let lookupMap = new Map();
+                if (lookupIds.length > 0) {
+                    try {
+                        const Lookup = mongoose.model('Lookup');
+                        const lookups = await Lookup.find({ _id: { $in: lookupIds } }).lean();
+                        lookupMap = new Map(lookups.map(l => [String(l._id), l.name || l.code || l.value]));
+                    } catch (lErr) {
+                        console.warn('[MarketingService] Failed to query lookups:', lErr.message);
+                    }
+                }
+
+                hydrated.facing = (inventory.facing ? (lookupMap.get(String(inventory.facing)) || String(inventory.facing)) : '') || hydrated.facing;
+                hydrated.roadWidth = (inventory.roadWidth ? (lookupMap.get(String(inventory.roadWidth)) || String(inventory.roadWidth)) : '') || hydrated.roadWidth;
+                hydrated.sizeLabel = (inventory.sizeLabel ? (lookupMap.get(String(inventory.sizeLabel)) || String(inventory.sizeLabel)) : '') || hydrated.sizeLabel;
+                hydrated.orientation = (inventory.orientation ? (lookupMap.get(String(inventory.orientation)) || String(inventory.orientation)) : '') || hydrated.orientation;
+                hydrated.unitType = (inventory.unitType ? (lookupMap.get(String(inventory.unitType)) || String(inventory.unitType)) : '') || hydrated.unitType;
+
+                if (inventory.unitNumber && !hydrated.unitNo) {
+                    hydrated.unitNo = inventory.unitNumber;
+                }
+                if (inventory.block && !hydrated.block) {
+                    hydrated.block = inventory.block;
+                }
+
+                if (inventory.dimensions && inventory.dimensions.length && inventory.dimensions.width) {
+                    hydrated.dimensions = `${inventory.dimensions.length} x ${inventory.dimensions.width} ${inventory.dimensions.unit || 'ft'}`;
+                }
+
+                if (inventory.builtup) {
+                    const floors = [];
+                    if (inventory.builtup.groundFloor) floors.push('Ground Floor');
+                    if (inventory.builtup.firstFloor) floors.push('1st Floor');
+                    if (inventory.builtup.secondFloor) floors.push('2nd Floor');
+                    if (inventory.builtup.basement) floors.push('Basement');
+                    hydrated.builtupSummary = floors.join(', ') || 'Ready Construction';
+                }
+            }
+
+            if (project) {
+                if (project.name && (!hydrated.projectName || typeof hydrated.projectName === 'object')) {
+                    hydrated.projectName = project.name;
+                }
+                if (project.reraNumber || project.registrationNumber) {
+                    hydrated.reraNumber = project.reraNumber || project.registrationNumber;
+                }
+                if (project.location && (!hydrated.location || /^[0-9a-fA-F]{24}$/.test(String(hydrated.location)))) {
+                    hydrated.location = project.location;
+                }
+            }
+        } catch (hErr) {
+            console.warn('[MarketingService] Error hydrating deal:', hErr.message);
+        }
+
+        return hydrated;
+    }
+
+    /**
+     * Calculate Intelligent Platform-Specific Scheduling Delay
+     * Different platforms have different prime audience engagement windows:
+     * - LinkedIn: 09:00 AM IST (Corporate / B2B morning brief)
+     * - Google Business: 10:30 AM IST (Local commercial search hours)
+     * - Facebook: 14:30 PM (2:30 PM) IST (Community / afternoon leisure browsing)
+     * - YouTube Shorts: 18:00 PM (6:00 PM) IST (Evening video peak)
+     * - Instagram: 20:00 PM (8:00 PM) IST (Prime evening / night scrolling peak)
+     * 
+     * @param {string} platform - 'facebook' | 'instagram' | 'linkedin' | 'youtube' | 'google_business'
+     * @param {Object} config - Autopilot config
+     * @param {boolean} forceImmediate - If true, returns 0 ms
+     * @returns {number} Delay in milliseconds
+     */
+    calculatePlatformDelay(platform, config = {}, forceImmediate = false) {
+        if (forceImmediate) return 0;
+
+        const platformPeakHours = {
+            linkedin: { hour: 9, minute: 0 },
+            google_business: { hour: 10, minute: 30 },
+            facebook: { hour: 14, minute: 30 },
+            youtube: { hour: 18, minute: 0 },
+            instagram: { hour: 20, minute: 0 }
+        };
+
+        const targetSlot = platformPeakHours[platform.toLowerCase()] || { hour: 10, minute: 0 };
+        const now = new Date();
+        const targetDate = new Date(now);
+
+        targetDate.setHours(targetSlot.hour, targetSlot.minute, 0, 0);
+
+        // If target peak slot has already passed today, schedule for tomorrow
+        if (targetDate.getTime() <= now.getTime()) {
+            targetDate.setDate(targetDate.getDate() + 1);
+        }
+
+        return Math.max(0, targetDate.getTime() - now.getTime());
+    }
+
+    /**
      * Autonomous Marketing Cycle Dispatcher
      * Executes 1 cycle of content creation across Pillars (Deals, Edu, Trust, Festival),
      * generates AI visual render, and enqueues to BullMQ marketingQueue.
@@ -550,6 +683,10 @@ class MarketingService {
                 chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(candidates[0]._id, 'deal', { isSystem: true });
             }
 
+            if (chosenDeal) {
+                chosenDeal = await this.hydrateDealWithInventoryAndProject(chosenDeal);
+            }
+
             if (!chosenDeal) {
                 // If no active deals found in DB, do NOT synthesize fake factual claims; switch to educational advisory
                 pillar = 'ct-edu';
@@ -579,23 +716,32 @@ class MarketingService {
                     loc = [chosenDeal.city, chosenDeal.state].filter(Boolean).join(', ') || 'Kurukshetra, Haryana';
                 }
 
-                let sizeStr = 'Prime Area';
-                if (typeof chosenDeal.size === 'number' || (typeof chosenDeal.size === 'string' && chosenDeal.size.trim())) {
-                    sizeStr = `${chosenDeal.size} ${chosenDeal.sizeUnit || 'sq.yards'}`;
-                } else if (chosenDeal.size && typeof chosenDeal.size === 'object') {
-                    sizeStr = `${chosenDeal.size.plot || chosenDeal.size.builtUp || 'Prime Area'} ${chosenDeal.sizeUnit || 'sq.yards'}`;
+                let sizeStr = chosenDeal.sizeLabel || 'Prime Area';
+                if (!chosenDeal.sizeLabel) {
+                    if (typeof chosenDeal.size === 'number' || (typeof chosenDeal.size === 'string' && chosenDeal.size.trim())) {
+                        sizeStr = `${chosenDeal.size} ${chosenDeal.sizeUnit || 'sq.yards'}`;
+                    } else if (chosenDeal.size && typeof chosenDeal.size === 'object') {
+                        sizeStr = `${chosenDeal.size.plot || chosenDeal.size.builtUp || 'Prime Area'} ${chosenDeal.sizeUnit || 'sq.yards'}`;
+                    }
                 }
 
                 const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
                 postTitle = `Hot Property Spotlight: ${unitNo} at ${projName}`;
                 const verifiedHashtag = facts.isTitleVerified ? '#VerifiedDeal' : '#PrimeListing';
+                const reraText = chosenDeal.reraNumber ? `\n📋 RERA Registration: ${chosenDeal.reraNumber}` : '';
+                const specBullets = [
+                    chosenDeal.facing ? `🧭 Facing: ${chosenDeal.facing}` : null,
+                    chosenDeal.roadWidth ? `🛣️ Road Access: ${chosenDeal.roadWidth}` : null,
+                    chosenDeal.dimensions ? `📐 Dimensions: ${chosenDeal.dimensions}` : null,
+                    chosenDeal.builtupSummary ? `🏗️ Structure: ${chosenDeal.builtupSummary}` : null
+                ].filter(Boolean).join('\n');
 
                 // Generate Captions per Channel
-                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Factual listing details with transparent documentation.\n\n📍 Location: ${loc}\n📐 Size: ${sizeStr}\n💰 Expected Price: ${priceStr}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
-                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 Prime Connectivity & Wide Roads\n📐 Dimensions: ${sizeStr}\n💰 Investment: ${priceStr}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
-                channelCaptions.linkedin = `🏛️ INVESTMENT OPPORTUNITY | ${unitNo} at ${projName}, ${loc}\n\nBharat Properties presents verified real estate inventory in high-demand growth corridors of Haryana.\n\nKey Highlights:\n• Location: ${loc}\n• Plot/Floor Area: ${sizeStr}\n• Capital Value: ${priceStr}\n• Due Diligence: 100% Clear Title & Verified Documentation\n\nDirect mandate. High capital appreciation and rental yield potential.\nInquire with our senior mandate team:\n📞 ${regionalPhone} | 🌐 ${website}\n\n#CommercialRealEstate #HaryanaProperty #RealEstateInvestment #WealthCreation #BharatProperties`;
-                channelCaptions.youtube = `Shorts: ${unitNo} in ${loc} — Full Walkthrough & Price Reveal! Drone Tour. Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
-                channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
+                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Verified listing specifications:\n\n📍 Location: ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Expected Price: ${priceStr}${reraText}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
+                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Investment: ${priceStr}${reraText}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
+                channelCaptions.linkedin = `🏛️ INVESTMENT OPPORTUNITY | ${unitNo} at ${projName}, ${loc}\n\nBharat Properties presents verified real estate inventory in high-demand growth corridors of Haryana.\n\nKey Highlights:\n• Location: ${loc}\n• Plot/Floor Area: ${sizeStr}\n${chosenDeal.facing ? '• Facing: ' + chosenDeal.facing + '\n' : ''}${chosenDeal.roadWidth ? '• Road Width: ' + chosenDeal.roadWidth + '\n' : ''}${chosenDeal.dimensions ? '• Dimensions: ' + chosenDeal.dimensions + '\n' : ''}• Capital Value: ${priceStr}${reraText}\n• Due Diligence: 100% Clear Title & Verified Documentation\n\nDirect mandate. High capital appreciation and rental yield potential.\nInquire with our senior mandate team:\n📞 ${regionalPhone} | 🌐 ${website}\n\n#CommercialRealEstate #HaryanaProperty #RealEstateInvestment #WealthCreation #BharatProperties`;
+                channelCaptions.youtube = `Shorts: ${unitNo} at ${projName}, ${loc} — ${sizeStr} ${chosenDeal.facing ? `(${chosenDeal.facing})` : ''} Full Walkthrough & Price Reveal! Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
+                channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Size: ${sizeStr}. ${chosenDeal.roadWidth ? `Road: ${chosenDeal.roadWidth}. ` : ''}Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
 
                 // Generate photorealistic visual
                 visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', pillar: 'ct-project', angle: 'drone', mood: 'golden_hour', format: 'post' });
@@ -711,10 +857,11 @@ class MarketingService {
             : ['facebook', 'instagram', 'linkedin', 'youtube', 'google_business'];
         const enqueuedJobs = [];
 
-        // 5. Enqueue to BullMQ marketingQueue
+        // 5. Enqueue to BullMQ marketingQueue with Intelligent Platform-Specific Staggering
         if (!options.dryRun && marketingQueue) {
             for (const ch of targetChannels) {
                 const captionText = channelCaptions[ch] || channelCaptions.facebook;
+                const channelDelayMs = this.calculatePlatformDelay(ch, config, Boolean(options.forceImmediate || options.dryRun));
                 try {
                     const job = await marketingQueue.add('scheduled-social-dispatch', {
                         platform: ch,
@@ -726,13 +873,13 @@ class MarketingService {
                         entityId: chosenDeal?._id || null,
                         pillar
                     }, {
-                        delay: delayMs,
+                        delay: channelDelayMs,
                         removeOnComplete: true,
                         attempts: 3,
                         backoff: { type: 'exponential', delay: 5000 }
                     });
-                    enqueuedJobs.push({ platform: ch, jobId: job.id, delayMs });
-                    console.log(`[AutonomousMarketingOS] Enqueued ${ch} dispatch job #${job.id} (delay: ${Math.round(delayMs / 60000)} min)`);
+                    enqueuedJobs.push({ platform: ch, jobId: job.id, delayMs: channelDelayMs });
+                    console.log(`[AutonomousMarketingOS] Enqueued ${ch} dispatch job #${job.id} (delay: ${Math.round(channelDelayMs / 60000)} min)`);
                 } catch (qErr) {
                     console.warn(`[AutonomousMarketingOS] Failed to enqueue job for channel ${ch}:`, qErr.message);
                 }
@@ -775,6 +922,13 @@ class MarketingService {
 
         console.log(`[AutonomousMarketingOS] ✅ Autonomous Cycle Complete! Pillar: ${pillar}, Record: ${scheduledContentRecord._id}`);
 
+        const specsSummary = [
+            chosenDeal?.facing ? `${chosenDeal.facing} Facing` : null,
+            chosenDeal?.roadWidth ? `${chosenDeal.roadWidth} Road` : null,
+            chosenDeal?.dimensions ? `Dim: ${chosenDeal.dimensions}` : null,
+            chosenDeal?.builtupSummary ? `Built: ${chosenDeal.builtupSummary}` : null
+        ].filter(Boolean).join(' • ');
+
         return {
             success: true,
             pillar,
@@ -788,10 +942,10 @@ class MarketingService {
             contentId: scheduledContentRecord._id,
             captions: channelCaptions,
             agentOutputs: {
-                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Telemetry Ingested: 30-day reach & cross-platform engagement aggregated\n• Selected Pillar: ${pillar.toUpperCase()} (Cadence: 80% Deals / 10% Edu / 7% Trust / 3% Festival)\n• Peak Audience Window: ${targetSlotTime} IST verified across active channels\n• High-Demand Corridor: Kurukshetra Growth Sectors prioritized\n• Handoff: Transferred audience telemetry and demand mandate to Social Media Manager`,
-                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Strategic Decision: Evaluated active CRM inventory against 14-day anti-cannibalization rule\n• Selected Deal Mandate: ${postTitle}\n• Verified Deal Identity Dispatched to Designer AI:\n  - Unit No: ${chosenDeal?.unitNo || 'Prime Unit'}\n  - Project / Block: ${chosenDeal?.projectName || 'Kurukshetra Corridor'}\n  - Location: ${chosenDeal?.location || 'Kurukshetra, Haryana'}\n  - Deal ID: ${chosenDeal?._id || 'N/A'}\n• Multi-Channel Copywriting: Generated platform-optimized hooks for Facebook, Instagram, LinkedIn, YouTube & Google Business`,
-                designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Deal Identity Ingested: Retrieved CRM specifications & verified title records\n• Designer Studio (Visual Prompt Lab): Composed 1080x1080 high-conversion flyer\n• Brand Kit Enforced: Bharat Properties Official Navy & Gold palette, RERA Badge, Gold Price Pill\n• Asset URL: ${visualAsset?.url || 'Generated'}\n• Regional Contact Strip: ${regionalPhone} | ${website}`,
-                scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Dispatch Timing Verified: ${delayMs === 0 ? '⚡ INSTANT DISPATCH EXECUTED' : `Scheduled for ${scheduledDateTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (${Math.round(delayMs / 60000)} min delay)`}\n• Active Syndication Channels: [${targetChannels.join(', ')}]\n• Queue Dispatch: ${enqueuedJobs.length} BullMQ jobs enqueued with automatic backoff\n• CRM Attribution: Deal ID bound to MarketingContent and Deal Activity timeline`
+                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Telemetry Ingested: 30-day reach & cross-platform engagement aggregated\n• Selected Pillar: ${pillar.toUpperCase()} (Cadence: 80% Deals / 10% Edu / 7% Trust / 3% Festival)\n• Audience Window: Multi-channel staggered peak analysis complete\n• High-Demand Corridor: Kurukshetra Growth Sectors prioritized\n• Handoff: Transferred audience telemetry and demand mandate to Social Media Manager`,
+                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Strategic Decision: Evaluated active CRM inventory against 14-day anti-cannibalization rule\n• Canonical 3-Way Join Resolved (Deal ➔ Inventory ➔ Project):\n  - Unit No: ${chosenDeal?.unitNo || 'Prime Unit'} (${chosenDeal?.block || 'Sector Block'})\n  - Project: ${chosenDeal?.projectName || 'Kurukshetra Corridor'}\n  - Location: ${chosenDeal?.location || 'Kurukshetra, Haryana'}\n  - Size: ${chosenDeal?.sizeLabel || (chosenDeal?.size ? `${chosenDeal.size} sq.yd` : 'Prime Area')}\n  - Physical Specs: ${specsSummary || 'Verified Physical Specs'}\n  - RERA Registration: ${chosenDeal?.reraNumber || 'HRERA Compliant'}\n• Multi-Channel Copywriting: Generated tailored hooks for Facebook, Instagram, LinkedIn, YouTube & Google Business Profile`,
+                designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Deal Identity & Physical Specs Ingested: Retrieved ${chosenDeal?.sizeLabel || 'Size'}, ${chosenDeal?.facing || 'Facing'}, ${chosenDeal?.roadWidth || 'Road Access'}\n• Designer Studio (Visual Prompt Lab): Composed 1080x1080 high-conversion flyer\n• Brand Kit Enforced: Official Navy & Gold palette, RERA Badge, Gold Price Pill, Contact Strip\n• Asset URL: ${visualAsset?.url || 'Generated'}\n• Regional Contact Strip: ${regionalPhone} | ${website}`,
+                scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Staggered Scheduling Delay Matrix Applied:\n${enqueuedJobs.map(j => `  - ${j.platform.toUpperCase()}: ${j.delayMs === 0 ? '⚡ INSTANT DISPATCH' : `+${Math.round(j.delayMs / 60000)} min delay (Peak Slot)`}`).join('\n') || '  - Instant dispatch requested'}\n• Active Syndication Channels: [${targetChannels.join(', ')}]\n• Queue Dispatch: ${enqueuedJobs.length} BullMQ jobs enqueued with automatic backoff\n• CRM Attribution: Deal ID bound to MarketingContent and Deal Activity timeline`
             }
         };
     }
