@@ -80,9 +80,6 @@ import jarvisRoutes from "./routes/jarvis.routes.js";
 import outboxRoutes from "./routes/outbox.routes.js";
 import authorityVerificationRoutes from "./routes/authorityVerification.routes.js";
 import reconciliationRoutes from "./routes/reconciliation.routes.js";
-import operationsRoutes from "./routes/operations.routes.js";
-import importRoutes from "./routes/import.routes.js";
-import exportRoutes from "./routes/export.routes.js";
 
 const app = express();
 
@@ -333,9 +330,25 @@ app.use("/api/outbox", outboxRoutes);
 app.use("/api/jarvis", jarvisRoutes);
 app.use("/api/authority", authorityVerificationRoutes);
 app.use("/api/reconciliation", reconciliationRoutes);
-app.use("/api/operations", operationsRoutes);
-app.use("/api/imports", importRoutes);
-app.use("/api/exports", exportRoutes);
+// Optional Operations Center routes (loaded when modules are present)
+try {
+    const { default: operationsRoutes } = await import("./routes/operations.routes.js");
+    app.use("/api/operations", operationsRoutes);
+} catch (e) {
+    if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e;
+}
+try {
+    const { default: importRoutes } = await import("./routes/import.routes.js");
+    app.use("/api/imports", importRoutes);
+} catch (e) {
+    if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e;
+}
+try {
+    const { default: exportRoutes } = await import("./routes/export.routes.js");
+    app.use("/api/exports", exportRoutes);
+} catch (e) {
+    if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e;
+}
 import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/uploads", express.static(os.tmpdir()));
