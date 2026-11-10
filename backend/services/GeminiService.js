@@ -107,7 +107,13 @@ class GeminiService {
      * Internal Gemini API caller.
      */
     async _callGemini(apiKey, apiVersion, model, systemPrompt, userPrompt, opts = {}) {
-        const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
+        // Modern model alias resolution for 2026 active endpoints
+        let targetModel = model;
+        if (!targetModel || targetModel.includes('1.5-pro') || targetModel.includes('1.5-flash') || targetModel.includes('flash-latest')) {
+            targetModel = 'gemini-2.5-flash';
+        }
+
+        const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${targetModel}:generateContent?key=${apiKey}`;
 
         const body = {
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
