@@ -1228,11 +1228,32 @@ const processMarketingJob = async (job) => {
             } else if (targetPlatform === 'instagram') {
                 result = await fbService.postToInstagram(sanitizedText, imageUrl, format);
             } else if (targetPlatform === 'linkedin') {
-                result = await liService.postToOrganization(sanitizedText, null, null);
+                let assetUrn = null;
+                if (imageUrl && !imageUrl.includes('localhost') && !imageUrl.includes('127.0.0.1')) {
+                    try {
+                        const { default: axios } = await import('axios');
+                        const { uploadUrl, asset } = await liService.registerImageUpload();
+                        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                        await liService.uploadImageBinary(uploadUrl, imageResponse.data, imageResponse.headers['content-type']);
+                        assetUrn = asset;
+                    } catch (imgErr) {
+                        await job.log(`LinkedIn image upload fallback to text: ${imgErr.message}`);
+                    }
+                }
+                result = await liService.postToOrganization(sanitizedText, null, assetUrn);
             } else if (targetPlatform === 'twitter') {
                 result = await twService.postTweet(sanitizedText, imageUrl);
             } else if (targetPlatform === 'google_business') {
-                result = await gbpService.createPost(sanitizedText, null, imageUrl);
+                try {
+                    result = await gbpService.createPost(sanitizedText, null, imageUrl);
+                } catch (gbpErr) {
+                    if (gbpErr.message?.includes('quota of 0') || gbpErr.message?.includes('access request pending')) {
+                        await job.log(`GBP quota pending approval from Google for project 322921031715. Skipping without blocking.`);
+                        result = { success: false, reason: 'GBP quota pending Google approval' };
+                    } else {
+                        throw gbpErr;
+                    }
+                }
             } else if (targetPlatform === 'youtube') {
                 const videoPath = data.videoPath || data.filePath;
                 if (videoPath) {

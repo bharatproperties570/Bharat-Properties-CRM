@@ -569,7 +569,14 @@ const SocialPostModal = ({
     } catch (error) {
         setStatus('error');
         const errMsg = error.response?.data?.error || error.response?.data?.message || error.message;
-        toast.error(errMsg, { duration: 6000 });
+        if (platform === 'google_business' && (errMsg?.includes('quota of 0') || errMsg?.includes('GBP API access') || errMsg?.includes('pending') || errMsg?.includes('RESOURCE_EXHAUSTED'))) {
+            toast('Google Business Profile API access request is currently pending Google developer review for Project 322921031715. Meanwhile, your listing can be broadcasted immediately to Facebook, Instagram, or LinkedIn!', {
+                icon: '⏳',
+                duration: 7000
+            });
+        } else {
+            toast.error(errMsg, { duration: 6000 });
+        }
     } finally {
       setIsPublishing(false);
     }
