@@ -21,6 +21,7 @@ import AuditLog, {
     CONTROLLED_AUDIT_REASONS
 } from '../models/AuditLog.js';
 import User from '../models/User.js';
+import Role from '../models/Role.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import { CANONICAL_ORGANIZATION_ID, CANONICAL_ORGANIZATION_ID_STRING } from '../config/canonicalOrganization.js';
 
@@ -739,7 +740,7 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -807,13 +808,20 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
     describe('Area 5: Owner Confirmation Static Workflow', () => {
 
         test('5.1: recordOwnerConfirmation succeeds for existing source with canonical tenant and valid authorityCode', async () => {
+            const adminRole = await Role.create({
+                tenantId: CANONICAL_ORG_ID,
+                name: 'Super Admin',
+                permissions: ['*'],
+                department: 'sales'
+            });
+
             const actorUser = await User.create({
                 tenantId: CANONICAL_ORG_ID,
                 fullName: 'Portal Operator',
                 email: 'operator@bharatproperties.internal',
                 password: 'Password123!',
                 department: 'sales',
-                role: new mongoose.Types.ObjectId(),
+                role: adminRole._id,
                 status: 'active',
                 isActive: true
             });
@@ -832,12 +840,13 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 CANONICAL_ORG_ID,
                 'HSVP',
                 {
+                    trustedPrincipal: actorUser,
                     reportedBy: actorUser._id.toString(),
                     claimedAuthorityRole: 'PORTAL_OPERATOR',
                     evidenceReference: 'REF-001',
                     evidenceType: 'CLIENT_STATEMENT',
                     evidenceVersion: 1,
-                    notes: 'Portal operator recorded verification evidence'
+                    notes: 'EVIDENCE_REVIEWED'
                 }
             );
 

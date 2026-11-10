@@ -12,16 +12,94 @@ import {
 
 const requireModule = createRequire(import.meta.url);
 let MMS_MODULE = null;
+const FACTORY_PRODUCED_INSTANCES = new WeakMap();
+const ACTIVE_FACTORY_INSTANCES = new Set();
+const REGISTERED_EPHEMERAL_TOKENS = new WeakMap();
+
+function captureInstanceIdentity(inst, type) {
+    if (!inst || typeof inst !== 'object') return null;
+    let uri = null;
+    try {
+        uri = typeof inst.getUri === 'function' ? inst.getUri() : null;
+    } catch (_) {
+        uri = null;
+    }
+    const parsed = uri ? parseMongoDetails(uri) : {};
+
+    if (type === 'ReplSet') {
+        const servers = Array.isArray(inst.servers) ? inst.servers : [];
+        const serverMetas = servers.map(s => {
+            const proc = s?.instanceInfo?.instance?.mongodProcess;
+            return {
+                server: s,
+                mongodProcess: proc,
+                pid: proc?.pid,
+                port: s?.instanceInfo?.port || parsed.effectivePort,
+                dbPath: s?.instanceInfo?.dbPath
+            };
+        });
+        return {
+            instance: inst,
+            type: 'ReplSet',
+            uri,
+            parsed,
+            serverMetas,
+            pids: serverMetas.map(m => m.pid).filter(Boolean),
+            ports: serverMetas.map(m => Number(m.port)).filter(Boolean),
+            createdAt: Date.now()
+        };
+    } else {
+        const proc = inst?.instanceInfo?.instance?.mongodProcess;
+        return {
+            instance: inst,
+            type: 'Server',
+            uri,
+            parsed,
+            mongodProcess: proc,
+            pid: proc?.pid,
+            port: Number(inst?.instanceInfo?.port || parsed.effectivePort),
+            dbPath: inst?.instanceInfo?.dbPath,
+            dbName: parsed.dbName || inst?.instanceInfo?.dbName,
+            createdAt: Date.now()
+        };
+    }
+}
+
 function getMmsModule() {
     if (!MMS_MODULE) {
         try {
             MMS_MODULE = requireModule('mongodb-memory-server');
+            if (MMS_MODULE && MMS_MODULE.MongoMemoryServer && !MMS_MODULE.MongoMemoryServer.__factoryHooked) {
+                const origServerCreate = MMS_MODULE.MongoMemoryServer.create;
+                MMS_MODULE.MongoMemoryServer.create = async function(...args) {
+                    const inst = await origServerCreate.apply(this, args);
+                    const meta = captureInstanceIdentity(inst, 'Server');
+                    if (meta) {
+                        FACTORY_PRODUCED_INSTANCES.set(inst, meta);
+                    }
+                    return inst;
+                };
+                MMS_MODULE.MongoMemoryServer.__factoryHooked = true;
+            }
+            if (MMS_MODULE && MMS_MODULE.MongoMemoryReplSet && !MMS_MODULE.MongoMemoryReplSet.__factoryHooked) {
+                const origReplSetCreate = MMS_MODULE.MongoMemoryReplSet.create;
+                MMS_MODULE.MongoMemoryReplSet.create = async function(...args) {
+                    const inst = await origReplSetCreate.apply(this, args);
+                    const meta = captureInstanceIdentity(inst, 'ReplSet');
+                    if (meta) {
+                        FACTORY_PRODUCED_INSTANCES.set(inst, meta);
+                    }
+                    return inst;
+                };
+                MMS_MODULE.MongoMemoryReplSet.__factoryHooked = true;
+            }
         } catch (_) {
             MMS_MODULE = null;
         }
     }
     return MMS_MODULE;
 }
+getMmsModule();
 
 /**
  * AuthoritySourceSettings
@@ -54,6 +132,19 @@ const ACCESS_METHODS = [
     'RTI_RESPONSE',                         // Information obtained via RTI
     'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION'   // Phase 4.4.4 verified public portal automation
 ];
+
+export const ALLOWED_CONTROLLED_NOTES = new Set([
+    'EVIDENCE_REVIEWED',
+    'DOCUMENT_VERIFIED',
+    'OWNER_WRITTEN_CONFIRMATION_ON_FILE',
+    'REPRESENTATIVE_AUTHORIZATION_VERIFIED',
+    'CLIENT_STATEMENT_RECORDED',
+    'PORTAL_OPERATOR_REPORT_LOGGED',
+    'BROKER_ATTESTATION_SUBMITTED',
+    'PENDING_MAKER_CHECKER_VERIFICATION',
+    'RECORD_CONFIRMATION',
+    '[CONTROLLED_AUDIT_NOTE]'
+]);
 
 const PRIVATE_INTERNAL_WORKFLOW_SECRET = crypto.randomBytes(32).toString('hex');
 export const INTERNAL_WORKFLOW_OPTION = '__internalWorkflowToken';
@@ -187,8 +278,14 @@ export function issueOwnerConfirmationWorkflowToken(context = {}) {
         err.code = 'TARGET_ID_REQUIRED';
         throw err;
     }
-    if (evidenceVersion === undefined || evidenceVersion === null || evidenceVersion === '*' || String(evidenceVersion).trim() === '' || isNaN(Number(evidenceVersion))) {
-        const err = new Error('EVIDENCE_VERSION_REQUIRED: Owner confirmation workflow token requires an exact numeric evidenceVersion.');
+    if (evidenceVersion === undefined || evidenceVersion === null || evidenceVersion === '*' || String(evidenceVersion).trim() === '') {
+        const err = new Error('EVIDENCE_VERSION_REQUIRED: Owner confirmation workflow token requires an exact positive integer evidenceVersion.');
+        err.code = 'EVIDENCE_VERSION_REQUIRED';
+        throw err;
+    }
+    const evNum = Number(evidenceVersion);
+    if (!Number.isInteger(evNum) || evNum < 1 || typeof evidenceVersion === 'boolean') {
+        const err = new Error('EVIDENCE_VERSION_REQUIRED: Owner confirmation workflow token requires an exact positive integer evidenceVersion.');
         err.code = 'EVIDENCE_VERSION_REQUIRED';
         throw err;
     }
@@ -196,7 +293,7 @@ export function issueOwnerConfirmationWorkflowToken(context = {}) {
         tenantId: CANONICAL_ORGANIZATION_ID_STRING,
         targetId: targetIdStr,
         authorityCode: String(authorityCode),
-        evidenceVersion: Number(evidenceVersion)
+        evidenceVersion: evNum
     });
 }
 
@@ -527,7 +624,10 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
                 type: String,
                 enum: ['UNVERIFIED', 'PENDING_WRITTEN_REFERENCE', 'VALIDATED', 'REJECTED'],
                 default: 'UNVERIFIED'
-            }
+            },
+            validatedBy: { type: String, default: null },
+            validatedAt: { type: Date, default: null },
+            evidenceArtifactId: { type: mongoose.Schema.Types.ObjectId, default: null }
         }, { _id: false }),
         default: null
     },
@@ -1958,26 +2058,51 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         throw err;
     }
 
-    // 1. Actor resolution: MUST be a valid User ObjectId from authenticated context
-    const actor = details.actorId || details.userId || details.reportedBy || details.confirmedBy;
-    if (!actor || String(actor).trim() === '') {
-        const err = new Error('ACTOR_IDENTITY_REQUIRED: Owner confirmation requires an explicit authenticated actor identity.');
-        err.code = 'ACTOR_IDENTITY_REQUIRED';
+    // 1. Mandatory trusted authenticated principal from server middleware or verified boundary
+    const trustedPrincipal = details.trustedPrincipal || details.authenticatedPrincipal || details.req?.user;
+    if (!trustedPrincipal) {
+        const err = new Error('AUTHENTICATED_PRINCIPAL_REQUIRED: Submission requires an authenticated principal from a verified server boundary.');
+        err.code = 'AUTHENTICATED_PRINCIPAL_REQUIRED';
         throw err;
     }
-    const actorStr = String(actor).trim();
-    if (!mongoose.Types.ObjectId.isValid(actorStr) || !/^[0-9a-fA-F]{24}$/.test(actorStr)) {
-        const err = new Error('ACTOR_IDENTITY_REQUIRED: Actor identity must be a valid User ObjectId.');
-        err.code = 'ACTOR_IDENTITY_REQUIRED';
+    const principalId = trustedPrincipal._id || trustedPrincipal.id || (typeof trustedPrincipal === 'string' ? trustedPrincipal : null);
+    if (!principalId || !mongoose.Types.ObjectId.isValid(String(principalId))) {
+        const err = new Error('AUTHENTICATED_PRINCIPAL_REQUIRED: Authenticated principal must have a valid ObjectId.');
+        err.code = 'AUTHENTICATED_PRINCIPAL_REQUIRED';
         throw err;
     }
+    const principalIdStr = String(principalId);
 
-    const authenticatedActorId = details.authenticatedUser?._id || details.authenticatedUser?.id || details.req?.user?._id || details.req?.user?.id;
-    if (authenticatedActorId && String(authenticatedActorId) !== actorStr) {
+    // If caller provided actorId / userId / authenticatedUser / reportedBy / confirmedBy in body, reject any mismatch
+    if (details.actorId && String(details.actorId) !== principalIdStr) {
         const err = new Error('ACTOR_IMPERSONATION_PROHIBITED: Caller cannot impersonate another user.');
         err.code = 'ACTOR_IMPERSONATION_PROHIBITED';
         throw err;
     }
+    if (details.userId && String(details.userId) !== principalIdStr) {
+        const err = new Error('ACTOR_IMPERSONATION_PROHIBITED: Caller cannot impersonate another user.');
+        err.code = 'ACTOR_IMPERSONATION_PROHIBITED';
+        throw err;
+    }
+    if (details.reportedBy && String(details.reportedBy) !== principalIdStr) {
+        const err = new Error('ACTOR_IMPERSONATION_PROHIBITED: Caller cannot impersonate another user via reportedBy.');
+        err.code = 'ACTOR_IMPERSONATION_PROHIBITED';
+        throw err;
+    }
+    if (details.confirmedBy && String(details.confirmedBy) !== principalIdStr) {
+        const err = new Error('ACTOR_IMPERSONATION_PROHIBITED: Caller cannot impersonate another user via confirmedBy.');
+        err.code = 'ACTOR_IMPERSONATION_PROHIBITED';
+        throw err;
+    }
+    if (details.authenticatedUser) {
+        const authId = details.authenticatedUser._id || details.authenticatedUser.id;
+        if (authId && String(authId) !== principalIdStr) {
+            const err = new Error('ACTOR_IMPERSONATION_PROHIBITED: Caller cannot impersonate another user.');
+            err.code = 'ACTOR_IMPERSONATION_PROHIBITED';
+            throw err;
+        }
+    }
+    const actorStr = principalIdStr;
 
     // 2. Verify User exists in MongoDB
     const User = mongoose.model('User');
@@ -2006,8 +2131,16 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         throw err;
     }
 
-    // 5. Verify applicable authorization / claimed role
-    const ALLOWED_CLAIMED_ROLES = new Set(['AUTHORIZED_BROKER', 'PORTAL_OPERATOR', 'OWNER_REPRESENTATIVE', 'BROKER_ADMIN', 'Authorized Broker']);
+    // 5. Verify claimed role and authority permissions
+    const ALLOWED_CLAIMED_ROLES = new Set([
+        'AUTHORIZED_BROKER',
+        'PORTAL_OPERATOR',
+        'OWNER_REPRESENTATIVE',
+        'BROKER_ADMIN',
+        'Authorized Broker',
+        'PROPERTY_OWNER',
+        'OWNER'
+    ]);
     const claimedRole = details.claimedAuthorityRole;
     if (!claimedRole || !ALLOWED_CLAIMED_ROLES.has(String(claimedRole).trim())) {
         const err = new Error(`CONFIRMATION_DETAILS_REQUIRED: Owner confirmation requires an explicit valid claimedAuthorityRole (${Array.from(ALLOWED_CLAIMED_ROLES).join(', ')}).`);
@@ -2016,7 +2149,6 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
     }
     const normalizedClaimedRole = String(claimedRole).trim();
 
-    // Verify user actually possesses permissions for the claimed role
     const userRoleName = user.role?.name || '';
     const userPermissions = Array.isArray(user.role?.permissions) ? user.role.permissions : [];
     const isSuperAdmin = user.isSuperAdmin === true || userRoleName === 'Super Admin';
@@ -2025,39 +2157,23 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         userPermissions.includes('authorityVerification.manage') ||
         userPermissions.includes('*');
 
-    // Claimed role OWNER_REPRESENTATIVE requires explicit verified authority admin/manage permissions (view-only is strictly insufficient)
-    if (normalizedClaimedRole === 'OWNER_REPRESENTATIVE' && !hasAdminOrManagePermission) {
-        const err = new Error('ACTOR_UNAUTHORIZED: Claimed role OWNER_REPRESENTATIVE requires explicit verified authority permissions.');
+    // View-only permissions strictly reject for owner/representative claims
+    const hasOnlyViewPermission = !hasAdminOrManagePermission && userPermissions.includes('authorityVerification.view');
+    if (hasOnlyViewPermission && (normalizedClaimedRole === 'OWNER_REPRESENTATIVE' || normalizedClaimedRole === 'PROPERTY_OWNER' || normalizedClaimedRole === 'OWNER')) {
+        const err = new Error('ACTOR_UNAUTHORIZED: View-only authority permission does not qualify for property ownership or representation.');
         err.code = 'ACTOR_UNAUTHORIZED';
         throw err;
     }
 
-    const hasAnyAuthorityPermission = hasAdminOrManagePermission ||
-        userPermissions.includes('authorityVerification.view');
-
     // Explicitly unauthorized or restricted role
-    if (user.unauthorized === true || (user.role && typeof user.role === 'object' && user.role.name && !hasAnyAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker')) {
+    const hasAnyAuthorityPermission = hasAdminOrManagePermission || userPermissions.includes('authorityVerification.view');
+    if (user.unauthorized === true || (!hasAnyAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker')) {
         const err = new Error('ACTOR_UNAUTHORIZED: User does not possess authorization for the claimed authority role.');
         err.code = 'ACTOR_UNAUTHORIZED';
         throw err;
     }
 
-    // Distinguish broker self-report vs operator report vs owner confirmation
-    let statementType;
-    if (normalizedClaimedRole === 'PORTAL_OPERATOR') {
-        statementType = 'OPERATOR_SELF_REPORT';
-    } else if (
-        normalizedClaimedRole === 'AUTHORIZED_BROKER' ||
-        normalizedClaimedRole === 'Authorized Broker' ||
-        normalizedClaimedRole === 'BROKER_ADMIN' ||
-        userRoleName.toLowerCase().includes('broker')
-    ) {
-        statementType = 'BROKER_SELF_REPORT';
-    } else {
-        statementType = 'OWNER_CONFIRMATION';
-    }
-
-    // 6. Explicit evidence requirements (no invented or default evidence)
+    // 6. Explicit evidence requirements
     if (!details.evidenceReference || typeof details.evidenceReference !== 'string' || details.evidenceReference.trim() === '') {
         const err = new Error('EVIDENCE_REFERENCE_REQUIRED: Explicit evidence reference is required.');
         err.code = 'EVIDENCE_REFERENCE_REQUIRED';
@@ -2086,33 +2202,73 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         }
     }
 
+    // Resolve genuine Document artifact from MongoDB
+    let genuineArtifact = null;
+    if (mongoose.models.Document) {
+        try {
+            const Document = mongoose.model('Document');
+            if (/^[0-9a-fA-F]{24}$/.test(evidenceRef)) {
+                genuineArtifact = await Document.findById(evidenceRef).lean();
+            }
+            if (!genuineArtifact) {
+                genuineArtifact = await Document.findOne({ documentId: evidenceRef }).lean();
+            }
+        } catch (_) {
+            genuineArtifact = null;
+        }
+    }
+
+    if (genuineArtifact) {
+        if (genuineArtifact.tenantId && String(genuineArtifact.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+            const err = new Error('CANONICAL_ORGANIZATION_REQUIRED: Evidence artifact belongs to non-canonical organization.');
+            err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+            throw err;
+        }
+        const targetInv = details.targetInventoryId || details.inventoryId;
+        if (targetInv && genuineArtifact.entityId && String(genuineArtifact.entityId) !== String(targetInv)) {
+            const err = new Error(`INVENTORY_ID_MISMATCH: Evidence artifact is linked to Inventory '${genuineArtifact.entityId}', not target Inventory '${targetInv}'.`);
+            err.code = 'INVENTORY_ID_MISMATCH';
+            throw err;
+        }
+    }
+
+    let statementType;
+    let verificationStatus = 'PENDING_WRITTEN_REFERENCE';
+
+    if (normalizedClaimedRole === 'PORTAL_OPERATOR') {
+        statementType = 'OPERATOR_SELF_REPORT';
+    } else if (
+        normalizedClaimedRole === 'AUTHORIZED_BROKER' ||
+        normalizedClaimedRole === 'Authorized Broker' ||
+        normalizedClaimedRole === 'BROKER_ADMIN' ||
+        userRoleName.toLowerCase().includes('broker')
+    ) {
+        statementType = 'BROKER_SELF_REPORT';
+    } else if (normalizedClaimedRole === 'OWNER_REPRESENTATIVE' || normalizedClaimedRole === 'PROPERTY_OWNER' || normalizedClaimedRole === 'OWNER') {
+        if (genuineArtifact) {
+            statementType = (normalizedClaimedRole === 'PROPERTY_OWNER' || normalizedClaimedRole === 'OWNER')
+                ? 'OWNER_CONFIRMATION'
+                : 'REPRESENTATIVE_STATEMENT';
+            verificationStatus = 'PENDING_WRITTEN_REFERENCE';
+        } else {
+            statementType = 'UNVERIFIED_SELF_REPORT';
+            verificationStatus = 'UNVERIFIED';
+        }
+    } else {
+        const err = new Error(`ACTOR_UNAUTHORIZED: Unsupported authority role '${normalizedClaimedRole}'.`);
+        err.code = 'ACTOR_UNAUTHORIZED';
+        throw err;
+    }
+
     if (details.evidenceVersion === undefined || details.evidenceVersion === null) {
         const err = new Error('EVIDENCE_VERSION_REQUIRED: Explicit positive integer evidence version is required.');
         err.code = 'EVIDENCE_VERSION_REQUIRED';
         throw err;
     }
     const evidenceVersion = Number(details.evidenceVersion);
-    if (!Number.isInteger(evidenceVersion) || evidenceVersion < 1) {
+    if (!Number.isInteger(evidenceVersion) || evidenceVersion < 1 || typeof details.evidenceVersion === 'boolean') {
         const err = new Error('EVIDENCE_VERSION_REQUIRED: Evidence version must be a positive integer.');
         err.code = 'EVIDENCE_VERSION_REQUIRED';
-        throw err;
-    }
-
-    // Explicit notes required — NEVER fabricate default notes
-    if (!details.notes || typeof details.notes !== 'string' || details.notes.trim() === '') {
-        const err = new Error('EVIDENCE_NOTES_REQUIRED: Explicit submission notes are required; default confirmation notes are prohibited.');
-        err.code = 'EVIDENCE_NOTES_REQUIRED';
-        throw err;
-    }
-    let notes = details.notes.trim();
-    if (notes.length > 160) {
-        notes = notes.slice(0, 160);
-    }
-    const { validateControlledScalarValue } = await import('./AuditLog.js');
-    validateControlledScalarValue(notes, 'userReportedEvidence.notes');
-    if (/\b\d{4}\s?\d{4}\s?\d{4}\b/.test(notes) || /[A-Z]{5}[0-9]{4}[A-Z]/.test(notes) || /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(notes)) {
-        const err = new Error('FREE_TEXT_AUDIT_PROHIBITED: Notes contain prohibited PII pattern.');
-        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
         throw err;
     }
 
@@ -2121,7 +2277,20 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         err.code = 'UNAUTHORIZED_STATUS_OVERRIDE';
         throw err;
     }
-    const verificationStatus = 'PENDING_WRITTEN_REFERENCE';
+
+    // Explicit notes required from ALLOWED_CONTROLLED_NOTES
+    if (!details.notes || typeof details.notes !== 'string' || details.notes.trim() === '') {
+        const err = new Error('EVIDENCE_NOTES_REQUIRED: Explicit submission notes are required; default confirmation notes are prohibited.');
+        err.code = 'EVIDENCE_NOTES_REQUIRED';
+        throw err;
+    }
+    const notes = details.notes.trim();
+    if (notes.length > 160 || !ALLOWED_CONTROLLED_NOTES.has(notes)) {
+        const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text notes are prohibited. Only controlled note templates (${Array.from(ALLOWED_CONTROLLED_NOTES).join(', ')}) are permitted.`);
+        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+        throw err;
+    }
+
     const currentEvidenceVersion = existing.evidenceVersion !== undefined ? existing.evidenceVersion : 1;
 
     const token = issueOwnerConfirmationWorkflowToken({
@@ -2159,10 +2328,96 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
     );
 };
 
-/**
- * Rigorously verifies maker-checker users, RBAC roles, and genuine AuditLog events
- * against actual database records within the canonical organization.
- */
+AuthoritySourceSettingsSchema.statics.validateOwnerConfirmationEvidence = async function (context = {}) {
+    const {
+        authorityCode,
+        evidenceArtifactId
+    } = context;
+    const reviewerPrincipal = context.trustedPrincipal || context.authenticatedPrincipal || context.req?.user;
+    if (!reviewerPrincipal) {
+        const err = new Error('AUTHENTICATED_PRINCIPAL_REQUIRED: Reviewer authentication is required to validate owner confirmation evidence.');
+        err.code = 'AUTHENTICATED_PRINCIPAL_REQUIRED';
+        throw err;
+    }
+    const reviewerIdStr = String(reviewerPrincipal._id || reviewerPrincipal.id);
+
+    const effectiveTenantId = CANONICAL_ORGANIZATION_ID;
+    const existing = await this.findOne({ tenantId: effectiveTenantId, authorityCode: String(authorityCode) });
+    if (!existing) {
+        const err = new Error(`AUTHORITY_SOURCE_NOT_FOUND: Authority source settings for authorityCode '${authorityCode}' not found.`);
+        err.code = 'AUTHORITY_SOURCE_NOT_FOUND';
+        throw err;
+    }
+
+    if (!existing.userReportedEvidence || !existing.userReportedEvidence.reportedBy) {
+        const err = new Error('EVIDENCE_NOT_FOUND: No pending owner confirmation evidence exists to validate.');
+        err.code = 'EVIDENCE_NOT_FOUND';
+        throw err;
+    }
+
+    // Maker-checker separation: reviewer cannot be the reporter
+    if (existing.userReportedEvidence?.reportedBy && String(existing.userReportedEvidence.reportedBy) === reviewerIdStr) {
+        const err = new Error('MAKER_CHECKER_VIOLATION: Submitter cannot approve or validate their own owner confirmation evidence.');
+        err.code = 'MAKER_CHECKER_VIOLATION';
+        throw err;
+    }
+
+    // Reviewer permissions
+    const User = mongoose.model('User');
+    const reviewerUser = await User.findById(reviewerIdStr).populate('role').lean();
+    if (!reviewerUser || reviewerUser.isActive === false) {
+        const err = new Error('ACTOR_NOT_FOUND: Reviewer user is not found or inactive.');
+        err.code = 'ACTOR_NOT_FOUND';
+        throw err;
+    }
+    const userRoleName = reviewerUser.role?.name || '';
+    const userPermissions = Array.isArray(reviewerUser.role?.permissions) ? reviewerUser.role.permissions : [];
+    const isSuperAdmin = reviewerUser.isSuperAdmin === true || userRoleName === 'Super Admin';
+    const hasAdminOrManage = isSuperAdmin || userPermissions.includes('authorityVerification.admin') || userPermissions.includes('authorityVerification.manage');
+    if (!hasAdminOrManage) {
+        const err = new Error('ACTOR_UNAUTHORIZED: Reviewer lacks authorityVerification.admin or manage permissions.');
+        err.code = 'ACTOR_UNAUTHORIZED';
+        throw err;
+    }
+
+    if (!evidenceArtifactId || !mongoose.Types.ObjectId.isValid(String(evidenceArtifactId))) {
+        const err = new Error('EVIDENCE_ARTIFACT_REQUIRED: Valid evidence artifact ObjectId is required for validation.');
+        err.code = 'EVIDENCE_ARTIFACT_REQUIRED';
+        throw err;
+    }
+
+    const Document = mongoose.model('Document');
+    const artifact = await Document.findById(evidenceArtifactId).lean();
+    if (!artifact) {
+        const err = new Error('EVIDENCE_ARTIFACT_NOT_FOUND: Evidence artifact does not exist.');
+        err.code = 'EVIDENCE_ARTIFACT_NOT_FOUND';
+        throw err;
+    }
+
+    const token = issueApproverWorkflowToken({
+        tenantId: CANONICAL_ORGANIZATION_ID_STRING,
+        authorityCode: String(authorityCode),
+        targetId: String(existing._id),
+        evidenceVersion: existing.evidenceVersion || 1
+    });
+
+    return this.findOneAndUpdate(
+        { _id: existing._id, tenantId: effectiveTenantId, authorityCode: String(authorityCode) },
+        {
+            $set: {
+                'userReportedEvidence.verificationStatus': 'VALIDATED',
+                'userReportedEvidence.validatedBy': reviewerIdStr,
+                'userReportedEvidence.validatedAt': new Date(),
+                'userReportedEvidence.evidenceArtifactId': artifact._id
+            }
+        },
+        {
+            new: true,
+            [INTERNAL_WORKFLOW_OPTION]: token
+        }
+    );
+};
+
 AuthoritySourceSettingsSchema.statics.verifyMakerCheckerUsers = async function ({
     submitterId,
     approverId,
@@ -2845,9 +3100,6 @@ const AuthoritySourceSettings = mongoose.models.AuthoritySourceSettings || mongo
 // Private symbol used exclusively for test teardown on verified ephemeral test databases
 const INTERNAL_TEST_RESET_KEY = Symbol('INTERNAL_TEST_RESET');
 
-const REGISTERED_EPHEMERAL_INSTANCES = new Set();
-const REGISTERED_EPHEMERAL_TOKENS = new WeakMap();
-
 function verifyGenuineChildProcess(proc, expectedPort) {
     if (!proc || !(proc instanceof child_process.ChildProcess)) return false;
     if (typeof proc.pid !== 'number' || proc.pid <= 0 || !Number.isInteger(proc.pid)) return false;
@@ -2896,19 +3148,10 @@ function verifyGenuineMongoReplSetInstance(inst, mms) {
     return true;
 }
 
-export function registerVerifiedEphemeralTestDatabase(instance) {
-    if (process.env.NODE_ENV !== 'test') {
-        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Ephemeral test database registration is strictly prohibited outside NODE_ENV=test.');
-        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
-        throw err;
-    }
-    if (isProductionEnvironment() || isEnvironmentProductionOrUnsafe()) {
-        const err = new Error('PRODUCTION_ENVIRONMENT_DETECTED: Ephemeral test database registration is prohibited in production or unsafe environments.');
-        err.code = 'PRODUCTION_ENVIRONMENT_DETECTED';
-        throw err;
-    }
-    if (!instance || typeof instance !== 'object') {
-        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: An explicit ephemeral database instance is required.');
+function _registerFactoryEphemeralInstance(instance, type) {
+    const meta = FACTORY_PRODUCED_INSTANCES.get(instance);
+    if (!meta) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Only genuine instances produced by the trusted factory may be registered.');
         err.code = 'EPHEMERAL_DATABASE_REQUIRED';
         throw err;
     }
@@ -2920,13 +3163,32 @@ export function registerVerifiedEphemeralTestDatabase(instance) {
         throw err;
     }
 
-    const isGenuineServer = verifyGenuineMongoServerInstance(instance, mms);
-    const isGenuineReplSet = verifyGenuineMongoReplSetInstance(instance, mms);
-
+    const isGenuineServer = type === 'Server' && verifyGenuineMongoServerInstance(instance, mms);
+    const isGenuineReplSet = type === 'ReplSet' && verifyGenuineMongoReplSetInstance(instance, mms);
     if (!isGenuineServer && !isGenuineReplSet) {
         const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Only genuine MongoMemoryServer or MongoMemoryReplSet instances with verified running processes may be registered.');
         err.code = 'EPHEMERAL_DATABASE_REQUIRED';
         throw err;
+    }
+
+    // Verify childProcess reference identity has not been replaced or tampered with
+    if (isGenuineServer) {
+        const currentProc = instance.instanceInfo?.instance?.mongodProcess;
+        if (!currentProc || currentProc !== meta.mongodProcess) {
+            const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Process reference mismatch detected; child process was replaced.');
+            err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+            throw err;
+        }
+    } else if (isGenuineReplSet) {
+        for (let i = 0; i < instance.servers.length; i++) {
+            const s = instance.servers[i];
+            const sm = meta.serverMetas[i];
+            if (!sm || s.instanceInfo?.instance?.mongodProcess !== sm.mongodProcess) {
+                const err = new Error('EPHEMERAL_DATABASE_REQUIRED: ReplicaSet member process mismatch detected.');
+                err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+                throw err;
+            }
+        }
     }
 
     let uri = '';
@@ -2962,26 +3224,55 @@ export function registerVerifiedEphemeralTestDatabase(instance) {
         token: secretToken,
         registeredAt: Date.now(),
         type: isGenuineReplSet ? 'ReplSet' : 'Server',
-        pids
+        pids,
+        capturedMeta: meta
     });
-    REGISTERED_EPHEMERAL_INSTANCES.add(instance);
+    ACTIVE_FACTORY_INSTANCES.add(instance);
     return true;
+}
+
+export function registerVerifiedEphemeralTestDatabase(instance) {
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Ephemeral test database registration is strictly prohibited outside NODE_ENV=test.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
+    if (isProductionEnvironment() || isEnvironmentProductionOrUnsafe()) {
+        const err = new Error('PRODUCTION_ENVIRONMENT_DETECTED: Ephemeral test database registration is prohibited in production or unsafe environments.');
+        err.code = 'PRODUCTION_ENVIRONMENT_DETECTED';
+        throw err;
+    }
+    if (!instance || typeof instance !== 'object') {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: An explicit ephemeral database instance is required.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    if (!FACTORY_PRODUCED_INSTANCES.has(instance)) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Only genuine instances produced by the trusted factory may be registered.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    const meta = FACTORY_PRODUCED_INSTANCES.get(instance);
+    return _registerFactoryEphemeralInstance(instance, meta.type);
 }
 
 export function unregisterVerifiedEphemeralTestDatabase(instance) {
     if (!instance) return;
-    REGISTERED_EPHEMERAL_INSTANCES.delete(instance);
+    ACTIVE_FACTORY_INSTANCES.delete(instance);
+    REGISTERED_EPHEMERAL_TOKENS.delete(instance);
 }
 
 export function clearVerifiedEphemeralTestDatabases() {
-    REGISTERED_EPHEMERAL_INSTANCES.clear();
+    ACTIVE_FACTORY_INSTANCES.clear();
 }
 
 export function isVerifiedEphemeralTestDatabase() {
     if (process.env.NODE_ENV !== 'test') return false;
     if (isProductionEnvironment() || isEnvironmentProductionOrUnsafe()) return false;
     if (!mongoose.connection || mongoose.connection.readyState !== 1) return false;
-    if (REGISTERED_EPHEMERAL_INSTANCES.size === 0) return false;
+    if (ACTIVE_FACTORY_INSTANCES.size === 0) return false;
 
     const active = getActiveMongooseConnectionIdentity(mongoose.connection);
     if (!active || active.readyState !== 1 || !active.host || !active.port) return false;
@@ -2998,11 +3289,11 @@ export function isVerifiedEphemeralTestDatabase() {
     const mms = getMmsModule();
     if (!mms) return false;
 
-    for (const inst of Array.from(REGISTERED_EPHEMERAL_INSTANCES)) {
+    for (const inst of Array.from(ACTIVE_FACTORY_INSTANCES)) {
         // 1. Must have valid registration token
         const tokenMeta = REGISTERED_EPHEMERAL_TOKENS.get(inst);
         if (!tokenMeta || !tokenMeta.token) {
-            REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
+            ACTIVE_FACTORY_INSTANCES.delete(inst);
             continue;
         }
 
@@ -3010,11 +3301,35 @@ export function isVerifiedEphemeralTestDatabase() {
         const isGenuineServer = verifyGenuineMongoServerInstance(inst, mms);
         const isGenuineReplSet = verifyGenuineMongoReplSetInstance(inst, mms);
         if (!isGenuineServer && !isGenuineReplSet) {
-            REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
+            ACTIVE_FACTORY_INSTANCES.delete(inst);
             continue;
         }
 
-        // 3. Verify PIDs are still alive
+        // 3. Verify exact childProcess reference identity has not changed
+        const capturedMeta = tokenMeta.capturedMeta;
+        if (capturedMeta) {
+            if (tokenMeta.type === 'Server') {
+                if (inst.instanceInfo?.instance?.mongodProcess !== capturedMeta.mongodProcess) {
+                    ACTIVE_FACTORY_INSTANCES.delete(inst);
+                    continue;
+                }
+            } else if (tokenMeta.type === 'ReplSet') {
+                let allMatched = true;
+                for (let i = 0; i < inst.servers.length; i++) {
+                    const sm = capturedMeta.serverMetas[i];
+                    if (!sm || inst.servers[i].instanceInfo?.instance?.mongodProcess !== sm.mongodProcess) {
+                        allMatched = false;
+                        break;
+                    }
+                }
+                if (!allMatched) {
+                    ACTIVE_FACTORY_INSTANCES.delete(inst);
+                    continue;
+                }
+            }
+        }
+
+        // 4. Verify PIDs are still alive
         let pidsAlive = true;
         for (const pid of tokenMeta.pids) {
             try {
@@ -3025,11 +3340,11 @@ export function isVerifiedEphemeralTestDatabase() {
             }
         }
         if (!pidsAlive) {
-            REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
+            ACTIVE_FACTORY_INSTANCES.delete(inst);
             continue;
         }
 
-        // 4. Match ports and dbName
+        // 5. Match ports and dbName
         try {
             const instUri = inst.getUri();
             const instParsed = parseMongoDetails(instUri);
@@ -3080,7 +3395,7 @@ export async function createVerifiedEphemeralTestDatabase(opts = {}) {
         throw new Error('EPHEMERAL_DATABASE_REQUIRED: MongoMemoryServer is unavailable.');
     }
     const instance = await mms.MongoMemoryServer.create(opts);
-    registerVerifiedEphemeralTestDatabase(instance);
+    _registerFactoryEphemeralInstance(instance, 'Server');
     return instance;
 }
 
@@ -3095,7 +3410,7 @@ export async function createVerifiedEphemeralReplSet(opts = {}) {
         throw new Error('EPHEMERAL_DATABASE_REQUIRED: MongoMemoryReplSet is unavailable.');
     }
     const instance = await mms.MongoMemoryReplSet.create(opts);
-    registerVerifiedEphemeralTestDatabase(instance);
+    _registerFactoryEphemeralInstance(instance, 'ReplSet');
     return instance;
 }
 

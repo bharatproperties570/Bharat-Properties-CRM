@@ -727,10 +727,10 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 status: 'success',
-                description: 'Authority changes applied from HSVP',
+                description: 'Authority verification changes applied from HSVP',
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
                     authorityCode: 'HSVP',
@@ -883,12 +883,12 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
                         reportedBy: testActorUser._id.toString(),
-                        authenticatedUser: { _id: testAdminUser._id.toString() }, // Caller is admin, trying to submit as actor
+                        trustedPrincipal: testAdminUser, // Caller is admin, trying to submit as actor
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -905,11 +905,12 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
                         reportedBy: testViewUser._id.toString(),
+                        trustedPrincipal: testViewUser,
                         claimedAuthorityRole: 'OWNER_REPRESENTATIVE',
                         evidenceReference: 'REF-001',
                         evidenceType: 'OWNER_WRITTEN_CONFIRMATION',
                         evidenceVersion: 1,
-                        notes: 'View user claiming owner rep'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -926,11 +927,12 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
                         reportedBy: testAdminUser._id.toString(),
+                        trustedPrincipal: testAdminUser,
                         claimedAuthorityRole: 'OWNER_REPRESENTATIVE',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT', // OWNER_REPRESENTATIVE requires OWNER_WRITTEN_CONFIRMATION or REPRESENTATIVE_AUTHORIZATION
                         evidenceVersion: 1,
-                        notes: 'Owner representative submitted invalid evidence'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -940,22 +942,23 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
             );
         });
 
-        test('4.4: OWNER_REPRESENTATIVE by admin with OWNER_WRITTEN_CONFIRMATION succeeds as OWNER_CONFIRMATION', async () => {
+        test('4.4: OWNER_REPRESENTATIVE by admin with OWNER_WRITTEN_CONFIRMATION without authentic Document artifact persists as UNVERIFIED_SELF_REPORT', async () => {
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: testAdminUser._id.toString(),
+                trustedPrincipal: testAdminUser,
                 claimedAuthorityRole: 'OWNER_REPRESENTATIVE',
                 evidenceReference: 'REF-001',
                 evidenceType: 'OWNER_WRITTEN_CONFIRMATION',
                 evidenceVersion: 1,
-                notes: 'Owner representative confirmed integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
 
             assert.ok(updated);
-            assert.strictEqual(updated.userReportedEvidence?.statementType, 'OWNER_CONFIRMATION');
+            assert.strictEqual(updated.userReportedEvidence?.statementType, 'UNVERIFIED_SELF_REPORT');
             assert.strictEqual(updated.userReportedEvidence?.claimedAuthorityRole, 'OWNER_REPRESENTATIVE');
-            assert.strictEqual(updated.userReportedEvidence?.verificationStatus, 'PENDING_WRITTEN_REFERENCE');
+            assert.strictEqual(updated.userReportedEvidence?.verificationStatus, 'UNVERIFIED');
         });
 
         test('4.5: Claimed role PORTAL_OPERATOR produces statementType OPERATOR_SELF_REPORT', async () => {
@@ -963,11 +966,12 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: testActorUser._id.toString(),
+                trustedPrincipal: testActorUser,
                 claimedAuthorityRole: 'PORTAL_OPERATOR',
                 evidenceReference: 'REF-002',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Operator confirmation.'
+                notes: 'PORTAL_OPERATOR_REPORT_LOGGED'
             });
 
             assert.ok(updated);
@@ -979,11 +983,12 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: testActorUser._id.toString(),
+                trustedPrincipal: testActorUser,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-003',
                 evidenceType: 'BROKER_ATTESTATION',
                 evidenceVersion: 1,
-                notes: 'Broker confirmation notes.'
+                notes: 'BROKER_ATTESTATION_SUBMITTED'
             });
 
             assert.ok(updated);
@@ -997,11 +1002,12 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
                         reportedBy: testActorUser._id.toString(),
+                        trustedPrincipal: testActorUser,
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-004',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Attempted status override',
+                        notes: 'PORTAL_OPERATOR_REPORT_LOGGED',
                         verificationStatus: 'VALIDATED'
                     });
                 },
@@ -1020,6 +1026,7 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
                             tenantId: CANONICAL_ORG_ID_STRING,
                             authorityCode: 'HSVP',
                             reportedBy: testActorUser._id.toString(),
+                            trustedPrincipal: testActorUser,
                             claimedAuthorityRole: 'PORTAL_OPERATOR',
                             evidenceReference: 'REF-005',
                             evidenceType: 'CLIENT_STATEMENT',

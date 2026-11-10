@@ -784,7 +784,7 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
                 eventType: 'authority_changes_applied',
                 description: 'Authority changes applied from HSVP',
                 status: 'success',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 metadata: {
                     tenantId: CANONICAL_ORGANIZATION_ID,

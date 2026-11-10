@@ -185,6 +185,7 @@ jobs:
           npm run test:phase4.5d-p65-final-test-reset-metadata-claim-closure
           npm run test:phase4.5d-p66-final-proof-reset-owner-attestation-claim-closure
           npm run test:phase4.5d-p67-final-failclosed-identity-saga-owner-privacy-closure
+          npm run test:phase4.5d-p68-final-nonforgeable-principal-audit-privacy-closure
 
       - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
         run: |

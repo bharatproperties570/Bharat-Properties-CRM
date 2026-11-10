@@ -31,17 +31,20 @@ const isIsoDate = (str) => typeof str === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:
 const isUuid = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
 const isHexDigest = (str) => typeof str === 'string' && /^[0-9a-fA-F]{32,64}$/.test(str);
 
+export const EMAIL_PII_PATTERN = /[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.*-]+\.[a-zA-Z0-9.*-]{2,}/gi;
+export const EMAIL_STANDALONE_PATTERN = /^[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.*-]+\.[a-zA-Z0-9.*-]{2,}$/i;
+
 export function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
     if (isHexObjectId(text) || isIsoDate(text) || isUuid(text) || isHexDigest(text)) return text;
 
     const trimmed = text.trim();
-    if (/^[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/i.test(trimmed)) {
+    if (EMAIL_STANDALONE_PATTERN.test(trimmed)) {
         return '[EMAIL_MINIMIZED]';
     }
 
     // Mask all emails to [EMAIL_MINIMIZED] (unconditional, centralized, handles raw, partial with *, embedded, mixed-case)
-    let masked = text.replace(/[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, '[EMAIL_MINIMIZED]');
+    let masked = text.replace(EMAIL_PII_PATTERN, '[EMAIL_MINIMIZED]');
 
     // Mask Indian PAN card format (5 letters, 4 digits, 1 letter)
     masked = masked.replace(/\b[a-zA-Z]{5}[0-9]{4}[a-zA-Z]\b/g, '[PAN_MINIMIZED]');
@@ -345,7 +348,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal', 'authority_canonical_policy']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal', 'authority_canonical_policy', 'PropertyVerificationRunItem']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId
@@ -739,6 +742,17 @@ const ALLOWED_ATTESTATION_SCOPES = new Set([
     'RECORD_CONFIRMATION'
 ]);
 
+export const ALLOWED_CONTROLLED_PHRASES = new Set([
+    ...CONTROLLED_AUDIT_REASONS,
+    'System Event', 'Initial Seed', 'Verified Contract',
+    'EVIDENCE_REVIEWED', 'DOCUMENT_VERIFIED', 'OWNER_WRITTEN_CONFIRMATION_ON_FILE',
+    'REPRESENTATIVE_AUTHORIZATION_VERIFIED', 'CLIENT_STATEMENT_RECORDED',
+    'PORTAL_OPERATOR_REPORT_LOGGED', 'BROKER_ATTESTATION_SUBMITTED',
+    'PENDING_MAKER_CHECKER_VERIFICATION', 'UNVERIFIED_SELF_REPORT', 'REPRESENTATIVE_STATEMENT',
+    '[EMAIL_MINIMIZED]', '[PHONE_MINIMIZED]', '[PAN_MINIMIZED]', '[AADHAAR_MINIMIZED]',
+    '[ADDRESS_MINIMIZED]', '[REDACTED]', '[PII_MINIMIZED]', '[CONTROLLED_AUDIT_NOTE]'
+]);
+
 const ALLOWED_UPPERCASE_TOKENS = new Set([
     ...CONTROLLED_AUDIT_REASONS,
     ...CONTROLLED_ROLE_CODES,
@@ -751,6 +765,9 @@ const ALLOWED_UPPERCASE_TOKENS = new Set([
     'OWNER_CONFIRMATION', 'BROKER_SELF_REPORT', 'OPERATOR_SELF_REPORT',
     'CLIENT_STATEMENT', 'BROKER_ATTESTATION', 'OWNER_WRITTEN_CONFIRMATION', 'REPRESENTATIVE_AUTHORIZATION', 'BROKER_REPORT', 'DOCUMENT_VERIFICATION',
     'PENDING_WRITTEN_REFERENCE', 'FULL_VERIFICATION', 'PARTIAL_VERIFICATION', 'IDENTITY_CONFIRMATION', 'AUTHORITY_INTEGRATION', 'RECORD_CONFIRMATION',
+    'EVIDENCE_REVIEWED', 'DOCUMENT_VERIFIED', 'OWNER_WRITTEN_CONFIRMATION_ON_FILE', 'REPRESENTATIVE_AUTHORIZATION_VERIFIED',
+    'CLIENT_STATEMENT_RECORDED', 'PORTAL_OPERATOR_REPORT_LOGGED', 'BROKER_ATTESTATION_SUBMITTED',
+    'PENDING_MAKER_CHECKER_VERIFICATION', 'UNVERIFIED_SELF_REPORT', 'REPRESENTATIVE_STATEMENT',
     'EMAIL_MINIMIZED', 'PHONE_MINIMIZED', 'PAN_MINIMIZED', 'AADHAAR_MINIMIZED', 'ADDRESS_MINIMIZED', 'REDACTED', 'PII_MINIMIZED', 'CONTROLLED_AUDIT_NOTE',
     'NO_LITIGATION', 'LITIGATION_PENDING', 'DISPUTED_TITLE', 'STAY_ORDER',
     'NO_MORTGAGE', 'MORTGAGED', 'UNDER_MORTGAGE', 'BANK_CHARGE',
@@ -797,10 +814,22 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
             }
         }
         // Reject raw and partially masked emails
-        if (/[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(trimmed)) {
+        if (EMAIL_PII_PATTERN.test(trimmed)) {
             const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains prohibited email address.`);
             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
             throw err;
+        }
+
+        // Reject uncontrolled narrative phrases (multi-word text with whitespace)
+        if (/\s+/.test(trimmed)) {
+            const isMeasurement = /^[0-9]+(?:\.[0-9]+)?\s+(?:sq(?:uare)?\s*(?:yards?|yd|feet|ft|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards)$/i.test(trimmed);
+            const isErrorFormat = isErrorField && /^(?:[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,180})?|Simulated [a-zA-Z0-9_ ./:#-]+)$/i.test(trimmed);
+
+            if (!isMeasurement && !isErrorFormat && !ALLOWED_CONTROLLED_PHRASES.has(trimmed) && !ALLOWED_UPPERCASE_TOKENS.has(trimmed)) {
+                const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains arbitrary free-text narrative '${trimmed}'.`);
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
         }
         // Reject personal name with honorifics (e.g. "Shri Rajesh Kumar", "Smt Priya Devi", "Mr. John Doe")
         if (/\b(?:shri|smt|mr|mrs|ms|dr|adv)\.?\s+[a-z]/i.test(trimmed)) {
@@ -2324,21 +2353,23 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             throw err;
                         }
 
-                        // 5. Target type and identifier validation
-                        const ALLOWED_COMPENSATION_TARGET_TYPES = new Set(['inventory', 'Inventory', 'PropertyVerificationRunItem', 'authority_settings', 'authority_run']);
-                        if (!doc.targetType || !ALLOWED_COMPENSATION_TARGET_TYPES.has(doc.targetType)) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog targetType '${doc.targetType}' is invalid for saga compensation.`);
-                            err.code = 'AUDIT_LOG_IMMUTABLE';
-                            throw err;
-                        }
+                        // 5. Target identifier and type validation
                         if (!doc.targetId) {
                             const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog record is missing target identifier required for saga compensation verification.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
 
+                        const ALLOWED_COMPENSATION_TARGET_TYPES = new Set(['inventory', 'Inventory', 'PropertyVerificationRunItem', 'authority_run']);
+                        if (!doc.targetType || !ALLOWED_COMPENSATION_TARGET_TYPES.has(doc.targetType)) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog targetType '${doc.targetType}' is invalid for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
                         const isRunItemTarget = doc.targetType === 'PropertyVerificationRunItem';
                         const isInventoryTarget = doc.targetType === 'inventory' || doc.targetType === 'Inventory';
+                        const isRunTarget = doc.targetType === 'authority_run';
 
                         if (isRunItemTarget) {
                             if (String(matchingRunItem._id) !== String(doc.targetId)) {
@@ -2352,14 +2383,16 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
                             }
-                        } else {
-                            const isMatchingTarget = (matchingRunItem._id && String(matchingRunItem._id) === String(doc.targetId)) ||
-                                                     (matchingRunItem.inventoryId && String(matchingRunItem.inventoryId) === String(doc.targetId));
-                            if (!isMatchingTarget) {
-                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' belongs to RunItem '${matchingRunItem._id}', not matching audit target '${doc.targetId}'.`);
+                        } else if (isRunTarget) {
+                            if (!matchingRunItem.runId || String(matchingRunItem.runId) !== String(doc.targetId)) {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' belongs to Run '${matchingRunItem.runId}', not matching audit target '${doc.targetId}'.`);
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
                             }
+                        } else {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Unsupported targetType '${doc.targetType}' for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
                         }
 
                         // 6. Explicit RunItem association
@@ -2370,10 +2403,15 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             throw err;
                         }
 
-                        // 7. Explicit claim association
-                        const auditClaimId = doc.metadata?.claimId || doc.changes?.claimId;
-                        if (auditClaimId && String(auditClaimId) !== String(claimId)) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog has mismatched claim association (expected '${claimId}', found '${auditClaimId}').`);
+                        // 7. Explicit mandatory claim association
+                        const auditClaimId = doc.metadata?.claimId;
+                        if (!auditClaimId || String(auditClaimId).trim() === '') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog is missing mandatory metadata.claimId required for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        if (String(auditClaimId) !== String(claimId)) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog has mismatched claim association: metadata.claimId '${auditClaimId}' does not match compensation claim ID '${claimId}'.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }

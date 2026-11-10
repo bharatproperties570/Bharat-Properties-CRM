@@ -603,7 +603,7 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await doc.save();
         });
 
-        test('3.1: Static method rejects missing actor identity with ACTOR_IDENTITY_REQUIRED', async () => {
+        test('3.1: Static method rejects missing actor identity with AUTHENTICATED_PRINCIPAL_REQUIRED', async () => {
             await assert.rejects(
                 async () => {
                     await AuthoritySourceSettings.recordOwnerConfirmation({
@@ -611,11 +611,11 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                         authorityCode: 'HSVP',
                         reportedBy: '',
                         claimedAuthorityRole: 'Authorized Broker',
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
-                    assert.strictEqual(err.code, 'ACTOR_IDENTITY_REQUIRED');
+                    assert.strictEqual(err.code, 'AUTHENTICATED_PRINCIPAL_REQUIRED');
                     return true;
                 }
             );
@@ -646,12 +646,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'GMADA',
+                        trustedPrincipal: testActorUser,
                         reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: '   ',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -666,12 +667,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed read-only integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
 
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -683,12 +685,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed read-only integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
             assert.strictEqual(fresh.schedulingEnabled, false);
@@ -699,12 +702,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed read-only integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
             assert.notStrictEqual(fresh.permissionStatus, 'GRANTED');
@@ -715,12 +719,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed read-only integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
             assert.notStrictEqual(fresh.reviewStatus, 'APPROVED');
@@ -731,12 +736,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed read-only integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
             assert.strictEqual(fresh.termsReviewed, false);
@@ -747,12 +753,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed read-only integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
             assert.strictEqual(fresh.commercialUseAuthorized, false);
@@ -765,12 +772,13 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Owner confirmed.'
+                notes: 'EVIDENCE_REVIEWED'
             });
 
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -786,6 +794,7 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: testActorUser,
                         reportedBy: actorId,
                         claimedAuthorityRole: 'Authorized Broker',
                         evidenceReference: 'REF-001',
@@ -1267,7 +1276,7 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -1276,7 +1285,8 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
                     authorityCode: 'HSVP',
-                    itemId: runItem._id
+                    itemId: runItem._id,
+                    claimId: legitClaimIdMixed.toString()
                 }
             });
 
@@ -1361,7 +1371,7 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -1370,7 +1380,8 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
                     authorityCode: 'HSVP',
-                    itemId: runItem._id
+                    itemId: runItem._id,
+                    claimId: legitClaimId.toString()
                 }
             });
 

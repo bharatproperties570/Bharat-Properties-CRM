@@ -468,7 +468,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
             const differentTargetId = new mongoose.Types.ObjectId();
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: differentTargetId,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -575,7 +575,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -624,7 +624,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -683,7 +683,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItemA._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -732,7 +732,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -813,7 +813,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -861,7 +861,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -945,7 +945,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
@@ -1008,7 +1008,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
             await doc.save();
         });
 
-        test('3.1: Missing actor identity throws ACTOR_IDENTITY_REQUIRED', async () => {
+        test('3.1: Missing actor identity throws AUTHENTICATED_PRINCIPAL_REQUIRED', async () => {
             await assert.rejects(
                 async () => {
                     await AuthoritySourceSettings.recordOwnerConfirmation({
@@ -1019,32 +1019,33 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
-                    assert.strictEqual(err.code, 'ACTOR_IDENTITY_REQUIRED');
+                    assert.strictEqual(err.code, 'AUTHENTICATED_PRINCIPAL_REQUIRED');
                     return true;
                 }
             );
         });
 
-        test('3.2: Invalid ObjectId string for actor throws ACTOR_IDENTITY_REQUIRED', async () => {
+        test('3.2: Invalid ObjectId string for actor throws AUTHENTICATED_PRINCIPAL_REQUIRED', async () => {
             await assert.rejects(
                 async () => {
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: 'invalid_user_string',
                         reportedBy: 'invalid_user_string',
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
-                    assert.strictEqual(err.code, 'ACTOR_IDENTITY_REQUIRED');
+                    assert.strictEqual(err.code, 'AUTHENTICATED_PRINCIPAL_REQUIRED');
                     return true;
                 }
             );
@@ -1057,12 +1058,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: { _id: nonExistentUserId },
                         reportedBy: nonExistentUserId.toString(),
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -1089,12 +1091,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: inactiveUser,
                         reportedBy: inactiveUser._id.toString(),
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -1121,12 +1124,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: suspendedUser,
                         reportedBy: suspendedUser._id.toString(),
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -1153,12 +1157,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: otherOrgUser,
                         reportedBy: otherOrgUser._id.toString(),
                         claimedAuthorityRole: 'PORTAL_OPERATOR',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -1175,12 +1180,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: testActorUser,
                         reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: 'OWNER_REPRESENTATIVE',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'EVIDENCE_REVIEWED'
                     });
                 },
                 err => {
@@ -1194,29 +1200,32 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testAdminUser,
                 reportedBy: testAdminUser._id.toString(),
                 claimedAuthorityRole: 'OWNER_REPRESENTATIVE',
                 evidenceReference: 'REF-001',
                 evidenceType: 'OWNER_WRITTEN_CONFIRMATION',
                 evidenceVersion: 1,
-                notes: 'Owner representative confirmed integration.'
+                notes: 'EVIDENCE_REVIEWED'
             });
 
             assert.ok(updated);
-            assert.strictEqual(updated.userReportedEvidence?.statementType, 'OWNER_CONFIRMATION');
+            assert.strictEqual(updated.userReportedEvidence?.statementType, 'UNVERIFIED_SELF_REPORT');
             assert.strictEqual(updated.userReportedEvidence?.claimedAuthorityRole, 'OWNER_REPRESENTATIVE');
+            assert.strictEqual(updated.userReportedEvidence?.verificationStatus, 'UNVERIFIED');
         });
 
         test('3.9: Broker self-report is stored as BROKER_SELF_REPORT and does NOT populate ownerAttestation', async () => {
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: testActorUser._id.toString(),
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'BROKER_ATTESTATION',
                 evidenceVersion: 1,
-                notes: 'Broker self-reported confirmation.'
+                notes: 'BROKER_ATTESTATION_SUBMITTED'
             });
 
             assert.ok(updated);
@@ -1231,12 +1240,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: testActorUser,
                         reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: 'Authorized Broker',
                         evidenceReference: '',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'BROKER_ATTESTATION_SUBMITTED'
                     });
                 },
                 err => {
@@ -1252,12 +1262,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: testActorUser,
                         reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: 'Authorized Broker',
                         evidenceReference: 'REF-001',
                         evidenceType: '',
                         evidenceVersion: 1,
-                        notes: 'Valid controlled notes'
+                        notes: 'BROKER_ATTESTATION_SUBMITTED'
                     });
                 },
                 err => {
@@ -1273,12 +1284,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: testActorUser,
                         reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: 'Authorized Broker',
                         evidenceReference: 'REF-001',
                         evidenceType: 'CLIENT_STATEMENT',
                         evidenceVersion: null,
-                        notes: 'Valid controlled notes'
+                        notes: 'BROKER_ATTESTATION_SUBMITTED'
                     });
                 },
                 err => {
@@ -1294,6 +1306,7 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'HSVP',
+                        trustedPrincipal: testActorUser,
                         reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: 'Authorized Broker',
                         evidenceReference: 'REF-001',
@@ -1314,12 +1327,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: testActorUser._id.toString(),
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Valid controlled notes'
+                notes: 'CLIENT_STATEMENT_RECORDED'
             });
 
             const reportedAt = new Date(updated.userReportedEvidence.reportedAt);
@@ -1331,12 +1345,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: testActorUser._id.toString(),
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Valid controlled notes'
+                notes: 'CLIENT_STATEMENT_RECORDED'
             });
 
             const doc = await AuthoritySourceSettings.findById(updated._id).lean();
@@ -1347,12 +1362,13 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
+                trustedPrincipal: testActorUser,
                 reportedBy: testActorUser._id.toString(),
                 claimedAuthorityRole: 'Authorized Broker',
                 evidenceReference: 'REF-001',
                 evidenceType: 'CLIENT_STATEMENT',
                 evidenceVersion: 1,
-                notes: 'Valid controlled notes'
+                notes: 'CLIENT_STATEMENT_RECORDED'
             });
 
             const doc = await AuthoritySourceSettings.findById(updated._id).lean();

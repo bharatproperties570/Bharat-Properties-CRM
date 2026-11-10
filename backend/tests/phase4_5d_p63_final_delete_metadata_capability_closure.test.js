@@ -638,7 +638,7 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
 
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                targetType: 'authority_settings',
+                targetType: 'PropertyVerificationRunItem',
                 targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
