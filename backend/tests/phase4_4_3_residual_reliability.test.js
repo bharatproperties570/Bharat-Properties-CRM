@@ -590,7 +590,9 @@ describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
                 description: 'Pre-crash applied changes',
                 metadata: {
                     claimId: claimId.toString(),
-                    itemId: itemId.toString()
+                    itemId: itemId.toString(),
+                    tenantId: tenantA.toString(),
+                    authorityCode: 'HSVP'
                 },
                 status: 'success'
             });

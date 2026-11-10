@@ -4708,6 +4708,7 @@ export const applyApprovedChanges = async (req, res) => {
                 item.inventoryId,
                 `Authority verification changes applied from ${item.authorityCode}`,
                 {
+                    tenantId: tenantId.toString(),
                     itemId: item._id,
                     runId: item.runId,
                     authorityCode: item.authorityCode,

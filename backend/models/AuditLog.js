@@ -777,7 +777,7 @@ const ALLOWED_UPPERCASE_TOKENS = new Set([
     'FREE_TEXT_AUDIT_PROHIBITED', 'METADATA_VALUE_INVALID', 'AUDIT_LOG_IMMUTABLE', 'ACTOR_IMPERSONATION_PROHIBITED', 'ACTOR_UNAUTHORIZED', 'INVALID_REPRESENTATIVE_EVIDENCE', 'UNAUTHORIZED_STATUS_OVERRIDE', 'EVIDENCE_VERSION_REQUIRED'
 ]);
 
-export function validateControlledScalarValue(val, pathStr) {
+export function validateControlledScalarValue(val, pathStr, isErrorField = false) {
     if (val === null || val === undefined) return;
     const t = typeof val;
     if (t === 'boolean' || t === 'number') return;
@@ -809,13 +809,15 @@ export function validateControlledScalarValue(val, pathStr) {
             throw err;
         }
         // Reject uncontrolled uppercase underscore identifiers (e.g. RAJESH_KUMAR, VIKRAM_SINGH)
-        const upperMatches = trimmed.match(/\b[A-Z]{2,}_[A-Z0-9_]+\b/g);
-        if (upperMatches) {
-            for (const um of upperMatches) {
-                if (!ALLOWED_UPPERCASE_TOKENS.has(um)) {
-                    const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains uncontrolled uppercase identifier '${um}'.`);
-                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                    throw err;
+        if (!isErrorField) {
+            const upperMatches = trimmed.match(/\b[A-Z]{2,}_[A-Z0-9_]+\b/g);
+            if (upperMatches) {
+                for (const um of upperMatches) {
+                    if (!ALLOWED_UPPERCASE_TOKENS.has(um)) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains uncontrolled uppercase identifier '${um}'.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
                 }
             }
         }
@@ -1788,6 +1790,8 @@ export function validateAuditChanges(changes, contextPath = 'changes', eventType
                     err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
                     throw err;
                 }
+            } else if (normalizedKey === 'error' || normalizedKey === 'errorMessage' || normalizedKey === 'applyError' || normalizedKey === 'rollbackReason') {
+                validateControlledScalarValue(value, fullPath, true);
             } else {
                 validateControlledScalarValue(value, fullPath);
             }
