@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import child_process from 'child_process';
 import { createRequire } from 'module';
 import { CANONICAL_ORGANIZATION_ID, CANONICAL_ORGANIZATION_ID_STRING } from '../config/canonicalOrganization.js';
 import {
@@ -1971,6 +1972,13 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         throw err;
     }
 
+    const authenticatedActorId = details.authenticatedUser?._id || details.authenticatedUser?.id || details.req?.user?._id || details.req?.user?.id;
+    if (authenticatedActorId && String(authenticatedActorId) !== actorStr) {
+        const err = new Error('ACTOR_IMPERSONATION_PROHIBITED: Caller cannot impersonate another user.');
+        err.code = 'ACTOR_IMPERSONATION_PROHIBITED';
+        throw err;
+    }
+
     // 2. Verify User exists in MongoDB
     const User = mongoose.model('User');
     let userQuery = User.findById(actorStr);
@@ -2012,31 +2020,42 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
     const userRoleName = user.role?.name || '';
     const userPermissions = Array.isArray(user.role?.permissions) ? user.role.permissions : [];
     const isSuperAdmin = user.isSuperAdmin === true || userRoleName === 'Super Admin';
-    const hasAuthorityPermission = isSuperAdmin ||
+    const hasAdminOrManagePermission = isSuperAdmin ||
         userPermissions.includes('authorityVerification.admin') ||
         userPermissions.includes('authorityVerification.manage') ||
-        userPermissions.includes('authorityVerification.view') ||
         userPermissions.includes('*');
 
-    // Claimed role OWNER_REPRESENTATIVE requires explicit verified authority permissions
-    if (normalizedClaimedRole === 'OWNER_REPRESENTATIVE' && !hasAuthorityPermission) {
+    // Claimed role OWNER_REPRESENTATIVE requires explicit verified authority admin/manage permissions (view-only is strictly insufficient)
+    if (normalizedClaimedRole === 'OWNER_REPRESENTATIVE' && !hasAdminOrManagePermission) {
         const err = new Error('ACTOR_UNAUTHORIZED: Claimed role OWNER_REPRESENTATIVE requires explicit verified authority permissions.');
         err.code = 'ACTOR_UNAUTHORIZED';
         throw err;
     }
 
+    const hasAnyAuthorityPermission = hasAdminOrManagePermission ||
+        userPermissions.includes('authorityVerification.view');
+
     // Explicitly unauthorized or restricted role
-    if (user.unauthorized === true || (user.role && typeof user.role === 'object' && user.role.name && !hasAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker')) {
+    if (user.unauthorized === true || (user.role && typeof user.role === 'object' && user.role.name && !hasAnyAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker')) {
         const err = new Error('ACTOR_UNAUTHORIZED: User does not possess authorization for the claimed authority role.');
         err.code = 'ACTOR_UNAUTHORIZED';
         throw err;
     }
 
-    // Distinguish broker self-report vs owner confirmation
-    const isBrokerRole = normalizedClaimedRole === 'AUTHORIZED_BROKER' ||
-                         normalizedClaimedRole === 'Authorized Broker' ||
-                         userRoleName.toLowerCase().includes('broker');
-    const statementType = isBrokerRole ? 'BROKER_SELF_REPORT' : 'OWNER_CONFIRMATION';
+    // Distinguish broker self-report vs operator report vs owner confirmation
+    let statementType;
+    if (normalizedClaimedRole === 'PORTAL_OPERATOR') {
+        statementType = 'OPERATOR_SELF_REPORT';
+    } else if (
+        normalizedClaimedRole === 'AUTHORIZED_BROKER' ||
+        normalizedClaimedRole === 'Authorized Broker' ||
+        normalizedClaimedRole === 'BROKER_ADMIN' ||
+        userRoleName.toLowerCase().includes('broker')
+    ) {
+        statementType = 'BROKER_SELF_REPORT';
+    } else {
+        statementType = 'OWNER_CONFIRMATION';
+    }
 
     // 6. Explicit evidence requirements (no invented or default evidence)
     if (!details.evidenceReference || typeof details.evidenceReference !== 'string' || details.evidenceReference.trim() === '') {
@@ -2059,12 +2078,25 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
     }
     const evidenceType = details.evidenceType.trim();
 
-    if (details.evidenceVersion === undefined || details.evidenceVersion === null || isNaN(Number(details.evidenceVersion)) || Number(details.evidenceVersion) < 1) {
-        const err = new Error('EVIDENCE_VERSION_REQUIRED: Explicit positive numeric evidence version is required.');
+    if (normalizedClaimedRole === 'OWNER_REPRESENTATIVE') {
+        if (evidenceType !== 'OWNER_WRITTEN_CONFIRMATION' && evidenceType !== 'REPRESENTATIVE_AUTHORIZATION') {
+            const err = new Error('INVALID_REPRESENTATIVE_EVIDENCE: OWNER_REPRESENTATIVE requires OWNER_WRITTEN_CONFIRMATION or REPRESENTATIVE_AUTHORIZATION evidence type.');
+            err.code = 'INVALID_REPRESENTATIVE_EVIDENCE';
+            throw err;
+        }
+    }
+
+    if (details.evidenceVersion === undefined || details.evidenceVersion === null) {
+        const err = new Error('EVIDENCE_VERSION_REQUIRED: Explicit positive integer evidence version is required.');
         err.code = 'EVIDENCE_VERSION_REQUIRED';
         throw err;
     }
     const evidenceVersion = Number(details.evidenceVersion);
+    if (!Number.isInteger(evidenceVersion) || evidenceVersion < 1) {
+        const err = new Error('EVIDENCE_VERSION_REQUIRED: Evidence version must be a positive integer.');
+        err.code = 'EVIDENCE_VERSION_REQUIRED';
+        throw err;
+    }
 
     // Explicit notes required — NEVER fabricate default notes
     if (!details.notes || typeof details.notes !== 'string' || details.notes.trim() === '') {
@@ -2084,7 +2116,12 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         throw err;
     }
 
-    const verificationStatus = details.verificationStatus || 'PENDING_WRITTEN_REFERENCE';
+    if (details.verificationStatus === 'VALIDATED') {
+        const err = new Error('UNAUTHORIZED_STATUS_OVERRIDE: Submission cannot set verificationStatus to VALIDATED.');
+        err.code = 'UNAUTHORIZED_STATUS_OVERRIDE';
+        throw err;
+    }
+    const verificationStatus = 'PENDING_WRITTEN_REFERENCE';
     const currentEvidenceVersion = existing.evidenceVersion !== undefined ? existing.evidenceVersion : 1;
 
     const token = issueOwnerConfirmationWorkflowToken({
@@ -2809,6 +2846,55 @@ const AuthoritySourceSettings = mongoose.models.AuthoritySourceSettings || mongo
 const INTERNAL_TEST_RESET_KEY = Symbol('INTERNAL_TEST_RESET');
 
 const REGISTERED_EPHEMERAL_INSTANCES = new Set();
+const REGISTERED_EPHEMERAL_TOKENS = new WeakMap();
+
+function verifyGenuineChildProcess(proc, expectedPort) {
+    if (!proc || !(proc instanceof child_process.ChildProcess)) return false;
+    if (typeof proc.pid !== 'number' || proc.pid <= 0 || !Number.isInteger(proc.pid)) return false;
+    if (proc.killed === true || proc.exitCode !== null || proc.signalCode !== null) return false;
+    if (typeof proc.spawnfile !== 'string' || !proc.spawnfile.toLowerCase().includes('mongod')) return false;
+    if (!Array.isArray(proc.spawnargs)) return false;
+    const portIdx = proc.spawnargs.indexOf('--port');
+    if (portIdx === -1 || Number(proc.spawnargs[portIdx + 1]) !== Number(expectedPort)) return false;
+
+    try {
+        process.kill(proc.pid, 0);
+    } catch (_) {
+        return false;
+    }
+    return true;
+}
+
+function verifyGenuineMongoServerInstance(inst, mms) {
+    if (!inst || typeof inst !== 'object') return false;
+    if (!mms || !mms.MongoMemoryServer) return false;
+    if (!(inst instanceof mms.MongoMemoryServer)) return false;
+    if (inst.constructor !== mms.MongoMemoryServer) return false;
+    if (inst.state !== 'running' || inst._state !== 'running') return false;
+
+    const info = inst.instanceInfo;
+    if (!info || typeof info !== 'object') return false;
+    const mongoInstance = info.instance;
+    if (!mongoInstance || typeof mongoInstance !== 'object') return false;
+
+    return verifyGenuineChildProcess(mongoInstance.mongodProcess, info.port);
+}
+
+function verifyGenuineMongoReplSetInstance(inst, mms) {
+    if (!inst || typeof inst !== 'object') return false;
+    if (!mms || !mms.MongoMemoryReplSet) return false;
+    if (!(inst instanceof mms.MongoMemoryReplSet)) return false;
+    if (inst.constructor !== mms.MongoMemoryReplSet) return false;
+    if (inst.state !== 'running' || inst._state !== 'running') return false;
+
+    if (!Array.isArray(inst.servers) || inst.servers.length === 0) return false;
+    for (const s of inst.servers) {
+        if (!verifyGenuineMongoServerInstance(s, mms)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 export function registerVerifiedEphemeralTestDatabase(instance) {
     if (process.env.NODE_ENV !== 'test') {
@@ -2821,26 +2907,24 @@ export function registerVerifiedEphemeralTestDatabase(instance) {
         err.code = 'PRODUCTION_ENVIRONMENT_DETECTED';
         throw err;
     }
-    if (!instance) {
+    if (!instance || typeof instance !== 'object') {
         const err = new Error('EPHEMERAL_DATABASE_REQUIRED: An explicit ephemeral database instance is required.');
         err.code = 'EPHEMERAL_DATABASE_REQUIRED';
         throw err;
     }
 
     const mms = getMmsModule();
-    const isGenuineInstance = mms && (
-        (mms.MongoMemoryServer && instance instanceof mms.MongoMemoryServer) ||
-        (mms.MongoMemoryReplSet && instance instanceof mms.MongoMemoryReplSet)
-    );
-
-    if (!isGenuineInstance) {
-        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Only genuine MongoMemoryServer or MongoMemoryReplSet instances may be registered.');
+    if (!mms) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: mongodb-memory-server module not available.');
         err.code = 'EPHEMERAL_DATABASE_REQUIRED';
         throw err;
     }
 
-    if (instance.state !== 'running') {
-        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Ephemeral test database instance must be in running state to register.');
+    const isGenuineServer = verifyGenuineMongoServerInstance(instance, mms);
+    const isGenuineReplSet = verifyGenuineMongoReplSetInstance(instance, mms);
+
+    if (!isGenuineServer && !isGenuineReplSet) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Only genuine MongoMemoryServer or MongoMemoryReplSet instances with verified running processes may be registered.');
         err.code = 'EPHEMERAL_DATABASE_REQUIRED';
         throw err;
     }
@@ -2869,6 +2953,17 @@ export function registerVerifiedEphemeralTestDatabase(instance) {
         throw err;
     }
 
+    const secretToken = crypto.randomBytes(32).toString('hex');
+    const pids = isGenuineReplSet
+        ? instance.servers.map(s => s.instanceInfo.instance.mongodProcess.pid)
+        : [instance.instanceInfo.instance.mongodProcess.pid];
+
+    REGISTERED_EPHEMERAL_TOKENS.set(instance, {
+        token: secretToken,
+        registeredAt: Date.now(),
+        type: isGenuineReplSet ? 'ReplSet' : 'Server',
+        pids
+    });
     REGISTERED_EPHEMERAL_INSTANCES.add(instance);
     return true;
 }
@@ -2904,27 +2999,43 @@ export function isVerifiedEphemeralTestDatabase() {
     if (!mms) return false;
 
     for (const inst of Array.from(REGISTERED_EPHEMERAL_INSTANCES)) {
-        // 1. Must be genuine instance
-        const isGenuine = (mms.MongoMemoryServer && inst instanceof mms.MongoMemoryServer) ||
-                          (mms.MongoMemoryReplSet && inst instanceof mms.MongoMemoryReplSet);
-        if (!isGenuine) {
+        // 1. Must have valid registration token
+        const tokenMeta = REGISTERED_EPHEMERAL_TOKENS.get(inst);
+        if (!tokenMeta || !tokenMeta.token) {
             REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
             continue;
         }
 
-        // 2. Must still be in running state (prevents port reuse after stop)
-        if (inst.state !== 'running') {
+        // 2. Must still pass genuine process verification
+        const isGenuineServer = verifyGenuineMongoServerInstance(inst, mms);
+        const isGenuineReplSet = verifyGenuineMongoReplSetInstance(inst, mms);
+        if (!isGenuineServer && !isGenuineReplSet) {
             REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
             continue;
         }
 
-        // 3. Match ports and dbName
+        // 3. Verify PIDs are still alive
+        let pidsAlive = true;
+        for (const pid of tokenMeta.pids) {
+            try {
+                process.kill(pid, 0);
+            } catch (_) {
+                pidsAlive = false;
+                break;
+            }
+        }
+        if (!pidsAlive) {
+            REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
+            continue;
+        }
+
+        // 4. Match ports and dbName
         try {
             const instUri = inst.getUri();
             const instParsed = parseMongoDetails(instUri);
             const instPorts = [];
 
-            if (mms.MongoMemoryReplSet && inst instanceof mms.MongoMemoryReplSet && Array.isArray(inst.servers)) {
+            if (tokenMeta.type === 'ReplSet' && Array.isArray(inst.servers)) {
                 for (const s of inst.servers) {
                     if (s?.instanceInfo?.port) {
                         instPorts.push(Number(s.instanceInfo.port));
@@ -2956,6 +3067,36 @@ export function isVerifiedEphemeralTestDatabase() {
         }
     }
     return false;
+}
+
+export async function createVerifiedEphemeralTestDatabase(opts = {}) {
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Ephemeral test database creation is strictly prohibited outside NODE_ENV=test.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
+    const mms = getMmsModule();
+    if (!mms || !mms.MongoMemoryServer) {
+        throw new Error('EPHEMERAL_DATABASE_REQUIRED: MongoMemoryServer is unavailable.');
+    }
+    const instance = await mms.MongoMemoryServer.create(opts);
+    registerVerifiedEphemeralTestDatabase(instance);
+    return instance;
+}
+
+export async function createVerifiedEphemeralReplSet(opts = {}) {
+    if (process.env.NODE_ENV !== 'test') {
+        const err = new Error('TEST_ONLY_CAPABILITY_PROHIBITED: Ephemeral test database creation is strictly prohibited outside NODE_ENV=test.');
+        err.code = 'TEST_ONLY_CAPABILITY_PROHIBITED';
+        throw err;
+    }
+    const mms = getMmsModule();
+    if (!mms || !mms.MongoMemoryReplSet) {
+        throw new Error('EPHEMERAL_DATABASE_REQUIRED: MongoMemoryReplSet is unavailable.');
+    }
+    const instance = await mms.MongoMemoryReplSet.create(opts);
+    registerVerifiedEphemeralTestDatabase(instance);
+    return instance;
 }
 
 function checkCollectionDeleteAuthorization(filter, options, operationType = 'deleteOne') {

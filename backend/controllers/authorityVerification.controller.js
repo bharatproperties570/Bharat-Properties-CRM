@@ -3693,39 +3693,57 @@ export const compensateApplySaga = async ({
     appliedBy = null,
     session = null
 }) => {
+    // 0. Mandatory fail-closed validation BEFORE ANY WRITES
+    if (!itemId || !tenantId || !inventoryId || !claimId) {
+        const err = new Error('INVALID_COMPENSATION_PARAMETERS: itemId, tenantId, inventoryId, and claimId are required for saga compensation.');
+        err.code = 'INVALID_COMPENSATION_PARAMETERS';
+        throw err;
+    }
+
+    if (String(tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Saga compensation requires canonical organization ID '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+        throw err;
+    }
+
+    const queryOpts = session ? { session } : {};
+    const itemDoc = await PropertyVerificationRunItem.findById(itemId, null, queryOpts).lean();
+    if (!itemDoc) {
+        const err = new Error(`RUN_ITEM_NOT_FOUND: PropertyVerificationRunItem '${itemId}' not found for compensation.`);
+        err.code = 'RUN_ITEM_NOT_FOUND';
+        throw err;
+    }
+
+    if (!itemDoc.tenantId || String(itemDoc.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: RunItem does not belong to canonical organization.`);
+        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+        throw err;
+    }
+
+    if (!itemDoc.inventoryId || String(itemDoc.inventoryId) !== String(inventoryId)) {
+        const err = new Error(`INVENTORY_ID_MISMATCH: RunItem inventoryId '${itemDoc.inventoryId}' does not match compensation inventoryId '${inventoryId}'.`);
+        err.code = 'INVENTORY_ID_MISMATCH';
+        throw err;
+    }
+
+    const realClaimId = itemDoc.applyClaim?.claimId ? String(itemDoc.applyClaim.claimId) : null;
+    const realReconcilerClaimId = itemDoc.applyClaim?.reconcilerClaimId ? String(itemDoc.applyClaim.reconcilerClaimId) : null;
+
+    if (!realClaimId && !realReconcilerClaimId) {
+        const err = new Error(`CLAIM_REQUIRED: RunItem does not possess an active or recorded applyClaim.`);
+        err.code = 'CLAIM_REQUIRED';
+        throw err;
+    }
+
+    const callerClaimStr = String(claimId);
+    const matchesReal = (realClaimId && realClaimId === callerClaimStr) || (realReconcilerClaimId && realReconcilerClaimId === callerClaimStr);
+    if (!matchesReal) {
+        console.warn(`[SagaCompensation] Preempted claim: Caller claimId '${callerClaimStr}' conflicts with actual RunItem claim '${realClaimId || realReconcilerClaimId}'. Skipping stale compensation.`);
+        return { success: false, reason: 'CLAIM_CONFLICT', preempted: true };
+    }
+
     let inventoryRevertError = null;
     let auditCompensationError = null;
-
-    // 0. Pre-flight verification: Verify caller claimId against actual PropertyVerificationRunItem (PR #67 Fix 2)
-    let itemDoc = null;
-    if (itemId) {
-        try {
-            itemDoc = await PropertyVerificationRunItem.findById(itemId).lean();
-        } catch (findErr) {
-            console.warn('[SagaCompensation] Error finding RunItem for pre-flight verification:', findErr.message);
-        }
-
-        if (itemDoc) {
-            // Verify canonical tenant ID
-            if (itemDoc.tenantId && String(itemDoc.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
-                const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: RunItem does not belong to canonical organization.`);
-                err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
-                throw err;
-            }
-
-            const realClaimId = itemDoc.applyClaim?.claimId ? String(itemDoc.applyClaim.claimId) : null;
-            const realReconcilerClaimId = itemDoc.applyClaim?.reconcilerClaimId ? String(itemDoc.applyClaim.reconcilerClaimId) : null;
-
-            if (claimId) {
-                const callerClaimStr = String(claimId);
-                const matchesReal = (realClaimId && realClaimId === callerClaimStr) || (realReconcilerClaimId && realReconcilerClaimId === callerClaimStr);
-                if ((realClaimId || realReconcilerClaimId) && !matchesReal) {
-                    console.warn(`[SagaCompensation] Preempted claim: Caller claimId '${callerClaimStr}' conflicts with actual RunItem claim '${realClaimId || realReconcilerClaimId}'. Skipping stale compensation.`);
-                    return { success: false, reason: 'CLAIM_CONFLICT', preempted: true };
-                }
-            }
-        }
-    }
 
     // 1. Revert Inventory mutation if stage indicates possible or confirmed mutation
     if (stage && ['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(stage)) {
@@ -3736,7 +3754,7 @@ export const compensateApplySaga = async ({
                     _id: inventoryId,
                     tenantId,
                     'authorityVerification.applyClaimId': claimId
-                });
+                }, null, queryOpts);
 
                 if (mutatedDoc) {
                     const revertOps = {};
@@ -3752,7 +3770,7 @@ export const compensateApplySaga = async ({
                             'authorityVerification.applyClaimId': claimId
                         },
                         { $set: revertOps },
-                        session ? { session } : {}
+                        queryOpts
                     );
 
                     if (invRes.matchedCount !== 1) {
@@ -3761,7 +3779,7 @@ export const compensateApplySaga = async ({
                 } else if (stage !== 'INVENTORY_MUTATING') {
                     // Stage indicated mutated, but document does not have this claimId.
                     // Verify if it is already reverted (idempotency check)
-                    const existingInv = await Inventory.findOne({ _id: inventoryId, tenantId });
+                    const existingInv = await Inventory.findOne({ _id: inventoryId, tenantId }, null, queryOpts);
                     if (existingInv?.authorityVerification?.applyClaimId && String(existingInv.authorityVerification.applyClaimId) !== String(claimId)) {
                         console.warn(`[SagaCompensation] Inventory ${inventoryId} claimed by another claim ${existingInv.authorityVerification.applyClaimId}; skipping overwrite`);
                     }
@@ -3774,17 +3792,7 @@ export const compensateApplySaga = async ({
     }
 
     // 2. Record durable compensation audit record (R-04: crash window protection)
-    let effectiveClaimId = claimId || null;
-    if (!effectiveClaimId && itemId) {
-        try {
-            const itemDoc = await PropertyVerificationRunItem.findById(itemId).lean();
-            if (itemDoc?.applyClaim?.claimId) {
-                effectiveClaimId = itemDoc.applyClaim.claimId;
-            }
-        } catch (itemErr) {
-            console.warn('[SagaCompensation] Error resolving claimId from item:', itemErr.message);
-        }
-    }
+    const effectiveClaimId = claimId;
 
     let targetAuditId = compensation?.auditId || null;
     if (!targetAuditId && effectiveClaimId) {
@@ -3797,7 +3805,7 @@ export const compensateApplySaga = async ({
                     { 'metadata.claimId': effectiveClaimId }
                 ],
                 eventType: 'authority_changes_applied'
-            });
+            }, null, queryOpts);
             if (existingAudit) {
                 targetAuditId = existingAudit._id;
             }
@@ -3828,7 +3836,7 @@ export const compensateApplySaga = async ({
                         error: errorMsg
                     }
                 },
-                session ? { session } : {}
+                queryOpts
             );
 
             // Update original audit record status to compensated
@@ -3845,7 +3853,7 @@ export const compensateApplySaga = async ({
                                 updatedAt: new Date()
                             }
                         },
-                        session ? { session } : {}
+                        queryOpts
                     );
                 } catch (origErr) {
                     console.warn(`[SagaCompensation] Warning updating original audit ${targetAuditId}:`, origErr);
@@ -3879,7 +3887,7 @@ export const compensateApplySaga = async ({
                         applyError: `Compensation failed: ${failureDetails}`
                     }
                 },
-                session ? { session } : {}
+                queryOpts
             );
         } catch (itemErr) {
             console.error(`[SagaCompensation] Error updating run item ${itemId} to COMPENSATION_FAILED:`, itemErr);
@@ -3905,11 +3913,12 @@ export const compensateApplySaga = async ({
                     applyError: errorMsg || 'Apply failed; saga compensated'
                 }
             },
-            session ? { session } : {}
+            queryOpts
         );
         if (itemRes.matchedCount !== 1) {
             console.warn(`[SagaCompensation] RunItem ${itemId} not updated during compensation: matchedCount was ${itemRes.matchedCount}`);
         }
+        return { success: true, compensated: true };
     } catch (itemErr) {
         console.error(`[SagaCompensation] Error updating run item ${itemId}:`, itemErr);
         throw itemErr;
@@ -4699,6 +4708,7 @@ export const applyApprovedChanges = async (req, res) => {
                 item.inventoryId,
                 `Authority verification changes applied from ${item.authorityCode}`,
                 {
+                    tenantId: tenantId.toString(),
                     itemId: item._id,
                     runId: item.runId,
                     authorityCode: item.authorityCode,

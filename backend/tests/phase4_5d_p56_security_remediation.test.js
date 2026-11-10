@@ -293,8 +293,8 @@ test('AuditLog 2: Final review stores userId=approver, actorId=reviewer with mas
     assert.strictEqual(auditRecord.actorName, reviewerUser.fullName);
 
     // PII masking check: email must not be raw plaintext
-    assert.ok(auditRecord.actorEmail.includes('***'), 'Actor email should be masked for PII safety');
-    assert.ok(auditRecord.userEmail.includes('***'), 'User email should be masked for PII safety');
+    assert.ok(auditRecord.actorEmail.includes('***') || auditRecord.actorEmail === '[EMAIL_MINIMIZED]', 'Actor email should be masked for PII safety');
+    assert.ok(auditRecord.userEmail.includes('***') || auditRecord.userEmail === '[EMAIL_MINIMIZED]', 'User email should be masked for PII safety');
 });
 
 // ============================================================
