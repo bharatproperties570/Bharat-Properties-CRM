@@ -110,6 +110,110 @@ class BrandBannerComposer {
     }
 
     /**
+     * Resolve photographic hero scene as a high-resolution base64 data URI
+     * Supports:
+     * 1. customImageBuffer (passed directly)
+     * 2. deal.images / deal.media / deal.photos (from CRM deal documents)
+     * 3. customImageUrl / local path
+     * 4. Curated photorealistic assets (hero_plot.jpg, hero_villa.jpg, hero_festive.jpg)
+     */
+    async getHeroBase64(options = {}) {
+        const {
+            deal = {},
+            customImageBuffer = null,
+            customImageUrl = null,
+            pillar = 'ct-project',
+            targetWidth = 940,
+            targetHeight = 355
+        } = options;
+
+        try {
+            // 1. Direct Buffer
+            if (customImageBuffer && Buffer.isBuffer(customImageBuffer)) {
+                const resized = await sharp(customImageBuffer)
+                    .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
+                    .jpeg({ quality: 90 })
+                    .toBuffer();
+                return `data:image/jpeg;base64,${resized.toString('base64')}`;
+            }
+
+            // 2. Deal Media / Images
+            const candidateUrls = [
+                customImageUrl,
+                ...(deal.images || []),
+                ...(deal.media || []),
+                ...(deal.photos || [])
+            ].filter(Boolean);
+
+            for (const item of candidateUrls) {
+                const urlOrPath = typeof item === 'string' ? item : (item.url || item.path);
+                if (!urlOrPath) continue;
+
+                // Handle local disk path
+                if (fs.existsSync(urlOrPath)) {
+                    const buf = await sharp(urlOrPath)
+                        .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
+                        .jpeg({ quality: 90 })
+                        .toBuffer();
+                    return `data:image/jpeg;base64,${buf.toString('base64')}`;
+                }
+
+                // Handle HTTP URL
+                if (urlOrPath.startsWith('http')) {
+                    try {
+                        const resp = await axios.get(urlOrPath, {
+                            responseType: 'arraybuffer',
+                            timeout: 3500,
+                            headers: { 'User-Agent': 'BharatProperties-CRM/1.0' }
+                        });
+                        const buf = await sharp(Buffer.from(resp.data))
+                            .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
+                            .jpeg({ quality: 90 })
+                            .toBuffer();
+                        return `data:image/jpeg;base64,${buf.toString('base64')}`;
+                    } catch (netErr) {
+                        console.warn('[BrandBannerComposer] Failed to fetch external hero image:', netErr.message);
+                    }
+                }
+            }
+
+            // 3. Curated Authentic Category Asset
+            let assetName = 'hero_plot.jpg';
+            if (pillar === 'ct-festival') {
+                assetName = 'hero_festive.jpg';
+            } else {
+                const pType = String(deal.propertyType || deal.unitType || deal.subCategory || '').toLowerCase();
+                if (pType.includes('villa') || pType.includes('house') || pType.includes('kothi') || pType.includes('floor') || pType.includes('duplex') || pType.includes('builtup')) {
+                    assetName = 'hero_villa.jpg';
+                } else {
+                    assetName = 'hero_plot.jpg';
+                }
+            }
+
+            const candidatePaths = [
+                path.join(process.cwd(), 'backend/assets', assetName),
+                path.join(process.cwd(), 'assets', assetName),
+                `/home/ubuntu/bharat-crm-releases/shared/uploads/${assetName}`,
+                `/home/ubuntu/bharat-crm-releases/current/assets/${assetName}`
+            ];
+
+            for (const p of candidatePaths) {
+                if (fs.existsSync(p)) {
+                    const buf = await sharp(p)
+                        .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
+                        .jpeg({ quality: 90 })
+                        .toBuffer();
+                    return `data:image/jpeg;base64,${buf.toString('base64')}`;
+                }
+            }
+        } catch (err) {
+            console.warn('[BrandBannerComposer] getHeroBase64 error:', err.message);
+        }
+
+        return null;
+    }
+
+    /**
      * Brands.live-Style Premier Business Identity Footer Frame (SVG)
      * Features:
      * 1. Director / Founder portrait with dual-layer gold ornate ring + executive credentials
@@ -304,6 +408,12 @@ class BrandBannerComposer {
         const safeWebsite = this.escapeXml(website);
         const safeFestival = this.escapeXml(festivalName);
 
+        const heroBase64 = await this.getHeroBase64({
+            pillar: 'ct-festival',
+            targetWidth: this.width,
+            targetHeight: this.height
+        });
+
         const svg = `
         <svg width="${this.width}" height="${this.height}" viewBox="0 0 ${this.width} ${this.height}" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -340,8 +450,11 @@ class BrandBannerComposer {
                 </filter>
             </defs>
 
-            <!-- Background Canvas -->
+            <!-- Background Canvas with Blended Photographic Scene -->
             <rect width="${this.width}" height="${this.height}" fill="url(#festBg)" />
+            ${heroBase64 ? `
+            <image href="${heroBase64}" x="0" y="0" width="${this.width}" height="${this.height}" preserveAspectRatio="xMidYMid slice" opacity="0.38" />
+            ` : ''}
             <circle cx="540" cy="500" r="480" fill="url(#festGoldGlow)" />
 
             <!-- Ornate Golden Outer & Inner Frames -->
@@ -522,6 +635,16 @@ class BrandBannerComposer {
         const safePill2Sub = this.escapeXml(deal.roadWidth ? `${deal.roadWidth} Road` : 'Planned Sector');
         const safePill2Desc = this.escapeXml(deal.dimensions ? `Dim: ${deal.dimensions}` : 'Sewer, Water, Power');
 
+        // Photographic Hero Scene Loading
+        const heroBase64 = await this.getHeroBase64({
+            deal,
+            customImageBuffer,
+            customImageUrl: options.customImageUrl,
+            pillar: 'ct-project',
+            targetWidth: 940,
+            targetHeight: 355
+        });
+
         const svg = `
         <svg width="${this.width}" height="${this.height}" viewBox="0 0 ${this.width} ${this.height}" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -546,6 +669,17 @@ class BrandBannerComposer {
                 <filter id="propShadow" x="-20%" y="-20%" width="140%" height="140%">
                     <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.6"/>
                 </filter>
+
+                <clipPath id="propPhotoClip">
+                    <rect x="10" y="10" width="940" height="355" rx="18" />
+                </clipPath>
+
+                <linearGradient id="heroGradientScrim" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#000000" stop-opacity="0.1" />
+                    <stop offset="45%" stop-color="#0B2545" stop-opacity="0.3" />
+                    <stop offset="75%" stop-color="#0B2545" stop-opacity="0.75" />
+                    <stop offset="100%" stop-color="#070E1E" stop-opacity="0.95" />
+                </linearGradient>
             </defs>
 
             <!-- Base Canvas -->
@@ -589,34 +723,43 @@ class BrandBannerComposer {
 
             <!-- CENTER PHOTO FRAME CONTAINER (Y: 345 - 710) -->
             <g transform="translate(60, 345)">
-                <!-- Photo Background Frame -->
-                <rect x="0" y="0" width="960" height="375" rx="24" fill="#1E293B" stroke="url(#goldPillProp)" stroke-width="2" filter="url(#propShadow)" />
+                <!-- Outer Frame with Gold Metallic Border -->
+                <rect x="0" y="0" width="960" height="375" rx="24" fill="#0F172A" stroke="url(#goldPillProp)" stroke-width="2.5" filter="url(#propShadow)" />
                 
-                <!-- Inner Architectural Mockup -->
-                <rect x="10" y="10" width="940" height="355" rx="18" fill="#0F172A" />
-                
-                <!-- Modern Visual Accents -->
-                <circle cx="480" cy="180" r="140" fill="rgba(37, 99, 235, 0.15)" />
-                <text x="480" y="170" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="32" font-weight="900" fill="#FFFFFF" text-anchor="middle">
-                    READY POSSESSION &amp; DIRECT REGISTRY
-                </text>
-                <text x="480" y="210" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="600" fill="#94A3B8" text-anchor="middle">
-                    ${safeFacingRoad}
-                </text>
+                <!-- Photographic Scene (Cropped & Clipped) -->
+                ${heroBase64 ? `
+                <image href="${heroBase64}" x="10" y="10" width="940" height="355" preserveAspectRatio="xMidYMid slice" clip-path="url(#propPhotoClip)" />
+                <rect x="10" y="10" width="940" height="355" fill="url(#heroGradientScrim)" clip-path="url(#propPhotoClip)" />
+                ` : `
+                <rect x="10" y="10" width="940" height="355" rx="18" fill="#112240" />
+                `}
 
                 <!-- Floating Price Tag on Photo -->
-                <g transform="translate(40, 40)">
-                    <rect x="0" y="0" width="260" height="64" rx="16" fill="#C1121F" filter="url(#propShadow)" />
-                    <text x="20" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#FFD700" letter-spacing="1">PRICE / EXPECTATION</text>
-                    <text x="20" y="50" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF">${safePrice}</text>
+                <g transform="translate(35, 30)">
+                    <rect x="0" y="0" width="280" height="66" rx="16" fill="#C1121F" stroke="url(#goldPillProp)" stroke-width="1.8" filter="url(#propShadow)" />
+                    <text x="20" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFD700" letter-spacing="1.5">INVESTMENT / PRICE</text>
+                    <text x="20" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="24" font-weight="900" fill="#FFFFFF">${safePrice}</text>
                 </g>
 
                 <!-- Floating Size Tag on Photo -->
-                <g transform="translate(660, 40)">
-                    <rect x="0" y="0" width="260" height="64" rx="16" fill="#0B2545" stroke="#2563EB" stroke-width="1.5" filter="url(#propShadow)" />
-                    <text x="20" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#94A3B8" letter-spacing="1">PLOT / CARPET SIZE</text>
-                    <text x="20" y="50" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">${safeSize}</text>
+                <g transform="translate(645, 30)">
+                    <rect x="0" y="0" width="280" height="66" rx="16" fill="#0B2545" stroke="#38BDF8" stroke-width="1.8" filter="url(#propShadow)" />
+                    <text x="20" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#38BDF8" letter-spacing="1.5">PLOT / CARPET SIZE</text>
+                    <text x="20" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">${safeSize}</text>
                 </g>
+
+                <!-- Center Bottom Verified Ribbon -->
+                <g transform="translate(480, 245)">
+                    <rect x="-240" y="0" width="480" height="36" rx="18" fill="rgba(11, 37, 69, 0.95)" stroke="url(#goldPillProp)" stroke-width="1.5" filter="url(#propShadow)" />
+                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="900" fill="#FFD700" text-anchor="middle" letter-spacing="1.5">★ READY POSSESSION &amp; DIRECT REGISTRY ★</text>
+                </g>
+
+                <text x="480" y="315" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF" text-anchor="middle" filter="url(#propShadow)">
+                    ✦ ${safeFacingRoad} ✦
+                </text>
+                <text x="480" y="342" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="600" fill="#93C5FD" text-anchor="middle">
+                    100% Clear Title • Verified Land Records • Direct Owner Meeting
+                </text>
             </g>
 
             <!-- 4 FEATURE HIGHLIGHT PILLS (Y: 745) -->
@@ -702,10 +845,43 @@ class BrandBannerComposer {
 
         const title = edu.title || 'Legal Property Verification Checklist';
         const hook = edu.hook || '3 Rules You Must Know Before Buying Land in Haryana';
-        const points = edu.points || [
+        const rawPoints = edu.points || [
             'Verify Jamabandi & Mutation (Intkal) with Tehsil records',
             'Confirm TCP Approval & HUDA Master Plan Zoning',
             'Obtain No Dues Certificate (NDC) to prevent legacy municipal liabilities'
+        ];
+
+        const stepThemes = [
+            {
+                number: '01',
+                tag: 'REVENUE & TEHSIL RECORDS',
+                color: '#059669',
+                lightColor: '#10B981',
+                bgGradient: 'url(#step1Grad)',
+                icon: '📜',
+                title: 'Jamabandi & Mutation Verification',
+                defaultDesc: 'Match Khasra / Khatoni records directly with Kurukshetra Tehsil portal to confirm authentic ownership.'
+            },
+            {
+                number: '02',
+                tag: 'ZONING & TCP APPROVAL',
+                color: '#2563EB',
+                lightColor: '#38BDF8',
+                bgGradient: 'url(#step2Grad)',
+                icon: '🏛️',
+                title: 'Town & Country Planning Approvals',
+                defaultDesc: 'Ensure the layout is approved under Haryana TCP / HUDA Master Plan to eliminate demolition risks.'
+            },
+            {
+                number: '03',
+                tag: 'MUNICIPAL & NO DUES (NDC)',
+                color: '#D97706',
+                lightColor: '#F59E0B',
+                bgGradient: 'url(#step3Grad)',
+                icon: '🛡️',
+                title: 'No Dues Certificate & Clean Title',
+                defaultDesc: 'Secure official NDC from Municipal Corporation / Council to guarantee zero past property tax arrears.'
+            }
         ];
 
         const safeTitle = this.escapeXml(title);
@@ -718,12 +894,35 @@ class BrandBannerComposer {
         <svg width="${this.width}" height="${this.height}" viewBox="0 0 ${this.width} ${this.height}" xmlns="http://www.w3.org/2000/svg">
             <defs>
                 <linearGradient id="eduBg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#0F172A" />
-                    <stop offset="50%" stop-color="#1E293B" />
+                    <stop offset="0%" stop-color="#070E1E" />
+                    <stop offset="35%" stop-color="#0F172A" />
+                    <stop offset="70%" stop-color="#1E293B" />
                     <stop offset="100%" stop-color="#0B2545" />
                 </linearGradient>
+
+                <linearGradient id="goldGradientEdu" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#D4AF37" />
+                    <stop offset="50%" stop-color="#FFF2A3" />
+                    <stop offset="100%" stop-color="#D4AF37" />
+                </linearGradient>
+
+                <linearGradient id="step1Grad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="rgba(5, 150, 105, 0.25)" />
+                    <stop offset="100%" stop-color="rgba(15, 23, 42, 0.95)" />
+                </linearGradient>
+
+                <linearGradient id="step2Grad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="rgba(37, 99, 235, 0.25)" />
+                    <stop offset="100%" stop-color="rgba(15, 23, 42, 0.95)" />
+                </linearGradient>
+
+                <linearGradient id="step3Grad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="rgba(217, 119, 6, 0.25)" />
+                    <stop offset="100%" stop-color="rgba(15, 23, 42, 0.95)" />
+                </linearGradient>
+
                 <filter id="eduShadow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.6"/>
+                    <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.65"/>
                 </filter>
             </defs>
 
@@ -745,7 +944,8 @@ class BrandBannerComposer {
 
             <!-- Headline -->
             <g transform="translate(540, 185)">
-                <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="800" fill="#FFB703" text-anchor="middle" letter-spacing="2">📚 REAL ESTATE LEGAL ADVISORY</text>
+                <rect x="-190" y="-32" width="380" height="36" rx="18" fill="#FFB703" filter="url(#eduShadow)"/>
+                <text x="0" y="-9" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="900" fill="#0B2545" text-anchor="middle" letter-spacing="2">📚 REAL ESTATE LEGAL ADVISORY</text>
                 <text x="0" y="45" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="40" font-weight="900" fill="#FFFFFF" text-anchor="middle" filter="url(#eduShadow)">
                     ${safeTitle}
                 </text>
@@ -754,17 +954,55 @@ class BrandBannerComposer {
                 </text>
             </g>
 
-            <!-- 3 Educational Cards -->
-            <g transform="translate(100, 330)">
-                ${points.slice(0, 3).map((p, idx) => `
-                <g transform="translate(0, ${idx * 165})">
-                    <rect x="0" y="0" width="880" height="135" rx="18" fill="rgba(30, 41, 59, 0.9)" stroke="#38BDF8" stroke-width="1.5" filter="url(#eduShadow)"/>
-                    <circle cx="50" cy="67" r="28" fill="#2563EB" />
-                    <text x="50" y="77" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="26" font-weight="900" fill="#FFFFFF" text-anchor="middle">${idx + 1}</text>
-                    <text x="105" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="800" fill="#FFD700">STEP ${idx + 1}</text>
-                    <text x="105" y="85" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">${this.escapeXml(p)}</text>
+            <!-- 3 Educational Cards with Rich Brands.live Caliber -->
+            <g transform="translate(70, 335)">
+                ${stepThemes.map((st, idx) => {
+                    const pointText = rawPoints[idx] || st.defaultDesc;
+                    const safePointText = this.escapeXml(pointText);
+                    const safeTag = this.escapeXml(st.tag);
+                    const safeStepTitle = this.escapeXml(st.title);
+                    return `
+                <g transform="translate(0, ${idx * 175})">
+                    <!-- Glass Card Backdrop -->
+                    <rect x="0" y="0" width="940" height="150" rx="20" fill="${st.bgGradient}" stroke="${st.lightColor}" stroke-width="1.8" filter="url(#eduShadow)"/>
+                    
+                    <!-- Left Step Badge Column -->
+                    <g transform="translate(30, 25)">
+                        <circle cx="45" cy="50" r="38" fill="#0F172A" stroke="${st.lightColor}" stroke-width="2.5" />
+                        <circle cx="45" cy="50" r="30" fill="${st.color}" />
+                        <text x="45" y="58" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">${st.number}</text>
+                    </g>
+
+                    <!-- Content Column -->
+                    <g transform="translate(135, 25)">
+                        <!-- Category Tag Pill -->
+                        <rect x="0" y="2" width="250" height="26" rx="13" fill="${st.color}" opacity="0.95" />
+                        <text x="125" y="19" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">${safeTag}</text>
+
+                        <!-- Step Title -->
+                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">${safeStepTitle}</text>
+                        
+                        <!-- Step Description -->
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" fill="#E2E8F0">${safePointText}</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#94A3B8">Kurukshetra Verified Advisory • Free Legal Consultation Available</text>
+                    </g>
+
+                    <!-- Right Check Pill -->
+                    <g transform="translate(865, 55)">
+                        <circle cx="20" cy="20" r="18" fill="${st.color}" />
+                        <text x="20" y="27" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#FFFFFF" text-anchor="middle">✓</text>
+                    </g>
                 </g>
-                `).join('')}
+                    `;
+                }).join('')}
+            </g>
+
+            <!-- Bottom Advisory Guarantee Ribbon -->
+            <g transform="translate(540, 875)">
+                <rect x="-380" y="-18" width="760" height="34" rx="17" fill="rgba(11, 37, 69, 0.85)" stroke="url(#goldGradientEdu)" stroke-width="1.2" />
+                <text x="0" y="5" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="1">
+                    🛡️ BHARAT PROPERTIES ASSURANCE: ZERO LEGAL DISPUTES • DIRECT REGISTRY
+                </text>
             </g>
 
             <!-- Footer Strip -->
@@ -818,17 +1056,26 @@ class BrandBannerComposer {
         <svg width="${this.width}" height="${this.height}" viewBox="0 0 ${this.width} ${this.height}" xmlns="http://www.w3.org/2000/svg">
             <defs>
                 <linearGradient id="trustBg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#0B2545" />
-                    <stop offset="60%" stop-color="#134074" />
+                    <stop offset="0%" stop-color="#050C1A" />
+                    <stop offset="30%" stop-color="#0B2545" />
+                    <stop offset="70%" stop-color="#134074" />
                     <stop offset="100%" stop-color="#001220" />
                 </linearGradient>
+
                 <linearGradient id="goldPillTrust" x1="0" y1="0" x2="1" y2="0">
                     <stop offset="0%" stop-color="#D4AF37" />
                     <stop offset="50%" stop-color="#FFF2A3" />
                     <stop offset="100%" stop-color="#D4AF37" />
                 </linearGradient>
+
+                <linearGradient id="goldTextTrust" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFF5C0" />
+                    <stop offset="40%" stop-color="#FFD700" />
+                    <stop offset="100%" stop-color="#DDA10E" />
+                </linearGradient>
+
                 <filter id="trustShadow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.6"/>
+                    <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.65"/>
                 </filter>
             </defs>
 
@@ -842,45 +1089,100 @@ class BrandBannerComposer {
                 <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • SECRECY</text>
 
                 <g transform="translate(640, 0)">
-                    <rect x="0" y="8" width="320" height="62" rx="31" fill="rgba(255, 255, 255, 0.12)" stroke="url(#goldPillTrust)" stroke-width="1.5" />
-                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFF" text-anchor="middle" letter-spacing="0.5">ESTABLISHED 1996</text>
-                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFD700" text-anchor="middle">KURUKSHETRA REAL ESTATE</text>
+                    <rect x="0" y="8" width="320" height="62" rx="31" fill="rgba(255, 255, 255, 0.12)" stroke="url(#goldPillTrust)" stroke-width="1.8" filter="url(#trustShadow)"/>
+                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="900" fill="#FFF" text-anchor="middle" letter-spacing="1">ESTABLISHED 1996</text>
+                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFD700" text-anchor="middle">KURUKSHETRA BENCHMARK</text>
                 </g>
             </g>
 
             <!-- Main Headline -->
-            <g transform="translate(540, 210)">
-                <rect x="-180" y="-30" width="360" height="36" rx="18" fill="#FFB703" filter="url(#trustShadow)"/>
+            <g transform="translate(540, 195)">
+                <rect x="-190" y="-30" width="380" height="36" rx="18" fill="#FFB703" filter="url(#trustShadow)"/>
                 <text x="0" y="-7" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="900" fill="#0B2545" text-anchor="middle" letter-spacing="2">🏛️ THE BHARAT PROPERTIES STANDARD</text>
 
-                <text x="0" y="50" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="44" font-weight="900" fill="#FFFFFF" text-anchor="middle" filter="url(#trustShadow)">
+                <text x="0" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="44" font-weight="900" fill="#FFFFFF" text-anchor="middle" filter="url(#trustShadow)">
                     ${safeTitle}
                 </text>
-                <text x="0" y="90" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="600" fill="#E2E8F0" text-anchor="middle">
+                <text x="0" y="92" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="600" fill="#E2E8F0" text-anchor="middle">
                     ${safeHook}
                 </text>
             </g>
 
-            <!-- 3 Trust Pillars Box -->
-            <g transform="translate(100, 360)">
+            <!-- 3 Trust Pillars Box with Rich Authority Seals -->
+            <g transform="translate(70, 345)">
                 <!-- Card 1 -->
-                <rect x="0" y="0" width="880" height="135" rx="18" fill="rgba(11, 37, 69, 0.9)" stroke="url(#goldPillTrust)" stroke-width="1.5" filter="url(#trustShadow)"/>
-                <text x="40" y="45" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">🤝 100% DIRECT OWNER MEETINGS</text>
-                <text x="40" y="80" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="500" fill="#FFFFFF">No middlemen, no undisclosed markups. Direct negotiations with registered owners.</text>
+                <g transform="translate(0, 0)">
+                    <rect x="0" y="0" width="940" height="150" rx="20" fill="rgba(11, 37, 69, 0.92)" stroke="url(#goldPillTrust)" stroke-width="2" filter="url(#trustShadow)"/>
+                    
+                    <!-- Left Icon Emblem -->
+                    <g transform="translate(25, 25)">
+                        <circle cx="50" cy="50" r="42" fill="#0F172A" stroke="url(#goldPillTrust)" stroke-width="2" />
+                        <circle cx="50" cy="50" r="32" fill="#059669" />
+                        <text x="50" y="59" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="26" font-weight="900" fill="#FFF" text-anchor="middle">🤝</text>
+                    </g>
+
+                    <!-- Text Area -->
+                    <g transform="translate(145, 25)">
+                        <rect x="0" y="2" width="220" height="24" rx="12" fill="#059669" opacity="0.9" />
+                        <text x="110" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">ZERO BROKER INFLATION</text>
+
+                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">100% Direct Owner Meetings</text>
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Sit directly across from the registered title holder. Transparent price negotiation with no hidden markups.</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Genuine Seller Vetting • Spot Token Verification • Open Token Reciept</text>
+                    </g>
+                </g>
 
                 <!-- Card 2 -->
-                <g transform="translate(0, 160)">
-                    <rect x="0" y="0" width="880" height="135" rx="18" fill="rgba(11, 37, 69, 0.9)" stroke="url(#goldPillTrust)" stroke-width="1.5" filter="url(#trustShadow)"/>
-                    <text x="40" y="45" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">📜 COMPLETE TITLE &amp; TEHSIL VERIFICATION</text>
-                    <text x="40" y="80" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="500" fill="#FFFFFF">Every property is vetted for clear registry, mutation, and zero municipal liabilities.</text>
+                <g transform="translate(0, 175)">
+                    <rect x="0" y="0" width="940" height="150" rx="20" fill="rgba(11, 37, 69, 0.92)" stroke="url(#goldPillTrust)" stroke-width="2" filter="url(#trustShadow)"/>
+                    
+                    <!-- Left Icon Emblem -->
+                    <g transform="translate(25, 25)">
+                        <circle cx="50" cy="50" r="42" fill="#0F172A" stroke="url(#goldPillTrust)" stroke-width="2" />
+                        <circle cx="50" cy="50" r="32" fill="#2563EB" />
+                        <text x="50" y="59" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="26" font-weight="900" fill="#FFF" text-anchor="middle">📜</text>
+                    </g>
+
+                    <!-- Text Area -->
+                    <g transform="translate(145, 25)">
+                        <rect x="0" y="2" width="240" height="24" rx="12" fill="#2563EB" opacity="0.9" />
+                        <text x="120" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">AUTHENTIC TEHSIL VETTING</text>
+
+                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">Complete Title &amp; Tehsil Legal Search</text>
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Every property undergo deep 30-year revenue chain analysis, mutation check, and TCP zoning compliance.</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Jamabandi Verification • No Dues Certificate • Zero Litigation Assurance</text>
+                    </g>
                 </g>
 
                 <!-- Card 3 -->
-                <g transform="translate(0, 320)">
-                    <rect x="0" y="0" width="880" height="135" rx="18" fill="rgba(11, 37, 69, 0.9)" stroke="url(#goldPillTrust)" stroke-width="1.5" filter="url(#trustShadow)"/>
-                    <text x="40" y="45" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">🛡️ PRIVACY &amp; PROFESSIONAL SECRECY</text>
-                    <text x="40" y="80" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="500" fill="#FFFFFF">High-value transactions handled with strict confidentiality and discretion.</text>
+                <g transform="translate(0, 350)">
+                    <rect x="0" y="0" width="940" height="150" rx="20" fill="rgba(11, 37, 69, 0.92)" stroke="url(#goldPillTrust)" stroke-width="2" filter="url(#trustShadow)"/>
+                    
+                    <!-- Left Icon Emblem -->
+                    <g transform="translate(25, 25)">
+                        <circle cx="50" cy="50" r="42" fill="#0F172A" stroke="url(#goldPillTrust)" stroke-width="2" />
+                        <circle cx="50" cy="50" r="32" fill="#C1121F" />
+                        <text x="50" y="59" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="26" font-weight="900" fill="#FFF" text-anchor="middle">🛡️</text>
+                    </g>
+
+                    <!-- Text Area -->
+                    <g transform="translate(145, 25)">
+                        <rect x="0" y="2" width="250" height="24" rx="12" fill="#C1121F" opacity="0.9" />
+                        <text x="125" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">STRICT CLIENT CONFIDENTIALITY</text>
+
+                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">Privacy &amp; Professional Secrecy</text>
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Your personal finances, portfolio requirements, and identity are guarded with ironclad confidentiality.</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Trusted by Doctors, NRIs, Industrialists, Senior Advocates &amp; Families</text>
+                    </g>
                 </g>
+            </g>
+
+            <!-- Bottom Assurance Ribbon -->
+            <g transform="translate(540, 882)">
+                <rect x="-380" y="-18" width="760" height="34" rx="17" fill="rgba(11, 37, 69, 0.85)" stroke="url(#goldPillTrust)" stroke-width="1.2" />
+                <text x="0" y="5" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="1">
+                    ✦ 30 YEARS OF FLAWLESS CONVEYANCING • KURUKSHETRA'S MOST REPUTED DESK ✦
+                </text>
             </g>
 
             <!-- Footer Strip -->
