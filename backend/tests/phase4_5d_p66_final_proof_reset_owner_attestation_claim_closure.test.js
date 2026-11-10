@@ -233,14 +233,26 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
         test('1.9: Stopped memory instance cannot authorize reset and is purged', async () => {
             const tempServer = await MongoMemoryServer.create();
             try {
+                unregisterVerifiedEphemeralTestDatabase(mongoServer);
                 registerVerifiedEphemeralTestDatabase(tempServer);
                 await tempServer.stop();
 
                 // When checked, stopped instances in set are purged and return false
                 const isVerified = isVerifiedEphemeralTestDatabase();
-                assert.strictEqual(isVerified, true); // mongoServer still registered
+                assert.strictEqual(isVerified, false);
+
+                await assert.rejects(
+                    async () => {
+                        await _testOnlyResetAuthoritySettings({});
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'EPHEMERAL_DATABASE_REQUIRED');
+                        return true;
+                    }
+                );
             } finally {
                 unregisterVerifiedEphemeralTestDatabase(tempServer);
+                registerVerifiedEphemeralTestDatabase(mongoServer);
             }
         });
 
