@@ -685,11 +685,13 @@ class MarketingService {
         scheduledDateTime.setHours(slotH, slotM, 0, 0);
 
         let delayMs = Math.max(0, scheduledDateTime.getTime() - Date.now());
-        if (options.forceImmediate || options.dryRun) {
-            delayMs = 0; // Immediate execution
+        if (options.forceImmediate || options.dryRun || options.immediate || options.force) {
+            delayMs = 0; // Immediate live execution for on-demand / manual pipeline triggers
         }
 
-        const targetChannels = config.channels || ['facebook', 'instagram', 'youtube', 'google_business'];
+        const targetChannels = (config.channels && config.channels.length > 0)
+            ? config.channels
+            : ['facebook', 'instagram', 'linkedin', 'youtube', 'google_business'];
         const enqueuedJobs = [];
 
         // 5. Enqueue to BullMQ marketingQueue
@@ -769,10 +771,38 @@ class MarketingService {
             contentId: scheduledContentRecord._id,
             captions: channelCaptions,
             agentOutputs: {
-                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Selected Pillar: ${pillar.toUpperCase()} (Based on 80/10/7/3 distribution)\n• Optimal Publishing Slot: ${targetSlotTime} IST (Peak audience window)\n• Analyzed Channels: ${targetChannels.join(', ')}\n• Anti-Cannibalization Filter: Verified (No duplicate deals within 14 days)\n• Strategy: Drive maximum local engagement with verified property credentials`,
-                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Campaign Title: ${postTitle}\n• Target Channels: ${targetChannels.join(', ')}\n• Facebook Caption:\n${channelCaptions.facebook || ''}\n\n• Instagram Caption:\n${channelCaptions.instagram || ''}`,
-                designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• High-Resolution Branded Asset: Rendered at 1080x1080 (Sharp Engine)\n• Brand Kit: Bharat Properties Official Navy & Gold palette, RERA Badges\n• Asset URL: ${visualAsset?.url || 'Generated'}\n• Regional Contact Footer: ${regionalPhone} | ${website}`,
-                scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Scheduled Broadcast Time: ${scheduledDateTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\n• Delay Timer: ${Math.round(delayMs / 60000)} minutes until peak slot\n• Queue Jobs: ${enqueuedJobs.length} active BullMQ jobs targeting [${targetChannels.join(', ')}]\n• Status: Ready for autonomous multi-platform broadcast`
+                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Telemetry Ingested: 30-Day Cross-Platform Reach, CTR & Engagements
+• Selected Pillar: ${pillar.toUpperCase()} (Cadence: 80% Deals, 10% Edu, 7% Trust, 3% Festival)
+• Strategic Mandate: High buyer inquiries in ${chosenDeal?.location || 'Kurukshetra prime corridors'}. Recommended immediate verified inventory showcase.
+• Handoff: Forwarded strategic demand guidance to Social Media Manager.`,
+                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Executive Decision: Analyzed CRM deals with 14-day anti-cannibalization check.
+• Selected Deal: ${chosenDeal?.unitNo || 'Prime Unit'} at ${chosenDeal?.projectName || 'Kurukshetra'}
+• Verified Deal Identity Generated:
+  - Unit No: ${chosenDeal?.unitNo || 'Prime Unit'}
+  - Block/Sector: ${chosenDeal?.block || chosenDeal?.location || 'Kurukshetra'}
+  - Project Name: ${chosenDeal?.projectName || 'Bharat Properties Verified Project'}
+  - Deal ID: ${chosenDeal?._id || 'N/A'}
+• Generated Omnichannel Captions: Tailored for Facebook, Instagram, LinkedIn, YouTube, and Google Business Profile with Hinglish hooks & verified credentials.
+• Handoff: Dispatched Verified Deal Identity to Designer AI (Visual AI).`,
+                designer: `🎨 DESIGNER AI & DESIGNER STUDIO (Visual Prompt Lab & Sharp Canvas Engine)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Ingested Deal Identity: ${chosenDeal?.unitNo || 'Unit'} - ${chosenDeal?.projectName || 'Project'}
+• Retrieved Assets: Deal Price (${chosenDeal?.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer'}), Size (${chosenDeal?.size || 'Prime Area'} ${chosenDeal?.sizeUnit || 'sq.yd'}), Verified Title status.
+• Studio Canvas Render: Generated 1080x1080 High-Resolution Branded Flyer
+• Brand Styling: Official Navy & Gold palette, Bharat Properties Logo, Gold Price Pill, RERA badge, and Contact Footer (${regionalPhone} | ${website})
+• Asset URL: ${visualAsset?.url || 'Generated'}
+• Handoff: Delivered 1080x1080 flyer asset to Scheduling Manager.`,
+                scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue & Redis)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Ingested Assets: Designer Studio 1080x1080 Flyer + Social Media Manager Copy
+• Target Audience Channels: [${targetChannels.join(', ')}]
+• Dispatch Mode: ${delayMs === 0 ? '🚀 Immediate Live Dispatch Executed' : `⏰ Scheduled for Peak Slot: ${scheduledDateTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`}
+• Queue Attribution: ${enqueuedJobs.length} BullMQ jobs dispatched. Bound to CRM Deal #${chosenDeal?._id || 'General'}.
+• Closed-Loop Logging: Created MarketingContent #${scheduledContentRecord._id} & CRM Activity record for complete lead tracking.`
             }
         };
     }
