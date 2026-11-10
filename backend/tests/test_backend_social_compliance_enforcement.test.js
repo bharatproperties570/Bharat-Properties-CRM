@@ -6846,19 +6846,30 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                     assert.strictEqual(doc2.auditHistory ? doc2.auditHistory.length : 0, initialHistoryLen, 'Idempotent retry must not append duplicate audit history');
                 });
 
-                it('18.10 Database transaction support unavailable -> system operation fails closed with TRANSACTION_UNAVAILABLE', async () => {
+                it('18.10a First transactional command rejection on standalone topology in verification path -> normalized to TRANSACTION_UNAVAILABLE with safe retry', async () => {
                     const now = new Date();
-                    const nonce = `test-tx-unavail-${Date.now()}`;
+                    const nonce = `test-tx-unavail-cmd-${Date.now()}`;
+                    const idKey = `idemp-tx-unavail-${Date.now()}`;
                     const ctx = {
                         entityId: String(replEntId),
                         documentId: replDoc.documentId,
-                        nonce
+                        nonce,
+                        idempotencyKey: idKey
                     };
                     const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
 
-                    const origStartSession = mongoose.startSession;
-                    mongoose.startSession = async () => {
-                        throw new Error('Transaction numbers are only allowed on a replica set member or mongos');
+                    const origUpdateOne = SystemServiceReplayLedgerModel.updateOne;
+                    let intercepted = false;
+                    SystemServiceReplayLedgerModel.updateOne = async function (filter, update, options) {
+                        if (options && options.session && !intercepted) {
+                            intercepted = true;
+                            const err = new Error('Transaction numbers are only allowed on a replica set member or mongos');
+                            err.name = 'MongoServerError';
+                            err.code = 20;
+                            err.codeName = 'IllegalOperation';
+                            throw err;
+                        }
+                        return origUpdateOne.call(this, filter, update, options);
                     };
 
                     try {
@@ -6877,16 +6888,173 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                                 systemContext: {
                                     serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
                                     systemSignature: sig,
-                                    nonce
+                                    nonce,
+                                    idempotencyKey: idKey
                                 }
                             });
-                        }, /TRANSACTION_UNAVAILABLE/);
+                        }, /TRANSACTION_UNAVAILABLE: MongoDB deployment topology does not support transactions/);
+
+                        assert.strictEqual(intercepted, true, 'First transactional database command must have been executed and rejected');
 
                         const docInDb = await Document.findById(replDoc._id);
-                        assert.strictEqual(docInDb.verificationAudit, undefined);
+                        assert.strictEqual(docInDb.verificationAudit, undefined, 'Document must not be mutated');
+
+                        const ledgerRecord = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                        assert.ok(ledgerRecord, 'Ledger record must exist');
+                        assert.strictEqual(ledgerRecord.status, 'FAILED', 'Ledger status must be FAILED, never COMMITTED');
+                        assert.ok(ledgerRecord.failureReason.includes('TRANSACTION_UNAVAILABLE'));
+
+                        // Safe retry: an idempotent retry with the same idempotency key re-claims the failed record under a new worker lease
+                        const retryRes = await recordNonceConsumptionDurable(sig, {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            entityId: String(replEntId),
+                            documentId: replDoc.documentId,
+                            nonce,
+                            idempotencyKey: idKey
+                        });
+                        assert.strictEqual(retryRes.consumed, true, 'Retry must be consumed');
+                        assert.strictEqual(retryRes.isIdempotentRetry, true, 'Retry must be recognized as idempotent retry');
+                        assert.notStrictEqual(retryRes.claimToken, ledgerRecord.claimToken, 'Claim token must be safely renewed');
                     } finally {
-                        mongoose.startSession = origStartSession;
+                        SystemServiceReplayLedgerModel.updateOne = origUpdateOne;
                     }
+                });
+
+                it('18.10b First transactional command rejection on standalone topology in revocation path -> normalized to TRANSACTION_UNAVAILABLE', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-unavail-revoke-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const origUpdateOne = SystemServiceReplayLedgerModel.updateOne;
+                    let intercepted = false;
+                    SystemServiceReplayLedgerModel.updateOne = async function (filter, update, options) {
+                        if (options && options.session && !intercepted) {
+                            intercepted = true;
+                            const err = new Error('Transaction numbers are only allowed on a replica set member or mongos');
+                            err.name = 'MongoServerError';
+                            err.code = 20;
+                            err.codeName = 'IllegalOperation';
+                            throw err;
+                        }
+                        return origUpdateOne.call(this, filter, update, options);
+                    };
+
+                    try {
+                        await assert.rejects(async () => {
+                            await DocumentAuditService.revokeVerificationAudit({
+                                documentId: replDoc.documentId,
+                                revocationReason: 'STATUTORY_COURT_ORDER',
+                                revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                                systemContext: {
+                                    serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    systemSignature: sig,
+                                    nonce,
+                                    timestamp: now
+                                }
+                            });
+                        }, /TRANSACTION_UNAVAILABLE: MongoDB deployment topology does not support transactions/);
+
+                        assert.strictEqual(intercepted, true);
+
+                        const docInDb = await Document.findById(replDoc._id);
+                        assert.strictEqual(docInDb.isRevoked, false, 'Document must not be revoked on transaction failure');
+                        assert.notStrictEqual(docInDb.status, 'REVOKED');
+
+                        const ledgerRecord = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                        assert.strictEqual(ledgerRecord.status, 'FAILED');
+                        assert.ok(ledgerRecord.failureReason.includes('TRANSACTION_UNAVAILABLE'));
+                    } finally {
+                        SystemServiceReplayLedgerModel.updateOne = origUpdateOne;
+                    }
+                });
+
+                it('18.10c Failure handling cannot overwrite a newer worker claim (claim-token fencing)', async () => {
+                    const now = new Date();
+                    const nonce = `test-fencing-fail-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    // Worker 1 acquires initial claim
+                    const w1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w1.consumed, true);
+
+                    // Simulate Worker 1 lease expiring, and Worker 2 reclaims with a new claimToken
+                    await SystemServiceReplayLedgerModel.updateOne(
+                        { signature: sig },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    const w2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w2.consumed, true);
+                    assert.notStrictEqual(w2.claimToken, w1.claimToken);
+
+                    // Worker 1 experiences transaction failure and invokes failNonceConsumptionDurable with its stale claimToken
+                    const failRes = await failNonceConsumptionDurable(sig, w1.claimToken, 'TRANSACTION_UNAVAILABLE: Standalone failure');
+                    assert.strictEqual(failRes.failed, false, 'Failure update with stale claimToken must be rejected');
+                    assert.strictEqual(failRes.error, 'STALE_CLAIM_SUPERSEDED');
+
+                    // Worker 2 lease remains in CONSUMED status with its valid claimToken
+                    const ledgerAfter = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                    assert.strictEqual(ledgerAfter.status, 'CONSUMED');
+                    assert.strictEqual(ledgerAfter.claimToken, w2.claimToken);
+                });
+
+                it('18.10d Genuine Standalone MongoDB Topology Integration: native wire error 20 normalized on verification and revocation', async () => {
+                    const workerScript = new URL('./helpers/standaloneTopologyWorker.js', import.meta.url).pathname;
+
+                    const runStandaloneWorker = () => new Promise((resolve) => {
+                        const child = fork(workerScript, [], { silent: true });
+                        const timer = setTimeout(() => {
+                            try { child.kill('SIGKILL'); } catch (e) {}
+                            resolve({ success: false, error: 'TIMEOUT' });
+                        }, 25000);
+                        child.on('message', (msg) => {
+                            clearTimeout(timer);
+                            resolve(msg);
+                        });
+                        child.on('error', (err) => {
+                            clearTimeout(timer);
+                            resolve({ success: false, error: err.message });
+                        });
+                        child.on('exit', () => {
+                            clearTimeout(timer);
+                        });
+                    });
+
+                    const res = await runStandaloneWorker();
+                    assert.strictEqual(res.success, true, `Worker failed: ${res.error}`);
+                    assert.ok(
+                        res.verifyError.includes('TRANSACTION_UNAVAILABLE: MongoDB deployment topology does not support transactions'),
+                        `Unexpected verifyError: ${res.verifyError}`
+                    );
+                    assert.strictEqual(res.verifyDocMutated, false, 'Verification must not mutate document on standalone');
+                    assert.strictEqual(res.verifyLedgerStatus, 'FAILED', 'Verification ledger must be FAILED');
+
+                    assert.ok(
+                        res.revokeError.includes('TRANSACTION_UNAVAILABLE: MongoDB deployment topology does not support transactions'),
+                        `Unexpected revokeError: ${res.revokeError}`
+                    );
+                    assert.strictEqual(res.revokeDocRevoked, false, 'Revocation must not revoke document on standalone');
+                    assert.strictEqual(res.revokeLedgerStatus, 'FAILED', 'Revocation ledger must be FAILED');
                 });
             });
 

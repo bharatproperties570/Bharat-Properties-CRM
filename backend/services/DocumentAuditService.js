@@ -25,6 +25,31 @@ async function executePrivilegedAuditWrite(filter, updateOps, options = {}) {
 }
 
 /**
+ * Normalizes and detects unsupported transaction topology errors
+ * (e.g., standalone MongoDB instances, non-replica-set deployments).
+ * 
+ * @param {Error|Object} err - Error thrown by MongoDB or Mongoose
+ * @returns {boolean} True if error indicates lack of transaction support
+ */
+export function isTransactionUnavailableError(err) {
+    if (!err) return false;
+    const msg = String(err.message || '').toLowerCase();
+    const code = err.code;
+    const codeName = String(err.codeName || '');
+    return (
+        code === 20 ||
+        codeName === 'IllegalOperation' ||
+        msg.includes('transaction numbers are only allowed') ||
+        msg.includes('replica set member or mongos') ||
+        msg.includes('transactions are not supported') ||
+        msg.includes('does not support transactions') ||
+        msg.includes('topology does not support transactions') ||
+        (msg.includes('standalone') && msg.includes('transaction')) ||
+        msg.startsWith('transaction_unavailable')
+    );
+}
+
+/**
  * DocumentAuditService
  * 
  * Internal trusted service for writing, superseding, and revoking Document verification audits.
@@ -254,6 +279,11 @@ export class DocumentAuditService {
             try {
                 session = await mongoose.startSession();
             } catch (err) {
+                if (consumedSignature && consumedClaimToken) {
+                    try {
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, `TRANSACTION_UNAVAILABLE: Failed to start session: ${err.message}`);
+                    } catch (failErr) {}
+                }
                 throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start MongoDB session: ${err.message}`);
             }
 
@@ -262,7 +292,16 @@ export class DocumentAuditService {
                 session.startTransaction();
                 transactionStarted = true;
             } catch (err) {
-                await session.endSession();
+                if (session) {
+                    try {
+                        await session.endSession();
+                    } catch (endErr) {}
+                }
+                if (consumedSignature && consumedClaimToken) {
+                    try {
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, `TRANSACTION_UNAVAILABLE: Failed to start transaction: ${err.message}`);
+                    } catch (failErr) {}
+                }
                 throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start transaction: ${err.message}`);
             }
 
@@ -324,12 +363,17 @@ export class DocumentAuditService {
                     } catch (endErr) {}
                 }
 
-                if (consumedSignature && consumedClaimToken && err.message && !err.message.includes('STALE_CLAIM_SUPERSEDED')) {
+                let finalErr = err;
+                if (isTransactionUnavailableError(err) && !String(err.message).startsWith('TRANSACTION_UNAVAILABLE')) {
+                    finalErr = new Error(`TRANSACTION_UNAVAILABLE: MongoDB deployment topology does not support transactions: ${err.message}`);
+                }
+
+                if (consumedSignature && consumedClaimToken && finalErr.message && !finalErr.message.includes('STALE_CLAIM_SUPERSEDED')) {
                     try {
-                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, finalErr.message);
                     } catch (failErr) {}
                 }
-                throw err;
+                throw finalErr;
             }
         } else {
             // Statutory Human Verifier (verifierUser / verifierStr)
@@ -472,6 +516,11 @@ export class DocumentAuditService {
             try {
                 session = await mongoose.startSession();
             } catch (err) {
+                if (consumedSignature && consumedClaimToken) {
+                    try {
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, `TRANSACTION_UNAVAILABLE: Failed to start session: ${err.message}`);
+                    } catch (failErr) {}
+                }
                 throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start MongoDB session: ${err.message}`);
             }
 
@@ -480,7 +529,16 @@ export class DocumentAuditService {
                 session.startTransaction();
                 transactionStarted = true;
             } catch (err) {
-                await session.endSession();
+                if (session) {
+                    try {
+                        await session.endSession();
+                    } catch (endErr) {}
+                }
+                if (consumedSignature && consumedClaimToken) {
+                    try {
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, `TRANSACTION_UNAVAILABLE: Failed to start transaction: ${err.message}`);
+                    } catch (failErr) {}
+                }
                 throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start transaction: ${err.message}`);
             }
 
@@ -547,12 +605,17 @@ export class DocumentAuditService {
                     } catch (endErr) {}
                 }
 
-                if (consumedSignature && consumedClaimToken && err.message && !err.message.includes('STALE_CLAIM_SUPERSEDED')) {
+                let finalErr = err;
+                if (isTransactionUnavailableError(err) && !String(err.message).startsWith('TRANSACTION_UNAVAILABLE')) {
+                    finalErr = new Error(`TRANSACTION_UNAVAILABLE: MongoDB deployment topology does not support transactions: ${err.message}`);
+                }
+
+                if (consumedSignature && consumedClaimToken && finalErr.message && !finalErr.message.includes('STALE_CLAIM_SUPERSEDED')) {
                     try {
-                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, finalErr.message);
                     } catch (failErr) {}
                 }
-                throw err;
+                throw finalErr;
             }
         } else {
             // Statutory Human Verifier (verifierUser / verifierStr)

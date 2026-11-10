@@ -380,6 +380,36 @@ export async function recordNonceConsumptionDurable(signature, record) {
                     }
 
                     if (existing.status === 'FAILED') {
+                        if (isSameIdempotency) {
+                            // Safe retry: allow reclaiming the failed record under a new worker lease
+                            const reclaimed = await SystemServiceReplayLedgerModel.findOneAndUpdate(
+                                { 
+                                    _id: existing._id, 
+                                    status: 'FAILED' 
+                                },
+                                { 
+                                    $set: { 
+                                        claimToken, 
+                                        status: 'CONSUMED',
+                                        failureReason: null,
+                                        failedAt: null,
+                                        inTransaction: false,
+                                        leaseExpiresAt: new Date(Date.now() + 60 * 1000) 
+                                    },
+                                    $inc: { attempts: 1 }
+                                },
+                                { new: true }
+                            );
+
+                            if (reclaimed) {
+                                return {
+                                    consumed: true,
+                                    isIdempotentRetry: true,
+                                    isCommitted: false,
+                                    claimToken
+                                };
+                            }
+                        }
                         return {
                             consumed: false,
                             isIdempotentRetry: false,
@@ -524,7 +554,8 @@ export async function failNonceConsumptionDurable(signature, claimToken, reason 
                     status: 'FAILED', 
                     failureReason: String(reason || 'FAILED'),
                     failedAt: new Date(), 
-                    leaseExpiresAt: null 
+                    leaseExpiresAt: null,
+                    inTransaction: false
                 } 
             }
         );
