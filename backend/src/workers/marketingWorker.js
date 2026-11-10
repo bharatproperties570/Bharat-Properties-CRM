@@ -1231,13 +1231,13 @@ const processMarketingJob = async (job) => {
                 let assetUrn = null;
                 if (imageUrl && !imageUrl.includes('localhost') && !imageUrl.includes('127.0.0.1')) {
                     try {
-                        const { default: axios } = await import('axios');
                         const { uploadUrl, asset } = await liService.registerImageUpload();
+                        const axios = (await import('axios')).default;
                         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
                         await liService.uploadImageBinary(uploadUrl, imageResponse.data, imageResponse.headers['content-type']);
                         assetUrn = asset;
-                    } catch (imgErr) {
-                        await job.log(`LinkedIn image upload fallback to text: ${imgErr.message}`);
+                    } catch (liImgErr) {
+                        await job.log(`LinkedIn image upload failed, proceeding with text: ${liImgErr.message}`);
                     }
                 }
                 result = await liService.postToOrganization(sanitizedText, null, assetUrn);
@@ -1247,7 +1247,7 @@ const processMarketingJob = async (job) => {
                 try {
                     result = await gbpService.createPost(sanitizedText, null, imageUrl);
                 } catch (gbpErr) {
-                    if (gbpErr.message?.includes('quota of 0') || gbpErr.message?.includes('access request pending')) {
+                    if (gbpErr.message?.includes('quota of 0') || gbpErr.message?.includes('access request pending') || gbpErr.message?.includes('RESOURCE_EXHAUSTED')) {
                         await job.log(`GBP quota pending approval from Google for project 322921031715. Skipping without blocking.`);
                         result = { success: false, reason: 'GBP quota pending Google approval' };
                     } else {
