@@ -80,6 +80,9 @@ import jarvisRoutes from "./routes/jarvis.routes.js";
 import outboxRoutes from "./routes/outbox.routes.js";
 import authorityVerificationRoutes from "./routes/authorityVerification.routes.js";
 import reconciliationRoutes from "./routes/reconciliation.routes.js";
+import operationsRoutes from "./routes/operations.routes.js";
+import importRoutes from "./routes/import.routes.js";
+import exportRoutes from "./routes/export.routes.js";
 
 const app = express();
 
@@ -175,6 +178,14 @@ const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));
+
+// Production Shared Uploads mount (Enterprise Persistent Media Storage)
+const sharedUploadsDir = '/home/ubuntu/bharat-crm-releases/shared/uploads';
+if (fs.existsSync(sharedUploadsDir)) {
+    app.use('/uploads', express.static(sharedUploadsDir));
+    app.use('/api/uploads', express.static(sharedUploadsDir));
+    app.use('/api/public/uploads', express.static(sharedUploadsDir));
+}
 
 app.get("/api/version", (req, res) => {
     let manifest = { version: "unknown", gitSha: "unknown", buildId: "unknown", buildTimestamp: "unknown" };
@@ -322,6 +333,9 @@ app.use("/api/outbox", outboxRoutes);
 app.use("/api/jarvis", jarvisRoutes);
 app.use("/api/authority", authorityVerificationRoutes);
 app.use("/api/reconciliation", reconciliationRoutes);
+app.use("/api/operations", operationsRoutes);
+app.use("/api/imports", importRoutes);
+app.use("/api/exports", exportRoutes);
 import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/uploads", express.static(os.tmpdir()));

@@ -1608,11 +1608,17 @@ const SocialPostModal = ({
                                                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
                                                     )}
                                                     <strong>{linkedInStatus?.connected ? 'Connected LinkedIn Organization:' : 'LinkedIn Company Page:'}</strong>
-                                                    <span style={{ fontWeight: 800 }}>{linkedInStatus?.connected ? `Org ID: ${linkedInStatus.orgId || '42752175'}` : 'Bharat Properties'}</span>
+                                                    <span style={{ fontWeight: 800 }}>
+                                                        {linkedInStatus?.connected 
+                                                            ? (linkedInStatus.orgId && linkedInStatus.orgId !== '42752175' ? `Org ID: ${linkedInStatus.orgId}` : '⚠️ Org ID Needed in Settings') 
+                                                            : 'Bharat Properties'}
+                                                    </span>
                                                 </div>
                                                 <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
                                                     {linkedInStatus?.connected 
-                                                        ? 'Token Active & Auto-Refreshing · Direct Organization Feed posting ready' 
+                                                        ? (linkedInStatus.orgId && linkedInStatus.orgId !== '42752175'
+                                                            ? 'Token Active & Auto-Refreshing · Direct Organization Feed posting ready'
+                                                            : 'Please set your numeric Company Page ID in Settings > Integrations > LinkedIn to enable posting.') 
                                                         : 'Connect your LinkedIn Company Page via 1-Click LinkedIn Connect in Settings > Integrations.'}
                                                 </div>
                                             </div>
