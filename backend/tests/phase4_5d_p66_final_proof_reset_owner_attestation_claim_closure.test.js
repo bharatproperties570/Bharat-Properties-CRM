@@ -505,24 +505,19 @@ describe('PHASE 4.5-D (PR #67) FINAL EPHEMERAL DATABASE IDENTITY, AUTHENTIC OWNE
                 applyClaim: { claimId: realClaimId }
             });
 
-            await assert.rejects(
-                async () => {
-                    await compensateApplySaga({
-                        itemId: runItem._id,
-                        tenantId: CANONICAL_ORG_ID,
-                        inventoryId: runItem.inventoryId,
-                        claimId: conflictingCallerClaim.toString(),
-                        stage: 'AUDIT_LOGGED',
-                        compensation: {},
-                        errorMsg: 'Simulated compensation failure'
-                    });
-                },
-                err => {
-                    assert.strictEqual(err.code, 'CLAIM_CONFLICT');
-                    assert.ok(err.message.includes('conflicts with actual RunItem claim'));
-                    return true;
-                }
-            );
+            const res = await compensateApplySaga({
+                itemId: runItem._id,
+                tenantId: CANONICAL_ORG_ID,
+                inventoryId: runItem.inventoryId,
+                claimId: conflictingCallerClaim.toString(),
+                stage: 'AUDIT_LOGGED',
+                compensation: {},
+                errorMsg: 'Simulated compensation failure'
+            });
+
+            assert.strictEqual(res?.success, false);
+            assert.strictEqual(res?.reason, 'CLAIM_CONFLICT');
+            assert.strictEqual(res?.preempted, true);
         });
 
         test('2.6: Pre-flight check in compensateApplySaga rejects non-canonical tenant with CANONICAL_ORGANIZATION_REQUIRED', async () => {

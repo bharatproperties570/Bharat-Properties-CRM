@@ -3720,9 +3720,8 @@ export const compensateApplySaga = async ({
                 const callerClaimStr = String(claimId);
                 const matchesReal = (realClaimId && realClaimId === callerClaimStr) || (realReconcilerClaimId && realReconcilerClaimId === callerClaimStr);
                 if ((realClaimId || realReconcilerClaimId) && !matchesReal) {
-                    const conflictErr = new Error(`CLAIM_CONFLICT: Caller claimId '${callerClaimStr}' conflicts with actual RunItem claim '${realClaimId || realReconcilerClaimId}'.`);
-                    conflictErr.code = 'CLAIM_CONFLICT';
-                    throw conflictErr;
+                    console.warn(`[SagaCompensation] Preempted claim: Caller claimId '${callerClaimStr}' conflicts with actual RunItem claim '${realClaimId || realReconcilerClaimId}'. Skipping stale compensation.`);
+                    return { success: false, reason: 'CLAIM_CONFLICT', preempted: true };
                 }
             }
         }
