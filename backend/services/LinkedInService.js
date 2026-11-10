@@ -354,6 +354,69 @@ class LinkedInService {
             throw new Error(errDetail);
         }
     }
+
+    /**
+     * Get Normalized LinkedIn Share / Post Statistics (Enterprise Telemetry)
+     */
+    async getNormalizedMetrics(shareUrn) {
+        const config = await this._getConfig();
+        const token = config.accessToken;
+        if (!token) throw new Error('LinkedIn Access Token missing');
+
+        const orgUrn = config.organizationUrn || 'urn:li:organization:42752175';
+
+        const normalized = {
+            impressions: 0,
+            reach: 0,
+            likes: 0,
+            comments: 0,
+            shares: 0,
+            saves: 0,
+            videoViews: 0,
+            clicks: 0,
+            engagement: 0,
+            engagementRate: 0
+        };
+
+        try {
+            let sharesParam = '';
+            if (shareUrn && shareUrn.startsWith('urn:li:')) {
+                sharesParam = `&shares=List(${encodeURIComponent(shareUrn)})`;
+            }
+
+            const url = `${this.restBase}/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(orgUrn)}${sharesParam}`;
+            
+            const response = await axios.get(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'LinkedIn-Version': this.apiVersion,
+                    'X-Restli-Protocol-Version': '2.0.0'
+                }
+            });
+
+            const elements = response.data?.elements || [];
+            if (elements.length > 0) {
+                const stat = elements[0].totalShareStatistics || {};
+                normalized.impressions = stat.impressionCount || 0;
+                normalized.reach = stat.uniqueImpressionsCount || normalized.impressions;
+                normalized.clicks = stat.clickCount || 0;
+                normalized.likes = stat.likeCount || 0;
+                normalized.comments = stat.commentCount || 0;
+                normalized.shares = stat.shareCount || 0;
+                normalized.engagement = normalized.likes + normalized.comments + normalized.shares + normalized.clicks;
+                if (stat.engagement !== undefined) {
+                    normalized.engagementRate = parseFloat((Number(stat.engagement) * 100).toFixed(2));
+                } else if (normalized.impressions > 0) {
+                    normalized.engagementRate = parseFloat(((normalized.engagement / normalized.impressions) * 100).toFixed(2));
+                }
+            }
+
+            return { success: true, metrics: normalized };
+        } catch (err) {
+            console.error('[LinkedInService] getNormalizedMetrics error:', err.response?.data || err.message);
+            return { success: false, metrics: normalized, error: err.message };
+        }
+    }
 }
 
 export default new LinkedInService();

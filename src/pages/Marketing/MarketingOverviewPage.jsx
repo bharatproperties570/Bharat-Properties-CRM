@@ -183,6 +183,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [agentStep, setAgentStep] = useState(0);
   const [isRunningAgent, setIsRunningAgent] = useState(false);
   const [agentDone, setAgentDone] = useState(false);
+  const [socialTelemetry, setSocialTelemetry] = useState(null);
+  const [isSyncingTelemetry, setIsSyncingTelemetry] = useState(false);
   const [terminalLogs, setTerminalLogs] = useState([
     { type: 'dim', text: '$ node ai-master-agent.js --multi-model' },
     { type: 'dim', text: '  System ready. Waiting for trigger...' },
@@ -503,6 +505,12 @@ export default function MarketingOverviewPage({ onNavigate }) {
       try {
         const autoRes = await marketingAPI.getAutopilotConfig();
         if (autoRes?.success && autoRes.config) setAutopilotConfig(autoRes.config);
+      } catch (_) {}
+
+      // Fetch Live Social Telemetry & Inbound Post Analytics
+      try {
+        const telRes = await marketingAPI.getSocialTelemetry(30);
+        if (telRes?.success && telRes.digest) setSocialTelemetry(telRes.digest);
       } catch (_) {}
 
       // Fetch Lookups & Users for filters (Hardened)
@@ -1203,6 +1211,24 @@ export default function MarketingOverviewPage({ onNavigate }) {
     return AGENT_RESULTS?.[id] || 'Agent task completed.';
   };
 
+  const handleSyncTelemetry = async () => {
+    setIsSyncingTelemetry(true);
+    addLog('$ Triggering multi-platform telemetry sync (Meta, LinkedIn, YouTube)...', 'cmd');
+    try {
+      const res = await marketingAPI.syncSocialTelemetry(30);
+      if (res?.success) {
+        setSocialTelemetry(res.digest);
+        addLog(`✓ Social telemetry synced! ${res.stats?.syncedCount || 0} posts verified.`, 'success');
+        toast.success(`Social Telemetry Synced! ${res.stats?.syncedCount || 0} posts updated.`);
+      }
+    } catch (err) {
+      addLog(`✗ Telemetry sync error: ${err.message}`, 'warn');
+      toast.error(`Telemetry sync error: ${err.message}`);
+    } finally {
+      setIsSyncingTelemetry(false);
+    }
+  };
+
   const runAgentTask = async (id) => {
     if (agentLoading[id]) return;
     const config = AGENT_MODEL_MAP[id];
@@ -1212,6 +1238,25 @@ export default function MarketingOverviewPage({ onNavigate }) {
     addLog(`$ Activating ${config.label}...`, 'cmd');
     addLog(`  Provider: ${config.provider.toUpperCase()} | Model: ${config.model}`, 'info');
     const ctx = { deals: realDeals.slice(0,5), leads: leads.slice(0,5), hotLeads: realStats?.hotLeads, totalDeals: realDeals.length, posts };
+    
+    // Inject Live Telemetry for Metrics Manager
+    if (id === 'metrics') {
+      let currentTel = socialTelemetry;
+      if (!currentTel) {
+        try {
+          const tRes = await marketingAPI.getSocialTelemetry(30);
+          if (tRes?.success && tRes.digest) {
+            currentTel = tRes.digest;
+            setSocialTelemetry(tRes.digest);
+          }
+        } catch (_) {}
+      }
+      ctx.telemetry = currentTel;
+      if (currentTel) {
+        addLog(`  📡 Ingested Live Telemetry: ${currentTel.totalReach || 0} reach, ${currentTel.totalEngagement || 0} engagements`, 'success');
+      }
+    }
+
     addLog(`  CRM context: ${ctx.deals.length} deals, ${ctx.leads.length} leads injected`, 'dim');
     for (const step of config.thinkingSteps) {
       await new Promise(r => setTimeout(r, 320 + Math.random()*180));
@@ -2908,6 +2953,93 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* 📡 Live Social Telemetry & Inbound Analytics Hub */}
+              <div className="card" style={{ marginBottom: '1.25rem', background: 'linear-gradient(135deg, rgba(66,133,244,0.06) 0%, rgba(16,163,127,0.04) 100%)', border: '1px solid rgba(66,133,244,0.2)' }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#35B97A', boxShadow: '0 0 8px #35B97A' }}></div>
+                    <div className="card-title text-serif" style={{ fontSize: '13px', fontWeight: 800 }}>
+                      📡 Inbound Social Telemetry & Post Analytics Loop
+                    </div>
+                    <span style={{ fontSize: '10px', background: 'rgba(66,133,244,0.12)', color: '#4285f4', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                      Meta · LinkedIn · YouTube · GBP
+                    </span>
+                  </div>
+                  <button 
+                    onClick={handleSyncTelemetry} 
+                    disabled={isSyncingTelemetry}
+                    style={{ 
+                      background: 'rgba(66,133,244,0.15)', 
+                      border: '1px solid rgba(66,133,244,0.3)', 
+                      color: '#4285f4', 
+                      borderRadius: '8px', 
+                      padding: '5px 12px', 
+                      fontSize: '11px', 
+                      fontWeight: 700, 
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    {isSyncingTelemetry ? <span className="spinner-sm"></span> : '🔄'}
+                    {isSyncingTelemetry ? 'Syncing Telemetry...' : 'Sync Live Social Analytics'}
+                  </button>
+                </div>
+                <div className="card-body" style={{ paddingTop: '10px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>Total Reach</div>
+                      <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                        {socialTelemetry ? Number(socialTelemetry.totalReach || 0).toLocaleString('en-IN') : '—'}
+                      </div>
+                      <div style={{ fontSize: '9.5px', color: '#35B97A', marginTop: '2px' }}>Unique Viewers</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>Impressions</div>
+                      <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--blue)', marginTop: '2px' }}>
+                        {socialTelemetry ? Number(socialTelemetry.totalImpressions || 0).toLocaleString('en-IN') : '—'}
+                      </div>
+                      <div style={{ fontSize: '9.5px', color: 'var(--text3)', marginTop: '2px' }}>Feed Views</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>Total Engagement</div>
+                      <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--gold)', marginTop: '2px' }}>
+                        {socialTelemetry ? Number(socialTelemetry.totalEngagement || 0).toLocaleString('en-IN') : '—'}
+                      </div>
+                      <div style={{ fontSize: '9.5px', color: 'var(--text3)', marginTop: '2px' }}>Likes · Comments · Saves</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>Avg Engagement Rate</div>
+                      <div style={{ fontSize: '18px', fontWeight: 800, color: '#10a37f', marginTop: '2px' }}>
+                        {socialTelemetry ? `${socialTelemetry.averageEngagementRate || 0}%` : '—'}
+                      </div>
+                      <div style={{ fontSize: '9.5px', color: '#10a37f', marginTop: '2px' }}>vs 1.8% Industry Avg</div>
+                    </div>
+                  </div>
+
+                  {/* Channel telemetry status pills */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700 }}>Channels Connected:</span>
+                    <span style={{ fontSize: '9.5px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(24,119,242,0.1)', color: '#1877F2', border: '1px solid rgba(24,119,242,0.2)' }}>
+                      f Facebook: {socialTelemetry?.platformBreakdown?.facebook?.posts || 0} posts synced
+                    </span>
+                    <span style={{ fontSize: '9.5px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(225,48,108,0.1)', color: '#E1306C', border: '1px solid rgba(225,48,108,0.2)' }}>
+                      📸 Instagram: {socialTelemetry?.platformBreakdown?.instagram?.posts || 0} posts synced
+                    </span>
+                    <span style={{ fontSize: '9.5px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(10,102,194,0.1)', color: '#0A66C2', border: '1px solid rgba(10,102,194,0.2)' }}>
+                      in LinkedIn: {socialTelemetry?.platformBreakdown?.linkedin?.posts || 0} posts synced
+                    </span>
+                    <span style={{ fontSize: '9.5px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,0,0,0.1)', color: '#FF0000', border: '1px solid rgba(255,0,0,0.2)' }}>
+                      ▶ YouTube: {socialTelemetry?.platformBreakdown?.youtube?.posts || 0} videos
+                    </span>
+                    <span style={{ fontSize: '9.5px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(234,67,53,0.1)', color: '#EA4335', border: '1px solid rgba(234,67,53,0.2)' }}>
+                      G Google Business: Quota Pending
+                    </span>
+                  </div>
                 </div>
               </div>
 

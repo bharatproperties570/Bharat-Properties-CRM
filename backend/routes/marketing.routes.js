@@ -44,7 +44,9 @@ import {
     generateVisualAsset,
     triggerAutonomousCycle,
     getAutopilotConfig,
-    saveAutopilotConfig
+    saveAutopilotConfig,
+    getSocialTelemetry,
+    triggerSocialTelemetrySync
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -138,6 +140,10 @@ router.delete('/scheduled/:id', deleteScheduledCampaign);
 router.post('/autonomous-cycle', triggerAutonomousCycle);
 router.get('/autopilot-config', getAutopilotConfig);
 router.post('/autopilot-config', saveAutopilotConfig);
+
+// ── Closed-Loop Social Telemetry & Post Analytics ─────────────────────────────
+router.get('/social-telemetry', getSocialTelemetry);
+router.post('/sync-social-telemetry', triggerSocialTelemetrySync);
 
 export default router;
 

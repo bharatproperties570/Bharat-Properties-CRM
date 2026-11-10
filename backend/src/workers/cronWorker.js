@@ -556,6 +556,14 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         return result;
     }
 
+    if (job.name === 'socialAnalyticsSync') {
+        console.log('[Cron Worker] Executing socialAnalyticsSync...');
+        const { default: socialAnalyticsSyncService } = await import('../../services/SocialAnalyticsSyncService.js');
+        const result = await socialAnalyticsSyncService.syncAllRecentPosts(30);
+        console.log('[Cron Worker] socialAnalyticsSync completed:', result);
+        return result;
+    }
+
 }, workerOptions);
 
 cronWorker.on('failed', async (job, err) => {

@@ -255,6 +255,10 @@ export const marketingAPI = {
     triggerAutonomousCycle: (payload = {}) => api.post('/marketing/autonomous-cycle', payload).then(res => res.data),
     getAutopilotConfig: () => api.get('/marketing/autopilot-config').then(res => res.data),
     saveAutopilotConfig: (config) => api.post('/marketing/autopilot-config', { config }).then(res => res.data),
+
+    // ── Closed-Loop Social Telemetry & Post Analytics ──
+    getSocialTelemetry: (days = 30) => api.get('/marketing/social-telemetry', { params: { days } }).then(res => res.data),
+    syncSocialTelemetry: (days = 30) => api.post('/marketing/sync-social-telemetry', { days }).then(res => res.data),
 };
 
 export const whatsappOnboardingAPI = {

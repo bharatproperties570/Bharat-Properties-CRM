@@ -157,6 +157,44 @@ class GoogleBusinessService {
             throw new Error(errDetail);
         }
     }
+
+    /**
+     * Get Normalized Google Business Profile Local Post Metrics (Enterprise Telemetry)
+     * Gracefully handles pending GCP quota review without breaking the sync loop
+     */
+    async getNormalizedMetrics(locationId = null) {
+        const normalized = {
+            impressions: 0,
+            reach: 0,
+            likes: 0,
+            comments: 0,
+            shares: 0,
+            saves: 0,
+            videoViews: 0,
+            clicks: 0,
+            engagement: 0,
+            engagementRate: 0
+        };
+
+        try {
+            const auth = await this._getOAuthClient();
+            if (!auth) return { success: false, pendingQuota: true, metrics: normalized };
+
+            return {
+                success: true,
+                pendingQuota: true,
+                metrics: normalized,
+                note: 'Awaiting Google Cloud project GBP API quota review'
+            };
+        } catch (error) {
+            return {
+                success: false,
+                pendingQuota: true,
+                metrics: normalized,
+                error: error.message
+            };
+        }
+    }
 }
 
 export default new GoogleBusinessService();
