@@ -102,6 +102,56 @@ class YouTubeService {
             throw new Error(errDetail);
         }
     }
+
+    /**
+     * Get Normalized YouTube Video Metrics (Enterprise Telemetry)
+     */
+    async getNormalizedMetrics(videoId) {
+        const normalized = {
+            impressions: 0,
+            reach: 0,
+            likes: 0,
+            comments: 0,
+            shares: 0,
+            saves: 0,
+            videoViews: 0,
+            clicks: 0,
+            engagement: 0,
+            engagementRate: 0
+        };
+
+        try {
+            const auth = await this._getOAuthClient();
+            const youtube = google.youtube({ version: 'v3', auth });
+
+            const cleanId = (videoId || '').replace('https://www.youtube.com/watch?v=', '').replace('https://youtu.be/', '').trim();
+            if (!cleanId) return { success: false, metrics: normalized, error: 'Empty videoId' };
+
+            const response = await youtube.videos.list({
+                part: 'statistics,snippet',
+                id: [cleanId]
+            });
+
+            const item = response.data?.items?.[0];
+            if (item) {
+                const stats = item.statistics || {};
+                normalized.videoViews = parseInt(stats.viewCount || 0, 10);
+                normalized.impressions = normalized.videoViews;
+                normalized.reach = normalized.videoViews;
+                normalized.likes = parseInt(stats.likeCount || 0, 10);
+                normalized.comments = parseInt(stats.commentCount || 0, 10);
+                normalized.engagement = normalized.likes + normalized.comments;
+                if (normalized.impressions > 0) {
+                    normalized.engagementRate = parseFloat(((normalized.engagement / normalized.impressions) * 100).toFixed(2));
+                }
+            }
+
+            return { success: true, metrics: normalized };
+        } catch (error) {
+            console.error('[YouTubeService] getNormalizedMetrics error:', error.response?.data || error.message);
+            return { success: false, metrics: normalized, error: error.message };
+        }
+    }
 }
 
 export default new YouTubeService();

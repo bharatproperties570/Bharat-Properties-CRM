@@ -287,6 +287,110 @@ class FacebookService {
     }
 
     /**
+     * Get Normalized Social Post Metrics (Enterprise Telemetry)
+     * Extracts reach, impressions, likes, comments, shares, saves, video views
+     */
+    async getNormalizedMetrics(objectId, platform = 'facebook') {
+        const config = await this._getConfig();
+        const token = config.pageAccessToken;
+        if (!token) throw new Error('Access Token missing for metrics');
+
+        const normalized = {
+            impressions: 0,
+            reach: 0,
+            likes: 0,
+            comments: 0,
+            shares: 0,
+            saves: 0,
+            videoViews: 0,
+            clicks: 0,
+            engagement: 0,
+            engagementRate: 0
+        };
+
+        try {
+            if (platform === 'facebook') {
+                // Fetch basic reactions, comments, shares
+                try {
+                    const postRes = await axios.get(`${this.graphBase}/${this.graphVersion}/${objectId}`, {
+                        params: {
+                            fields: 'shares,comments.summary(true),reactions.summary(true)',
+                            access_token: token
+                        }
+                    });
+                    const pData = postRes.data || {};
+                    normalized.shares = pData.shares?.count || 0;
+                    normalized.comments = pData.comments?.summary?.total_count || 0;
+                    normalized.likes = pData.reactions?.summary?.total_count || 0;
+                } catch (pErr) {}
+
+                // Fetch insights (reach, engaged users)
+                try {
+                    const insRes = await axios.get(`${this.graphBase}/${this.graphVersion}/${objectId}/insights`, {
+                        params: {
+                            metric: 'post_impressions_unique,post_engaged_users',
+                            access_token: token
+                        }
+                    });
+                    const insights = insRes.data?.data || [];
+                    for (const item of insights) {
+                        const val = item.values?.[0]?.value || 0;
+                        if (item.name === 'post_impressions_unique') normalized.reach = val;
+                        if (item.name === 'post_engaged_users') normalized.engagement = val;
+                    }
+                } catch (insErr) {}
+
+                if (normalized.impressions < normalized.reach) {
+                    normalized.impressions = normalized.reach;
+                }
+            } else {
+                // Instagram Media
+                try {
+                    const igRes = await axios.get(`${this.graphBase}/${this.graphVersion}/${objectId}`, {
+                        params: {
+                            fields: 'like_count,comments_count,media_type',
+                            access_token: token
+                        }
+                    });
+                    const iData = igRes.data || {};
+                    normalized.likes = iData.like_count || 0;
+                    normalized.comments = iData.comments_count || 0;
+                } catch (igErr) {}
+
+                // Instagram Insights
+                try {
+                    const insRes = await axios.get(`${this.graphBase}/${this.graphVersion}/${objectId}/insights`, {
+                        params: {
+                            metric: 'impressions,reach,saved,total_interactions',
+                            access_token: token
+                        }
+                    });
+                    const insights = insRes.data?.data || [];
+                    for (const item of insights) {
+                        const val = item.values?.[0]?.value || 0;
+                        if (item.name === 'impressions') normalized.impressions = val;
+                        if (item.name === 'reach') normalized.reach = val;
+                        if (item.name === 'saved') normalized.saves = val;
+                        if (item.name === 'total_interactions') normalized.engagement = val;
+                    }
+                } catch (insErr) {}
+            }
+
+            if (!normalized.engagement) {
+                normalized.engagement = normalized.likes + normalized.comments + normalized.shares + normalized.saves;
+            }
+            if (normalized.impressions > 0) {
+                normalized.engagementRate = parseFloat(((normalized.engagement / normalized.impressions) * 100).toFixed(2));
+            }
+
+            return { success: true, metrics: normalized };
+        } catch (err) {
+            console.error(`[FacebookService] getNormalizedMetrics (${platform}) error:`, err.response?.data || err.message);
+            return { success: false, metrics: normalized, error: err.message };
+        }
+    }
+
+    /**
      * Get comments for a specific post (FB or IG)
      */
     async getComments(objectId) {

@@ -138,6 +138,7 @@ async function startServer() {
             cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
             cronQueue.add('recoverSiteVisitDispatches', {}, { repeat: { pattern: '* * * * *' } }).catch(() => {});
             cronQueue.add('autonomousMarketingCycle', {}, { repeat: { pattern: '0 8 * * *' } }).catch(() => {});
+            cronQueue.add('socialAnalyticsSync', {}, { repeat: { pattern: '0 */6 * * *' } }).catch(() => {});
             googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
         } catch (queueErr) {}
 
