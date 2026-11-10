@@ -29,7 +29,11 @@ mock.module('../models/DistributionRule.js', {
 mock.module('../models/User.js', {
     defaultExport: {
         find: mock.fn(),
-        findById: mock.fn(),
+        findById: mock.fn((id) => ({
+            session: () => ({ lean: () => ({ _id: id, preferences: { capacityLimit: 100 } }) }),
+            lean: () => ({ _id: id, preferences: { capacityLimit: 100 } }),
+            then: (resolve) => resolve({ _id: id, preferences: { capacityLimit: 100 } })
+        })),
         updateOne: mock.fn(() => Promise.resolve({ modifiedCount: 1, matchedCount: 1 }))
     }
 });

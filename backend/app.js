@@ -212,7 +212,39 @@ app.get("/api/ready", (req, res) => {
         return res.status(503).json({ status: "not_ready", redis: "mock_fallback_active", reason: "Redis is required for production BullMQ" });
     }
 
-    res.status(200).json({ status: "ready", database: dbState, redis: "online" });
+    const workersStatus = {};
+    if (req.app.locals?.workers && Array.isArray(req.app.locals.workers)) {
+        for (const w of req.app.locals.workers) {
+            const name = w.name || w.constructor?.name || 'worker';
+            workersStatus[name] = typeof w.isRunning === 'function' ? (w.isRunning() ? 'running' : 'stopped') : 'active';
+        }
+    }
+
+    res.status(200).json({
+        status: "ready",
+        database: dbState,
+        redis: "online",
+        workersRegistered: Boolean(req.app.locals?.workersRegistered),
+        workerCount: req.app.locals?.workers ? req.app.locals.workers.length : 0,
+        workers: workersStatus
+    });
+});
+
+app.get("/api/workers/readiness", (req, res) => {
+    const workersStatus = {};
+    if (req.app.locals?.workers && Array.isArray(req.app.locals.workers)) {
+        for (const w of req.app.locals.workers) {
+            const name = w.name || w.constructor?.name || 'worker';
+            workersStatus[name] = typeof w.isRunning === 'function' ? (w.isRunning() ? 'running' : 'stopped') : 'active';
+        }
+    }
+    const count = req.app.locals?.workers ? req.app.locals.workers.length : 0;
+    const isReady = Boolean(req.app.locals?.workersRegistered) && count > 0;
+    res.status(isReady ? 200 : 503).json({
+        ready: isReady,
+        count,
+        workers: workersStatus
+    });
 });
 
 app.get("/api/health", (req, res) => {

@@ -115,6 +115,15 @@ export class WorkloadAggregationError extends Error {
     }
 }
 
+export class CapacityConfigurationError extends Error {
+    constructor(message, cause) {
+        super(message);
+        this.name = 'CapacityConfigurationError';
+        this.code = 'CAPACITY_CONFIGURATION_READ_FAILED';
+        if (cause) this.cause = cause;
+    }
+}
+
 /**
  * P7-R1: Unified active workload aggregator across Leads and Deals.
  * Excludes terminal stages:
@@ -627,6 +636,9 @@ export const executeDistributionCycle = async (pointerPayload) => {
             try {
                 return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name, originalAssignedTo, cycleId, normalizedTrigger, attempt);
             } catch (assignErr) {
+                if (assignErr instanceof CapacityConfigurationError || assignErr?.name === 'CapacityConfigurationError' || (assignErr.message && assignErr.message.includes('CapacityConfigurationError'))) {
+                    throw assignErr;
+                }
                 if (assignErr.message && assignErr.message.includes('CAPACITY_EXCEEDED')) {
                     console.warn(`[DistributionEngine] Candidate ${assignedTo} capped during race. Disqualifying from cycle.`);
                     underCapacityUsers = underCapacityUsers.filter(u => String(u._id) !== String(assignedTo));
@@ -713,17 +725,29 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
             const LeadModel = (await import('../../models/Lead.js')).default;
             const DealModel = (await import('../../models/Deal.js')).default;
 
-            let capLimit = 100;
+            let capLimit;
             if (typeof User.findById === 'function') {
+                let userQuery = User.findById(assignedTo);
+                let assignedUserDoc;
                 try {
-                    const userQuery = User.findById(assignedTo);
-                    const assignedUserDoc = typeof userQuery?.session === 'function'
+                    assignedUserDoc = typeof userQuery?.session === 'function'
                         ? await userQuery.session(session).lean()
                         : (typeof userQuery?.lean === 'function' ? await userQuery.lean() : await userQuery);
-                    if (assignedUserDoc?.preferences?.capacityLimit !== undefined && assignedUserDoc?.preferences?.capacityLimit !== null) {
-                        capLimit = assignedUserDoc.preferences.capacityLimit;
-                    }
-                } catch (e) {}
+                } catch (lookupErr) {
+                    throw new CapacityConfigurationError(`Failed to retrieve capacity configuration for user ${assignedTo}: ${lookupErr.message}`, lookupErr);
+                }
+
+                if (!assignedUserDoc) {
+                    throw new CapacityConfigurationError(`Target user ${assignedTo} not found for capacity configuration`);
+                }
+
+                if (assignedUserDoc?.preferences?.capacityLimit !== undefined && assignedUserDoc?.preferences?.capacityLimit !== null) {
+                    capLimit = assignedUserDoc.preferences.capacityLimit;
+                } else {
+                    capLimit = 100;
+                }
+            } else {
+                capLimit = 100;
             }
 
             if (capLimit > 0 && mongoose.connection?.readyState === 1 && typeof LeadModel.countDocuments === 'function' && typeof DealModel.countDocuments === 'function') {
@@ -877,6 +901,20 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
         if (txErr.code === 11000) {
             console.log(`[Distribution] Duplicate audit detected. Safely skipping cycle ${cycleId}.`);
             return null;
+        }
+        if (txErr instanceof CapacityConfigurationError || txErr?.name === 'CapacityConfigurationError' || (txErr.message && txErr.message.includes('CapacityConfigurationError'))) {
+            const auditReason = `CapacityConfigurationError: ${txErr.message}`;
+            console.warn(`[Distribution] ${auditReason}. Writing SKIPPED audit.`);
+            await logAudit({
+                entityId: entity._id,
+                modelName,
+                cycleId,
+                triggerEvent,
+                status: 'SKIPPED',
+                reason: auditReason,
+                attempt
+            });
+            throw txErr;
         }
         if (txErr.message && txErr.message.includes('CAPACITY_EXCEEDED')) {
             console.warn(`[Distribution] ${txErr.message}. Writing SKIPPED audit.`);
