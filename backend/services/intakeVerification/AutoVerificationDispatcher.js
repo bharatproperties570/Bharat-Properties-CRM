@@ -445,6 +445,13 @@ class AutoVerificationDispatcher {
         console.log('✅ [AutoDispatcher] Circuit breaker manually RESET.');
         return settings;
     }
+
+    /**
+     * BullMQ Worker accessor for lifecycle and health evaluation
+     */
+    get worker() {
+        return this._worker;
+    }
 }
 
 export default new AutoVerificationDispatcher();

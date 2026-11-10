@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import mongoose from "mongoose";
 import redisProxy from "./src/config/redis.js";
+import { evaluateWorkerReadiness, REQUIRED_WORKERS } from "./src/workers/workerRegistry.js";
 import { AppError } from "./src/middlewares/error.middleware.js";
 import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
 import { previewWriteGuard } from "./middleware/previewGuard.middleware.js";
@@ -198,53 +199,103 @@ app.get("/api/version", (req, res) => {
 app.get("/api/ready", (req, res) => {
     const dbState = mongoose.connection.readyState;
     const isMockRedis = redisProxy?.isMock;
-    const isTest = process.env.MOCK_MODE === "true" || process.env.NODE_ENV === "test";
 
-    if (isTest) {
-        return res.status(200).json({ status: "ready", mock: true, database: dbState, redis_mock: isMockRedis });
-    }
-
+    // 1. Database Check (MongoDB must be connected)
     if (dbState !== 1) {
-        return res.status(503).json({ status: "not_ready", database: dbState, reason: "MongoDB disconnected" });
+        return res.status(503).json({
+            status: "not_ready",
+            database: dbState,
+            reason: "MongoDB disconnected"
+        });
     }
 
-    if (isMockRedis) {
-        return res.status(503).json({ status: "not_ready", redis: "mock_fallback_active", reason: "Redis is required for production BullMQ" });
+    // 2. Redis Check
+    // In production, real Redis is required (MockRedis is rejected)
+    if (process.env.NODE_ENV === 'production' && isMockRedis) {
+        return res.status(503).json({
+            status: "not_ready",
+            redis: "mock_fallback_active",
+            reason: "Redis is required for production BullMQ"
+        });
     }
 
-    const workersStatus = {};
-    if (req.app.locals?.workers && Array.isArray(req.app.locals.workers)) {
-        for (const w of req.app.locals.workers) {
-            const name = w.name || w.constructor?.name || 'worker';
-            workersStatus[name] = typeof w.isRunning === 'function' ? (w.isRunning() ? 'running' : 'stopped') : 'active';
-        }
+    // In all environments, Redis must be available and not closed/disconnected
+    const isRedisDisconnected = redisProxy?.isOnline === false ||
+        redisProxy?.status === 'disconnected' ||
+        redisProxy?.status === 'close' ||
+        redisProxy?.status === 'end' ||
+        req.app?.locals?.redisAvailable === false;
+
+    if (isRedisDisconnected) {
+        return res.status(503).json({
+            status: "not_ready",
+            redis: (req.app?.locals?.redisAvailable === false ? "disconnected" : (redisProxy?.status || "unavailable")),
+            reason: "Redis is unavailable"
+        });
     }
 
+    // 3. Worker Readiness Evaluation
+    const readiness = evaluateWorkerReadiness(req.app.locals?.workers);
+    const workersFlag = Boolean(req.app.locals?.workersRegistered);
+
+    // Fail if registration flag is false, or if any required worker is missing or stopped
+    if (!workersFlag || !readiness.ready) {
+        return res.status(503).json({
+            status: "not_ready",
+            database: dbState,
+            redis: isMockRedis ? "mock_online" : "online",
+            workersRegistered: workersFlag,
+            expectedWorkerCount: readiness.expectedCount,
+            registeredWorkerCount: readiness.registeredCount,
+            activeWorkerCount: readiness.activeCount,
+            workers: readiness.workers,
+            missingWorkers: readiness.missing,
+            stoppedWorkers: readiness.stopped,
+            reason: !workersFlag
+                ? "Worker registration incomplete"
+                : `Worker readiness failure: ${readiness.missing.length} missing, ${readiness.stopped.length} stopped`
+        });
+    }
+
+    // All checks healthy: return HTTP 200
     res.status(200).json({
         status: "ready",
         database: dbState,
-        redis: "online",
-        workersRegistered: Boolean(req.app.locals?.workersRegistered),
-        workerCount: req.app.locals?.workers ? req.app.locals.workers.length : 0,
-        workers: workersStatus
+        redis: isMockRedis ? "mock_online" : "online",
+        workersRegistered: true,
+        expectedWorkerCount: readiness.expectedCount,
+        registeredWorkerCount: readiness.registeredCount,
+        workerCount: readiness.registeredCount,
+        workers: readiness.workers
     });
 });
 
 app.get("/api/workers/readiness", (req, res) => {
-    const workersStatus = {};
-    if (req.app.locals?.workers && Array.isArray(req.app.locals.workers)) {
-        for (const w of req.app.locals.workers) {
-            const name = w.name || w.constructor?.name || 'worker';
-            workersStatus[name] = typeof w.isRunning === 'function' ? (w.isRunning() ? 'running' : 'stopped') : 'active';
+    const readiness = evaluateWorkerReadiness(req.app.locals?.workers);
+    const workersFlag = Boolean(req.app.locals?.workersRegistered);
+
+    const isHealthy = workersFlag && readiness.ready;
+
+    const responsePayload = {
+        ready: isHealthy,
+        expectedCount: readiness.expectedCount,
+        registeredCount: readiness.registeredCount,
+        activeCount: readiness.activeCount,
+        workers: readiness.workers
+    };
+
+    if (!isHealthy) {
+        responsePayload.missingWorkers = readiness.missing;
+        responsePayload.stoppedWorkers = readiness.stopped;
+        if (!workersFlag) {
+            responsePayload.reason = "Worker registration flag not set or registration incomplete";
+        } else {
+            responsePayload.reason = `Required workers unhealthy: ${readiness.missing.length} missing, ${readiness.stopped.length} stopped`;
         }
+        return res.status(503).json(responsePayload);
     }
-    const count = req.app.locals?.workers ? req.app.locals.workers.length : 0;
-    const isReady = Boolean(req.app.locals?.workersRegistered) && count > 0;
-    res.status(isReady ? 200 : 503).json({
-        ready: isReady,
-        count,
-        workers: workersStatus
-    });
+
+    res.status(200).json(responsePayload);
 });
 
 app.get("/api/health", (req, res) => {

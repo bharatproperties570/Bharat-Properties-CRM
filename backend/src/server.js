@@ -117,16 +117,27 @@ async function startServer() {
         const { baileysWorker, baileysInboundWorker } = await import("../services/baileysQueue/baileysWorker.js");
         const { default: autoVerificationDispatcher } = await import("../services/intakeVerification/AutoVerificationDispatcher.js");
 
+        const { evaluateWorkerReadiness } = await import("./workers/workerRegistry.js");
+
         const activeWorkers = [
             enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,
             distributionWorker, domainEventWorker, notificationWorker,
             intakeWorker, automationWorker, baileysWorker, baileysInboundWorker,
-            autoVerificationDispatcher?._worker
+            autoVerificationDispatcher?.worker || autoVerificationDispatcher?._worker
         ].filter(Boolean);
+
+        const readiness = evaluateWorkerReadiness(activeWorkers);
+        const allRequiredPresent = readiness.missing.length === 0;
 
         if (app && app.locals) {
             app.locals.workers = activeWorkers;
-            app.locals.workersRegistered = true;
+            app.locals.workersRegistered = allRequiredPresent;
+        }
+
+        if (!allRequiredPresent) {
+            console.error(`❌ [Server] Incomplete worker registration! Missing required workers: ${readiness.missing.join(', ')}`);
+        } else {
+            console.log(`✅ [Server] All ${readiness.expectedCount} required BullMQ workers successfully registered.`);
         }
 
         const { outboxPublisher } = await import("../services/OutboxPublisher.js");

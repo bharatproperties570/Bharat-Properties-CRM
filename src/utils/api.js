@@ -200,6 +200,7 @@ export const fixMediaUrl = (url) => {
 // Notification APIs
 export const marketingAPI = {
     getStats: () => api.get('/marketing/stats').then(res => res.data),
+    getAnalyticsOverview: (days = 30) => api.get(`/marketing/analytics-overview?days=${days}`).then(res => res.data),
     getCampaignHistory: () => api.get('/marketing/campaign-runs').then(res => res.data),
     getRecentDeals: () => api.get('/marketing/recent-deals').then(res => res.data),
     broadcastToHub: (data) => api.post('/marketing/broadcast', data).then(res => res.data),

@@ -628,6 +628,8 @@ export class Worker extends EventEmitter {
         } else if (conn && conn.isMock) {
             this.name = name;
             this.processor = processor;
+            this._running = true;
+            this.closed = false;
             mockWorkers.set(name, this);
             console.log(`[MockWorker] Registered mock worker: ${name}`);
             return this;
@@ -635,7 +637,15 @@ export class Worker extends EventEmitter {
         const bullOpts = hasExplicitConnection ? opts : { connection: internalConnection, ...opts };
         return new BullWorker(name, processor, bullOpts);
     }
+    isRunning() {
+        return this._running !== false && !this.closed;
+    }
+    isPaused() {
+        return false;
+    }
     async close() {
+        this._running = false;
+        this.closed = true;
         return;
     }
 }
