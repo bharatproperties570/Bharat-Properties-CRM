@@ -386,19 +386,19 @@ class BrandBannerComposer {
     }
 
     /**
-     * Generate 1080x1080 Festive Banner (Diwali, Dhanteras, Holi, New Year, etc.)
+     * Generate 1080x1080 Festive Banner (Diwali, Dhanteras, Holi, New Year, Baisakhi, etc.)
      */
     async composeFestivalBanner(options = {}) {
-        const {
-            festivalName = 'Dhanteras & Diwali',
-            greeting = 'Shubh Dhanteras & Happy Diwali!',
-            customTitleHi = 'शुभ धनतेरस एवं दीपावली',
-            customTitleEn = 'HAPPY DHANTERAS & DIWALI',
-            subtext = 'May this festive season illuminate your life with joy, enduring wealth, and your dream home!',
-            phone = this.defaultPhone,
-            address = this.defaultAddress,
-            website = this.defaultWebsite
-        } = options;
+        const festivalName = options.festival?.name || options.festivalName || 'Festive Greetings';
+        const greeting = options.festival?.greeting || options.greeting || 'Warm Festive Greetings & Best Wishes!';
+        const customTitleHi = options.customTitleHi || options.festival?.customTitleHi || (festivalName !== 'Festive Greetings' ? `${festivalName} की हार्दिक शुभकामनाएं` : 'त्योहार की हार्दिक शुभकामनाएं');
+        const customTitleEn = options.customTitleEn || options.festival?.customTitleEn || (festivalName !== 'Festive Greetings' ? `HAPPY ${festivalName.toUpperCase()}` : 'FESTIVE CELEBRATIONS');
+        const subtext = options.subtext || options.festival?.subtext || 'May this auspicious occasion bring joy, enduring prosperity, and your dream home!';
+        const phone = options.phone || this.defaultPhone;
+        const address = options.address || this.defaultAddress;
+        const website = options.website || this.defaultWebsite;
+
+        const festivalBadgeText = options.festivalBadge || (festivalName !== 'Festive Greetings' ? `✦ शुभ ${festivalName} महोत्सव ✦` : '✦ पावन पर्व की हार्दिक शुभकामनाएं ✦');
 
         const safeTitleHi = this.escapeXml(customTitleHi);
         const safeTitleEn = this.escapeXml(customTitleEn);
@@ -407,6 +407,7 @@ class BrandBannerComposer {
         const safeAddress = this.escapeXml(address);
         const safeWebsite = this.escapeXml(website);
         const safeFestival = this.escapeXml(festivalName);
+        const safeFestivalBadge = this.escapeXml(festivalBadgeText);
 
         const heroBase64 = await this.getHeroBase64({
             pillar: 'ct-festival',
@@ -487,8 +488,8 @@ class BrandBannerComposer {
 
             <!-- FESTIVAL BADGE (Y: 205) -->
             <g transform="translate(540, 205)">
-                <rect x="-220" y="0" width="440" height="44" rx="22" fill="rgba(212, 175, 55, 0.18)" stroke="url(#goldGradient)" stroke-width="1.8" filter="url(#festDropShadow)"/>
-                <text x="0" y="28" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="2.5">✦ शुभ दीपावली एवं धनतेरस महोत्सव ✦</text>
+                <rect x="-240" y="0" width="480" height="44" rx="22" fill="rgba(212, 175, 55, 0.18)" stroke="url(#goldGradient)" stroke-width="1.8" filter="url(#festDropShadow)"/>
+                <text x="0" y="28" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="2.5">${safeFestivalBadge}</text>
             </g>
 
             <!-- MAIN HEADLINE -->

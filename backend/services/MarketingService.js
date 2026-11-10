@@ -288,9 +288,11 @@ class MarketingService {
             return bannerResult;
         } catch (err) {
             console.error('[MarketingService] Error in BrandBannerComposer:', err);
-            // Resilient fallback
-            return await brandBannerComposer.composeFestivalBanner({
-                phone: '+91 94160-35570 | 99913-33570'
+            // Resilient fallback: fallback to Trust & Authority Banner (never default to festive)
+            return await brandBannerComposer.composeTrustBanner({
+                phone: '+91 94160-35570 | 99913-33570',
+                address: '#166, Sector 3, Huda Market, Kurukshetra, Haryana',
+                website: 'www.bharatproperties.co'
             });
         }
     }
@@ -308,8 +310,9 @@ class MarketingService {
         const m = d.getMonth() + 1; // 1-12
         const day = d.getDate();
         const year = d.getFullYear();
+        const dateKey = `${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-        // Major festival calendar with exact dates, dynamic titles & auspicious greetings
+        // Major Indian festival calendar with exact dates (2025, 2026, 2027) & dynamic titles
         const festivalCalendar = [
             { 
                 name: 'Lohri & Makar Sankranti', 
@@ -331,8 +334,7 @@ class MarketingService {
             },
             { 
                 name: 'Maha Shivratri', 
-                month: 2, 
-                day: 26, 
+                dates: { 2025: '02-26', 2026: '02-15', 2027: '03-06' },
                 customTitleHi: 'महाशिवरात्रि की हार्दिक शुभकामनाएं',
                 customTitleEn: 'HAPPY MAHA SHIVRATRI',
                 greeting: 'Har Har Mahadev! Warm greetings on Maha Shivratri. May Lord Shiva bless your home with peace and prosperity.',
@@ -340,8 +342,7 @@ class MarketingService {
             },
             { 
                 name: 'Holi', 
-                month: 3, 
-                day: 14, 
+                dates: { 2025: '03-14', 2026: '03-04', 2027: '03-22' },
                 customTitleHi: 'रंगों के महापर्व होली की हार्दिक शुभकामनाएं',
                 customTitleEn: 'HAPPY HOLI',
                 greeting: 'Happy Holi! Wishing you and your family vibrant colors of joy, success, and prosperity in your new home.',
@@ -363,12 +364,11 @@ class MarketingService {
                 customTitleHi: 'स्वतंत्रता दिवस की हार्दिक शुभकामनाएं',
                 customTitleEn: 'HAPPY INDEPENDENCE DAY',
                 greeting: 'Happy Independence Day! Celebrate the freedom of owning your own land with Bharat Properties.',
-                subtext: 'Celebrating 100% verified titles and freedom from property disputes with 15+ years of trust.'
+                subtext: 'Celebrating 100% verified titles and freedom from property disputes with 30+ years of trust.'
             },
             { 
                 name: 'Raksha Bandhan', 
-                month: 8, 
-                day: 28, 
+                dates: { 2025: '08-09', 2026: '08-28', 2027: '08-17' },
                 customTitleHi: 'रक्षाबंधन की हार्दिक शुभकामनाएं',
                 customTitleEn: 'HAPPY RAKSHA BANDHAN',
                 greeting: 'Happy Raksha Bandhan! Gift the promise of lifetime security with a verified property.',
@@ -376,11 +376,10 @@ class MarketingService {
             },
             { 
                 name: 'Janmashtami', 
-                month: 9, 
-                day: 4, 
+                dates: { 2025: '08-16', 2026: '09-04', 2027: '08-25' },
                 customTitleHi: 'श्री कृष्ण जन्माष्टमी की शुभकामनाएं',
                 customTitleEn: 'HAPPY JANMASHTAMI',
-                greeting: 'Jai Shri Krishna! Warm wishes on Janmashtami from the land of Gita, Kurukshetra.',
+                greeting: 'Jai Shri Krishna! Warm wishes on Janmashtami from the sacred land of Gita, Kurukshetra.',
                 subtext: 'Divine blessings of Lord Krishna from the holy land of Dharamkshetra Kurukshetra.'
             },
             { 
@@ -394,35 +393,55 @@ class MarketingService {
             },
             { 
                 name: 'Navratri & Dussehra', 
-                month: 10, 
-                day: 20, 
+                dates: { 2025: '10-02', 2026: '10-20', 2027: '10-10' },
                 customTitleHi: 'विजयादशमी एवं दशहरा की शुभकामनाएं',
                 customTitleEn: 'HAPPY DUSSEHRA',
                 greeting: 'Subh Navratri & Happy Dussehra! May the victory of good over evil bring abundant prosperity to your household.',
                 subtext: 'May the victory of truth illuminate new beginnings and auspicious milestones in real estate ownership.'
             },
             { 
+                name: 'Karwa Chauth', 
+                dates: { 2025: '10-10', 2026: '10-29', 2027: '10-18' },
+                customTitleHi: 'करवा चौथ की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY KARWA CHAUTH',
+                greeting: 'Happy Karwa Chauth! Wishing all families lifelong happiness, togetherness, and security in their own home.',
+                subtext: 'Celebrating timeless love, devotion, and permanent family security with Bharat Properties.'
+            },
+            { 
                 name: 'Dhanteras & Diwali', 
-                month: 11, 
-                day: 8, 
+                dates: { 2025: '10-20', 2026: '11-08', 2027: '10-29' },
                 customTitleHi: 'शुभ धनतेरस एवं दीपावली',
                 customTitleEn: 'HAPPY DHANTERAS & DIWALI',
                 greeting: 'Shubh Dhanteras & Happy Diwali! This festive season, invest in enduring wealth with prime verified real estate.',
                 subtext: 'May Goddess Lakshmi illuminate your life with infinite wealth, happiness, and your dream home!'
             },
             { 
+                name: 'Govardhan Puja', 
+                dates: { 2025: '10-22', 2026: '11-09', 2027: '10-30' },
+                customTitleHi: 'गोवर्धन पूजा की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY GOVARDHAN PUJA',
+                greeting: 'Happy Govardhan Puja! May Lord Krishna protect and nourish your household with peace and prosperity.',
+                subtext: 'May divine blessings nourish your roots and bring abundance to your investments.'
+            },
+            { 
                 name: 'Bhai Dooj', 
-                month: 11, 
-                day: 11, 
+                dates: { 2025: '10-23', 2026: '11-10', 2027: '10-31' },
                 customTitleHi: 'भाई दूज की हार्दिक शुभकामनाएं',
                 customTitleEn: 'HAPPY BHAI DOOJ',
-                greeting: 'Happy Bhai Dooj! Strengthening the bonds of trust and care with Bharat Properties.',
-                subtext: 'Celebrating timeless bonds with lifetime security and transparent real estate investments.'
+                greeting: 'Happy Bhai Dooj! Strengthening the timeless bonds of trust, protection, and care with Bharat Properties.',
+                subtext: 'Celebrating timeless family bonds with undisputed registry and permanent asset protection.'
+            },
+            { 
+                name: 'Chhath Puja', 
+                dates: { 2025: '10-27', 2026: '11-15', 2027: '11-04' },
+                customTitleHi: 'छठ महापर्व की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY CHHATH PUJA',
+                greeting: 'Happy Chhath Puja! May the Sun God bestow health, positivity, and boundless prosperity upon your family.',
+                subtext: 'Saluting the radiant Sun God and celebrating purity, determination, and prosperous beginnings.'
             },
             { 
                 name: 'Guru Nanak Jayanti (Gurpurab)', 
-                month: 11, 
-                day: 24, 
+                dates: { 2025: '11-05', 2026: '11-24', 2027: '11-14' },
                 customTitleHi: 'गुरुपर्व दी लख-लख वधाइयां',
                 customTitleEn: 'GURPURAB DI LAKH LAKH VADHAYIAN',
                 greeting: 'Gurpurab Di Lakh Lakh Vadhaiyan! May Guru Nanak Dev Ji guide your path with peace, harmony, and prosperity.',
@@ -449,8 +468,15 @@ class MarketingService {
         ];
 
         for (const fest of festivalCalendar) {
+            let matchesToday = false;
+            if (fest.dates && fest.dates[year]) {
+                matchesToday = (fest.dates[year] === dateKey);
+            } else if (fest.month && fest.day) {
+                matchesToday = (fest.month === m && fest.day === day);
+            }
+
             // Strict Date Mandate: Festival posts MUST ONLY trigger on the exact date of the festival
-            if (fest.month === m && fest.day === day) {
+            if (matchesToday) {
                 // Deduplication Mandate: Check if a post for this festival has already been published/scheduled this year
                 if (mongoose.connection && mongoose.connection.readyState === 1 && !options.ignoreDuplicateCheck) {
                     try {
@@ -768,6 +794,115 @@ class MarketingService {
     }
 
     /**
+     * Generate Brands.live-Caliber Multi-Channel & Multi-Language Captions
+     * Formats copy specifically for Facebook, Instagram, LinkedIn, YouTube & Google Business Profile
+     */
+    generateBrandsLiveCaptions(pillar, payload = {}) {
+        const {
+            deal = {},
+            displayUnit = 'Prime Property',
+            projName = 'Kurukshetra Prime',
+            loc = 'Kurukshetra, Haryana',
+            sizeStr = 'Prime Area',
+            priceStr = 'Best Offer',
+            facing = '',
+            roadWidth = '',
+            dimensions = '',
+            builtupSummary = '',
+            reraText = '',
+            festival = {},
+            edu = {},
+            trust = {},
+            regionalPhone = '+91 94160-35570',
+            secondaryPhone = '+91 99913-33570',
+            whatsappUrl = 'https://wa.me/919416035570',
+            officeAddress = '#166, Sector 3, Huda Market, Kurukshetra, Haryana',
+            website = 'www.bharatproperties.co'
+        } = payload;
+
+        const captions = {};
+
+        if (pillar === 'ct-project') {
+            const specLines = [
+                loc ? `📍 लोकेशन (Location): ${projName}, ${loc}` : null,
+                sizeStr ? `📏 साइज (Plot / Area): ${sizeStr}` : null,
+                facing ? `🧭 फेसिंग (Facing): ${facing}` : null,
+                roadWidth ? `🛣️ रोड चौड़ाई (Road Access): ${roadWidth}` : null,
+                dimensions ? `📐 डायमेंशन (Dimensions): ${dimensions}` : null,
+                builtupSummary ? `🏗️ स्ट्रक्चर (Structure): ${builtupSummary}` : null,
+                priceStr ? `💰 एक्सपेक्टेड प्राइस (Price): ${priceStr}` : null
+            ].filter(Boolean).join('\n');
+
+            // 1. Facebook: High-trust, bilingual community format
+            captions.facebook = `🔥 PRIME PROPERTY SPOTLIGHT | ${displayUnit.toUpperCase()} AT ${projName.toUpperCase()}\n\nक्या आप कुरुक्षेत्र के सबसे तेजी से विकसित होते प्राइम सेक्टर में 100% सुरक्षित और कानूनी रूप से सत्यापित प्लॉट या प्रॉपर्टी की तलाश में हैं?\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 PROPERTY SPECIFICATIONS:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n${specLines}${reraText}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🛡️ BHARAT PROPERTIES 5-POINT ASSURANCE:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ 100% क्लियर रजिस्ट्री एवं इंतकाल (Tehsil Record Verified)\n✅ हुडा (HUDA) एवं टीसीपी (TCP) अप्रूव्ड मास्टर प्लान\n✅ सीधे असली मालिक से आमने-सामने बातचीत (No Middlemen, Transparent Deals)\n✅ प्रमुख राष्ट्रीयकृत बैंकों से तुरंत होम लोन सुविधा (SBI / HDFC / PNB)\n✅ जीरो देनदारी प्रमाण पत्र (No Dues Certificate Guarantee)\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📞 आज ही अपनी साइट विजिट और टोकन मीटिंग बुक करें:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📲 WhatsApp: ${whatsappUrl}\n📞 हेल्पलाइन: ${regionalPhone} | ${secondaryPhone}\n📍 ऑफिस: ${officeAddress}\n🌐 ऑफिशियल पोर्टल: ${website}\n\n#BharatProperties #KurukshetraRealEstate #HudaPlots #Sector3Kurukshetra #PropertyInKurukshetra #HaryanaProperty #PlotForSale #DreamHome #SurajKeshwar`;
+
+            // 2. Instagram: High visual energy, bulleted, comment-driven CTA
+            captions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡✨\n\n${displayUnit} at ${projName} is available for immediate site inspection & direct registration!\n\n━━━━━━━━━━━━━━━━━━━━━\n✦ PROPERTY SNAPSHOT ✦\n━━━━━━━━━━━━━━━━━━━━━\n📍 Location: ${projName}, ${loc}\n📏 Area: ${sizeStr}\n${facing ? '🧭 Facing: ' + facing + '\n' : ''}${roadWidth ? '🛣️ Road: ' + roadWidth + '\n' : ''}💰 Investment: ${priceStr}${reraText}\n\n✦ WHY THIS PROPERTY? ✦\n✓ 100% Clear Registry & Tehsil Vetted\n✓ HUDA / TCP Approved Planning\n✓ Direct Meeting with Registered Owner\n✓ Easy Bank Loan Sanction (SBI/HDFC)\n\n━━━━━━━━━━━━━━━━━━━━━\n💬 WANT COMPLETE DETAILS & LOCATION PIN?\n━━━━━━━━━━━━━━━━━━━━━\n👉 Comment "VISIT" below or DM us!\n📲 WhatsApp: ${regionalPhone}\n📞 Call: ${regionalPhone} | ${secondaryPhone}\n🌐 ${website}\n📍 ${officeAddress}\n\n#KurukshetraRealEstate #HudaPlots #Sector3Kurukshetra #PropertyInKurukshetra #PlotForSale #DreamHomeKurukshetra #HaryanaProperty #RealEstateIndia #SurajKeshwar #BharatProperties #InvestInKurukshetra`;
+
+            // 3. LinkedIn: Corporate / HNW investor advisory brief
+            captions.linkedin = `🏛️ STRATEGIC REAL ESTATE ACQUISITION | ${displayUnit.toUpperCase()} AT ${projName.toUpperCase()}, ${loc.toUpperCase()}\n\nBharat Properties presents an institutional-grade land acquisition opportunity within Kurukshetra's high-demand urban expansion corridor.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nASSET PARAMETERS & LEGAL HIGHLIGHTS:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Asset Classification: ${displayUnit}\n• Micro-Location: ${projName}, ${loc} (NH-44 & Transit Corridor Connectivity)\n• Plot Dimensions: ${sizeStr}${dimensions ? ` (${dimensions})` : ''}\n• Frontage & Access: ${roadWidth || '12-18 Meter Municipal Road'}${facing ? ` | ${facing} Facing` : ''}\n• Capital Value: ${priceStr}${reraText}\n• Conveyancing Status: 30-Year Revenue Chain, Jamabandi & Mutation Verified\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nINVESTOR DUE DILIGENCE:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n1. Complete zoning compliance under Haryana Town & Country Planning (TCP).\n2. Unencumbered title with Municipal Corporation No Dues Certificate (NDC).\n3. Direct owner mandate ensuring zero intermediary markups and full transactional transparency.\n\nFor private inspections, confidential dossier review, or portfolio consultation:\n📞 Senior Mandate Desk: ${regionalPhone} | ${secondaryPhone}\n📲 Direct WhatsApp: ${whatsappUrl}\n📍 Corporate Office: ${officeAddress}\n🌐 Portal: ${website}\n\n#RealEstateInvestment #KurukshetraRealEstate #CommercialRealEstate #AssetManagement #HaryanaProperty #WealthCreation #BharatProperties #ClearTitleLand`;
+
+            // 4. YouTube Shorts: Fast-hook video description with click-to-WhatsApp link
+            captions.youtube = `Shorts: Prime ${sizeStr} ${displayUnit} in ${projName}, ${loc}! 🛣️ ${roadWidth || 'Wide Avenue'} • 🧭 ${facing || 'Prime Facing'} • 💰 ${priceStr}. 100% Clear Title, Direct Registry & Instant Bank Loan. 📞 Call: ${regionalPhone} | 📲 WhatsApp: ${whatsappUrl} | 🌐 ${website}`;
+
+            // 5. Google Business Profile: Hyper-local SEO keywords + direct call CTA
+            captions.google_business = `Fresh Real Estate Listing: ${displayUnit} available at ${projName}, ${loc}. Specifications: ${sizeStr}, ${roadWidth || 'Wide'} road, ${facing || 'Prime'} facing. Price: ${priceStr}. 100% clear title with Tehsil record verification and Municipal NDC. Visit Bharat Properties at ${officeAddress} (Open Daily 9:00 AM - 8:00 PM) or call ${regionalPhone} today!`;
+
+        } else if (pillar === 'ct-festival') {
+            const festName = festival.name || 'Festive Celebration';
+            const festGreeting = festival.greeting || 'Warm Festive Greetings & Best Wishes!';
+
+            captions.facebook = `✨ ${festGreeting}\n\nभारत प्रॉपर्टीज परिवार की ओर से आप सभी को ${festName} की हार्दिक एवं आत्मीय शुभकामनाएं! 🪔\n\nयह पावन पर्व आपके और आपके परिवार के जीवन में सुख, शांति, उत्तम स्वास्थ्य एवं अटूट समृद्धि लेकर आए। इस शुभ अवसर पर अपने सपनों के घर और सुरक्षित भविष्य की शुरुआत करें।\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 भारत प्रॉपर्टीज — 30 वर्षों का अटूट विश्वास\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ 100% सत्यापित रजिस्ट्री एवं निष्पक्ष परामर्श\n✅ हुडा एवं टीसीपी अप्रूव्ड प्लॉट्स व विला\n✅ कुरुक्षेत्र की सबसे भरोसेमंद रियल एस्टेट कंसल्टेंसी\n\nसस्नेह,\nसूरज केशवर एवं समस्त भारत प्रॉपर्टीज टीम\n📞 संपर्क: ${regionalPhone} | ${secondaryPhone}\n📲 WhatsApp: ${whatsappUrl}\n📍 ऑफिस: ${officeAddress}\n🌐 ${website}\n\n${festival.hashtags || '#BharatProperties #Kurukshetra #FestiveSeason #RealEstateHaryana'}`;
+
+            captions.instagram = `✨ Warm greetings on ${festName} from Bharat Properties! 🪔✨\n\nMay this auspicious occasion bring boundless happiness, health, and new beginnings in your dream home!\n\n30+ Years of Verified Trust in Kurukshetra Real Estate 🏛️\n📞 Helplines: ${regionalPhone} | ${secondaryPhone}\n📲 WhatsApp: ${whatsappUrl}\n📍 ${officeAddress}\n🌐 ${website}\n\n${festival.hashtags || '#BharatProperties #Kurukshetra #FestiveSeason #RealEstateHaryana #SurajKeshwar'}`;
+
+            captions.linkedin = `✨ ${festGreeting} from Bharat Properties!\n\nWishing all our valued clients, investors, community leaders, and partners peace, prosperity, and continuous growth on the auspicious occasion of ${festName}.\n\nWith over 30 years of ethical conveyancing and land development advisory in Haryana, we remain committed to securing your family's future with transparent, legally undisputed real estate assets.\n\nWarm regards,\nSuraj Keshwar & The Bharat Properties Leadership Team\n📞 ${regionalPhone} | ${secondaryPhone}\n📍 ${officeAddress}\n🌐 ${website}\n\n${festival.hashtags || '#BharatProperties #Kurukshetra #CorporateAdvisory #RealEstateHaryana'}`;
+
+            captions.youtube = `${festName} Greetings from Bharat Properties Kurukshetra! Wishing everyone peace, prosperity, and joyous beginnings in their dream home. Call ${regionalPhone}.`;
+
+            captions.google_business = `${festGreeting} Warm greetings on ${festName} from Bharat Properties Kurukshetra. Visit our office at ${officeAddress} or call ${regionalPhone} for prime property inquiries.`;
+
+        } else if (pillar === 'ct-edu') {
+            const eduTitle = edu.title || 'Legal Property Verification Checklist';
+            const eduHook = edu.hook || 'Haryana mein property lene se pehle yeh 3 baatein zaroor check karein!';
+            const eduSummary = edu.summary || 'Jamabandi, TCP zoning, aur No Dues Certificate ka complete legal breakdown.';
+            const pointsList = (edu.points || [
+                'तहसील पोर्टल पर जमाबंदी और इंतकाल (Mutation) का मिलान करें।',
+                'टीसीपी (TCP) और हुडा मास्टर प्लान 2031 के तहत अप्रूव्ड लेआउट चेक करें।',
+                'नगर निगम / परिषद से नो ड्यूज सर्टिफिकेट (NDC) प्राप्त करें।'
+            ]).map((p, i) => `STEP ${i + 1}: ${p}`).join('\n');
+
+            captions.facebook = `📚 REAL ESTATE KNOWLEDGE SERIES | ${eduTitle.toUpperCase()}\n\n${eduHook}\n\n${eduSummary}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 CRITICAL VERIFICATION CHECKLIST:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n${pointsList}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🛡️ BHARAT PROPERTIES BUYER ADVISORY DESK:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\nप्रॉपर्टी खरीदने से पहले कानूनी जांच में कोई लापरवाही न बरतें। भारत प्रॉपर्टीज की अनुभवी लीगल टीम आपको 100% निष्पक्ष और पारदर्शी परामर्श उपलब्ध कराती है।\n\n📞 निःशुल्क कानूनी मार्गदर्शन के लिए संपर्क करें:\n📲 WhatsApp: ${whatsappUrl}\n📞 हेल्पलाइन: ${regionalPhone} | ${secondaryPhone}\n📍 ऑफिस: ${officeAddress}\n🌐 पोर्टल: ${website}\n\n${edu.hashtags || '#RealEstateAdvisory #LegalProperty #KurukshetraRealEstate #BharatProperties'}`;
+
+            captions.instagram = `💡 ${eduHook} 📜\n\nHere are 3 non-negotiable legal checks before buying any plot in Haryana:\n\n${pointsList}\n\n📌 Save this post for your next site visit!\nNeed transparent advice? Call ${regionalPhone} or WhatsApp ${whatsappUrl}\n🌐 ${website} | 📍 ${officeAddress}\n\n${edu.hashtags || '#RealEstateTips #LegalChecklist #HaryanaProperty #BharatProperties #Kurukshetra'}`;
+
+            captions.linkedin = `📚 REAL ESTATE DUE DILIGENCE ADVISORY | ${eduTitle.toUpperCase()}\n\n${eduSummary}\n\nEssential Conveyancing Protocol for Investors & Buyers in Haryana:\n${pointsList}\n\nBharat Properties provides comprehensive title verification, circle rate analysis, and encumbrance validation across all Kurukshetra sectors.\n\nInquiries:\n📞 Legal Advisory Desk: ${regionalPhone} | ${secondaryPhone}\n📍 ${officeAddress}\n🌐 ${website}\n\n${edu.hashtags || '#RealEstateDueDiligence #Conveyancing #HaryanaRealEstate #AssetProtection #BharatProperties'}`;
+
+            captions.youtube = `Shorts: ${eduHook} Top legal verification checks before buying land in Haryana! Call ${regionalPhone} for advice. 🌐 ${website}`;
+
+            captions.google_business = `Real Estate Advisory: ${eduTitle}. Ensure 100% clear titles and circle rate compliance before purchasing land in Kurukshetra. Call ${regionalPhone} or visit Bharat Properties office.`;
+
+        } else if (pillar === 'ct-trust') {
+            const trustTitle = trust.title || '30+ Years of Verified Integrity & Secrecy';
+            const trustHook = trust.hook || 'Why Hundreds of Elite Kurukshetra Families Trust Bharat Properties';
+            const trustBody = trust.body || 'Since 1996, Bharat Properties has stood as Kurukshetra\'s benchmark for transparent land deals, direct owner negotiations, and ironclad financial secrecy.';
+            const trustBadge = trust.badge || '100% Direct Owner Meetings • Zero Hidden Charges • Clear Title Guarantee';
+
+            captions.facebook = `🏛️ THE BHARAT PROPERTIES STANDARD | ${trustTitle.toUpperCase()}\n\n${trustHook}\n\n${trustBody}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n⭐ OUR 3 PILLARS OF EXCELLENCE:\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🤝 100% DIRECT OWNER MEETINGS: कोई बिचौलिया नहीं, सीधे असली मालिक से आमने-सामने बातचीत।\n📜 30-YEAR TITLE VETTING: हर प्रॉपर्टी की तहसील रिकॉर्ड, जमाबंदी और टीसीपी अप्रूवल की गहन जांच।\n🛡️ STRICT CONFIDENTIALITY: आपकी व्यक्तिगत जानकारी और वित्तीय गोपनीयता की पूर्ण सुरक्षा।\n\n🛡️ ${trustBadge}\n\nअपने परिवार के सुरक्षित भविष्य के लिए कुरुक्षेत्र के सबसे प्रतिष्ठित रियल एस्टेट कंसल्टेंट्स से जुड़ें।\n📞 हेल्पलाइन: ${regionalPhone} | ${secondaryPhone}\n📲 WhatsApp: ${whatsappUrl}\n📍 ऑफिस: ${officeAddress}\n🌐 विजिट करें: ${website}\n\n${trust.hashtags || '#BharatProperties #30YearsOfTrust #KurukshetraRealEstate #SurajKeshwar'}`;
+
+            captions.instagram = `⭐ ${trustHook} 🏛️\n\n${trustBody}\n\n🛡️ ${trustBadge}\n\nExperience stress-free, 100% verified property transactions in Kurukshetra with 30+ years of local market leadership!\n\n📞 Call: ${regionalPhone} | ${secondaryPhone}\n📲 WhatsApp: ${whatsappUrl}\n🌐 ${website}\n📍 ${officeAddress}\n\n${trust.hashtags || '#BharatProperties #Kurukshetra #TrustInRealEstate #HudaPlots #SurajKeshwar'}`;
+
+            captions.linkedin = `🏛️ INSTITUTIONAL INTEGRITY & ASSET GOVERNANCE | ${trustTitle.toUpperCase()}\n\n${trustBody}\n\nCore Governance Tenets:\n• Direct Mandate Representation: Eliminating speculative intermediary inflation.\n• Exhaustive Conveyancing: Multi-decade revenue chain and mutation authentication.\n• Fiduciary Discretion: High-net-worth portfolio confidentiality.\n\nConnect with our senior advisory team:\n📞 ${regionalPhone} | ${secondaryPhone}\n📍 ${officeAddress}\n🌐 ${website}\n\n${trust.hashtags || '#CorporateGovernance #AssetAdvisory #RealEstateHaryana #BharatProperties'}`;
+
+            captions.youtube = `Shorts: Why Kurukshetra trusts Bharat Properties for verified real estate mandates! 30+ years of integrity. Call ${regionalPhone} or visit ${website}.`;
+
+            captions.google_business = `${trustTitle}: ${trustBody} Contact Bharat Properties at ${officeAddress} or call ${regionalPhone} today.`;
+        }
+
+        return captions;
+    }
+
+    /**
      * Autonomous Marketing Cycle Dispatcher
      * Executes 1 cycle of content creation across Pillars (Deals, Edu, Trust, Festival),
      * generates AI visual render, and enqueues to BullMQ marketingQueue.
@@ -827,7 +962,10 @@ class MarketingService {
         let loc = 'Kurukshetra, Haryana';
         const isManual = Boolean(options.manualTrigger || options.force || options.forceImmediate);
         const allowRevealUnitNo = isManual && Boolean(options.showUnitNumber === true);
-        const regionalPhone = '+91 99913 33570';
+        const regionalPhone = '+91 94160-35570';
+        const secondaryPhone = '+91 99913-33570';
+        const whatsappUrl = 'https://wa.me/919416035570';
+        const officeAddress = '#166, Sector 3, Huda Market, Kurukshetra, Haryana';
         const website = 'www.bharatproperties.co';
 
         // 3. Pillar-Specific Content Generation
@@ -870,7 +1008,7 @@ class MarketingService {
             } else if (candidates && candidates.length > 0) {
                 // 24-Hour Anti-Duplicate Guard: Check if candidate was posted within last 24 hours
                 const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                let selectedCandidate = candidates[0];
+                let selectedCandidate = null;
                 for (const cand of candidates) {
                     const postedToday = await MarketingContent.exists({
                         dealId: cand._id,
@@ -880,6 +1018,10 @@ class MarketingService {
                         selectedCandidate = cand;
                         break;
                     }
+                }
+                // If all candidates posted recently, select the one posted longest ago
+                if (!selectedCandidate) {
+                    selectedCandidate = candidates[candidates.length - 1];
                 }
                 chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(selectedCandidate._id, 'deal', { isSystem: true });
             }
@@ -894,16 +1036,19 @@ class MarketingService {
                 console.log('[AutonomousMarketingOS] No active authorized deals found in DB. Falling back to Educational pillar.');
                 const edu = this.getEducationalTopic();
                 postTitle = `Real Estate Advisory: ${edu.title}`;
-                const pointsFormatted = edu.points.map(p => `✓ ${p}`).join('\n');
-
-                channelCaptions.facebook = `📚 REAL ESTATE KNOWLEDGE SERIES | ${edu.title}\n\n${edu.hook}\n\n${edu.summary}\n\nKey Points to Remember:\n${pointsFormatted}\n\nSave this post for your future property purchases! Any questions regarding Haryana property legal verification?\n📞 Call our Legal Advisory Desk: ${regionalPhone}\n🌐 ${website}\n\n${edu.hashtags}`;
-                channelCaptions.instagram = `💡 ${edu.hook}\n\nHere is what every smart buyer needs to know:\n\n${pointsFormatted}\n\n📌 Save this reel/post for your next site visit!\nNeed transparent advice? Call ${regionalPhone} | 🌐 ${website}\n\n${edu.hashtags}`;
-                channelCaptions.youtube = `Shorts: ${edu.hook} 3 legal rules you must know before buying land in Haryana! Call ${regionalPhone} for guidance.`;
-                channelCaptions.google_business = `Knowledge Post: ${edu.title}. Follow Bharat Properties for transparent property guidelines and circle rates in Kurukshetra. Call ${regionalPhone}.`;
+                channelCaptions = this.generateBrandsLiveCaptions('ct-edu', {
+                    edu,
+                    regionalPhone,
+                    secondaryPhone,
+                    whatsappUrl,
+                    officeAddress,
+                    website
+                });
 
                 visualAsset = await this.generateVisualAsset({
                     type: 'image',
-                    customPrompt: `Modern high-end real estate architectural office in Kurukshetra, blueprint diagrams and architectural floor plans on wooden conference desk, soft natural morning sunlight, cinematic 8k render`
+                    pillar: 'ct-edu',
+                    edu
                 });
             } else {
                 const facts = marketingComplianceEnforcementService.extractAuthoritativeFacts(chosenDeal);
@@ -941,21 +1086,27 @@ class MarketingService {
 
                 const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
                 postTitle = `Hot Property Spotlight: ${displayUnit} at ${projName}`;
-                const verifiedHashtag = facts.isTitleVerified ? '#VerifiedDeal' : '#PrimeListing';
                 const reraText = chosenDeal.reraNumber ? `\n📋 RERA Registration: ${chosenDeal.reraNumber}` : '';
-                const specBullets = [
-                    chosenDeal.facing ? `🧭 Facing: ${chosenDeal.facing}` : null,
-                    chosenDeal.roadWidth ? `🛣️ Road Access: ${chosenDeal.roadWidth}` : null,
-                    chosenDeal.dimensions ? `📐 Dimensions: ${chosenDeal.dimensions}` : null,
-                    chosenDeal.builtupSummary ? `🏗️ Structure: ${chosenDeal.builtupSummary}` : null
-                ].filter(Boolean).join('\n');
 
-                // Generate Captions per Channel
-                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${displayUnit} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Verified listing specifications:\n\n📍 Location: ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Expected Price: ${priceStr}${reraText}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
-                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${displayUnit} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Investment: ${priceStr}${reraText}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
-                channelCaptions.linkedin = `🏛️ INVESTMENT OPPORTUNITY | ${displayUnit} at ${projName}, ${loc}\n\nBharat Properties presents verified real estate inventory in high-demand growth corridors of Haryana.\n\nKey Highlights:\n• Location: ${loc}\n• Plot/Floor Area: ${sizeStr}\n${chosenDeal.facing ? '• Facing: ' + chosenDeal.facing + '\n' : ''}${chosenDeal.roadWidth ? '• Road Width: ' + chosenDeal.roadWidth + '\n' : ''}${chosenDeal.dimensions ? '• Dimensions: ' + chosenDeal.dimensions + '\n' : ''}• Capital Value: ${priceStr}${reraText}\n• Due Diligence: 100% Clear Title & Verified Documentation\n\nDirect mandate. High capital appreciation and rental yield potential.\nInquire with our senior mandate team:\n📞 ${regionalPhone} | 🌐 ${website}\n\n#CommercialRealEstate #HaryanaProperty #RealEstateInvestment #WealthCreation #BharatProperties`;
-                channelCaptions.youtube = `Shorts: ${displayUnit} at ${projName}, ${loc} — ${sizeStr} ${chosenDeal.facing ? `(${chosenDeal.facing})` : ''} Full Walkthrough & Price Reveal! Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
-                channelCaptions.google_business = `Fresh Real Estate Listing: ${displayUnit} at ${projName}, ${loc}. Size: ${sizeStr}. ${chosenDeal.roadWidth ? `Road: ${chosenDeal.roadWidth}. ` : ''}Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
+                // Generate Brands.live Caliber Multi-Channel Captions
+                channelCaptions = this.generateBrandsLiveCaptions('ct-project', {
+                    deal: chosenDeal,
+                    displayUnit,
+                    projName,
+                    loc,
+                    sizeStr,
+                    priceStr,
+                    facing: chosenDeal.facing,
+                    roadWidth: chosenDeal.roadWidth,
+                    dimensions: chosenDeal.dimensions,
+                    builtupSummary: chosenDeal.builtupSummary,
+                    reraText,
+                    regionalPhone,
+                    secondaryPhone,
+                    whatsappUrl,
+                    officeAddress,
+                    website
+                });
 
                 // Generate photorealistic visual
                 visualAsset = await this.generateVisualAsset({ 
@@ -970,11 +1121,14 @@ class MarketingService {
             }
         } else if (pillar === 'ct-festival') {
             postTitle = `Festive Greetings: ${festival.name}`;
-            channelCaptions.facebook = `✨ ${festival.greeting}\n\nBharat Properties wishes you and your family abundant peace, happiness, and prosperity on the auspicious occasion of ${festival.name}.\n\nMay this festive season mark the beginning of new milestones and bring you closer to owning your dream home.\n\nWith warm regards,\nBharat Properties Team\n📞 ${regionalPhone} | 🌐 ${website}\n\n${festival.hashtags}`;
-            channelCaptions.instagram = `✨ Warm greetings on ${festival.name} from Bharat Properties! 🪔\n\nMay this joyous occasion bring immense happiness, health, and auspicious beginnings to your family.\n\n📞 ${regionalPhone} | 🌐 ${website}\n\n${festival.hashtags}`;
-            channelCaptions.linkedin = `✨ ${festival.greeting} from Bharat Properties!\n\nWishing all our esteemed clients, partners, and community members immense prosperity, good health, and success on this auspicious occasion of ${festival.name}.\n\nWarm regards,\nBharat Properties Leadership Team\n📞 ${regionalPhone} | 🌐 ${website}\n\n${festival.hashtags}`;
-            channelCaptions.youtube = `${festival.name} Greetings from Bharat Properties Kurukshetra! Wishing everyone peace, prosperity, and joy.`;
-            channelCaptions.google_business = `${festival.greeting} Warm festive greetings from Bharat Properties Kurukshetra. Call ${regionalPhone} for prime property inquiries.`;
+            channelCaptions = this.generateBrandsLiveCaptions('ct-festival', {
+                festival,
+                regionalPhone,
+                secondaryPhone,
+                whatsappUrl,
+                officeAddress,
+                website
+            });
 
             // Generate branded festive flyer with official logo and auspicious greetings
             visualAsset = await this.generateVisualAsset({
@@ -983,7 +1137,7 @@ class MarketingService {
                 festival,
                 festivalName: festival.name,
                 greeting: festival.greeting,
-                customTitleHi: festival.customTitleHi || 'त्योहार की हार्दिक शुभकामनाएं',
+                customTitleHi: festival.customTitleHi || `${festival.name} की हार्दिक शुभकामनाएं`,
                 customTitleEn: festival.customTitleEn || `HAPPY ${festival.name.toUpperCase()}`,
                 subtext: festival.subtext || 'May this festive season illuminate your life with joy, enduring wealth, and your dream home!'
             });
@@ -991,13 +1145,14 @@ class MarketingService {
         } else if (pillar === 'ct-edu') {
             const edu = this.getEducationalTopic();
             postTitle = `Real Estate Advisory: ${edu.title}`;
-            const pointsFormatted = edu.points.map(p => `✓ ${p}`).join('\n');
-
-            channelCaptions.facebook = `📚 REAL ESTATE KNOWLEDGE SERIES | ${edu.title}\n\n${edu.hook}\n\n${edu.summary}\n\nKey Points to Remember:\n${pointsFormatted}\n\nSave this post for your future property purchases! Any questions regarding Haryana property legal verification?\n📞 Call our Legal Advisory Desk: ${regionalPhone}\n🌐 ${website}\n\n${edu.hashtags}`;
-            channelCaptions.instagram = `💡 ${edu.hook}\n\nHere is what every smart buyer needs to know:\n\n${pointsFormatted}\n\n📌 Save this reel/post for your next site visit!\nNeed transparent advice? Call ${regionalPhone} | 🌐 ${website}\n\n${edu.hashtags}`;
-            channelCaptions.linkedin = `📚 REAL ESTATE ADVISORY | ${edu.title}\n\n${edu.summary}\n\nKey Considerations for Real Estate Investors in Haryana:\n${pointsFormatted}\n\nFor institutional and retail advisory regarding circle rates, registration, and RERA compliance:\n📞 Legal Advisory Desk: ${regionalPhone}\n🌐 ${website}\n\n${edu.hashtags}`;
-            channelCaptions.youtube = `Shorts: ${edu.hook} 3 legal rules you must know before buying land in Haryana! Call ${regionalPhone} for guidance.`;
-            channelCaptions.google_business = `Knowledge Post: ${edu.title}. Follow Bharat Properties for transparent property guidelines and circle rates in Kurukshetra. Call ${regionalPhone}.`;
+            channelCaptions = this.generateBrandsLiveCaptions('ct-edu', {
+                edu,
+                regionalPhone,
+                secondaryPhone,
+                whatsappUrl,
+                officeAddress,
+                website
+            });
 
             // Generate branded educational flyer
             visualAsset = await this.generateVisualAsset({
@@ -1009,12 +1164,14 @@ class MarketingService {
         } else if (pillar === 'ct-trust') {
             const trust = this.getTrustTopic();
             postTitle = `Trust & Reputation: ${trust.title}`;
-
-            channelCaptions.facebook = `🏛️ THE BHARAT PROPERTIES STANDARD | ${trust.title}\n\n${trust.hook}\n\n${trust.body}\n\n🛡️ ${trust.badge}\n\nExperience transparent property transactions with our senior real estate consultants.\n📞 Call: ${regionalPhone}\n🌐 ${website}\n\n${trust.hashtags}`;
-            channelCaptions.instagram = `⭐ ${trust.hook}\n\n${trust.body}\n\n🛡️ ${trust.badge}\n\nReady to find your ideal property with zero stress? Call us at ${regionalPhone} or tap the link in bio!\n\n${trust.hashtags}`;
-            channelCaptions.linkedin = `🏛️ CORPORATE EXCELLENCE & TRUST | ${trust.title}\n\n${trust.body}\n\n${trust.badge}\n\nWith over 15+ years of verified land aggregation, title perfection, and investor advisory across Haryana, Bharat Properties remains your trusted real estate partner.\n\nConnect with our senior advisory team:\n📞 ${regionalPhone} | 🌐 ${website}\n\n${trust.hashtags}`;
-            channelCaptions.youtube = `Shorts: Why Kurukshetra trusts Bharat Properties for verified real estate mandates! Call ${regionalPhone} or visit ${website}.`;
-            channelCaptions.google_business = `${trust.title}: ${trust.body} Contact Bharat Properties at ${regionalPhone}.`;
+            channelCaptions = this.generateBrandsLiveCaptions('ct-trust', {
+                trust,
+                regionalPhone,
+                secondaryPhone,
+                whatsappUrl,
+                officeAddress,
+                website
+            });
 
             // Generate branded trust & authority flyer
             visualAsset = await this.generateVisualAsset({
@@ -1096,6 +1253,25 @@ class MarketingService {
                 skipped: true,
                 reason: `Duplicate post already created today: "${postTitle}"`,
                 contentId: duplicateRecent._id
+            };
+        }
+
+        // 4c. Rapid Double-Click & Accidental Re-Dispatch Guard (5-minute window)
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+        const rapidDuplicate = await MarketingContent.findOne({
+            title: postTitle,
+            createdAt: { $gte: fiveMinutesAgo }
+        });
+        if (rapidDuplicate && !options.allowRapidDuplicate) {
+            console.log(`[AutonomousMarketingOS] Rapid duplicate detected within last 5 minutes: "${postTitle}". Returning existing broadcast record.`);
+            return {
+                success: true,
+                skipped: true,
+                reason: `Identical post was already broadcasted ${Math.round((Date.now() - rapidDuplicate.createdAt.getTime()) / 1000)}s ago: "${postTitle}"`,
+                contentId: rapidDuplicate._id,
+                visualUrl: rapidDuplicate.mediaUrls?.[0],
+                pillar,
+                postTitle
             };
         }
 
