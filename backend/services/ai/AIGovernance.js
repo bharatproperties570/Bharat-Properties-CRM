@@ -195,9 +195,9 @@ class AIGovernance {
                 if (setting && setting.value) {
                     config = setting.value;
                 } else {
-                    // Initialize default states from CAPABILITY_REGISTRY
+                    // Initialize default states from CAPABILITY_MATRIX
                     const defValues = {};
-                    for (const [cap, spec] of Object.entries(CAPABILITY_REGISTRY)) {
+                    for (const [cap, spec] of Object.entries(CAPABILITY_MATRIX)) {
                         defValues[cap] = spec.defaultState;
                     }
                     await SystemSetting.findOneAndUpdate(
@@ -209,9 +209,9 @@ class AIGovernance {
                 }
                 configCache.set(CACHE_KEY, config);
             } catch (err) {
-                // Failsafe: fall back to default registry values
+                // Failsafe: fall back to default matrix values
                 const fallbackValues = {};
-                for (const [cap, spec] of Object.entries(CAPABILITY_REGISTRY)) {
+                for (const [cap, spec] of Object.entries(CAPABILITY_MATRIX)) {
                     fallbackValues[cap] = spec.defaultState;
                 }
                 config = fallbackValues;
@@ -220,7 +220,7 @@ class AIGovernance {
         }
 
         // State evaluation
-        const state = config[capability] || CAPABILITY_REGISTRY[capability]?.defaultState || ACTIVATION_STATES.ENABLED;
+        const state = config[capability] || CAPABILITY_MATRIX[capability]?.defaultState || ACTIVATION_STATES.ENABLED;
         if (!state) {
             throw new AIGovernanceError('INVALID_ACTIVATION_STATE', capability);
         }
