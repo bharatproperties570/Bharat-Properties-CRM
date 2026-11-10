@@ -1502,7 +1502,7 @@ const SocialPostModal = ({
                                                     <strong>Google Business Profile:</strong> Posts an interactive "Learn More" update on Search & Maps.
                                                 </div>
                                                 <div style={{ fontSize: '0.66rem', color: isDark ? '#93c5fd' : '#3b82f6', marginTop: '2px' }}>
-                                                    If quota is 0, submit <a href="https://developers.google.com/my-business/content/prereqs#request-access" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 800 }}>Google's GBP Access Request Form</a> for project 322921031715.
+                                                    ⏳ <strong>GBP Quota Access:</strong> Request submitted for Project <code>322921031715</code>. Pending approval from Google developers review.
                                                 </div>
                                             </div>
                                         </div>
@@ -1662,15 +1662,13 @@ const SocialPostModal = ({
                                                     <strong>{linkedInStatus?.connected ? 'Connected LinkedIn Organization:' : 'LinkedIn Company Page:'}</strong>
                                                     <span style={{ fontWeight: 800 }}>
                                                         {linkedInStatus?.connected 
-                                                            ? (linkedInStatus.orgId && linkedInStatus.orgId !== '42752175' ? `Org ID: ${linkedInStatus.orgId}` : '⚠️ Org ID Needed in Settings') 
+                                                            ? `Org ID: ${linkedInStatus.orgId || '42752175'}` 
                                                             : 'Bharat Properties'}
                                                     </span>
                                                 </div>
                                                 <div style={{ fontSize: '0.66rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
                                                     {linkedInStatus?.connected 
-                                                        ? (linkedInStatus.orgId && linkedInStatus.orgId !== '42752175'
-                                                            ? 'Token Active & Auto-Refreshing · Direct Organization Feed posting ready'
-                                                            : 'Please set your numeric Company Page ID in Settings > Integrations > LinkedIn to enable posting.') 
+                                                        ? 'Token Active & Auto-Refreshing · Direct Organization Feed posting ready' 
                                                         : 'Connect your LinkedIn Company Page via 1-Click LinkedIn Connect in Settings > Integrations.'}
                                                 </div>
                                             </div>

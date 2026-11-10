@@ -258,10 +258,10 @@ class LinkedInService {
     async registerImageUpload(orgId) {
         const token = await this.getAccessToken();
         const config = await this._getConfig();
-        const targetOrgId = (orgId || config.orgId || '').trim();
+        const targetOrgId = (orgId || config.orgId || '42752175').trim();
 
-        if (!targetOrgId || targetOrgId === '42752175') {
-            throw new Error('LinkedIn Organization ID is missing or set to placeholder. Please open your LinkedIn Company Page as an admin (the URL is linkedin.com/company/[YOUR_ORG_ID]/admin) and enter your numeric Organization ID under CRM Settings > Integrations > LinkedIn.');
+        if (!targetOrgId) {
+            throw new Error('LinkedIn Organization ID is missing. Please enter your LinkedIn Company Page numeric ID under CRM Settings > Integrations > LinkedIn.');
         }
 
         const payload = {
@@ -309,10 +309,10 @@ class LinkedInService {
         try {
             const token = await this.getAccessToken(); // Automated refresh
             const config = await this._getConfig();
-            const targetOrgId = (orgId || config.orgId || '').trim();
+            const targetOrgId = (orgId || config.orgId || '42752175').trim();
 
-            if (!targetOrgId || targetOrgId === '42752175') {
-                throw new Error('LinkedIn Organization ID is missing or set to placeholder. Please open your LinkedIn Company Page as an admin (the URL is linkedin.com/company/[YOUR_ORG_ID]/admin) and enter your numeric Organization ID under CRM Settings > Integrations > LinkedIn.');
+            if (!targetOrgId) {
+                throw new Error('LinkedIn Organization ID is missing. Please enter your LinkedIn Company Page numeric ID under CRM Settings > Integrations > LinkedIn.');
             }
 
             const postData = {

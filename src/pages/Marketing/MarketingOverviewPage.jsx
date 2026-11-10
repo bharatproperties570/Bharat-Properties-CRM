@@ -166,6 +166,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [realStats, setRealStats] = useState({ totalCaptured: 0, hotLeads: 0, nurturedToday: 0, recentLeads: [], recentActivities: [] });
   const [realLeads, setRealLeads] = useState([]);
   const [realDeals, setRealDeals] = useState([]);
+  const [selectedTargetDealId, setSelectedTargetDealId] = useState('');
   const [realAgents, setRealAgents] = useState([]); // Phase B: real AI agents from backend
   const [activeSmsStatus, setActiveSmsStatus] = useState(null);
   const [realSocialStatus, setRealSocialStatus] = useState({ 
@@ -371,17 +372,18 @@ export default function MarketingOverviewPage({ onNavigate }) {
     }
   };
 
-  const handleRunAutopilotCycle = async () => {
+  const handleRunAutopilotCycle = async (customDealId = null) => {
     setIsRunningAutopilot(true);
-    addLog('$ [Autonomous Marketing OS] Triggering live agent cycle across pillars...', 'cmd');
+    addLog('$ [Autonomous Marketing OS] Triggering live 4-agent cycle across pillars...', 'cmd');
     toast.loading('Running 4-Agent Autonomous Pipeline...', { id: 'auto-cycle' });
     try {
-      const res = await marketingAPI.triggerAutonomousCycle({ force: true });
+      const targetDealId = customDealId || selectedTargetDealId || undefined;
+      const res = await marketingAPI.triggerAutonomousCycle({ force: true, dealId: targetDealId });
       if (res?.success) {
         toast.success(`Pipeline complete! Scheduled for ${res.scheduledTime} (${res.pillar}) across ${res.channels?.length || 4} channels`, { id: 'auto-cycle' });
         addLog(`✓ 4-Agent Pipeline success! Pillar: ${res.pillar} · Scheduled: ${res.scheduledFor}`, 'success');
         if (res.visualUrl) {
-          addLog(`  🎨 Asset Render: ${res.visualUrl}`, 'info');
+          addLog(`  🎨 Sharp Canvas Asset Render: ${res.visualUrl}`, 'info');
           setAgentVisuals(prev => ({ ...prev, designer: res.visualUrl }));
         }
         if (res.agentOutputs) {
@@ -3072,24 +3074,83 @@ export default function MarketingOverviewPage({ onNavigate }) {
               </div>
 
               {/* ⚡ Enterprise 4-Agent Pipeline Execution Bar */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(124,58,237,0.12) 100%)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '14px', padding: '16px 22px', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '14px' }}>
-                <div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span>⚡ Unified 4-Agent Autonomous Marketing Pipeline</span>
-                    <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', fontWeight: 800 }}>Continuous Chain Active</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(124,58,237,0.12) 100%)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '14px', padding: '18px 22px', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span>⚡ Unified 4-Agent Marketing Pipeline</span>
+                      <span style={{ fontSize: '0.70rem', padding: '3px 10px', borderRadius: '12px', background: autopilotConfig.enabled ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)', color: autopilotConfig.enabled ? '#22c55e' : '#eab308', border: `1px solid ${autopilotConfig.enabled ? 'rgba(34,197,94,0.3)' : 'rgba(234,179,8,0.3)'}`, fontWeight: 800 }}>
+                        {autopilotConfig.enabled ? '● Autopilot Active (Daily Auto-Post)' : '⏸ Autopilot Paused (Manual Only)'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.5' }}>
+                      Step 1: <strong>Metrics Manager (Gemini 3.5)</strong> ➔ Step 2: <strong>Social Media Manager (GPT-4o)</strong> ➔ Step 3: <strong>Designer AI (Sharp Studio)</strong> ➔ Step 4: <strong>Scheduling Manager (BullMQ)</strong>
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.5' }}>
-                    Step 1: <strong>Metrics Manager (Gemini 3.5)</strong> ➔ Step 2: <strong>Social Media Manager (GPT-4o)</strong> ➔ Step 3: <strong>Designer AI (Sharp Studio)</strong> ➔ Step 4: <strong>Scheduling Manager (BullMQ)</strong>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    {/* Autopilot Master Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAutopilot(!autopilotConfig.enabled)}
+                      disabled={isSavingAutopilot}
+                      style={{
+                        padding: '8px 14px', borderRadius: '10px', fontSize: '0.78rem', fontWeight: 700,
+                        background: autopilotConfig.enabled ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                        border: `1px solid ${autopilotConfig.enabled ? 'rgba(239, 68, 68, 0.4)' : 'rgba(34, 197, 94, 0.4)'}`,
+                        color: autopilotConfig.enabled ? '#ef4444' : '#22c55e',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                      }}
+                    >
+                      {autopilotConfig.enabled ? <><i className="fas fa-pause"></i> Pause Autopilot</> : <><i className="fas fa-play"></i> Activate Autopilot</>}
+                    </button>
+
+                    {/* Run Full 4-Agent Pipeline Button */}
+                    <button 
+                      className="tact-btn primary" 
+                      onClick={() => handleRunAutopilotCycle()} 
+                      disabled={isRunningAutopilot}
+                      style={{ padding: '9px 22px', fontSize: '0.84rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 16px rgba(79, 70, 229, 0.45)', cursor: isRunningAutopilot ? 'not-allowed' : 'pointer' }}
+                    >
+                      {isRunningAutopilot ? <><span className="spinner-sm"></span> Orchestrating 4 Agents...</> : <>🚀 Run Full 4-Agent Cycle</>}
+                    </button>
                   </div>
                 </div>
-                <button 
-                  className="tact-btn primary" 
-                  onClick={handleRunAutopilotCycle} 
-                  disabled={isRunningAutopilot}
-                  style={{ padding: '10px 24px', fontSize: '0.84rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 16px rgba(79, 70, 229, 0.45)', cursor: isRunningAutopilot ? 'not-allowed' : 'pointer' }}
-                >
-                  {isRunningAutopilot ? <><span className="spinner-sm"></span> Orchestrating 4 Agents...</> : <>🚀 Run Full 4-Agent Cycle</>}
-                </button>
+
+                {/* Deal Selection Bar for Pipeline Target */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i className="fas fa-bullseye" style={{ color: '#a78bfa' }}></i> Target CRM Deal (80% Rule):
+                  </span>
+                  <select
+                    value={selectedTargetDealId}
+                    onChange={(e) => setSelectedTargetDealId(e.target.value)}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      border: '1px solid rgba(124, 58, 237, 0.4)',
+                      borderRadius: '8px',
+                      color: '#f8fafc',
+                      fontSize: '0.76rem',
+                      padding: '6px 12px',
+                      outline: 'none',
+                      minWidth: '280px',
+                      maxWidth: '420px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="">✨ Auto-Select Top CRM Deal (Demand & Anti-Cannibalization)</option>
+                    {realDeals.map(d => (
+                      <option key={d._id || d.id} value={d._id || d.id}>
+                        {d.unitNo || d.name || 'Unit'} - {d.projectName || d.location || 'Kurukshetra'} ({d.price ? `₹${Number(d.price).toLocaleString('en-IN')}` : 'Best Offer'})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedTargetDealId && (
+                    <span style={{ fontSize: '0.70rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                      Selected Deal will be fed to Metrics, GPT-4o copy, and Sharp Designer Flyer
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* 4-Agent Cards — Model-Aware */}
