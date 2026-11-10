@@ -37,6 +37,7 @@ export const EMAIL_STANDALONE_PATTERN = /^[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.*-]+\.[a
 export function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
     if (isHexObjectId(text) || isIsoDate(text) || isUuid(text) || isHexDigest(text)) return text;
+    if (text.startsWith('authorityVerification.') || (typeof CANONICAL_AUTHORITY_VERIFICATION_FIELDS !== 'undefined' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(text))) return text;
 
     const trimmed = text.trim();
     if (EMAIL_STANDALONE_PATTERN.test(trimmed)) {
@@ -71,7 +72,7 @@ export function maskScalarPII(text) {
     });
 
     // Mask postal/residential addresses without House/Flat/Plot keywords (localities, colonies, areas)
-    masked = masked.replace(/\b(?:\d+[\w/-]*,?\s+)?(?:model\s+town|civil\s+lines|urban\s+estate|defence\s+colony|green\s+park|dlf|enclave|vihar|nagar|colony|mohalla|phase\s*\d+|block\s*[a-zA-Z0-9]+)\b(?:[,\s]+[A-Za-z]+)*(?:[,\s]+[1-9][0-9]{5})?/gi, '[ADDRESS_MINIMIZED]');
+    masked = masked.replace(/\b(?:\d+[\w/-]*,?\s+)?(?:model\s+town|civil\s+lines|urban\s+estate|defence\s+colony|green\s+park|dlf|enclave|vihar|nagar|colony|mohalla|phase\s*\d+|block\s+[a-zA-Z0-9]+)\b(?:[,\s]+[A-Za-z]+)*(?:[,\s]+[1-9][0-9]{5})?/gi, '[ADDRESS_MINIMIZED]');
 
     // Mask postal PIN codes and addresses without prefix words (e.g. "134109")
     masked = masked.replace(/(?<!\d|\+)\b[1-9][0-9]{5}\b(?!\d)/g, '[ADDRESS_MINIMIZED]');
@@ -172,7 +173,8 @@ const OPERATIONAL_SYSTEM_KEYS = new Set([
     'operationId', 'normalizedOpId', 'correlationId',
     'contentHash', 'targetId', 'auditLogId', 'policyId',
     'authorityCode', 'syncPhase', 'redisSyncStatus', 'version',
-    'leaseExpiresAt', 'lastHeartbeatAt', 'lastSyncedAt'
+    'leaseExpiresAt', 'lastHeartbeatAt', 'lastSyncedAt',
+    'field', 'canonicalField', 'path'
 ]);
 
 export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
@@ -917,24 +919,75 @@ export const APPROVED_PROPERTY_CATEGORIES_AND_TYPES = new Set([
     'Residential Plot', 'Residential Floor', 'Residential Flat', 'Residential Villa', 'Residential House',
     'Commercial SCO', 'Commercial Booth', 'Commercial Shop', 'Commercial Office', 'Commercial Plot',
     'Industrial Plot', 'Industrial Shed', 'Institutional Plot', 'Agricultural Land',
-    'RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'INSTITUTIONAL', 'AGRICULTURAL',
+    'Freehold Residential', 'Freehold Commercial', 'Freehold Industrial', 'Freehold Plot', 'Independent Plot', 'Independent House',
+    'RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'INSTITUTIONAL', 'AGRICULTURAL', 'FREEHOLD',
     'PLOT', 'SCO', 'BOOTH', 'FLAT', 'FLOOR', 'VILLA', 'SHOP', 'OFFICE', 'HOUSE', 'SHED',
-    'PENTHOUSE', 'DUPLEX', 'STUDIO', 'FARMHOUSE'
+    'PENTHOUSE', 'DUPLEX', 'STUDIO', 'FARMHOUSE', 'APARTMENT',
+    'Residential', 'Commercial', 'Industrial', 'Institutional', 'Agricultural', 'Freehold',
+    'Plot', 'SCO', 'Booth', 'Flat', 'Floor', 'Villa', 'Shop', 'Office', 'House', 'Shed',
+    'Penthouse', 'Duplex', 'Studio', 'Farmhouse', 'Apartment',
+    'RESIDENTIAL_PLOT', 'COMMERCIAL_SCO', 'COMMERCIAL_BOOTH', 'COMMERCIAL_SHOP', 'COMMERCIAL_OFFICE',
+    'INDUSTRIAL_PLOT', 'INDUSTRIAL_SHED', 'INSTITUTIONAL_PLOT', 'AGRICULTURAL_LAND'
 ]);
 
-export const PROPERTY_CATEGORY_TYPE_PATTERN = /^(?:(?:Residential|Commercial|Industrial|Institutional|Agricultural)\s+(?:Plot|Floor|Flat|Villa|House|SCO|Booth|Shop|Office|Shed|Land)|(?:Residential|Commercial|Industrial|Institutional|Agricultural|Plot|SCO|Booth|Flat|Floor|Villa|Shop|Office|House|Shed|Penthouse|Duplex|Studio|Farmhouse)|[A-Z0-9_]{2,30})$/i;
+export const PROPERTY_CATEGORY_TYPE_PATTERN = /^(?:(?:(?:Residential|Commercial|Industrial|Institutional|Agricultural|Freehold|Independent)\s+)?(?:Plot|Floor|Flat|Villa|House|SCO|Booth|Shop|Office|Shed|Land|Penthouse|Duplex|Studio|Farmhouse|Apartment)|(?:Residential|Commercial|Industrial|Institutional|Agricultural|Freehold)|(?:RESIDENTIAL_PLOT|COMMERCIAL_SCO|COMMERCIAL_BOOTH|COMMERCIAL_SHOP|COMMERCIAL_OFFICE|INDUSTRIAL_PLOT|INDUSTRIAL_SHED|INSTITUTIONAL_PLOT|AGRICULTURAL_LAND)|[0-9]+(?:\.[0-9]+)?\s+(?:Marla|Kanal|Sq\s*(?:Yards?|Feet|Ft|Yd|Meters?|M)))$/i;
 
-export const POSSESSION_STATUS_PATTERN = /^(?:(?:Physical|Paper)\s+Possession\s+Given|Possession\s+Delivered|Not\s+Possessed|POSSESSION_GIVEN|PHYSICAL_POSSESSION|PAPER_POSSESSION|UNDER_OFFER|NOT_POSSESSED|PENDING|NONE|[A-Z0-9_]{2,30})$/i;
+export const APPROVED_POSSESSION_STATUSES = new Set([
+    'Physical Possession Given', 'Paper Possession Given', 'Possession Delivered', 'Possession Offered',
+    'Not Possessed', 'Offered',
+    'POSSESSION_GIVEN', 'PHYSICAL_POSSESSION', 'PHYSICAL_POSSESSION_GIVEN', 'PAPER_POSSESSION', 'PAPER_POSSESSION_GIVEN',
+    'POSSESSION_DELIVERED', 'POSSESSION_OFFERED', 'NOT_POSSESSED', 'UNDER_OFFER',
+    'PHYSICAL', 'PAPER', 'DELIVERED', 'OFFERED', 'PENDING', 'NONE'
+]);
 
-export const ALLOTMENT_MODE_PATTERN = /^(?:Allotment\s+by\s+Auction|Direct\s+Allotment|Draw\s+of\s+Lots|Transfer\s+Allotment|AUCTION|ALLOTMENT|DIRECT|DRAW_OF_LOTS|TRANSFER|GENERAL|RESERVED|[A-Z0-9_]{2,30})$/i;
+export const POSSESSION_STATUS_PATTERN = /^(?:(?:Physical|Paper)\s+Possession\s+Given|Possession\s+(?:Delivered|Offered)|Not\s+Possessed|POSSESSION_GIVEN|PHYSICAL_POSSESSION(?:_GIVEN)?|PAPER_POSSESSION(?:_GIVEN)?|POSSESSION_DELIVERED|POSSESSION_OFFERED|NOT_POSSESSED|UNDER_OFFER|PHYSICAL|PAPER|DELIVERED|OFFERED|PENDING|NONE)$/i;
 
-export const DUES_STATUS_PATTERN = /^(?:Dues\s+Pending|No\s+Dues|Lease\s+Rent\s+Due|No\s+Lease\s+Rent\s+Due|CLEAR|NO_DUES|DUES_PENDING|DEFICIT|PAID|EXEMPT|ACTIVE|INACTIVE|SUSPENDED|VERIFIED|NOT_VERIFIED|PENDING|NONE|[A-Z0-9_]{2,30})$/i;
+export const APPROVED_ALLOTMENT_MODES = new Set([
+    'Allotment by Auction', 'Direct Allotment', 'Draw of Lots', 'Transfer Allotment',
+    'Freehold Allotment', 'Auction Freehold',
+    'AUCTION', 'eAuction', 'ALLOTMENT', 'ALLOTMENT_BY_AUCTION', 'DIRECT', 'DIRECT_ALLOTMENT',
+    'DRAW_OF_LOTS', 'TRANSFER', 'TRANSFER_ALLOTMENT', 'FREEHOLD', 'LEASEHOLD',
+    'GENERAL', 'RESERVED', 'GOVERNMENT', 'QUOTA',
+    'Auction', 'Allotment', 'Direct', 'Transfer', 'Freehold', 'Leasehold'
+]);
 
-export const ESTATE_OFFICE_PATTERN = /^(?:(?:Estate\s+Office|Urban\s+Estate)\s+(?:Gurugram|Panchkula|Faridabad|Mohali|Chandigarh|Karnal|Rohtak|Hisar|Ambala|Panipat|Sonipat|Rewari|Kurukshetra|Yamunanagar|[A-Za-z0-9]{2,25})|(?:Chandigarh|GMADA|HSVP)\s+Estate\s+Office|[A-Za-z0-9_-]{2,30})$/i;
+export const ALLOTMENT_MODE_PATTERN = /^(?:Allotment\s+by\s+Auction|Direct\s+Allotment|Draw\s+of\s+Lots|Transfer\s+Allotment|Freehold\s+Allotment|Auction\s+Freehold|AUCTION|eAuction|ALLOTMENT(?:_BY_AUCTION)?|DIRECT(?:_ALLOTMENT)?|DRAW_OF_LOTS|TRANSFER(?:_ALLOTMENT)?|FREEHOLD|LEASEHOLD|GENERAL|RESERVED|GOVERNMENT|QUOTA|Auction|Allotment|Direct|Transfer|Freehold|Leasehold)$/i;
 
-export const URBAN_ESTATE_PATTERN = /^(?:Urban\s+Estate\s+(?:Sector\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?|[A-Za-z0-9]{2,25})|[A-Za-z0-9_-]{2,30})$/i;
+export const APPROVED_DUES_STATUSES = new Set([
+    'Dues Pending', 'No Dues', 'Lease Rent Due', 'No Lease Rent Due',
+    'CLEAR', 'NO_DUES', 'DUES_PENDING', 'LEASE_RENT_DUE', 'NO_LEASE_RENT_DUE',
+    'DEFICIT', 'PAID', 'EXEMPT', 'ACTIVE', 'INACTIVE', 'SUSPENDED',
+    'VERIFIED', 'NOT_VERIFIED', 'PENDING', 'NONE', 'UNKNOWN',
+    'DUE', 'OVERDUE', 'SETTLED', 'NOT_APPLICABLE', 'FAILED', 'ERROR', 'SUCCESS'
+]);
 
-export const SCHEME_NAME_PATTERN = /^(?:(?:Scheme|Sector)\s+(?:No\.?\s*)?[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|(?:Residential|Commercial|Industrial)\s+Scheme(?:\s+[0-9]{1,4})?|[A-Za-z0-9_-]{2,30})$/i;
+export const DUES_STATUS_PATTERN = /^(?:Dues\s+Pending|No\s+Dues|Lease\s+Rent\s+Due|No\s+Lease\s+Rent\s+Due|CLEAR|NO_DUES|DUES_PENDING|LEASE_RENT_DUE|NO_LEASE_RENT_DUE|DEFICIT|PAID|EXEMPT|ACTIVE|INACTIVE|SUSPENDED|VERIFIED|NOT_VERIFIED|PENDING|NONE|UNKNOWN|DUE|OVERDUE|SETTLED|NOT_APPLICABLE|FAILED|ERROR|SUCCESS)$/i;
+
+export const APPROVED_ESTATE_OFFICE_CITIES = '(?:Gurugram|Gurgaon|Panchkula|Faridabad|Mohali|Chandigarh|Karnal|Rohtak|Hisar|Ambala|Panipat|Sonipat|Rewari|Kurukshetra|Yamunanagar|Bahadurgarh|Palwal|Bhiwani|Sirsa|Jind|Fatehabad|Kaithal|Narnaul|Ludhiana|Jalandhar|Amritsar|Patiala|Bathinda|Hoshiarpur|Moga|Phagwara)';
+
+export const ESTATE_OFFICE_PATTERN = new RegExp(
+    `^(?:(?:Estate\\s+Office|Urban\\s+Estate)\\s+${APPROVED_ESTATE_OFFICE_CITIES}|(?:Chandigarh|GMADA|HSVP|PUDA|GLADA)\\s+Estate\\s+Office|${APPROVED_ESTATE_OFFICE_CITIES}|EO_(?:GURUGRAM|GURGAON|PANCHKULA|FARIDABAD|MOHALI|CHANDIGARH|KARNAL|ROHTAK|HISAR|AMBALA|PANIPAT|SONIPAT|REWARI|KURUKSHETRA|YAMUNANAGAR|LUDHIANA|JALANDHAR|AMRITSAR|PATIALA|BATHINDA|HSVP|GMADA|CHD)|(?:HSVP|GMADA|PUDA|GLADA|CHANDIGARH_EO|CHD_EO|EO_HSVP|EO_GMADA|EO_CHD))$`,
+    'i'
+);
+
+export const APPROVED_URBAN_ESTATE_LOCATIONS = '(?:Faridabad|Gurugram|Gurgaon|Panchkula|Mohali|Chandigarh|Karnal|Rohtak|Hisar|Ambala|Panipat|Sonipat|Rewari|Kurukshetra|Yamunanagar|Bahadurgarh|Palwal|Bhiwani|Sirsa|Jind|Fatehabad|Kaithal|Narnaul|Ludhiana|Jalandhar|Amritsar|Patiala|Bathinda|S\\.?A\\.?S\\.?\\s*Nagar(?:\\s*\\(Mohali\\))?)';
+
+export const URBAN_ESTATE_PATTERN = new RegExp(
+    `^(?:(?:Urban\\s+Estate\\s+)?${APPROVED_URBAN_ESTATE_LOCATIONS}(?:\\s+(?:Phase|Sector)\\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?)?|Urban\\s+Estate\\s+(?:Sector\\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?|Phase\\s+(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6}))|UE[0-9]{2,4}-${APPROVED_URBAN_ESTATE_LOCATIONS}|URBAN_ESTATE_(?:FARIDABAD|GURUGRAM|GURGAON|PANCHKULA|MOHALI|CHANDIGARH|KARNAL|ROHTAK|HISAR|AMBALA|PANIPAT|SONIPAT|REWARI|KURUKSHETRA|YAMUNANAGAR)|UE_(?:FARIDABAD|GURUGRAM|GURGAON|PANCHKULA|MOHALI|CHANDIGARH))$`,
+    'i'
+);
+
+export const SCHEME_NAME_PATTERN = /^(?:(?:Scheme|Sector)\s+(?:No\.?\s*)?[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|Scheme\s+[0-9]{4}(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|Urban\s+(?:Estate|Scheme)(?:\s+(?:Phase\s*(?:-| )?[0-9]{1,3}[A-Za-z]?|Faridabad|Mohali|Panchkula|Gurugram|Gurgaon|[0-9]{1,4}))?|Estate\s+[0-9]{1,4}|(?:Residential|Commercial|Industrial|Institutional)\s+Scheme(?:\s+(?:No\.?\s*)?[0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|(?:HSVP|GMADA|PUDA|CHANDIGARH)\s+Scheme(?:\s+[0-9]{4})?|SCHEME_[0-9]{4}(?:_PHASE_[0-9]{1,3})?|SCHEME_NO_[0-9]{1,4})$/i;
+
+export const PROPERTY_AREA_UNIT_PATTERN = /^(?:sq(?:uare)?\.?\s*(?:yards?|yd|feet|ft|foot|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|foot|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards|SQ_(?:YARDS?|YD|FEET|FOOT|FT|METERS?|M|KMS?|KM|INCHES?|IN)|KANAL|MARLA|ACRES?|GAJ|BIGHA|BISWA|HECTARES?)$/i;
+
+export const COMMON_PERSONAL_NAMES = new Set([
+    'rajesh', 'suresh', 'amit', 'kumar', 'ramesh', 'dinesh', 'mahesh', 'naresh',
+    'rakesh', 'mukesh', 'anil', 'sunil', 'deepak', 'rahul', 'rohit', 'vikram',
+    'vijay', 'ajay', 'sanjay', 'manoj', 'ashok', 'alok', 'vinod', 'pramod',
+    'santosh', 'priya', 'devi', 'sharma', 'singh', 'verma', 'gupta', 'neha',
+    'pooja', 'sunita', 'anita', 'kavita', 'meena', 'rekha', 'seema', 'rita'
+]);
 
 export const CONTROLLED_FIELD_SENTINELS = new Set([
     '[ADDRESS_MINIMIZED]',
@@ -990,6 +1043,16 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
             throw err;
         }
 
+        // Reject common personal names (single-token or embedded) across all fields
+        const wordTokens = trimmed.toLowerCase().split(/[^a-z0-9]+/);
+        for (const tok of wordTokens) {
+            if (tok && COMMON_PERSONAL_NAMES.has(tok)) {
+                const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name '${tok}'.`);
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
+        }
+
         // Field-aware canonical authority verification matching (only on legitimate authority changes paths)
         if (!canonicalField && pathStr && typeof pathStr === 'string') {
             const parts = pathStr.split('.');
@@ -1022,11 +1085,11 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
                 isCanonicalMatch = true;
             } else if ((canonicalField === 'propertyCategory' || canonicalField === 'propertyType') && (APPROVED_PROPERTY_CATEGORIES_AND_TYPES.has(trimmed) || PROPERTY_CATEGORY_TYPE_PATTERN.test(trimmed))) {
                 isCanonicalMatch = true;
-            } else if (canonicalField === 'possessionStatus' && POSSESSION_STATUS_PATTERN.test(trimmed)) {
+            } else if (canonicalField === 'possessionStatus' && (APPROVED_POSSESSION_STATUSES.has(trimmed) || POSSESSION_STATUS_PATTERN.test(trimmed))) {
                 isCanonicalMatch = true;
-            } else if (canonicalField === 'allotmentMode' && ALLOTMENT_MODE_PATTERN.test(trimmed)) {
+            } else if (canonicalField === 'allotmentMode' && (APPROVED_ALLOTMENT_MODES.has(trimmed) || ALLOTMENT_MODE_PATTERN.test(trimmed))) {
                 isCanonicalMatch = true;
-            } else if ((canonicalField === 'authorityStatus' || canonicalField === 'duesStatus' || canonicalField === 'leaseRentStatus') && DUES_STATUS_PATTERN.test(trimmed)) {
+            } else if ((canonicalField === 'authorityStatus' || canonicalField === 'duesStatus' || canonicalField === 'leaseRentStatus') && (APPROVED_DUES_STATUSES.has(trimmed) || DUES_STATUS_PATTERN.test(trimmed))) {
                 isCanonicalMatch = true;
             } else if (canonicalField === 'estateOffice' && ESTATE_OFFICE_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
@@ -1034,9 +1097,19 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
                 isCanonicalMatch = true;
             } else if (canonicalField === 'schemeName' && SCHEME_NAME_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
-            } else if (canonicalField === 'propertyAreaUnit' && /^(?:sq(?:uare)?\s*(?:yards?|yd|feet|ft|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards|[A-Z0-9_]{2,30})$/i.test(trimmed)) {
+            } else if (canonicalField === 'propertyAreaUnit' && PROPERTY_AREA_UNIT_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
-            } else if ((canonicalField === 'propertyId' || canonicalField === 'fileNumber' || canonicalField === 'formNumber' || canonicalField === 'authorityCode' || canonicalField === 'verificationRunId' || canonicalField === 'verificationSnapshotId' || canonicalField === 'snapshotContentHash' || canonicalField === 'rawSnapshotHash' || canonicalField === 'applyClaimId') && /^[a-zA-Z0-9_-]{2,80}$/.test(trimmed)) {
+            } else if ((canonicalField === 'propertyId' || canonicalField === 'fileNumber' || canonicalField === 'formNumber' || canonicalField === 'verificationRunId' || canonicalField === 'verificationSnapshotId' || canonicalField === 'applyClaimId') && /^[a-zA-Z0-9_-]{2,80}$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'snapshotContentHash' || canonicalField === 'rawSnapshotHash') && /^[a-fA-F0-9]{32,64}$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'authorityCode' && /^(?:HSVP|GMADA|CHD|PUDA|GLADA)$/i.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'allotmentDate' || canonicalField === 'transferDate' || canonicalField === 'possessionDate' || canonicalField === 'lastVerifiedAt') && /^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?Z?)?$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'propertyAreaValue' && /^[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'buildingPlanApproved' || canonicalField === 'occupancyCertificate') && /^(?:true|false|yes|no|sanctioned|approved|not_sanctioned|rejected|pending|applied|issued|not_obtained)$/i.test(trimmed)) {
                 isCanonicalMatch = true;
             }
         }
@@ -1079,31 +1152,32 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
             }
         }
         // Reject personal human names (e.g. "Rajesh Kumar", "Amit Sharma", "Priya Devi")
-        if (!isCanonicalMatch) {
-            const nameMatches = trimmed.match(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g);
-            if (nameMatches) {
-                const NON_HUMAN_WORDS = new Set([
-                    'high', 'court', 'sq', 'yards', 'yard', 'feet', 'foot', 'meter', 'meters',
-                    'floor', 'first', 'second', 'third', 'ground', 'sector', 'plot', 'phase',
-                    'urban', 'estate', 'civil', 'suit', 'state', 'bank', 'india', 'punjab',
-                    'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali',
-                    'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim',
-                    'marla', 'kanal', 'acre', 'auction', 'allotted', 'block', 'pocket', 'case', 'office', 'scheme',
-                    'commercial', 'residential', 'industrial', 'institutional', 'agricultural',
-                    'booth', 'shop', 'house', 'villa', 'flat', 'shed', 'land',
-                    'physical', 'paper', 'possession', 'delivered', 'given',
-                    'direct', 'allotment', 'draw', 'lots', 'transfer',
-                    'dues', 'lease', 'rent', 'due', 'clear', 'active', 'verified'
-                ]);
-                for (const nm of nameMatches) {
-                    const parts = nm.split(/\s+/);
-                    const w1 = parts[0].toLowerCase();
-                    const w2 = parts[1].toLowerCase();
-                    if (!NON_HUMAN_WORDS.has(w1) && !NON_HUMAN_WORDS.has(w2)) {
-                        const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name.`);
-                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                        throw err;
-                    }
+        const nameMatches = trimmed.match(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g);
+        if (nameMatches) {
+            const NON_HUMAN_WORDS = new Set([
+                'high', 'court', 'sq', 'yards', 'yard', 'feet', 'foot', 'meter', 'meters',
+                'floor', 'first', 'second', 'third', 'ground', 'sector', 'plot', 'phase',
+                'urban', 'estate', 'civil', 'suit', 'state', 'bank', 'india', 'punjab',
+                'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali', 'faridabad',
+                'karnal', 'rohtak', 'hisar', 'ambala', 'panipat', 'sonipat', 'rewari', 'kurukshetra',
+                'yamunanagar', 'bahadurgarh', 'palwal', 'bhiwani', 'sirsa', 'jind', 'fatehabad',
+                'kaithal', 'narnaul', 'ludhiana', 'jalandhar', 'amritsar', 'patiala', 'bathinda',
+                'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim',
+                'marla', 'kanal', 'acre', 'auction', 'allotted', 'block', 'pocket', 'case', 'office', 'scheme',
+                'commercial', 'residential', 'industrial', 'institutional', 'agricultural', 'freehold', 'independent',
+                'booth', 'shop', 'house', 'villa', 'flat', 'shed', 'land', 'apartment',
+                'physical', 'paper', 'possession', 'delivered', 'offered', 'given',
+                'direct', 'allotment', 'draw', 'lots', 'transfer',
+                'dues', 'lease', 'rent', 'due', 'clear', 'active', 'verified', 'not', 'no', 'unknown'
+            ]);
+            for (const nm of nameMatches) {
+                const parts = nm.split(/\s+/);
+                const w1 = parts[0].toLowerCase();
+                const w2 = parts[1].toLowerCase();
+                if (!NON_HUMAN_WORDS.has(w1) && !NON_HUMAN_WORDS.has(w2)) {
+                    const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name.`);
+                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                    throw err;
                 }
             }
         }
@@ -1535,6 +1609,11 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
                         if (schema.scalarFields) {
                             const rawField = item.field || item.path || item.canonicalField;
                             const canonicalField = getCanonicalAuthorityFieldName(rawField);
+                            if (!canonicalField) {
+                                const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}[${i}].field' must be an approved canonical authority verification path.`);
+                                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                                throw err;
+                            }
                             for (const sf of schema.scalarFields) {
                                 if (sf in item) {
                                     validateControlledScalarValue(item[sf], `${fullPath}[${i}].${sf}`, false, canonicalField);

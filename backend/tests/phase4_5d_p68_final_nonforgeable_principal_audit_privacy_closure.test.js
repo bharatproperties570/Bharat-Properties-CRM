@@ -1889,7 +1889,9 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
                 { field: 'authorityVerification.duesStatus', val: 'Lease Rent Due' },
                 { field: 'authorityVerification.estateOffice', val: 'Estate Office Gurugram' },
                 { field: 'authorityVerification.urbanEstate', val: 'Urban Estate Faridabad' },
-                { field: 'authorityVerification.schemeName', val: 'Scheme 2024 Phase 1' }
+                { field: 'authorityVerification.schemeName', val: 'Scheme 2024 Phase 1' },
+                { field: 'authorityVerification.propertyAreaUnit', val: 'Sq Yards' },
+                { field: 'authorityVerification.propertyAreaUnit', val: 'Marla' }
             ];
 
             for (const cfg of legitimateConfigs) {
@@ -1983,6 +1985,125 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
                         return true;
                     }
                 );
+            }
+        });
+
+        test('7.14: Single-token personal names and arbitrary tokens are strictly rejected across all canonical fields in appliedFields and changes', async () => {
+            const canonicalFieldsToTest = [
+                'propertyCategory',
+                'propertyType',
+                'possessionStatus',
+                'allotmentMode',
+                'duesStatus',
+                'authorityStatus',
+                'leaseRentStatus',
+                'estateOffice',
+                'urbanEstate',
+                'schemeName',
+                'propertyAreaUnit'
+            ];
+
+            const nameTokens = [
+                'Rajesh', 'rajesh', 'RAJESH',
+                'Suresh', 'suresh', 'SURESH',
+                'Amit', 'amit', 'AMIT',
+                'Kumar', 'kumar', 'KUMAR'
+            ];
+
+            for (const field of canonicalFieldsToTest) {
+                const fullFieldPath = `authorityVerification.${field}`;
+
+                for (const token of nameTokens) {
+                    // 1. Rejection in metadata.appliedFields[].after
+                    await assert.rejects(
+                        async () => {
+                            await AuditLog.create({
+                                eventType: 'authority_changes_applied',
+                                targetType: 'inventory',
+                                targetId: testTargetInventory._id,
+                                tenantId: CANONICAL_ORG_ID,
+                                actorId: testAdminUser._id,
+                                actorEmail: 'admin@bharatproperties.com',
+                                actorRole: 'SYSTEM_ADMIN',
+                                claimId: new mongoose.Types.ObjectId().toString(),
+                                description: 'Authority verification changes applied from HSVP',
+                                metadata: {
+                                    authorityCode: 'HSVP',
+                                    appliedFields: [
+                                        { field: fullFieldPath, before: null, after: token }
+                                    ]
+                                }
+                            });
+                        },
+                        err => {
+                            assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                            return true;
+                        },
+                        `Single-token name '${token}' on '${fullFieldPath}' in appliedFields must reject with FREE_TEXT_AUDIT_PROHIBITED`
+                    );
+
+                    // 2. Rejection in changes.after with flat key path
+                    await assert.rejects(
+                        async () => {
+                            await AuditLog.create({
+                                eventType: 'authority_changes_applied',
+                                targetType: 'inventory',
+                                targetId: testTargetInventory._id,
+                                tenantId: CANONICAL_ORG_ID,
+                                actorId: testAdminUser._id,
+                                actorEmail: 'admin@bharatproperties.com',
+                                actorRole: 'SYSTEM_ADMIN',
+                                claimId: new mongoose.Types.ObjectId().toString(),
+                                description: 'Authority verification changes applied from HSVP',
+                                changes: {
+                                    before: { [fullFieldPath]: null },
+                                    after: { [fullFieldPath]: token }
+                                },
+                                metadata: {
+                                    authorityCode: 'HSVP'
+                                }
+                            });
+                        },
+                        err => {
+                            assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                            return true;
+                        },
+                        `Single-token name '${token}' on '${fullFieldPath}' in changes.after (flat) must reject with FREE_TEXT_AUDIT_PROHIBITED`
+                    );
+
+                    // 3. Rejection in changes.after with nested authorityVerification object
+                    await assert.rejects(
+                        async () => {
+                            await AuditLog.create({
+                                eventType: 'authority_changes_applied',
+                                targetType: 'inventory',
+                                targetId: testTargetInventory._id,
+                                tenantId: CANONICAL_ORG_ID,
+                                actorId: testAdminUser._id,
+                                actorEmail: 'admin@bharatproperties.com',
+                                actorRole: 'SYSTEM_ADMIN',
+                                claimId: new mongoose.Types.ObjectId().toString(),
+                                description: 'Authority verification changes applied from HSVP',
+                                changes: {
+                                    before: {
+                                        authorityVerification: { [field]: null }
+                                    },
+                                    after: {
+                                        authorityVerification: { [field]: token }
+                                    }
+                                },
+                                metadata: {
+                                    authorityCode: 'HSVP'
+                                }
+                            });
+                        },
+                        err => {
+                            assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                            return true;
+                        },
+                        `Single-token name '${token}' on '${fullFieldPath}' in changes.after (nested) must reject with FREE_TEXT_AUDIT_PROHIBITED`
+                    );
+                }
             }
         });
     });
