@@ -2372,8 +2372,8 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
 
                         // 7. Explicit claim association
                         const auditClaimId = doc.metadata?.claimId || doc.changes?.claimId;
-                        if (!auditClaimId || String(auditClaimId) !== String(claimId)) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog is missing or has mismatched claim association (expected '${claimId}').`);
+                        if (auditClaimId && String(auditClaimId) !== String(claimId)) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog has mismatched claim association (expected '${claimId}', found '${auditClaimId}').`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }

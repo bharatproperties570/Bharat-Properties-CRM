@@ -805,6 +805,56 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
             assert.strictEqual(refreshed.metadata?.compensated, true);
             assert.strictEqual(refreshed.metadata?.compensationClaimId, claimId.toString());
         });
+
+        test('3.8: Mismatched claim association on AuditLog throws AUDIT_LOG_IMMUTABLE', async () => {
+            const claimId = new mongoose.Types.ObjectId();
+            const differentClaimId = new mongoose.Types.ObjectId();
+            const invId = new mongoose.Types.ObjectId();
+
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId: CANONICAL_ORG_ID,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: invId,
+                authorityCode: 'HSVP',
+                status: 'FAILED',
+                applyClaim: { claimId }
+            });
+
+            const audit = await AuditLog.create({
+                eventType: 'authority_changes_applied',
+                targetType: 'inventory',
+                targetId: invId,
+                status: 'success',
+                description: 'Authority changes applied from HSVP',
+                metadata: {
+                    tenantId: CANONICAL_ORG_ID,
+                    authorityCode: 'HSVP',
+                    itemId: runItem._id,
+                    claimId: differentClaimId.toString() // Recorded with a different claimId!
+                }
+            });
+
+            await assert.rejects(
+                async () => {
+                    await AuditLog.updateOne(
+                        { _id: audit._id },
+                        {
+                            $set: {
+                                status: 'compensated',
+                                'metadata.compensated': true,
+                                'metadata.compensationClaimId': claimId.toString(),
+                                'metadata.compensatedAt': new Date()
+                            }
+                        }
+                    );
+                },
+                err => {
+                    assert.strictEqual(err.code, 'AUDIT_LOG_IMMUTABLE');
+                    assert.ok(err.message.includes('mismatched claim association'));
+                    return true;
+                }
+            );
+        });
     });
 
     // =========================================================================
