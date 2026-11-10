@@ -46,6 +46,8 @@ import AuthoritySourceSettings, {
     _testOnlyResetAuthoritySettings
 } from '../models/AuthoritySourceSettings.js';
 
+import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
+
 import {
     CANONICAL_ORGANIZATION_ID,
     CANONICAL_ORGANIZATION_ID_STRING
@@ -77,6 +79,7 @@ beforeEach(async () => {
     if (mongoose.connection.readyState === 1) {
         await _testOnlyResetAuthoritySettings({});
         await AuditLog.deleteMany({});
+        await PropertyVerificationRunItem.deleteMany({});
     }
 });
 
@@ -621,9 +624,22 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
         });
 
         test('4.5: Valid saga compensation succeeds with allowed keys', async () => {
+            const legitClaimId = new mongoose.Types.ObjectId();
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId: CANONICAL_ORG_ID,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: new mongoose.Types.ObjectId(),
+                authorityCode: 'HSVP',
+                status: 'FAILED',
+                applyClaim: {
+                    claimId: legitClaimId
+                }
+            });
+
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
                 targetType: 'authority_settings',
+                targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
                 status: 'success',
@@ -631,7 +647,8 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
                     authorityCode: 'HSVP',
-                    claimId: 'claim_recovery_101'
+                    itemId: runItem._id,
+                    claimId: legitClaimId.toString()
                 }
             });
 
@@ -641,7 +658,7 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
                     $set: {
                         status: 'compensated',
                         'metadata.compensated': true,
-                        'metadata.compensationClaimId': 'claim_recovery_101',
+                        'metadata.compensationClaimId': legitClaimId.toString(),
                         'metadata.compensatedAt': new Date()
                     }
                 }
@@ -650,7 +667,7 @@ describe('PHASE 4.5-D (PR #64) FINAL DELETE BOUNDARY, METADATA VALUE CONTRACT & 
             const updated = await AuditLog.findById(audit._id).lean();
             assert.strictEqual(updated.status, 'compensated');
             assert.strictEqual(updated.metadata?.compensated, true);
-            assert.strictEqual(updated.metadata?.compensationClaimId, 'claim_recovery_101');
+            assert.strictEqual(updated.metadata?.compensationClaimId, legitClaimId.toString());
         });
 
         test('4.6: Once compensated, record is terminal and strictly immutable', async () => {

@@ -566,6 +566,21 @@ describe('--- PHASE 4.4.3: RESIDUAL RELIABILITY REMEDIATION SUITE ---', () => {
             const invId = new mongoose.Types.ObjectId();
             const itemId = new mongoose.Types.ObjectId();
 
+            // Simulate authentic RunItem in MongoDB before crash
+            await PropertyVerificationRunItem.create({
+                _id: itemId,
+                tenantId: tenantA,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: invId,
+                authorityCode: 'HSVP',
+                status: 'SUCCEEDED',
+                applyState: 'APPLYING',
+                applyClaim: {
+                    claimedBy: applierUser._id,
+                    claimId: claimId
+                }
+            });
+
             // Simulate: AuditLog was successfully created during apply
             const createdAudit = await AuditLog.create({
                 eventType: 'authority_changes_applied',

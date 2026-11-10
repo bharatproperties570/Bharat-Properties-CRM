@@ -419,8 +419,8 @@ test('P0 Maker-Checker: reconcileOwnerAttestation strictly enforces reviewStatus
     });
 
     for (const doc of results) {
-        assert.strictEqual(doc.permissionStatus, 'GRANTED');
-        assert.strictEqual(doc.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
+        assert.strictEqual(doc.permissionStatus, 'NOT_OBTAINED');
+        assert.strictEqual(doc.evidenceBasis, null);
         assert.strictEqual(doc.reviewStatus, 'UNDER_REVIEW', `${doc.authorityCode} reviewStatus must be UNDER_REVIEW`);
         assert.strictEqual(doc.isEnabled, false, `${doc.authorityCode} isEnabled must be false`);
         assert.strictEqual(doc.schedulingEnabled, false, `${doc.authorityCode} schedulingEnabled must be false`);

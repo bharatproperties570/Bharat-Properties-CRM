@@ -235,13 +235,13 @@ test('Area 1.5: ensureDefaults rejects non-canonical organization ID with ORGANI
     );
 });
 
-test('Area 1.6: ensureDefaults establishes GRANTED permission with OWNER_ATTESTED evidence basis for canonical organization', async () => {
+test('Area 1.6: ensureDefaults establishes NOT_OBTAINED neutral defaults for canonical organization', async () => {
     const docs = await AuthoritySourceSettings.getAllForTenant(canonicalTenantId);
     assert.strictEqual(docs.length, 3);
     for (const doc of docs) {
-        assert.strictEqual(doc.permissionStatus, 'GRANTED');
-        assert.strictEqual(doc.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
-        assert.strictEqual(doc.approvedAccessMethod, 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION');
+        assert.strictEqual(doc.permissionStatus, 'NOT_OBTAINED');
+        assert.strictEqual(doc.evidenceBasis, null);
+        assert.strictEqual(doc.approvedAccessMethod, null);
         assert.strictEqual(doc.isEnabled, false);
         assert.strictEqual(doc.schedulingEnabled, false);
         assert.strictEqual(doc.reviewStatus, 'UNDER_REVIEW');

@@ -99,23 +99,23 @@ test.after(async () => {
     }
 });
 
-test('Phase 4.5-C — Test 1: Owner-attested permission correctly represented as GRANTED', async () => {
+test('Phase 4.5-C — Test 1: Owner attestation reconciliation establishes NOT_OBTAINED neutral defaults', async () => {
     const hsvpSettings = await AuthoritySourceSettings.findOne({ tenantId, authorityCode: 'HSVP' });
 
-    assert.equal(hsvpSettings.permissionStatus, 'GRANTED');
-    assert.equal(hsvpSettings.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
-    assert.equal(hsvpSettings.approvedAccessMethod, 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION');
-    assert.equal(hsvpSettings.ownerAttestation.claimedAuthorityRole, 'Authorized Broker');
+    assert.equal(hsvpSettings.permissionStatus, 'NOT_OBTAINED');
+    assert.equal(hsvpSettings.evidenceBasis, null);
+    assert.equal(hsvpSettings.approvedAccessMethod, null);
+    assert.equal(hsvpSettings.ownerAttestation, null);
 });
 
-test('Phase 4.5-C — Test 2: Missing official PDF does not automatically revert owner-attested permission', async () => {
+test('Phase 4.5-C — Test 2: Missing official PDF does not automatically alter neutral permission', async () => {
     const chdSettings = await AuthoritySourceSettings.findOne({ tenantId, authorityCode: 'CHD' });
     chdSettings.permissionArtifactUri = null;
     await chdSettings.save();
 
     const reloaded = await AuthoritySourceSettings.findById(chdSettings._id);
-    assert.equal(reloaded.permissionStatus, 'GRANTED');
-    assert.equal(reloaded.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
+    assert.equal(reloaded.permissionStatus, 'NOT_OBTAINED');
+    assert.equal(reloaded.evidenceBasis, null);
     assert.equal(reloaded.permissionArtifactUri, null);
 });
 
@@ -154,7 +154,7 @@ test('Phase 4.5-C — Test 4: No fabricated government roles or approval referen
 
 test('Phase 4.5-C — Test 5: Internal approval remains distinct from authority permission', async () => {
     const hsvp = await AuthoritySourceSettings.findOne({ tenantId, authorityCode: 'HSVP' });
-    assert.equal(hsvp.permissionStatus, 'GRANTED');
+    assert.equal(hsvp.permissionStatus, 'NOT_OBTAINED');
     assert.equal(hsvp.reviewStatus, 'UNDER_REVIEW');
 
     const check = hsvp.checkActivationEligibility();
@@ -400,6 +400,9 @@ test('Phase 4.5-C — Test 14: No source activation occurs when mandatory checks
     assert.ok(check2.blockers.some(b => b.includes('submitter and reviewer must be distinct')));
 
     // Test Valid Distinct Parties
+    chd.permissionStatus = 'GRANTED';
+    chd.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+    chd.approvalReference = 'CHD/AUTH/2026/VALID';
     chd.submittedBy = submitterUser._id;
     chd.approvedBy = approverUser._id;
     chd.reviewedBy = reviewerUser._id;
