@@ -496,7 +496,9 @@ class MarketingService {
                     inventory.roadWidth,
                     inventory.sizeLabel,
                     inventory.orientation,
-                    inventory.unitType
+                    inventory.unitType,
+                    inventory.location,
+                    deal.location
                 ].filter(id => id && mongoose.Types.ObjectId.isValid(String(id)));
 
                 let lookupMap = new Map();
@@ -504,17 +506,35 @@ class MarketingService {
                     try {
                         const Lookup = mongoose.model('Lookup');
                         const lookups = await Lookup.find({ _id: { $in: lookupIds } }).lean();
-                        lookupMap = new Map(lookups.map(l => [String(l._id), l.name || l.code || l.value]));
+                        lookupMap = new Map(lookups.map(l => {
+                            const val = l.lookup_value || l.name || l.code || l.value || '';
+                            const full = l.parent_lookup_value ? `${val}, ${l.parent_lookup_value}` : val;
+                            return [String(l._id), full || val];
+                        }));
                     } catch (lErr) {
                         console.warn('[MarketingService] Failed to query lookups:', lErr.message);
                     }
                 }
 
-                hydrated.facing = (inventory.facing ? (lookupMap.get(String(inventory.facing)) || String(inventory.facing)) : '') || hydrated.facing;
-                hydrated.roadWidth = (inventory.roadWidth ? (lookupMap.get(String(inventory.roadWidth)) || String(inventory.roadWidth)) : '') || hydrated.roadWidth;
-                hydrated.sizeLabel = (inventory.sizeLabel ? (lookupMap.get(String(inventory.sizeLabel)) || String(inventory.sizeLabel)) : '') || hydrated.sizeLabel;
-                hydrated.orientation = (inventory.orientation ? (lookupMap.get(String(inventory.orientation)) || String(inventory.orientation)) : '') || hydrated.orientation;
-                hydrated.unitType = (inventory.unitType ? (lookupMap.get(String(inventory.unitType)) || String(inventory.unitType)) : '') || hydrated.unitType;
+                const cleanLookup = (val) => {
+                    if (!val) return '';
+                    const str = String(val).trim();
+                    if (lookupMap.has(str)) return lookupMap.get(str);
+                    if (/^[0-9a-fA-F]{24}$/.test(str)) return ''; // Do not leak raw ObjectIds
+                    return str;
+                };
+
+                hydrated.facing = cleanLookup(inventory.facing) || hydrated.facing;
+                hydrated.roadWidth = cleanLookup(inventory.roadWidth) || hydrated.roadWidth;
+                hydrated.sizeLabel = cleanLookup(inventory.sizeLabel) || hydrated.sizeLabel;
+                hydrated.orientation = cleanLookup(inventory.orientation) || hydrated.orientation;
+                hydrated.unitType = cleanLookup(inventory.unitType) || hydrated.unitType;
+
+                if (deal.location && lookupMap.has(String(deal.location))) {
+                    hydrated.location = lookupMap.get(String(deal.location));
+                } else if (inventory.location && lookupMap.has(String(inventory.location))) {
+                    hydrated.location = lookupMap.get(String(inventory.location));
+                }
 
                 if (inventory.unitNumber && !hydrated.unitNo) {
                     hydrated.unitNo = inventory.unitNumber;
@@ -629,13 +649,13 @@ class MarketingService {
         // 2. Select Content Pillar
         const now = new Date();
         const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, ..., 4 = Thu
-        let pillar = options.pillar || 'ct-project';
+        let pillar = options.pillar || (options.dealId ? 'ct-project' : null);
 
         const festival = this.detectUpcomingFestival(now);
-        if (festival.isFestival && !options.pillar) {
-            pillar = 'ct-festival';
-        } else if (!options.pillar) {
-            if (dayOfWeek === 4) { // Thursday = Educational
+        if (!pillar) {
+            if (festival.isFestival) {
+                pillar = 'ct-festival';
+            } else if (dayOfWeek === 4) { // Thursday = Educational
                 pillar = 'ct-edu';
             } else if (dayOfWeek === 3 || dayOfWeek === 0) { // Wed / Sun = Trust & Social Proof
                 pillar = 'ct-trust';
