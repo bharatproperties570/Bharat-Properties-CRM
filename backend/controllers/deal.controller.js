@@ -9,6 +9,8 @@ import Contact from "../models/Contact.js";
 import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import Lookup from "../models/Lookup.js";
+import LookupService from "../services/LookupService.js";
+import DealService from "../services/DealService.js";
 import AuditLog from "../models/AuditLog.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 import CampaignEngine from "../services/CampaignEngine.js";
@@ -56,32 +58,7 @@ const resolveFilter = async (type, value) => {
 };
 
 const resolveLookup = async (type, value, createIfMissing = true) => {
-    if (!value) return null;
-    if (isValidObjectId(value)) return new mongoose.Types.ObjectId(value.toString());
-
-    const cacheKey = `${type}:${String(value).toLowerCase()}`;
-    if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
-
-    const escapedValue = escapeRegExp(value);
-    const re = new RegExp(`^${escapedValue}$`, 'i');
-    let lookup = await Lookup.findOne({
-        lookup_type: type,
-        $or: [
-            { lookup_value: { $regex: re } },
-            { "metadata.aliases": { $regex: re } }
-        ]
-    });
-
-    if (!lookup && createIfMissing) {
-        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
-    }
-
-    if (lookup) {
-        if (_lookupResolveCache.size > 200) _lookupResolveCache.clear();
-        _lookupResolveCache.set(cacheKey, lookup._id);
-        return lookup._id;
-    }
-    return null;
+    return await LookupService.resolve(type, value, { createIfMissing, checkAliases: true });
 };
 
 const extractNumericSize = (val) => {
@@ -2833,27 +2810,10 @@ export const updateDeal = async (req, res) => {
 
 export const deleteDeal = async (req, res) => {
     try {
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const deal = await Deal.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
-        if (!deal) return res.status(404).json({ success: false, error: "Deal not found or access denied" });
-
-        // Reset inventory status if the deal was deleted and no other active deals remain
-        if (deal.inventoryId) {
-            const activeDeals = await Deal.countDocuments({
-                inventoryId: deal.inventoryId,
-                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-            });
-            if (activeDeals === 0) {
-                const Lookup = mongoose.model('Lookup');
-                const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
-                const availableId = availableLookup ? availableLookup._id : 'Available';
-                await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId });
-            }
-        }
-
+        await DealService.deleteDeal(req.params.id, { user: req.user });
         res.json({ success: true, message: "Deal deleted successfully" });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        res.status(error.statusCode || 500).json({ success: false, error: error.message });
     }
 };
 
@@ -2892,7 +2852,7 @@ export const bulkDeleteDeals = async (req, res) => {
             }
         }
 
-        await Deal.deleteMany({ _id: { $in: allowedIds }, ...tenantFilter });
+        await Deal.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
         res.json({ success: true, message: `${allowedIds.length} deals deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

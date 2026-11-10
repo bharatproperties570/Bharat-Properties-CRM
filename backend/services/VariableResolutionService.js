@@ -122,7 +122,12 @@ class VariableResolutionService {
             "siteVisitToken": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return '?ref=demo_token';
+                    if (!leadId) return '';
+                    const secret = process.env.JWT_SECRET;
+                    if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+                        console.error("[VariableResolution] JWT_SECRET is missing or insecure; failing closed for siteVisitToken");
+                        return '';
+                    }
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -135,20 +140,29 @@ class VariableResolutionService {
                         { 
                             leadId: String(leadId), 
                             source: 'wa_match_centre',
+                            purpose: 'wa_match_centre',
                             properties: propertyDetails,
                             hidePrice: lead.hidePrice || false,
                             hideUnit: lead.hideUnit || false,
                             hideLocation: lead.hideLocation || false
                         },
-                        process.env.JWT_SECRET || 'crm_secret_key',
+                        secret,
                         { expiresIn: '30d' }
                     );
-                } catch(e) { return '?ref=demo_token'; }
+                } catch(e) { 
+                    console.error("[VariableResolution] Error generating siteVisitToken:", e.message);
+                    return ''; 
+                }
             })(),
             "site_visit_token": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return '?ref=demo_token';
+                    if (!leadId) return '';
+                    const secret = process.env.JWT_SECRET;
+                    if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+                        console.error("[VariableResolution] JWT_SECRET is missing or insecure; failing closed for site_visit_token");
+                        return '';
+                    }
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -161,15 +175,54 @@ class VariableResolutionService {
                         { 
                             leadId: String(leadId), 
                             source: 'wa_match_centre',
+                            purpose: 'wa_match_centre',
                             properties: propertyDetails,
                             hidePrice: lead.hidePrice || false,
                             hideUnit: lead.hideUnit || false,
                             hideLocation: lead.hideLocation || false
                         },
-                        process.env.JWT_SECRET || 'crm_secret_key',
+                        secret,
                         { expiresIn: '30d' }
                     );
-                } catch(e) { return '?ref=demo_token'; }
+                } catch(e) { 
+                    console.error("[VariableResolution] Error generating site_visit_token:", e.message);
+                    return ''; 
+                }
+            })(),
+            "match_centre_token": (() => {
+                try {
+                    const leadId = lead.id || lead._id;
+                    if (!leadId) return '';
+                    const secret = process.env.JWT_SECRET;
+                    if (!secret || typeof secret !== 'string' || secret.trim() === '' || secret === 'crm_secret_key') {
+                        console.error("[VariableResolution] JWT_SECRET is missing or insecure; failing closed for match_centre_token");
+                        return '';
+                    }
+                    
+                    const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
+                        id: p.inventoryId?._id || p.inventoryId,
+                        name: p.inventoryId?.name || lead.projectName || '',
+                        block: p.inventoryId?.block || '',
+                        unit: p.inventoryId?.unitNumber || ''
+                    })) : [];
+                    
+                    return '?ref=' + jwt.sign(
+                        { 
+                            leadId: String(leadId), 
+                            source: 'wa_match_centre',
+                            purpose: 'wa_match_centre',
+                            properties: propertyDetails,
+                            hidePrice: lead.hidePrice || false,
+                            hideUnit: lead.hideUnit || false,
+                            hideLocation: lead.hideLocation || false
+                        },
+                        secret,
+                        { expiresIn: '30d' }
+                    );
+                } catch(e) { 
+                    console.error("[VariableResolution] Error generating match_centre_token:", e.message);
+                    return ''; 
+                }
             })(),
 
             // --- Activity Specific Variables ---
@@ -452,15 +505,16 @@ class VariableResolutionService {
                     }
                     const campaign = lead.campaign?.name || lead.campaign || lead.context?.campaignName || lead.context?.campaign || '';
                     const source = lead.source?.name || lead.source || lead.context?.source || 'whatsapp_smart_link';
+                    const formSlug = 'standard-project-tour-scheduler-bqnh6visit';
                     const token = jwt.sign({
                         leadId,
                         projectId: lead.projectName || lead.project?.name || null,
                         source,
                         campaign,
-                        purpose: 'site_visit_scheduler'
+                        purpose: 'site_visit_scheduler',
+                        formSlug
                     }, process.env.JWT_SECRET, { expiresIn: '30d' });
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
-                    const formSlug = 'standard-project-tour-scheduler-bqnh6visit';
                     let url = `${baseUrl}/public/form/${formSlug}?ref=${token}`;
                     if (campaign) url += `&utm_campaign=${encodeURIComponent(campaign)}`;
                     if (source) url += `&utm_source=${encodeURIComponent(source)}`;
@@ -483,7 +537,7 @@ class VariableResolutionService {
                     const sep = url.includes('?') ? '&' : '?';
                     let query = `utm_source=${encodeURIComponent(source)}&utm_medium=${encodeURIComponent(medium)}&utm_campaign=${encodeURIComponent(campaign)}`;
                     if (leadId && process.env.JWT_SECRET) {
-                        const token = jwt.sign({ leadId, campaign, source, medium }, process.env.JWT_SECRET, { expiresIn: '30d' });
+                        const token = jwt.sign({ leadId, campaign, source, medium, purpose: 'lead_reference' }, process.env.JWT_SECRET, { expiresIn: '30d' });
                         query += `&ref=${token}`;
                     }
                     return `${url}${sep}${query}`;

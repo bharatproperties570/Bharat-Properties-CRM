@@ -3,6 +3,7 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
 import Project from '../models/Project.js';
 import Deal from '../models/Deal.js';
+import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
 
 /**
  * PortalSyndicationService.js
@@ -311,7 +312,22 @@ class PortalSyndicationService {
     }
 
     /**
+     * Strictly preview-only formatter: zero network dispatches, zero Outbox events, zero side effects.
+     */
+    generatePreview(data, options = {}) {
+        const { privacy = {}, itemType = 'deal' } = options;
+        const masked = this._applyPrivacyMasking(data || {}, privacy);
+        return {
+            xmlSample: this._generateXmlFeed(masked, '99acres', itemType),
+            jsonSample: this._formatJsonListing(masked, 'magicbricks', itemType),
+            privacyApplied: privacy
+        };
+    }
+
+    /**
      * Main Entry: Dispatches property to selected portals with Anti-Poaching guard.
+     * Enforces canonical record resolution, RBAC visibility, and copy compliance.
+     * 
      * @param {Object} rawData - Deal or Project object
      * @param {Object} options - { portalIds, platforms, privacy, itemType, user }
      */
@@ -321,6 +337,33 @@ class PortalSyndicationService {
             itemType = 'project',
             user = null
         } = options;
+
+        // 1. Mandatory Canonical Record Verification
+        if (!rawData || (!rawData._id && !rawData.id)) {
+            return {
+                success: false,
+                message: 'Portal syndication requires an authorized canonical record with valid _id.',
+                results: { dispatched: [], unconfigured: [], failed: [] }
+            };
+        }
+
+        // 2. Revalidate user visibility permissions if publishing as an authenticated user
+        let canonicalSource = rawData;
+        if (user && user.isSystem !== true && rawData._id) {
+            const authorized = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(
+                rawData._id,
+                itemType,
+                user
+            );
+            if (!authorized) {
+                return {
+                    success: false,
+                    message: `Property ${rawData._id} is unauthorized or inaccessible under user visibility permissions.`,
+                    results: { dispatched: [], unconfigured: [], failed: [] }
+                };
+            }
+            canonicalSource = authorized;
+        }
 
         // Extract requested portal IDs from either array or map
         let requestedPortals = [];
@@ -341,8 +384,27 @@ class PortalSyndicationService {
             };
         }
 
+        // 3. Apply canonical evidence validation and copy/data compliance checks before portal dispatch
+        const facts = marketingComplianceEnforcementService.extractAuthoritativeFacts(canonicalSource);
         const config = await this.getConfig();
-        const maskedData = this._applyPrivacyMasking(rawData, privacy);
+        const maskedData = this._applyPrivacyMasking(canonicalSource, privacy);
+
+        // Sanitize title and description against canonical compliance facts
+        const rawTitle = maskedData.name || maskedData.title || 'Premier Property Showcase';
+        const rawDesc = maskedData.description || `${rawTitle} located at ${maskedData.location || maskedData.address?.locality || 'Prime Location'}`;
+        
+        const { sanitizedText: cleanTitle } = marketingComplianceEnforcementService.enforceCompliance(rawTitle, canonicalSource, 'portal');
+        const { sanitizedText: cleanDesc } = marketingComplianceEnforcementService.enforceCompliance(rawDesc, canonicalSource, 'portal');
+
+        maskedData.name = cleanTitle;
+        maskedData.title = cleanTitle;
+        maskedData.description = cleanDesc;
+
+        // If RERA is not approved, remove RERA registration claims from portal listing data
+        if (!facts.isReraApproved) {
+            maskedData.reraNumber = null;
+            maskedData.reraRegistrationNumber = null;
+        }
 
         const results = {
             dispatched: [],

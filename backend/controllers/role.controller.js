@@ -8,6 +8,7 @@ import User from '../models/User.js';
 import AuditLog from '../models/AuditLog.js';
 import { ROLE_TEMPLATES } from '../config/roles.config.js';
 import { invalidateAllRoleCaches, invalidateUserPermissionCache } from '../services/cache.service.js';
+import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import mongoose from 'mongoose';
 
 /**
@@ -77,9 +78,6 @@ export const getRoleById = async (req, res) => {
  * Create new role
  */
 export const createRole = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const {
             name,
@@ -91,54 +89,54 @@ export const createRole = async (req, res) => {
             approvalRights
         } = req.body;
 
-        // Check if role name already exists in this department
-        const existingRole = await Role.findOne({ name, department });
-        if (existingRole) {
-            await session.abortTransaction();
-            return res.status(400).json({
-                success: false,
-                message: `Role "${name}" already exists in ${department} department`
+        const role = await withMongoTransaction(async (session) => {
+            // Check if role name already exists in this department
+            const existingRole = await Role.findOne({ name, department }).session(session);
+            if (existingRole) {
+                const err = new Error(`Role "${name}" already exists in ${department} department`);
+                err.statusCode = 400;
+                throw err;
+            }
+
+            // Create role
+            const newRole = new Role({
+                name,
+                department,
+                description,
+                moduleAccess,
+                defaultDataScope,
+                financialPermissions,
+                approvalRights,
+                isSystemRole: false
             });
-        }
 
-        // Create role
-        const role = new Role({
-            name,
-            department,
-            description,
-            moduleAccess,
-            defaultDataScope,
-            financialPermissions,
-            approvalRights,
-            isSystemRole: false
+            await newRole.save({ session });
+
+            // Log audit event (only if user is authenticated)
+            if (req.user?._id) {
+                await AuditLog.create([{
+                    eventType: 'role_created',
+                    userId: req.user._id,
+                    userName: req.user.fullName,
+                    userEmail: req.user.email,
+                    actorId: req.user._id,
+                    actorName: req.user.fullName,
+                    actorEmail: req.user.email,
+                    targetType: 'role',
+                    targetId: newRole._id,
+                    targetName: newRole.name,
+                    description: `Role "${newRole.name}" created for ${department} department`,
+                    metadata: {
+                        department,
+                        defaultDataScope
+                    },
+                    ipAddress: req.ip,
+                    userAgent: req.get('user-agent')
+                }], { session });
+            }
+
+            return newRole;
         });
-
-        await role.save({ session });
-
-        // Log audit event (only if user is authenticated)
-        if (req.user?._id) {
-            await AuditLog.create([{
-                eventType: 'role_created',
-                userId: req.user._id,
-                userName: req.user.fullName,
-                userEmail: req.user.email,
-                actorId: req.user._id,
-                actorName: req.user.fullName,
-                actorEmail: req.user.email,
-                targetType: 'role',
-                targetId: role._id,
-                targetName: role.name,
-                description: `Role "${role.name}" created for ${department} department`,
-                metadata: {
-                    department,
-                    defaultDataScope
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent')
-            }], { session });
-        }
-
-        await session.commitTransaction();
 
         res.status(201).json({
             success: true,
@@ -146,15 +144,12 @@ export const createRole = async (req, res) => {
             data: role
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Create role error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to create role',
+            message: error.message || 'Failed to create role',
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
@@ -162,81 +157,77 @@ export const createRole = async (req, res) => {
  * Update role
  */
 export const updateRole = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { id } = req.params;
         const updates = req.body;
+        let usersWithRole = [];
 
-        const role = await Role.findById(id);
-        if (!role) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'Role not found'
-            });
-        }
+        const role = await withMongoTransaction(async (session) => {
+            const existingRole = await Role.findById(id).session(session);
+            if (!existingRole) {
+                const err = new Error('Role not found');
+                err.statusCode = 404;
+                throw err;
+            }
 
-        // Prevent editing system roles
-        if (role.isSystemRole) {
-            await session.abortTransaction();
-            return res.status(403).json({
-                success: false,
-                message: 'System roles cannot be modified. Create a custom role instead.'
-            });
-        }
+            // Prevent editing system roles
+            if (existingRole.isSystemRole) {
+                const err = new Error('System roles cannot be modified. Create a custom role instead.');
+                err.statusCode = 403;
+                throw err;
+            }
 
-        // Store original values for audit
-        const originalValues = {
-            moduleAccess: role.moduleAccess,
-            financialPermissions: role.financialPermissions,
-            approvalRights: role.approvalRights,
-            defaultDataScope: role.defaultDataScope
-        };
+            // Store original values for audit
+            const originalValues = {
+                moduleAccess: existingRole.moduleAccess,
+                financialPermissions: existingRole.financialPermissions,
+                approvalRights: existingRole.approvalRights,
+                defaultDataScope: existingRole.defaultDataScope
+            };
 
-        // Update role and increment permissionsVersion within transaction
-        Object.assign(role, updates);
-        role.permissionsVersion = (Number(role.permissionsVersion) || 1) + 1;
-        await role.save({ session });
+            // Update role and increment permissionsVersion within transaction
+            Object.assign(existingRole, updates);
+            existingRole.permissionsVersion = (Number(existingRole.permissionsVersion) || 1) + 1;
+            await existingRole.save({ session });
 
-        // Find affected users for audit and post-commit cache invalidation
-        const usersWithRole = await User.find({ role: id }).select('_id');
+            // Find affected users for audit and post-commit cache invalidation
+            usersWithRole = await User.find({ role: id }).select('_id').session(session);
 
-        // Log audit event (only if user is authenticated)
-        if (req.user?._id) {
-            await AuditLog.create([{
-                eventType: 'role_updated',
-                userId: req.user._id,
-                userName: req.user.fullName,
-                userEmail: req.user.email,
-                actorId: req.user._id,
-                actorName: req.user.fullName,
-                actorEmail: req.user.email,
-                targetType: 'role',
-                targetId: role._id,
-                targetName: role.name,
-                description: `Role "${role.name}" updated`,
-                changes: {
-                    before: originalValues,
-                    after: {
-                        moduleAccess: role.moduleAccess,
-                        financialPermissions: role.financialPermissions,
-                        approvalRights: role.approvalRights,
-                        defaultDataScope: role.defaultDataScope,
-                        permissionsVersion: role.permissionsVersion
-                    }
-                },
-                metadata: {
-                    affectedUsers: usersWithRole.length,
-                    permissionsVersion: role.permissionsVersion
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent')
-            }], { session });
-        }
+            // Log audit event (only if user is authenticated)
+            if (req.user?._id) {
+                await AuditLog.create([{
+                    eventType: 'role_updated',
+                    userId: req.user._id,
+                    userName: req.user.fullName,
+                    userEmail: req.user.email,
+                    actorId: req.user._id,
+                    actorName: req.user.fullName,
+                    actorEmail: req.user.email,
+                    targetType: 'role',
+                    targetId: existingRole._id,
+                    targetName: existingRole.name,
+                    description: `Role "${existingRole.name}" updated`,
+                    changes: {
+                        before: originalValues,
+                        after: {
+                            moduleAccess: existingRole.moduleAccess,
+                            financialPermissions: existingRole.financialPermissions,
+                            approvalRights: existingRole.approvalRights,
+                            defaultDataScope: existingRole.defaultDataScope,
+                            permissionsVersion: existingRole.permissionsVersion
+                        }
+                    },
+                    metadata: {
+                        affectedUsers: usersWithRole.length,
+                        permissionsVersion: existingRole.permissionsVersion
+                    },
+                    ipAddress: req.ip,
+                    userAgent: req.get('user-agent')
+                }], { session });
+            }
 
-        await session.commitTransaction();
+            return existingRole;
+        });
 
         // P1-B: Invalidate caches AFTER successful transaction commit so concurrent checks cannot repopulate stale state
         let cacheInvalidationWarning = null;
@@ -257,15 +248,12 @@ export const updateRole = async (req, res) => {
             ...(cacheInvalidationWarning ? { warning: cacheInvalidationWarning } : {})
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Update role error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to update role',
+            message: error.message || 'Failed to update role',
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
@@ -273,66 +261,57 @@ export const updateRole = async (req, res) => {
  * Delete role
  */
 export const deleteRole = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { id } = req.params;
-
-        const role = await Role.findById(id);
-        if (!role) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'Role not found'
-            });
-        }
-
-        // Prevent deleting system roles
-        if (role.isSystemRole) {
-            await session.abortTransaction();
-            return res.status(403).json({
-                success: false,
-                message: 'System roles cannot be deleted'
-            });
-        }
-
-        // Check if any active users have this role
-        const userCount = await User.countDocuments({ role: id, status: 'active' });
         const { force } = req.query;
 
-        if (userCount > 0 && force !== 'true') {
-            await session.abortTransaction();
-            return res.status(400).json({
-                success: false,
-                message: `Cannot delete role. ${userCount} user(s) are assigned to this role.`,
-                isWarning: true,
-                data: { userCount }
-            });
-        }
+        await withMongoTransaction(async (session) => {
+            const role = await Role.findById(id).session(session);
+            if (!role) {
+                const err = new Error('Role not found');
+                err.statusCode = 404;
+                throw err;
+            }
 
-        await Role.findByIdAndDelete(id, { session });
+            // Prevent deleting system roles
+            if (role.isSystemRole) {
+                const err = new Error('System roles cannot be deleted');
+                err.statusCode = 403;
+                throw err;
+            }
 
-        // Log audit event (only if user is authenticated)
-        if (req.user?._id) {
-            await AuditLog.create([{
-                eventType: 'role_deleted',
-                userId: req.user._id,
-                userName: req.user.fullName,
-                userEmail: req.user.email,
-                actorId: req.user._id,
-                actorName: req.user.fullName,
-                actorEmail: req.user.email,
-                targetType: 'role',
-                targetId: id,
-                targetName: role.name,
-                description: `Role "${role.name}" deleted`,
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent')
-            }], { session });
-        }
+            // Check if any active users have this role
+            const userCount = await User.countDocuments({ role: id, status: 'active' }).session(session);
 
-        await session.commitTransaction();
+            if (userCount > 0 && force !== 'true') {
+                const err = new Error(`Cannot delete role. ${userCount} user(s) are assigned to this role.`);
+                err.statusCode = 400;
+                err.isWarning = true;
+                err.data = { userCount };
+                throw err;
+            }
+
+            await Role.findByIdAndDelete(id, { session });
+
+            // Log audit event (only if user is authenticated)
+            if (req.user?._id) {
+                await AuditLog.create([{
+                    eventType: 'role_deleted',
+                    userId: req.user._id,
+                    userName: req.user.fullName,
+                    userEmail: req.user.email,
+                    actorId: req.user._id,
+                    actorName: req.user.fullName,
+                    actorEmail: req.user.email,
+                    targetType: 'role',
+                    targetId: id,
+                    targetName: role.name,
+                    description: `Role "${role.name}" deleted`,
+                    ipAddress: req.ip,
+                    userAgent: req.get('user-agent')
+                }], { session });
+            }
+        });
 
         // P1-B: Invalidate role cache AFTER successful commit
         try {
@@ -346,15 +325,14 @@ export const deleteRole = async (req, res) => {
             message: 'Role deleted successfully'
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Delete role error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to delete role',
+            message: error.message || 'Failed to delete role',
+            isWarning: error.isWarning || false,
+            ...(error.data ? { data: error.data } : {}),
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
@@ -389,81 +367,75 @@ export const getRoleTemplates = async (req, res) => {
  * Clone role from template or existing role
  */
 export const cloneRole = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { sourceRoleId, newName, newDescription } = req.body;
 
         if (!sourceRoleId || !newName) {
-            await session.abortTransaction();
             return res.status(400).json({
                 success: false,
                 message: 'Source role ID and new name are required'
             });
         }
 
-        const sourceRole = await Role.findById(sourceRoleId);
-        if (!sourceRole) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'Source role not found'
+        const clonedRole = await withMongoTransaction(async (session) => {
+            const sourceRole = await Role.findById(sourceRoleId).session(session);
+            if (!sourceRole) {
+                const err = new Error('Source role not found');
+                err.statusCode = 404;
+                throw err;
+            }
+
+            // Check if new name already exists in department
+            const existingRole = await Role.findOne({
+                name: newName,
+                department: sourceRole.department
+            }).session(session);
+
+            if (existingRole) {
+                const err = new Error(`Role "${newName}" already exists in ${sourceRole.department} department`);
+                err.statusCode = 400;
+                throw err;
+            }
+
+            // Clone role
+            const newClonedRole = new Role({
+                name: newName,
+                department: sourceRole.department,
+                description: newDescription || sourceRole.description,
+                moduleAccess: JSON.parse(JSON.stringify(sourceRole.moduleAccess)),
+                defaultDataScope: sourceRole.defaultDataScope,
+                financialPermissions: JSON.parse(JSON.stringify(sourceRole.financialPermissions)),
+                approvalRights: JSON.parse(JSON.stringify(sourceRole.approvalRights)),
+                isSystemRole: false
             });
-        }
 
-        // Check if new name already exists in department
-        const existingRole = await Role.findOne({
-            name: newName,
-            department: sourceRole.department
+            await newClonedRole.save({ session });
+
+            // Log audit event (only if user is authenticated)
+            if (req.user?._id) {
+                await AuditLog.create([{
+                    eventType: 'role_created',
+                    userId: req.user._id,
+                    userName: req.user.fullName,
+                    userEmail: req.user.email,
+                    actorId: req.user._id,
+                    actorName: req.user.fullName,
+                    actorEmail: req.user.email,
+                    targetType: 'role',
+                    targetId: newClonedRole._id,
+                    targetName: newClonedRole.name,
+                    description: `Role "${newClonedRole.name}" created by cloning "${sourceRole.name}"`,
+                    metadata: {
+                        sourceRoleId,
+                        sourceRoleName: sourceRole.name
+                    },
+                    ipAddress: req.ip,
+                    userAgent: req.get('user-agent')
+                }], { session });
+            }
+
+            return newClonedRole;
         });
-
-        if (existingRole) {
-            await session.abortTransaction();
-            return res.status(400).json({
-                success: false,
-                message: `Role "${newName}" already exists in ${sourceRole.department} department`
-            });
-        }
-
-        // Clone role
-        const clonedRole = new Role({
-            name: newName,
-            department: sourceRole.department,
-            description: newDescription || sourceRole.description,
-            moduleAccess: JSON.parse(JSON.stringify(sourceRole.moduleAccess)),
-            defaultDataScope: sourceRole.defaultDataScope,
-            financialPermissions: JSON.parse(JSON.stringify(sourceRole.financialPermissions)),
-            approvalRights: JSON.parse(JSON.stringify(sourceRole.approvalRights)),
-            isSystemRole: false
-        });
-
-        await clonedRole.save({ session });
-
-        // Log audit event (only if user is authenticated)
-        if (req.user?._id) {
-            await AuditLog.create([{
-                eventType: 'role_created',
-                userId: req.user._id,
-                userName: req.user.fullName,
-                userEmail: req.user.email,
-                actorId: req.user._id,
-                actorName: req.user.fullName,
-                actorEmail: req.user.email,
-                targetType: 'role',
-                targetId: clonedRole._id,
-                targetName: clonedRole.name,
-                description: `Role "${clonedRole.name}" created by cloning "${sourceRole.name}"`,
-                metadata: {
-                    sourceRoleId,
-                    sourceRoleName: sourceRole.name
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent')
-            }], { session });
-        }
-
-        await session.commitTransaction();
 
         res.status(201).json({
             success: true,
@@ -471,15 +443,12 @@ export const cloneRole = async (req, res) => {
             data: clonedRole
         });
     } catch (error) {
-        await session.abortTransaction();
         console.error('Clone role error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to clone role',
+            message: error.message || 'Failed to clone role',
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 

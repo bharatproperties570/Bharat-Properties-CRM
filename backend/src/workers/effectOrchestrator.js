@@ -193,17 +193,35 @@ export const executeEffect = async (eventId, effectKey, aggregateType, aggregate
         if (ownershipLost || Date.now() >= currentLockedUntil.getTime()) {
             ownershipLost = true;
             console.warn(`[EffectOrchestrator] STALE WORKER DETECTED after fn() execution for ${effectKey}. Lease was lost.`);
-            throw new Error(`Stale worker exception during execution of ${effectKey}: lease was lost`);
+            const fenceErr = new Error(`Stale worker exception during execution of ${effectKey}: lease was lost`);
+            fenceErr.isAmbiguous = true;
+            throw fenceErr;
         }
 
-        const result = await EffectExecution.updateOne(
-            { _id: claim._id, executionId: newExecutionId, status: 'PROCESSING' },
-            { $set: { status: 'COMPLETED', lockedUntil: null, lastError: null } }
-        );
+        if (options._simulateCompletionCheckpointFailure || options._simulateAmbiguousCheckpointFailure) {
+            const simErr = new Error('Simulated DB failure during completion checkpoint');
+            if (options._simulateAmbiguousCheckpointFailure || options.markAmbiguous) {
+                simErr.isAmbiguous = true;
+            }
+            throw simErr;
+        }
+
+        let result;
+        try {
+            result = await EffectExecution.updateOne(
+                { _id: claim._id, executionId: newExecutionId, status: 'PROCESSING' },
+                { $set: { status: 'COMPLETED', lockedUntil: null, lastError: null } }
+            );
+        } catch (dbErr) {
+            dbErr.isAmbiguous = true;
+            throw dbErr;
+        }
 
         if (result.modifiedCount === 0) {
             console.warn(`[EffectOrchestrator] STALE WORKER DETECTED during COMPLETED for ${effectKey}. Lease was stolen.`);
-            throw new Error(`Stale worker exception during COMPLETED checkpoint for ${effectKey}`);
+            const stolenErr = new Error(`Stale worker exception during COMPLETED checkpoint for ${effectKey}`);
+            stolenErr.isAmbiguous = true;
+            throw stolenErr;
         }
 
         return { status: 'COMPLETED' };

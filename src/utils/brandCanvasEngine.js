@@ -27,10 +27,16 @@ export const BRAND_COLORS = {
  * @returns {Promise<HTMLImageElement>}
  */
 export function loadImage(src) {
+  if (!src) {
+    return Promise.reject(new Error('Image source is required'));
+  }
+
+  // Already loaded Image element or image object
+  if ((typeof HTMLImageElement !== 'undefined' && src instanceof HTMLImageElement) || (src && typeof src === 'object' && typeof src.width === 'number' && typeof src.height === 'number')) {
+    return Promise.resolve(src);
+  }
+
   return new Promise((resolve, reject) => {
-    if (!src) {
-      return reject(new Error('Image source is required'));
-    }
 
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -72,6 +78,16 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.arcTo(x, y, x + width, y, radius);
   ctx.closePath();
 }
+
+import { hasAuthoritativeTitleVerification } from './propertyComplianceValidator.js';
+
+/**
+ * Authoritative verification predicate for visual marketing assets.
+ * Re-exports the single canonical contract from propertyComplianceValidator.js.
+ * Generic booleans alone (isVerified: true, titleVerified: true, etc.) NEVER qualify.
+ * Caller overrides cannot bypass this check.
+ */
+export const isAuthoritativelyVerified = hasAuthoritativeTitleVerification;
 
 /**
  * Brandifies any raw property photo with Bharat Properties enterprise kit
@@ -183,21 +199,30 @@ export async function brandifyPropertyImage(imageSource, propertyData = {}) {
   ctx.fillText('PROPERTIES', targetWidth - 296, 89);
   ctx.restore();
 
-  // 3b. Top-Left: "VERIFIED TITLE" Gold Shield Badge
+  // 3b. Top-Left: Property Badge (Verified Title vs Neutral Featured/Listing)
+  // Canonical verification: caller cannot override using badgeText, isVerified or any presentation prop
+  const isVerified = hasAuthoritativeTitleVerification(propertyData);
+  const badgeText = isVerified ? '🛡️ VERIFIED PROPERTY' : '✨ FEATURED PROPERTY';
+
   ctx.save();
   roundRect(ctx, 36, 36, 260, 58, 10);
   const badgeGrad = ctx.createLinearGradient(36, 36, 296, 94);
-  badgeGrad.addColorStop(0, '#C9921A');
-  badgeGrad.addColorStop(1, '#78540B');
+  if (isVerified) {
+    badgeGrad.addColorStop(0, '#C9921A');
+    badgeGrad.addColorStop(1, '#78540B');
+  } else {
+    badgeGrad.addColorStop(0, '#1E3A8A');
+    badgeGrad.addColorStop(1, '#0B1F3A');
+  }
   ctx.fillStyle = badgeGrad;
   ctx.fill();
-  ctx.strokeStyle = '#FAD87A';
+  ctx.strokeStyle = isVerified ? '#FAD87A' : '#93C5FD';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   ctx.fillStyle = '#FFFFFF';
   ctx.font = 'bold 15px sans-serif';
-  ctx.fillText('🛡️ VERIFIED PROPERTY', 56, 72);
+  ctx.fillText(badgeText, 56, 72);
   ctx.restore();
 
   // 4. Bottom Lower-Third (Navy Backdrop + Gold Dividers)

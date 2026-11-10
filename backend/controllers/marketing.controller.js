@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
+import marketingComplianceEnforcementService from '../services/MarketingComplianceEnforcementService.js';
 import unifiedAIService from '../services/UnifiedAIService.js';
 import AIGovernance from '../services/ai/AIGovernance.js';
 import publishService from '../services/PublishService.js';
@@ -22,6 +23,7 @@ import CampaignRun from '../models/CampaignRun.js';
 import MarketingDelivery from '../models/MarketingDelivery.js';
 import Activity from '../models/Activity.js';
 import DispatchJob from '../models/DispatchJob.js';
+import OutboxEvent from '../models/OutboxEvent.js';
 import SocialPostMetric from '../models/SocialPostMetric.js';
 import socialAnalyticsSyncService from '../services/SocialAnalyticsSyncService.js';
 import NurtureBot from '../services/NurtureBot.js';
@@ -859,57 +861,6 @@ export const sendCampaign = async (req, res) => {
             }
         }
 
-        // 🧠 SENIOR PROFESSIONAL FALLBACK: Direct Dispatch or In-Memory Schedule if Redis is Offline
-        if (!queue || redisConnection.isMock || !isRedisOnline) {
-            console.warn('[MarketingController] ⚠️ Redis Offline - Switching to Memory/Direct Mode');
-            
-            if (isScheduled && scheduledAt && new Date(scheduledAt) > new Date()) {
-                // Schedule in memory
-                const memoryJob = {
-                    id: `mem_${Date.now()}`,
-                    channel, name, subject, content, html,
-                    templateName: req.body.templateName,
-                    templateLang: req.body.templateLang,
-                    templateComponents: req.body.templateComponents,
-                    waMapping: activeMapping,
-                    smsData: { ...smsData, ...dltMetadata },
-                    recipients,
-                    scheduledAt,
-                    performedBy: req.user?.firstName || 'System'
-                };
-                _memoryQueue.push(memoryJob);
-                console.log(`[MarketingController] 💾 Job scheduled in Memory: ${name} at ${scheduledAt}`);
-
-                return res.json({
-                    success: true,
-                    leadCount: recipients.length,
-                    jobId: memoryJob.id,
-                    status: 'Scheduled (Memory)',
-                    message: 'Redis is offline. Campaign has been scheduled in system memory safely.'
-                });
-            }
-
-            // Otherwise dispatch immediately
-            _dispatchDirectly({
-                channel, name, subject, content, html,
-                templateName: req.body.templateName || (channel.toLowerCase() === 'whatsapp' || channel === 'wa' ? req.body.templateId : undefined),
-                templateLang: req.body.templateLang,
-                templateComponents: req.body.templateComponents,
-                waMapping: activeMapping,
-                smsData: { ...(smsData || {}), ...dltMetadata },
-                recipients,
-                performedBy: req.user?.firstName || 'System'
-            }).catch(err => console.error('[MarketingController] Direct Dispatch Error:', err));
-
-            return res.json({ 
-                success: true, 
-                leadCount: recipients.length, 
-                jobId: `direct_${Date.now()}`,
-                status: 'Dispatched (Direct)',
-                message: 'Redis is offline. Campaign is being processed via high-priority direct dispatch.'
-            });
-        }
-
         // 🧠 RECURRING & SCHEDULING ORCHESTRATION
         let jobOptions = { removeOnComplete: true, attempts: 3 };
         let delay = 0;
@@ -946,7 +897,7 @@ export const sendCampaign = async (req, res) => {
             }
         }
 
-        const job = await queue.add('blast', {
+        const blastPayload = {
             channel,
             name:    name || 'Campaign',
             subject: subject || 'Update',
@@ -964,13 +915,31 @@ export const sendCampaign = async (req, res) => {
             scheduledAt,
             repeatMode,
             repeatFreq
-        }, jobOptions);
+        };
+
+        const eventId = new mongoose.Types.ObjectId().toString();
+        const deterministicJobId = `mkt_${eventId}_blast`;
+        jobOptions.jobId = deterministicJobId;
+
+        await OutboxEvent.create({
+            eventId,
+            eventType: 'MarketingDispatchRequested',
+            aggregateType: 'Marketing',
+            aggregateId: new mongoose.Types.ObjectId(),
+            payload: {
+                jobType: 'blast',
+                jobData: blastPayload,
+                opts: jobOptions
+            },
+            tenantId: req.user?.tenantId || req.user?.tenant,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        });
 
         res.json({ 
             success: true, 
             leadCount: recipients.length, 
-            jobId: job.id,
-            status: isScheduled ? (repeatMode !== 'none' ? 'Recurring' : 'Scheduled') : 'Dispatched',
+            jobId: deterministicJobId,
+            status: isScheduled ? ((repeatMode && repeatMode !== 'none') ? 'Recurring' : 'Scheduled') : 'Dispatched',
             message: isScheduled ? `Campaign orchestration active for ${new Date(scheduledAt).toLocaleString()}` : undefined
         });
     } catch (error) {
@@ -983,9 +952,24 @@ export const sendCampaign = async (req, res) => {
 export const activateDrip = async (req, res) => {
     try {
         const { leadId, sequenceId, delayMs = 0 } = req.body;
-        const queue = await getMarketingQueue();
-        const job = await queue.add('drip', { leadId, sequenceId, step: 1 }, { delay: parseInt(delayMs) });
-        res.json({ success: true, jobId: job.id });
+        const eventId = new mongoose.Types.ObjectId().toString();
+        const deterministicJobId = `mkt_${eventId}_drip`;
+
+        await OutboxEvent.create({
+            eventId,
+            eventType: 'MarketingDispatchRequested',
+            aggregateType: 'Marketing',
+            aggregateId: leadId && mongoose.Types.ObjectId.isValid(leadId) ? new mongoose.Types.ObjectId(leadId) : new mongoose.Types.ObjectId(),
+            payload: {
+                jobType: 'drip',
+                jobData: { leadId, sequenceId, step: 1 },
+                opts: { delay: parseInt(delayMs) || 0, jobId: deterministicJobId }
+            },
+            tenantId: req.user?.tenantId || req.user?.tenant,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        });
+
+        res.json({ success: true, jobId: deterministicJobId });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -1385,59 +1369,55 @@ export const broadcastToBrokerGroup = async (req, res) => {
             console.error('[broadcastToBrokerGroup] BroadcastLiveTracker init warning:', trackerInitErr.message);
         }
 
-        // ─── ENTERPRISE BROADCAST SCHEDULING ──────────────────────────────────
+        // ─── ENTERPRISE BROADCAST SCHEDULING (DURABLE OUTBOX) ──────────────────────────────────
+        const eventId = new mongoose.Types.ObjectId().toString();
+        const deterministicJobId = `mkt_${eventId}_bna-broadcast`;
+        let scheduledDate = null;
+        let delay = 0;
         if (scheduledTime) {
-            const scheduledDate = new Date(scheduledTime);
-            const delay = scheduledDate.getTime() - Date.now();
+            scheduledDate = new Date(scheduledTime);
+            delay = Math.max(0, scheduledDate.getTime() - Date.now());
             if (delay > 0) {
                 jobData.scheduledTime = scheduledDate.toISOString();
-                if (queue && isRedisOnline) {
-                    const job = await queue.add('bna-broadcast', jobData, { delay, removeOnComplete: true });
-                    return res.json({ 
-                        success: true, 
-                        scheduled: true,
-                        scheduledTime: scheduledDate.toISOString(),
-                        message: `Broadcast scheduled for ${recipients.length} recipients on ${scheduledDate.toLocaleString()}.`,
-                        campaignId,
-                        jobId: job.id,
-                        dispatchCount: recipients.length
-                    });
-                } else {
-                    console.warn(`[BNA_BROADCAST] Scheduled direct fallback queued for ${scheduledDate.toISOString()} (${Math.round(delay/1000)}s)`);
-                    setTimeout(() => {
-                        _dispatchBNADirectly(jobData).catch(err => console.error('[BNA_BROADCAST_SCHEDULED_DIRECT_ERROR]', err));
-                    }, delay);
-                    return res.json({ 
-                        success: true, 
-                        scheduled: true,
-                        scheduledTime: scheduledDate.toISOString(),
-                        message: `Broadcast scheduled for ${recipients.length} recipients on ${scheduledDate.toLocaleString()} (Direct Mode).`,
-                        campaignId,
-                        dispatchCount: recipients.length
-                    });
-                }
             }
         }
+        const opts = {
+            removeOnComplete: true,
+            jobId: deterministicJobId,
+            ...(delay > 0 ? { delay } : {})
+        };
 
-        if (queue && isRedisOnline) {
-            const job = await queue.add('bna-broadcast', jobData, { removeOnComplete: true });
+        await OutboxEvent.create({
+            eventId,
+            eventType: 'MarketingDispatchRequested',
+            aggregateType: 'Marketing',
+            aggregateId: campaignId && mongoose.Types.ObjectId.isValid(campaignId) ? new mongoose.Types.ObjectId(campaignId) : new mongoose.Types.ObjectId(),
+            payload: {
+                jobType: 'bna-broadcast',
+                jobData,
+                opts
+            },
+            tenantId: req.user?.tenantId || req.user?.tenant,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        });
+
+        if (scheduledDate && delay > 0) {
             return res.json({ 
                 success: true, 
-                message: `Broadcast queued for ${recipients.length} brokers.`,
+                scheduled: true,
+                scheduledTime: scheduledDate.toISOString(),
+                message: `Broadcast scheduled for ${recipients.length} recipients on ${scheduledDate.toLocaleString()}.`,
                 campaignId,
-                jobId: job.id,
+                jobId: deterministicJobId,
                 dispatchCount: recipients.length
             });
         }
 
-        // 🧠 FALLBACK: If Redis is offline, dispatch directly in background
-        console.warn('[BNA_BROADCAST] Redis Offline - Fallback to Direct Background Dispatch');
-        _dispatchBNADirectly(jobData).catch(err => console.error('[BNA_BROADCAST_DIRECT_ERROR]', err));
-
-        res.json({ 
+        return res.json({ 
             success: true, 
-            message: `Broadcast started for ${recipients.length} brokers (Direct Mode).`,
+            message: `Broadcast queued for ${recipients.length} brokers.`,
             campaignId,
+            jobId: deterministicJobId,
             dispatchCount: recipients.length
         });
 
@@ -2026,9 +2006,8 @@ export async function _dispatchBNADirectly(data) {
 export const broadcastToHub = async (req, res) => {
     try {
         const { id, type, platforms, privacy } = req.body;
-        const Model = type === 'deal' ? Deal : Project;
-        const data = await Model.findById(id).lean();
-        if (!data) return res.status(404).json({ success: false, message: 'Item not found' });
+        const data = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(id, type || 'deal', req.user);
+        if (!data) return res.status(404).json({ success: false, message: 'Item not found or inaccessible' });
         const results = await publishService.publish(data, { 
             platforms, 
             privacy, 
@@ -2097,21 +2076,47 @@ export const testPortalConnection = async (req, res) => {
  */
 export const syndicateToPortals = async (req, res) => {
     try {
-        const { id, type, portalIds, privacy, propertyData } = req.body;
-        const Model = type === 'deal' ? Deal : Project;
-        let data = null;
-        if (Model?.db?.readyState === 1) {
-            data = await Model.findById(id).lean();
-        } else {
-            // Defensive offline / unit-test fallback
-            data = propertyData || { _id: id, name: 'Test Property', price: 10000000 };
+        const { id, type, portalIds, platforms, privacy, propertyData, preview } = req.body;
+        const targetPortalIds = portalIds || platforms;
+
+        // 1. Strictly preview-only path: zero provider calls, zero outbox dispatch, zero side effects
+        if (preview === true || req.query?.preview === 'true') {
+            const previewData = portalSyndicationService.generatePreview(propertyData || {}, {
+                privacy,
+                itemType: type || 'deal'
+            });
+            return res.json({
+                success: true,
+                preview: true,
+                previewOnly: true,
+                message: 'Portal syndication preview generated (no live dispatch)',
+                previewData
+            });
         }
-        if (!data) return res.status(404).json({ success: false, message: 'Property not found' });
-        
+
+        // 2. Real syndication requires an authorized canonical record ID
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Property ID is required for portal syndication. Client-supplied propertyData cannot authorize live dispatch.'
+            });
+        }
+
+        // 3. Resolve canonical entity under user visibility permissions
+        const data = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(id, type || 'deal', req.user);
+        if (!data) {
+            // Inaccessible or nonexistent canonical record: return 404/authorization failure and do NOT dispatch
+            return res.status(404).json({
+                success: false,
+                message: 'Property record not found or inaccessible under visibility permissions'
+            });
+        }
+
+        // 4. Dispatch ONLY authorized canonical data
         const result = await portalSyndicationService.syndicate(data, {
-            portalIds,
+            portalIds: targetPortalIds,
             privacy,
-            itemType: type,
+            itemType: type || 'deal',
             user: req.user
         });
         res.json(result);
@@ -2769,7 +2774,8 @@ export const createCampaignTrackedLink = async (req, res) => {
                 source: src,
                 campaign: camp,
                 medium: med,
-                content: content || null
+                content: content || null,
+                purpose: 'lead_reference'
             }, process.env.JWT_SECRET, { expiresIn: '30d' });
         }
 

@@ -97,6 +97,17 @@ jobs:
           npm run test:r20
           npm run test:phase6
 
+      - name: Run Phase 6 Enterprise Backend Refactoring Acceptance Tests
+        run: |
+          cd backend
+          npm run test:phase6:refactoring
+          npm run test:phase6:reliability
+          npm run test:phase6:p1
+          npm run test:phase6:p0:auth
+          npm run test:phase6:p1:recovery
+          npm run test:phase6:p1:leadform
+          npm run test:phase6:media-e2e
+
       - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
         run: |
           cd backend
@@ -127,6 +138,7 @@ jobs:
         run: |
           cd backend
           npm run test:phase11
+          npm run test:upload-mime
 
       - name: Run Phase 12 Bulk Deal Import Safety Tests
         run: |
@@ -142,6 +154,17 @@ jobs:
         run: |
           cd backend
           npm run test:phase17
+
+      - name: Run Meta Facebook & Instagram OAuth Regression Tests
+        run: |
+          cd backend
+          npm run test:facebook-oauth
+
+      - name: Run Promote Studio Marketing AI & Compliance Tests
+        run: |
+          cd backend
+          npm run test:marketing-studio
+          npm run test:social-compliance
 
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |

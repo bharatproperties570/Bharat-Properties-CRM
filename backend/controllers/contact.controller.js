@@ -19,7 +19,6 @@ import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { googleSyncQueue } from "../src/queues/queueManager.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
 import AddressParsingService from '../services/AddressParsingService.js';
@@ -948,31 +947,26 @@ export const updateContact = async (req, res, next) => {
         const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
-        const session = await mongoose.startSession();
-        try {
-            await session.withTransaction(async () => {
-                contact.set(cleanData);
-                await contact.save({ session });
+        await withMongoTransaction(async (session) => {
+            contact.set(cleanData);
+            await contact.save({ session });
 
-                const stageChanged = cleanData.stage !== undefined && String(existingContact?.stage) !== String(cleanData.stage);
-                const OutboxEvent = mongoose.model('OutboxEvent');
+            const stageChanged = cleanData.stage !== undefined && String(existingContact?.stage) !== String(cleanData.stage);
+            const OutboxEvent = mongoose.model('OutboxEvent');
 
-                await OutboxEvent.create([{
-                    eventType: 'ContactUpdated',
-                    aggregateType: 'Contact',
-                    aggregateId: contact._id,
-                    payload: {
-                        documents: cleanData.documents,
-                        stageChanged,
-                        previousStage: existingContact?.stage,
-                        newStage: cleanData.stage,
-                        triggeredBy: req.user?._id || req.user?.id
-                    }
-                }], { session });
-            });
-        } finally {
-            await session.endSession();
-        }
+            await OutboxEvent.create([{
+                eventType: 'ContactUpdated',
+                aggregateType: 'Contact',
+                aggregateId: contact._id,
+                payload: {
+                    documents: cleanData.documents,
+                    stageChanged,
+                    previousStage: existingContact?.stage,
+                    newStage: cleanData.stage,
+                    triggeredBy: req.user?._id || req.user?.id
+                }
+            }], { session });
+        });
 
         res.json({ success: true, data: contact });
     } catch (error) {
@@ -1063,10 +1057,35 @@ export const syncAllContacts = async (req, res) => {
             return res.json({ success: true, message: "All contacts are already synced with Google." });
         }
 
-        // Add to queue
-        contacts.forEach(contact => {
-            googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
-        });
+        // Add to durable Outbox for asynchronous Google Sync
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantId = rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined;
+        const events = contacts.map(contact => ({
+            eventType: 'GoogleSyncRequested',
+            aggregateType: 'Contact',
+            aggregateId: contact._id,
+            payload: { action: 'syncContact', contactId: contact._id },
+            tenantId,
+            provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+        }));
+        let insertedCount = 0;
+        try {
+            const inserted = await OutboxEvent.insertMany(events, { ordered: false });
+            insertedCount = inserted.length;
+        } catch (err) {
+            insertedCount = err.insertedDocs ? err.insertedDocs.length : 0;
+            if (insertedCount === 0) {
+                throw new Error(`Failed to queue Google sync OutboxEvents: ${err.message}`);
+            }
+            return res.status(207).json({
+                success: false,
+                partial: true,
+                message: `Partial sync: queued ${insertedCount} of ${contacts.length} contacts for Google sync.`,
+                queuedCount: insertedCount,
+                failedCount: contacts.length - insertedCount,
+                error: err.message
+            });
+        }
 
         res.json({
             success: true,
@@ -1086,30 +1105,40 @@ export const deleteContact = async (req, res, next) => {
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
 
         const contactId = new mongoose.Types.ObjectId(id);
-
-        // Cascading Updates/Deletions
-        await Promise.all([
-            // Delete related Leads
-            // Lead.deleteMany({ contactDetails: contactId }),
-            // Remove from Inventory owners/associates
-            Inventory.updateMany({ owners: contactId }, { $pull: { owners: contactId } }),
-            Inventory.updateMany({ "associates.contact": contactId }, { $pull: { associates: { contact: contactId } } }),
-            // Null out in Bookings
-            Booking.updateMany({ lead: contactId }, { $set: { lead: null } }),
-            Booking.updateMany({ seller: contactId }, { $set: { seller: null } }),
-            Booking.updateMany({ channelPartner: contactId }, { $set: { channelPartner: null } }),
-            // Delete related Activities
-            // Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
-        ]);
-
         const visibilityFilter = await getVisibilityFilter(req.user);
-        await Contact.softDeleteOne({ _id: id, ...visibilityFilter }, { userId: req.user?._id });
 
+        await withMongoTransaction(async (session) => {
+            // Cascading Updates/Deletions
+            await Promise.all([
+                // Delete related Leads
+                // Lead.deleteMany({ contactDetails: contactId }, { session }),
+                // Remove from Inventory owners/associates
+                Inventory.updateMany({ owners: contactId }, { $pull: { owners: contactId } }, { session }),
+                Inventory.updateMany({ "associates.contact": contactId }, { $pull: { associates: { contact: contactId } } }, { session }),
+                // Null out in Bookings
+                Booking.updateMany({ lead: contactId }, { $set: { lead: null } }, { session }),
+                Booking.updateMany({ seller: contactId }, { $set: { seller: null } }, { session }),
+                Booking.updateMany({ channelPartner: contactId }, { $set: { channelPartner: null } }, { session }),
+                // Delete related Activities
+                // Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] }, { session })
+            ]);
 
-        // Sync to Google
-        if (contact.googleContactId) {
-            googleSyncQueue.add('deleteContact', { googleContactId: contact.googleContactId }).catch(() => { });
-        }
+            await Contact.softDeleteOne({ _id: id, ...visibilityFilter }, { userId: req.user?._id, session });
+
+            // Sync to Google via Outbox
+            if (contact.googleContactId) {
+                const rawTenantId = req.user?.tenantId || req.user?.tenant;
+                const tenantId = rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined;
+                await OutboxEvent.create([{
+                    eventType: 'GoogleSyncRequested',
+                    aggregateType: 'Contact',
+                    aggregateId: contact._id,
+                    payload: { action: 'deleteContact', googleContactId: contact.googleContactId },
+                    tenantId,
+                    provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                }], { session });
+            }
+        });
 
         res.json({ success: true, message: "Contact and all associated records deleted successfully" });
     } catch (error) {
@@ -1136,21 +1165,32 @@ export const bulkDeleteContacts = async (req, res, next) => {
             return res.json({ success: true, message: "0 contacts deleted" });
         }
 
-        // Cascading Updates/Deletions strictly scoped to the tenant
-        await Promise.all([
-            Inventory.updateMany({ owners: { $in: allowedIds }, ...tenantFilter }, { $pull: { owners: { $in: allowedIds } } }),
-            Inventory.updateMany({ "associates.contact": { $in: allowedIds }, ...tenantFilter }, { $pull: { associates: { contact: { $in: allowedIds } } } }),
-            Booking.updateMany({ lead: { $in: allowedIds }, ...tenantFilter }, { $set: { lead: null } }),
-            Booking.updateMany({ seller: { $in: allowedIds }, ...tenantFilter }, { $set: { seller: null } }),
-            Booking.updateMany({ channelPartner: { $in: allowedIds }, ...tenantFilter }, { $set: { channelPartner: null } }),
-        ]);
+        // Sync to Google via Outbox
+        const deleteSyncEvents = contacts
+            .filter(c => Boolean(c.googleContactId))
+            .map(contact => ({
+                eventType: 'GoogleSyncRequested',
+                aggregateType: 'Contact',
+                aggregateId: contact._id,
+                payload: { action: 'deleteContact', googleContactId: contact.googleContactId },
+                tenantId: rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+            }));
 
-        await Contact.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
+        await withMongoTransaction(async (session) => {
+            // Cascading Updates/Deletions strictly scoped to the tenant
+            await Promise.all([
+                Inventory.updateMany({ owners: { $in: allowedIds }, ...tenantFilter }, { $pull: { owners: { $in: allowedIds } } }, { session }),
+                Inventory.updateMany({ "associates.contact": { $in: allowedIds }, ...tenantFilter }, { $pull: { associates: { contact: { $in: allowedIds } } } }, { session }),
+                Booking.updateMany({ lead: { $in: allowedIds }, ...tenantFilter }, { $set: { lead: null } }, { session }),
+                Booking.updateMany({ seller: { $in: allowedIds }, ...tenantFilter }, { $set: { seller: null } }, { session }),
+                Booking.updateMany({ channelPartner: { $in: allowedIds }, ...tenantFilter }, { $set: { channelPartner: null } }, { session }),
+            ]);
 
-        // Sync to Google
-        contacts.forEach(contact => {
-            if (contact.googleContactId) {
-                googleSyncQueue.add('deleteContact', { googleContactId: contact.googleContactId }).catch(() => { });
+            await Contact.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id, session });
+
+            if (deleteSyncEvents.length > 0) {
+                await OutboxEvent.insertMany(deleteSyncEvents, { session, ordered: false });
             }
         });
 
@@ -1616,13 +1656,43 @@ export const importContacts = async (req, res, next) => {
             }
 
             if (dataToInsert.length > 0) {
-                const insertResult = await Contact.insertMany(dataToInsert, { ordered: false });
-                newCount += insertResult.length;
+                let insertResult = [];
+                try {
+                    insertResult = await Contact.insertMany(dataToInsert, { ordered: false });
+                    newCount += insertResult.length;
+                } catch (insertErr) {
+                    insertResult = insertErr.insertedDocs || [];
+                    newCount += insertResult.length;
+                    const failedInsertCount = dataToInsert.length - insertResult.length;
+                    errors.push({
+                        row: 'batch_insert',
+                        reason: `Partial contact insert failure: ${failedInsertCount} contacts failed to insert: ${insertErr.message}`
+                    });
+                }
 
-                // Sync to Google
-                insertResult.forEach(contact => {
-                    googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
-                });
+                // Sync to Google via Outbox
+                if (insertResult.length > 0) {
+                    const importSyncEvents = insertResult.map(contact => ({
+                        eventType: 'GoogleSyncRequested',
+                        aggregateType: 'Contact',
+                        aggregateId: contact._id,
+                        payload: { action: 'syncContact', contactId: contact._id },
+                        tenantId: rawTenantId && mongoose.Types.ObjectId.isValid(rawTenantId) ? new mongoose.Types.ObjectId(rawTenantId) : undefined,
+                        provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                    }));
+                    if (importSyncEvents.length > 0) {
+                        try {
+                            await OutboxEvent.insertMany(importSyncEvents, { ordered: false });
+                        } catch (syncErr) {
+                            const queuedCount = syncErr.insertedDocs ? syncErr.insertedDocs.length : 0;
+                            console.error('[ContactController] Failed to insert OutboxEvents for importContacts:', syncErr.message);
+                            errors.push({
+                                row: 'google_sync',
+                                reason: `Outbox event queueing partially failed: queued ${queuedCount} of ${importSyncEvents.length}: ${syncErr.message}`
+                            });
+                        }
+                    }
+                }
             }
         }
 

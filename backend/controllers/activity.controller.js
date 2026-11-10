@@ -9,7 +9,6 @@ import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import Conversation from "../models/Conversation.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
 
 import * as StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
@@ -1035,14 +1034,21 @@ export const addActivity = async (req, res) => {
             });
         }
 
-        // Auto-run Enrichment if entity is a Lead
+        // Auto-run Enrichment if entity is a Lead via durable Outbox
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            await OutboxEvent.create([{
+                eventType: 'LeadEnrichmentRequested',
+                aggregateType: 'Lead',
+                aggregateId: activity.entityId,
+                payload: { leadId: activity.entityId },
+                tenantId: req.user?.tenantId || req.user?.tenant,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+            }], { session });
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
             if (!isMissed) {
-                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session });
             }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
@@ -1189,14 +1195,21 @@ export const updateActivity = async (req, res) => {
                 throw notFoundErr;
             }
 
-            // Auto-run Enrichment if entity is a Lead
+            // Auto-run Enrichment if entity is a Lead via durable Outbox
             if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-                await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+                await OutboxEvent.create([{
+                    eventType: 'LeadEnrichmentRequested',
+                    aggregateType: 'Lead',
+                    aggregateId: activity.entityId,
+                    payload: { leadId: activity.entityId },
+                    tenantId: req.user?.tenantId || req.user?.tenant,
+                    provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                }], { session });
                 // Update lastActivityAt if not missed
                 const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
                 const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
                 if (!isMissed) {
-                    await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
+                    await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session });
                 }
             } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
                 // Update lastActivityAt for Deal with session
@@ -1402,8 +1415,19 @@ export const syncMobileCalls = async (req, res) => {
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
             if (!existing) {
-                const activity = await Activity.create(activityData);
-                googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+                let activity;
+                await withMongoTransaction(async (session) => {
+                    const [createdAct] = await Activity.create([activityData], { session });
+                    activity = createdAct;
+                    await OutboxEvent.create([{
+                        eventType: 'GoogleSyncRequested',
+                        aggregateType: 'Activity',
+                        aggregateId: activity._id,
+                        payload: { action: 'syncEvent', activityId: activity._id },
+                        tenantId: req.user?.tenantId || req.user?.tenant,
+                        provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
+                    }], { session });
+                });
                 syncedActivities.push(activity);
 
                 let pendingActivity = null;

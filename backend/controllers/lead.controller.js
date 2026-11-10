@@ -1259,11 +1259,9 @@ export const updateLead = async (req, res, next) => {
             .select('stage stageHistory stageChangedAt createdAt owner assignment firstName lastName')
             .lean();
 
-        const session = await mongoose.startSession();
         let finalLead;
-        try {
-            await session.withTransaction(async () => {
-                if (existing) {
+        await withMongoTransaction(async (session) => {
+            if (existing) {
             // 🧠 Terminal State Lock: Prevent updates on closed leads (unless reviving)
             let currentStageStr = 'Incoming';
             if (existing.stage) {
@@ -1482,9 +1480,6 @@ export const updateLead = async (req, res, next) => {
                 payload
             }], { session });
         });
-    } finally {
-        await session.endSession();
-    }
 
         if (finalLead) {
             // Bidirectional Sync: Lead -> Inventory

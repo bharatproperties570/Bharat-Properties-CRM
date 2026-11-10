@@ -21,8 +21,9 @@ import mongoose from 'mongoose';
 import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import Activity from '../models/Activity.js';
 import Contact from '../models/Contact.js';
-import { marketingQueue } from '../src/queues/marketingQueue.js';
+import OutboxEvent from '../models/OutboxEvent.js';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
+import marketingComplianceEnforcementService from '../services/MarketingComplianceEnforcementService.js';
 
 /**
  * POST /api/social/config/enterprise
@@ -1141,6 +1142,18 @@ export const postSocialMedia = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Platform and text are required' });
         }
 
+        // 🛡️ Enterprise Statutory Compliance Enforcement (Server-Side Security Boundary)
+        // Resolve authoritative canonical record from DB and extract facts strictly from backend
+        // Never trust client-supplied verificationFacts, isVerified, or authority claims
+        // If entityId is inaccessible or missing, resolveAuthoritativeEntity fails closed (returns null)
+        const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType, req.user);
+        const { sanitizedText, facts, entityResolved } = marketingComplianceEnforcementService.enforceCompliance(
+            text,
+            canonicalEntity,
+            platform,
+            { format }
+        );
+
         // ─── HANDLING SCHEDULED POSTS ──────────────────────────────────────────
         if (scheduledTime) {
             const scheduledDate = new Date(scheduledTime);
@@ -1151,18 +1164,29 @@ export const postSocialMedia = async (req, res) => {
                 return res.status(400).json({ success: false, error: 'Scheduled time must be in the future' });
             }
 
-            console.log(`[SocialController] Queuing scheduled post for ${platform} in ${Math.round(delay/1000)} seconds...`);
+            console.log(`[SocialController] Queuing scheduled post for ${platform} via durable Outbox in ${Math.round(delay/1000)} seconds...`);
             
-            await marketingQueue.add('scheduled-social-dispatch', {
-                platform,
-                text,
-                imageUrl,
-                format,
-                entityId,
-                entityType
-            }, { 
-                delay,
-                jobId: `social_${platform}_${entityId}_${scheduledDate.getTime()}` // Prevent duplicates
+            await OutboxEvent.create({
+                eventType: 'MarketingDispatchRequested',
+                aggregateType: 'Social',
+                aggregateId: entityId && mongoose.Types.ObjectId.isValid(entityId) ? new mongoose.Types.ObjectId(entityId) : new mongoose.Types.ObjectId(),
+                payload: {
+                    jobType: 'scheduled-social-dispatch',
+                    jobData: {
+                        platform,
+                        text: sanitizedText,
+                        imageUrl,
+                        format,
+                        entityId,
+                        entityType
+                    },
+                    opts: {
+                        delay,
+                        jobId: `social_${platform}_${entityId}_${scheduledDate.getTime()}` // Prevent duplicates
+                    }
+                },
+                tenantId: req.user?.tenantId || req.user?.tenant,
+                provenance: { source: 'HTTP', actorType: 'HUMAN', actorId: req.user?._id }
             });
 
             return res.json({ 
@@ -1237,9 +1261,9 @@ export const postSocialMedia = async (req, res) => {
         const targetPlatform = platform.toLowerCase();
 
         if (targetPlatform === 'facebook') {
-            result = await facebookService.postToPage(text, normalizedImageUrl, format);
+            result = await facebookService.postToPage(sanitizedText, normalizedImageUrl, format);
         } else if (targetPlatform === 'instagram') {
-            result = await facebookService.postToInstagram(text, normalizedImageUrl, format);
+            result = await facebookService.postToInstagram(sanitizedText, normalizedImageUrl, format);
         } else if (targetPlatform === 'linkedin') {
             let assetUrn = null;
             if (normalizedImageUrl && !normalizedImageUrl.includes('localhost') && !normalizedImageUrl.includes('127.0.0.1')) {
@@ -1254,12 +1278,12 @@ export const postSocialMedia = async (req, res) => {
                     console.error('[SocialController] LinkedIn Image Upload Failed, posting text only:', imgErr.message);
                 }
             }
-            result = await linkedInService.postToOrganization(text, null, assetUrn);
+            result = await linkedInService.postToOrganization(sanitizedText, null, assetUrn);
         } else if (targetPlatform === 'twitter') {
-            result = await twitterService.postTweet(text, normalizedImageUrl);
+            result = await twitterService.postTweet(sanitizedText, normalizedImageUrl);
         } else if (targetPlatform === 'google_business') {
             try {
-                result = await googleBusinessService.createPost(text, req.body.locationId || null, normalizedImageUrl);
+                result = await googleBusinessService.createPost(sanitizedText, req.body.locationId || null, normalizedImageUrl);
             } catch (gbErr) {
                 console.error('[SocialController] Google Business Profile error:', gbErr.message);
                 return res.status(400).json({
@@ -1314,7 +1338,7 @@ export const postSocialMedia = async (req, res) => {
             }
 
             try {
-                result = await youtubeService.uploadVideo(text.slice(0, 70), text, resolvedFilePath);
+                result = await youtubeService.uploadVideo(sanitizedText.slice(0, 70), sanitizedText, resolvedFilePath);
             } catch (ytErr) {
                 console.error('[SocialController] YouTube upload error:', ytErr.message);
                 return res.status(400).json({
@@ -1338,7 +1362,7 @@ export const postSocialMedia = async (req, res) => {
                 subject: `Published Listing to ${platform}`,
                 entityType: passedEntityType || 'System',
                 entityId: entityId || null,
-                description: text,
+                description: sanitizedText,
                 status: 'Completed',
                 performedBy: req.user?.fullName || 'Marketing Engine',
                 details: {

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import unifiedAIService from './UnifiedAIService.js';
 import AIGovernance from './ai/AIGovernance.js';
 import AiAgent from '../models/AiAgent.js';
@@ -9,7 +10,13 @@ import { marketingQueue } from '../src/queues/marketingQueue.js';
 import brandBannerComposer from './BrandBannerComposer.js';
 import axios from 'axios';
 import fs from 'fs';
-import path from 'path'; 
+import path from 'path';
+import {
+    extractVerificationFacts,
+    generateCompliantFallback,
+    validateAndSanitizeCopy
+} from '../utils/propertyComplianceValidator.js';
+import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
 
 /**
  * MarketingService.js
@@ -39,44 +46,62 @@ class MarketingService {
         const regionalPhone = isMohali ? '+91 99910 00570' : '+91 99913 33570';
         const website = 'www.bharatproperties.co';
 
+        // Authoritative Verification & Evidence Extraction
+        const facts = extractVerificationFacts(deal);
+
         let platformFocus = '';
         if (platform === 'linkedin') {
-            platformFocus = 'Professional, investment-focused, and industry-oriented. Emphasize capital appreciation and legal verification.';
+            platformFocus = 'Professional, commercial-focused, and industry-oriented. Emphasize location connectivity and asset specifications.';
         } else if (platform === 'youtube') {
             platformFocus = 'Engagement-heavy. Generate a catchy video Title, Description, and a 30-second Short Script.';
         } else if (platform === 'x' || platform === 'twitter') {
-            platformFocus = 'Short, punchy, highly engaging, strictly under 280 characters, use 2-3 trending hashtags.';
+            platformFocus = 'Short, punchy, strictly under 280 characters, use 2-3 trending hashtags.';
         } else if (platform === 'google_business' || platform === 'business' || platform === 'google business') {
-            platformFocus = 'Local SEO focused. Highlight location advantages, landmarks, and immediate site visit availability.';
+            platformFocus = 'Local SEO focused. Highlight location advantages, landmarks, and site visit availability by appointment.';
         } else if (platform === 'instagram') {
             platformFocus = format === 'story' || format === 'reel' 
                 ? 'High-energy Story/Reel script with visual cue, hook line, and tap-link CTA.'
-                : 'Aesthetic visual caption with luxury emojis, clean bullet points, and high-converting real estate hashtags.';
+                : 'Aesthetic visual caption with property emojis, clean bullet points, and real estate hashtags.';
         } else {
-            platformFocus = 'Persuasive social feed post with strong headline, key specs, verified badges, and direct call to action.';
+            platformFocus = 'Persuasive social feed post with strong headline, key specs, and direct call to action.';
         }
 
         let toneStrategy = '';
         if (tone === 'luxury') {
             toneStrategy = 'LUXURY & LIFESTYLE: Aspirational, tranquil, modern architecture, premium fixtures, lush surroundings, Vastu compliance. Use elegant English with subtle luxury emojis.';
         } else if (tone === 'investor') {
-            toneStrategy = 'INVESTOR ROI & CAPITAL GROWTH: Focus on high rental yield, rapid infrastructure growth, registry title guarantee, and prime connectivity. Factual, professional tone.';
+            toneStrategy = 'STRATEGIC PROPERTY ASSET: Focus on location development, infrastructure connectivity, and factual commercial/residential specs. Professional, strictly factual tone.';
         } else if (tone === 'short_hook') {
-            toneStrategy = 'SHORT HOOK: Strictly under 240 characters. Ultra-fast scroll-stopping hook sentence, property price/type, and call-to-action.';
+            toneStrategy = 'SHORT HOOK: Strictly under 240 characters. Fast scroll-stopping hook sentence, property price/type, and call-to-action.';
         } else {
             // Default: Urgent Deal (Hinglish)
-            toneStrategy = 'URGENT DEAL (HINGLISH): High FOMO and urgency! Combine natural conversational Hindi + English. Hook the buyer with scarcity ("Limited Units Left", "Ready for Possession", "Instant Site Visit Booking").';
+            toneStrategy = 'URGENT DEAL (HINGLISH): High responsiveness and prime opportunity! Combine natural conversational Hindi + English. Hook the buyer with location connectivity and site visit booking.';
         }
 
         let provider = undefined;
         let personaPrompt = '';
         try {
-            const agent = await AiAgent.findOne({ useCases: { $in: ['social_media', 'marketing_campaigns'] }, isActive: true });
-            if (agent) {
-                personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
-                provider = agent.provider;
+            if (mongoose.connection?.readyState === 1) {
+                const agent = await AiAgent.findOne({ useCases: { $in: ['social_media', 'marketing_campaigns'] }, isActive: true });
+                if (agent) {
+                    personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
+                    provider = agent.provider;
+                }
             }
         } catch(e) {}
+
+        // Construct Regulatory-Compliant Guidelines based on verified facts
+        const titleGuideline = facts.isTitleVerified
+            ? `- Title Status: Verified by ${facts.authorityCode || 'statutory authority'}.`
+            : `- Title Status: UNVERIFIED. DO NOT claim verified title, clear title, clear registry, clear documentation, or title guarantees. State: "Documentation status can be checked during due diligence."`;
+
+        const reraGuideline = facts.isReraApproved
+            ? `- RERA Status: Approved registration number ${facts.reraNumber || 'Verified'}.`
+            : `- RERA Status: UNVERIFIED / NOT APPROVED. DO NOT claim RERA compliance or RERA approval.`;
+
+        const possessionGuideline = facts.isReadyPossession
+            ? `- Possession: Ready possession.`
+            : `- Possession: DO NOT claim ready possession. State that possession timeline details are available on request.`;
 
         const prompt = `
             ${personaPrompt}
@@ -97,28 +122,24 @@ class MarketingService {
             PLATFORM STRATEGY:
             ${platformFocus}
             
-            GUIDELINES:
-            - Highlight: Verified Title, Prime Location, Clear Documentation.
+            STRICT REGULATORY & COMPLIANCE GUIDELINES:
+            ${titleGuideline}
+            ${reraGuideline}
+            ${possessionGuideline}
+            - NEVER claim guaranteed returns, high yields, proven appreciation, or risk-free investment.
             - Include 3-5 high-performing hashtags (e.g. #BharatProperties #KurukshetraRealEstate).
             - Format: Plain text only with appropriate formatting emojis.
             - End with: "📞 Site Visit: ${regionalPhone} | 🌐 ${website}"
         `;
 
         try {
-            return await unifiedAIService.generate(prompt, { provider, capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION });
+            const rawContent = await unifiedAIService.generate(prompt, { provider, capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION });
+            // Post-generation deterministic compliance validation
+            return validateAndSanitizeCopy(rawContent, facts, { deal, platform, tone, format });
         } catch (aiErr) {
             console.warn('[MarketingService] AI generation failed, using tailored enterprise fallback:', aiErr.message);
-            
-            // Enterprise Resilient Fallbacks based on Tone
-            if (tone === 'luxury') {
-                return `💎 EXCLUSIVE LUXURY LIVING | ${projectName}\n\nIndulge in refined architecture and serene living at ${location}. Designed for those who value timeless quality and premier lifestyle amenities.\n\n✨ Unit: ${unitNo} ${unitType} (${size})\n💰 Investment: ${price}\n📜 Verified Title & RERA Compliant\n\nPrivate viewings available on prior appointment:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #LuxuryHomes #PrimeRealEstate #Kurukshetra`;
-            } else if (tone === 'investor') {
-                return `📈 HIGH-YIELD INVESTMENT OPPORTUNITY | ${projectName}\n\nPrime commercial/residential asset positioned in the high-growth corridor of ${location}. Proven capital appreciation and strong rental yield potential.\n\n🔑 Property: ${unitNo} ${unitType} (${size})\n💵 Price: ${price}\n🛡️ 100% Verified Title & Clear Registry\n\nRequest financial breakdown & advisory:\n📞 ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #RealEstateInvestment #CapitalGrowth #CommercialProperty`;
-            } else if (tone === 'short_hook') {
-                return `🚨 Prime Deal Alert in ${location}! ${unitNo} at just ${price}. 100% verified registry title. Call ${regionalPhone} to book site visit now! 🌐 ${website} #BharatProperties`;
-            } else {
-                return `🔥 URGENT DEAL ALERT: ${unitNo} ${unitType} at ${projectName}!\n\nKurukshetra ke prime location ${location} par ready possession opportunity! Verified title, bank loan approval, aur prime connectivity.\n\n📍 Location: ${location}\n📐 Area: ${size}\n💰 Price: ${price}\n\nLimited units available — aaj hi site visit book karein!\n📞 Call/WhatsApp: ${regionalPhone}\n🌐 ${website}\n\n#BharatProperties #Kurukshetra #HotProperty #RealEstateDeals`;
-            }
+            // Deterministic compliant fallback with exact evidence-backed claims
+            return generateCompliantFallback(deal, platform, { tone, format }, facts);
         }
     }
 
@@ -134,10 +155,12 @@ class MarketingService {
         let provider = undefined;
         let personaPrompt = '';
         try {
-            const agent = await AiAgent.findOne({ useCases: { $in: ['email_drip', 'marketing_campaigns'] }, isActive: true });
-            if (agent) {
-                personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
-                provider = agent.provider;
+            if (mongoose.connection?.readyState === 1) {
+                const agent = await AiAgent.findOne({ useCases: { $in: ['email_drip', 'marketing_campaigns'] }, isActive: true });
+                if (agent) {
+                    personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
+                    provider = agent.provider;
+                }
             }
         } catch(e) {}
 
@@ -519,47 +542,50 @@ class MarketingService {
             }
 
             if (options.dealId) {
-                chosenDeal = await Deal.findById(options.dealId).lean();
-            } else {
-                chosenDeal = candidates[0];
+                chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(options.dealId, 'deal', { isSystem: true });
+                if (!chosenDeal) {
+                    return { success: false, reason: 'Specified deal not found or inaccessible under compliance rules' };
+                }
+            } else if (candidates && candidates.length > 0) {
+                chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(candidates[0]._id, 'deal', { isSystem: true });
             }
 
             if (!chosenDeal) {
-                // If no active deals found in DB, use representative prime deal
-                chosenDeal = {
-                    unitNo: 'Prime 3BHK Luxury Floors',
-                    projectName: 'Sector 7 Kurukshetra',
-                    location: 'Sector 7, Kurukshetra, Haryana',
-                    price: 6500000,
-                    size: '250',
-                    sizeUnit: 'sq.yards',
-                    unitType: 'Residential Floor'
-                };
+                // If no active deals found in DB, do NOT synthesize fake factual claims; switch to educational advisory
+                pillar = 'ct-edu';
+                console.log('[AutonomousMarketingOS] No active authorized deals found in DB. Falling back to Educational pillar.');
+                const edu = this.getEducationalTopic();
+                postTitle = `Real Estate Advisory: ${edu.title}`;
+                const pointsFormatted = edu.points.map(p => `✓ ${p}`).join('\n');
+
+                channelCaptions.facebook = `📚 REAL ESTATE KNOWLEDGE SERIES | ${edu.title}\n\n${edu.hook}\n\n${edu.summary}\n\nKey Points to Remember:\n${pointsFormatted}\n\nSave this post for your future property purchases! Any questions regarding Haryana property legal verification?\n📞 Call our Legal Advisory Desk: ${regionalPhone}\n🌐 ${website}\n\n${edu.hashtags}`;
+                channelCaptions.instagram = `💡 ${edu.hook}\n\nHere is what every smart buyer needs to know:\n\n${pointsFormatted}\n\n📌 Save this reel/post for your next site visit!\nNeed transparent advice? Call ${regionalPhone} | 🌐 ${website}\n\n${edu.hashtags}`;
+                channelCaptions.youtube = `Shorts: ${edu.hook} 3 legal rules you must know before buying land in Haryana! Call ${regionalPhone} for guidance.`;
+                channelCaptions.google_business = `Knowledge Post: ${edu.title}. Follow Bharat Properties for transparent property guidelines and circle rates in Kurukshetra. Call ${regionalPhone}.`;
+
+                visualAsset = await this.generateVisualAsset({
+                    type: 'image',
+                    customPrompt: `Modern high-end real estate architectural office in Kurukshetra, blueprint diagrams and architectural floor plans on wooden conference desk, soft natural morning sunlight, cinematic 8k render`
+                });
+            } else {
+                const facts = marketingComplianceEnforcementService.extractAuthoritativeFacts(chosenDeal);
+                const unitNo = chosenDeal.unitNo || 'Prime Unit';
+                const projName = chosenDeal.projectName || 'Prime Location';
+                const loc = chosenDeal.location || 'Kurukshetra, Haryana';
+                const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
+
+                postTitle = `Hot Property Spotlight: ${unitNo} at ${projName}`;
+                const verifiedHashtag = facts.isTitleVerified ? '#VerifiedDeal' : '#PrimeListing';
+
+                // Generate Captions per Channel
+                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Factual listing details with transparent documentation.\n\n📍 Location: ${loc}\n📐 Size: ${chosenDeal.size || 'Prime Area'} ${chosenDeal.sizeUnit || 'sq.yards'}\n💰 Expected Price: ${priceStr}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
+                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 Prime Connectivity & Wide Roads\n💰 Investment: ${priceStr}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
+                channelCaptions.youtube = `Shorts: ${unitNo} in ${loc} — Full Walkthrough & Price Reveal! Drone Tour. Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
+                channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
+
+                // Generate photorealistic visual
+                visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', pillar: 'ct-project', angle: 'drone', mood: 'golden_hour', format: 'post' });
             }
-
-            const unitNo = chosenDeal.unitNo || 'Prime Unit';
-            const projName = chosenDeal.projectName || 'Prime Location';
-            const loc = chosenDeal.location || 'Kurukshetra, Haryana';
-            const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
-
-            postTitle = `Hot Property Spotlight: ${unitNo} at ${projName}`;
-
-            // Generate Captions per Channel
-            channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for an exceptional real estate investment in ${loc}? Ready possession with 100% verified registry and transparent documentation.\n\n📍 Location: ${loc}\n📐 Size: ${chosenDeal.size || 'Prime Area'} ${chosenDeal.sizeUnit || 'sq.yards'}\n💰 Expected Price: ${priceStr}\n📜 Title: 100% Verified Registry & Clear Title\n🏦 Loan: Approved with leading banks\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana #VerifiedDeal #LuxuryLiving`;
-            channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is now ready for site visits.\n\nKey Highlights:\n✨ 100% Verified Registry Title\n📍 Prime Connectivity & Wide Roads\n💰 Investment: ${priceStr}\n\nDM us "VISIT" or call ${regionalPhone} for instant blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
-            channelCaptions.youtube = `Shorts: ${unitNo} in ${loc} — Full Walkthrough & Price Reveal! 4K Drone Tour. Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
-            channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Verified title, bank loan approved. Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
-
-            // Generate branded real estate visual flyer
-            visualAsset = await this.generateVisualAsset({
-                deal: chosenDeal,
-                type: 'image',
-                pillar: 'ct-project',
-                angle: 'drone',
-                mood: 'golden_hour',
-                format: 'post'
-            });
-
         } else if (pillar === 'ct-festival') {
             postTitle = `Festive Greetings: ${festival.name}`;
             channelCaptions.facebook = `✨ ${festival.greeting}\n\nBharat Properties wishes you and your family abundant peace, happiness, and prosperity on the auspicious occasion of ${festival.name}.\n\nMay this festive season mark the beginning of new milestones and bring you closer to owning your dream home.\n\nWith warm regards,\nBharat Properties Team\n📞 ${regionalPhone} | 🌐 ${website}\n\n${festival.hashtags}`;
@@ -613,6 +639,32 @@ class MarketingService {
             });
         }
 
+        // 3b. Enterprise Statutory Compliance Enforcement (Server-Side Security Boundary)
+        if (options.customTitle || options.title) {
+            postTitle = options.customTitle || options.title;
+        }
+
+        if (postTitle) {
+            const { sanitizedText: sanitizedTitle } = marketingComplianceEnforcementService.enforceCompliance(
+                postTitle,
+                chosenDeal || null,
+                'generic'
+            );
+            postTitle = sanitizedTitle;
+        }
+
+        for (const ch of Object.keys(channelCaptions)) {
+            const rawCap = channelCaptions[ch];
+            if (rawCap) {
+                const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
+                    rawCap,
+                    chosenDeal || null,
+                    ch
+                );
+                channelCaptions[ch] = sanitizedText;
+            }
+        }
+
         // 4. Determine Target Dispatch Slot (BullMQ Delay)
         // Morning Slot: 10:00 AM IST | Evening Slot: 06:00 PM (18:00) IST
         const targetDate = new Date();
@@ -651,7 +703,7 @@ class MarketingService {
                         imageUrl: visualAsset?.url || null,
                         videoPath: visualAsset?.assetType === 'video' ? visualAsset.url : null,
                         format: 'post',
-                        entityType: 'AutonomousMarketingOS',
+                        entityType: 'deal',
                         entityId: chosenDeal?._id || null,
                         pillar
                     }, {

@@ -172,6 +172,15 @@ const UserSchema = new mongoose.Schema({
         default: true,
         index: true
     },
+    isDeleted: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    deletedAt: {
+        type: Date,
+        default: null
+    },
     status: {
         type: String,
         enum: {
