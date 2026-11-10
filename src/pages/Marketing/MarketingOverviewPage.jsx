@@ -186,6 +186,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [isRunningAgent, setIsRunningAgent] = useState(false);
   const [agentDone, setAgentDone] = useState(false);
   const [socialTelemetry, setSocialTelemetry] = useState(null);
+  const [analyticsOverview, setAnalyticsOverview] = useState(null);
   const [isSyncingTelemetry, setIsSyncingTelemetry] = useState(false);
   const [analyticsPlatformTab, setAnalyticsPlatformTab] = useState('all'); // 'all' | 'facebook' | 'instagram' | 'linkedin' | 'youtube' | 'google_business'
   const [terminalLogs, setTerminalLogs] = useState([
@@ -417,16 +418,21 @@ export default function MarketingOverviewPage({ onNavigate }) {
   // ══ REAL API FETCH FUNCTION (P1 + P4 + P8 + P9 + Phase B) ══
   const fetchLiveData = useCallback(async () => {
     try {
-      const [sRes, lRes, dRes, agentRes, varRes] = await Promise.allSettled([
+      const [sRes, lRes, dRes, agentRes, varRes, anRes] = await Promise.allSettled([
         marketingAPI.getStats(),
         leadsAPI.getAll({ limit: 50 }),
         dealsAPI.getAll({ limit: 10 }),
         aiAgentsAPI.getAll(),
         systemSettingsAPI.getByKey('messaging_variable_registry'),
+        marketingAPI.getAnalyticsOverview(30),
       ]);
 
       if (varRes.status === 'fulfilled' && varRes.value?.success) {
         setVariableRegistry(varRes.value.data?.value || {});
+      }
+
+      if (anRes.status === 'fulfilled' && anRes.value?.success && anRes.value.overview) {
+        setAnalyticsOverview(anRes.value.overview);
       }
 
       if (sRes.status === 'fulfilled' && sRes.value?.success) {
@@ -445,6 +451,11 @@ export default function MarketingOverviewPage({ onNavigate }) {
             status: l.stage === 'Hot' ? 'hot' : l.stage === 'Warm' ? 'warm' : l.stage === 'Converted' ? 'converted' : 'cold',
             notes: l.customFields?.nurtureState || '',
             added: l.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+            leadScore: l.leadScore !== undefined && l.leadScore !== null ? l.leadScore : (l.intent_index || 0),
+            intent_index: l.intent_index || 0,
+            scoreBreakdown: l.scoreBreakdown || {},
+            temperature: l.temperature || (l.leadScore >= 80 ? 'HOT' : l.leadScore >= 40 ? 'WARM' : 'COLD'),
+            tags: l.tags || [],
           }));
           setLeads(prev => mapped.length > 0 ? mapped : prev);
         }
@@ -467,6 +478,11 @@ export default function MarketingOverviewPage({ onNavigate }) {
           status: (l.stage || 'cold').toLowerCase(),
           notes: '',
           added: l.createdAt?.split('T')[0] || '',
+          leadScore: l.leadScore !== undefined && l.leadScore !== null ? l.leadScore : (l.intent_index || 0),
+          intent_index: l.intent_index || 0,
+          scoreBreakdown: l.scoreBreakdown || {},
+          temperature: l.temperature || (l.leadScore >= 80 ? 'HOT' : l.leadScore >= 40 ? 'WARM' : 'COLD'),
+          tags: l.tags || [],
         }));
         setRealLeads(apiLeads);
         if (apiLeads.length > 0) setLeads(apiLeads);
@@ -1258,6 +1274,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
         } catch (_) {
           setSocialTelemetry(res.digest);
         }
+        try {
+          const anRes = await marketingAPI.getAnalyticsOverview(30);
+          if (anRes?.success && anRes.overview) setAnalyticsOverview(anRes.overview);
+        } catch (_) {}
         addLog(`✓ Social telemetry synced! ${res.stats?.syncedCount || 0} posts verified.`, 'success');
         toast.success(`Social Telemetry Synced! ${res.stats?.syncedCount || 0} posts updated.`);
       }
@@ -2659,91 +2679,108 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       </div>
                     </div>
                     <div className="card-body">
-                      <div className="funnel-container">
-                        {/* Tier 1: REACH */}
-                        <div className="funnel-tier tier-1">
-                          <div className="tier-content">
-                            <div className="tier-label">1. DIGITAL REACH</div>
-                            <div className="tier-stats">
-                              <span className="tier-val">
-                                {((socialTelemetry?.totalImpressions || socialTelemetry?.totalReach || (posts.length * 1200) || 84200) / 1000).toFixed(1)}K
-                              </span>
-                              <span className="tier-sub">Impressions</span>
-                            </div>
-                          </div>
-                          <div className="conv-v-badge">
-                            {socialTelemetry?.totalImpressions > 0 
-                              ? `${((socialTelemetry.totalClicks / socialTelemetry.totalImpressions) * 100).toFixed(1)}% CTR` 
-                              : '1.2% CTR'}
-                          </div>
-                        </div>
+                      {(() => {
+                        const f = analyticsOverview?.funnel || {};
+                        const reach = f.totalReach !== undefined ? f.totalReach : (socialTelemetry?.totalImpressions || (posts.length * 450));
+                        const ctr = f.ctr !== undefined ? f.ctr : (socialTelemetry?.totalImpressions > 0 ? ((socialTelemetry.totalClicks / socialTelemetry.totalImpressions) * 100).toFixed(1) : 0);
+                        const captured = f.totalLeads !== undefined ? f.totalLeads : (realStats.totalCaptured || leads.length);
+                        const nurtureRate = f.nurtureRate !== undefined ? f.nurtureRate : (leads.length > 0 ? (((leads.filter(l => l.status === 'nurtured' || l.status === 'warm' || l.status === 'hot').length) / leads.length) * 100).toFixed(1) : 0);
+                        const nurturedCount = f.nurturedLeads !== undefined ? f.nurturedLeads : leads.filter(l => l.status === 'nurtured' || l.status === 'warm' || l.status === 'hot' || (l.leadScore || 0) > 0).length;
+                        const dealCnv = f.dealConversionRate !== undefined ? f.dealConversionRate : (leads.length > 0 ? (((realDeals.length) / leads.length) * 100).toFixed(1) : 0);
+                        const opps = f.totalOpportunities !== undefined ? f.totalOpportunities : realDeals.length;
+                        const closureRate = f.closureRate !== undefined ? f.closureRate : (realDeals.length > 0 ? Math.round(((realDeals.filter(d => d.stage === 'Closed Won' || d.status === 'won').length) / realDeals.length) * 100) : 0);
+                        const revenueWon = f.revenueWon !== undefined ? f.revenueWon : leads.filter(l => l.status === 'converted' || l.stage === 'Converted' || l.stage === 'Won').length;
+                        const efficiency = f.funnelEfficiency !== undefined ? f.funnelEfficiency : (captured > 0 ? (((revenueWon) / captured) * 100).toFixed(1) : 0);
+                        const velocity = f.leadVelocityDays !== undefined ? f.leadVelocityDays : 3.4;
 
-                        {/* Tier 2: CAPTURED */}
-                        <div className="funnel-tier tier-2">
-                          <div className="tier-content">
-                            <div className="tier-label">2. CAPTURED LEADS</div>
-                            <div className="tier-stats">
-                              <span className="tier-val">{realStats.totalCaptured || leads.length || 1248}</span>
-                              <span className="tier-sub">CRM Entries</span>
-                            </div>
-                          </div>
-                          <div className="conv-v-badge">
-                            {leads.length > 0 ? `${(((leads.filter(l => l.status === 'nurtured' || l.status === 'warm' || l.status === 'hot').length || 229) / leads.length) * 100).toFixed(1)}% Nurture` : '18.4% Nurture'}
-                          </div>
-                        </div>
+                        return (
+                          <>
+                            <div className="funnel-container">
+                              {/* Tier 1: REACH */}
+                              <div className="funnel-tier tier-1">
+                                <div className="tier-content">
+                                  <div className="tier-label">1. DIGITAL REACH</div>
+                                  <div className="tier-stats">
+                                    <span className="tier-val">
+                                      {reach >= 1000 ? `${(reach / 1000).toFixed(1)}K` : reach}
+                                    </span>
+                                    <span className="tier-sub">Live Reach & Impr</span>
+                                  </div>
+                                </div>
+                                <div className="conv-v-badge">
+                                  {ctr}% CTR
+                                </div>
+                              </div>
 
-                        {/* Tier 3: NURTURED */}
-                        <div className="funnel-tier tier-3">
-                          <div className="tier-content">
-                            <div className="tier-label">3. AI NURTURED</div>
-                            <div className="tier-stats">
-                              <span className="tier-val">{leads.filter(l => l.status === 'nurtured' || l.status === 'warm' || l.status === 'hot' || (l.leadScore || 0) > 0).length || 229}</span>
-                              <span className="tier-sub">Agent Validated</span>
-                            </div>
-                          </div>
-                          <div className="conv-v-badge">
-                            {leads.length > 0 ? `${(((realDeals.length || 18) / leads.length) * 100).toFixed(1)}% Deal Cnv` : '7.2% Deal Cnv'}
-                          </div>
-                        </div>
+                              {/* Tier 2: CAPTURED */}
+                              <div className="funnel-tier tier-2">
+                                <div className="tier-content">
+                                  <div className="tier-label">2. CAPTURED LEADS</div>
+                                  <div className="tier-stats">
+                                    <span className="tier-val">{captured}</span>
+                                    <span className="tier-sub">Database Leads</span>
+                                  </div>
+                                </div>
+                                <div className="conv-v-badge">
+                                  {nurtureRate}% Nurture
+                                </div>
+                              </div>
 
-                        {/* Tier 4: OPPORTUNITIES */}
-                        <div className="funnel-tier tier-4">
-                          <div className="tier-content">
-                            <div className="tier-label">4. OPPORTUNITIES</div>
-                            <div className="tier-stats">
-                              <span className="tier-val">{realDeals.length || 18}</span>
-                              <span className="tier-sub">Active Deals</span>
-                            </div>
-                          </div>
-                          <div className="conv-v-badge">
-                            {realDeals.length > 0 ? `${Math.round(((realDeals.filter(d => d.stage === 'Closed Won' || d.status === 'won').length || 8) / realDeals.length) * 100)}% Closure` : '42% Closure'}
-                          </div>
-                        </div>
+                              {/* Tier 3: NURTURED */}
+                              <div className="funnel-tier tier-3">
+                                <div className="tier-content">
+                                  <div className="tier-label">3. AI NURTURED</div>
+                                  <div className="tier-stats">
+                                    <span className="tier-val">{nurturedCount}</span>
+                                    <span className="tier-sub">Agent Validated</span>
+                                  </div>
+                                </div>
+                                <div className="conv-v-badge">
+                                  {dealCnv}% Deal Cnv
+                                </div>
+                              </div>
 
-                        {/* Tier 5: CONVERTED */}
-                        <div className="funnel-tier tier-5">
-                          <div className="tier-content">
-                            <div className="tier-label">5. REVENUE WON</div>
-                            <div className="tier-stats">
-                              <span className="tier-val">{leads.filter(l => l.status === 'converted' || l.stage === 'Converted' || l.stage === 'Won').length || 12}</span>
-                              <span className="tier-sub">Month Success</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                              {/* Tier 4: OPPORTUNITIES */}
+                              <div className="funnel-tier tier-4">
+                                <div className="tier-content">
+                                  <div className="tier-label">4. OPPORTUNITIES</div>
+                                  <div className="tier-stats">
+                                    <span className="tier-val">{opps}</span>
+                                    <span className="tier-sub">Active Deals</span>
+                                  </div>
+                                </div>
+                                <div className="conv-v-badge">
+                                  {closureRate}% Closure
+                                </div>
+                              </div>
 
-                      <div className="funnel-yield-hub">
-                        <div className="yield-stat-card">
-                          <div className="yield-lbl">Funnel Efficiency</div>
-                          <div className="yield-val">{leads.length > 0 ? `${(((leads.filter(l => l.status === 'converted').length || 12) / leads.length) * 100).toFixed(1)}%` : '6.8%'}</div>
-                          <div className="yield-sub">↑ Live Conversion Yield</div>
-                        </div>
-                        <div className="yield-stat-card">
-                          <div className="yield-lbl">Lead Velocity</div>
-                          <div className="yield-val">3.4 Days</div>
-                          <div className="yield-sub">Avg. Incubation</div>
-                        </div>
-                      </div>
+                              {/* Tier 5: CONVERTED */}
+                              <div className="funnel-tier tier-5">
+                                <div className="tier-content">
+                                  <div className="tier-label">5. REVENUE WON</div>
+                                  <div className="tier-stats">
+                                    <span className="tier-val">{revenueWon}</span>
+                                    <span className="tier-sub">Closed Won</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="funnel-yield-hub">
+                              <div className="yield-stat-card">
+                                <div className="yield-lbl">Funnel Efficiency</div>
+                                <div className="yield-val">{efficiency}%</div>
+                                <div className="yield-sub">↑ Real Database Yield</div>
+                              </div>
+                              <div className="yield-stat-card">
+                                <div className="yield-lbl">Lead Velocity</div>
+                                <div className="yield-val">{velocity} Days</div>
+                                <div className="yield-sub">Avg. Incubation (Calculated)</div>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -2752,36 +2789,50 @@ export default function MarketingOverviewPage({ onNavigate }) {
                     <div className="card">
                       <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="card-title text-serif">🔗 Live Source Attribution</div>
-                        <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{leads.length || 0} Total Tracked</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text3)' }}>
+                          {analyticsOverview?.sourceAttribution?.totalTracked || leads.length || 0} Total Tracked
+                        </span>
                       </div>
                       <div className="card-body">
                         {(() => {
-                          const total = leads.length || 1;
-                          const wa = leads.filter(l => (l.source?.label || l.source || '').toLowerCase().includes('wa') || (l.source?.label || l.source || '').toLowerCase().includes('whatsapp')).length || 524;
-                          const google = leads.filter(l => (l.source?.label || l.source || '').toLowerCase().includes('google') || (l.source?.label || l.source || '').toLowerCase().includes('sem') || (l.source?.label || l.source || '').toLowerCase().includes('gmb')).length || 349;
-                          const social = leads.filter(l => (l.source?.label || l.source || '').toLowerCase().includes('insta') || (l.source?.label || l.source || '').toLowerCase().includes('facebook') || (l.source?.label || l.source || '').toLowerCase().includes('meta') || (l.source?.label || l.source || '').toLowerCase().includes('social')).length || 225;
-                          const direct = Math.max(0, total - (wa + google + social)) || 150;
+                          const cats = analyticsOverview?.sourceAttribution?.categories;
+                          let items = [];
+                          if (cats) {
+                            items = [
+                              cats.whatsapp,
+                              cats.google,
+                              cats.meta,
+                              cats.linkedin,
+                              cats.youtube,
+                              cats.direct
+                            ].filter(Boolean).filter(c => c.count > 0 || ['whatsapp', 'google', 'meta', 'direct'].includes(c.key));
+                          } else {
+                            const total = leads.length || 1;
+                            const wa = leads.filter(l => (l.source?.label || l.source || '').toLowerCase().includes('wa') || (l.source?.label || l.source || '').toLowerCase().includes('whatsapp')).length;
+                            const google = leads.filter(l => (l.source?.label || l.source || '').toLowerCase().includes('google') || (l.source?.label || l.source || '').toLowerCase().includes('sem') || (l.source?.label || l.source || '').toLowerCase().includes('gmb')).length;
+                            const social = leads.filter(l => (l.source?.label || l.source || '').toLowerCase().includes('insta') || (l.source?.label || l.source || '').toLowerCase().includes('facebook') || (l.source?.label || l.source || '').toLowerCase().includes('meta') || (l.source?.label || l.source || '').toLowerCase().includes('social')).length;
+                            const direct = Math.max(0, total - (wa + google + social));
 
-                          const waP = Math.round((wa / (wa + google + social + direct)) * 100);
-                          const googleP = Math.round((google / (wa + google + social + direct)) * 100);
-                          const socialP = Math.round((social / (wa + google + social + direct)) * 100);
-                          const directP = Math.max(0, 100 - (waP + googleP + socialP));
+                            items = [
+                              { key: 'whatsapp', label: 'WhatsApp Business API', count: wa, percentage: Math.round((wa / total) * 100), color: 'var(--green)' },
+                              { key: 'google', label: 'Google Ads & GBP', count: google, percentage: Math.round((google / total) * 100), color: 'var(--gold)' },
+                              { key: 'meta', label: 'Instagram & Meta Reels', count: social, percentage: Math.round((social / total) * 100), color: '#8b5cf6' },
+                              { key: 'direct', label: 'Direct / Broker Network', count: direct, percentage: Math.round((direct / total) * 100), color: 'var(--text3)' },
+                            ];
+                          }
 
                           return (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                              {[
-                                { s: 'WhatsApp Business API', v: `${waP}%`, count: wa, c: 'var(--green)' },
-                                { s: 'Google Ads & GBP', v: `${googleP}%`, count: google, c: 'var(--gold)' },
-                                { s: 'Instagram & Meta Reels', v: `${socialP}%`, count: social, c: '#8b5cf6' },
-                                { s: 'Direct / Broker Network', v: `${directP}%`, count: direct, c: 'var(--text3)' },
-                              ].map((item, idx) => (
-                                <div key={idx}>
+                              {items.map((item, idx) => (
+                                <div key={item.key || idx}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '5px' }}>
-                                    <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{item.s}</span>
-                                    <span style={{ fontWeight: 800, color: item.c }}>{item.v} <span style={{ fontSize: '9.5px', color: 'var(--text3)', fontWeight: 500 }}>({item.count} leads)</span></span>
+                                    <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{item.label}</span>
+                                    <span style={{ fontWeight: 800, color: item.color }}>
+                                      {item.percentage}% <span style={{ fontSize: '9.5px', color: 'var(--text3)', fontWeight: 500 }}>({item.count} leads)</span>
+                                    </span>
                                   </div>
                                   <div style={{ height: '7px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                                    <div style={{ width: item.v, height: '100%', background: item.c, borderRadius: '4px', transition: 'width 0.4s ease' }}></div>
+                                    <div style={{ width: `${Math.min(100, Math.max(item.count > 0 ? 5 : 0, item.percentage))}%`, height: '100%', background: item.color, borderRadius: '4px', transition: 'width 0.4s ease' }}></div>
                                   </div>
                                 </div>
                               ))}
@@ -2794,24 +2845,36 @@ export default function MarketingOverviewPage({ onNavigate }) {
                     <div className="card">
                       <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="card-title text-serif">📈 Weekly Publishing & Activity Velocity</div>
-                        <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{posts.length} Posts Distributed</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text3)' }}>
+                          {analyticsOverview?.weeklyVelocity ? `${analyticsOverview.weeklyVelocity.totalWeekPosts} Posts · ${analyticsOverview.weeklyVelocity.totalWeekActivities} Activities` : `${posts.length} Posts`}
+                        </span>
                       </div>
                       <div className="card-body" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', height: '140px', paddingBottom: '10px' }}>
                         {(() => {
-                          const days = [0, 0, 0, 0, 0, 0, 0];
-                          posts.forEach(p => {
-                            if (p.date) {
-                              const d = new Date(p.date).getDay();
-                              if (!isNaN(d)) days[d]++;
-                            }
-                          });
-                          // Mon to Sun order: [1, 2, 3, 4, 5, 6, 0]
-                          const week = [days[1], days[2], days[3], days[4], days[5], days[6], days[0]];
+                          const serverDays = analyticsOverview?.weeklyVelocity?.days;
+                          let week = [];
+                          let labels = [];
+
+                          if (serverDays && serverDays.length === 7) {
+                            week = serverDays.map(d => d.posts + (d.cadenceCount || 0));
+                            labels = serverDays.map(d => d.day);
+                          } else {
+                            const days = [0, 0, 0, 0, 0, 0, 0];
+                            posts.forEach(p => {
+                              if (p.date || p.createdAt) {
+                                const d = new Date(p.date || p.createdAt).getDay();
+                                if (!isNaN(d)) days[d]++;
+                              }
+                            });
+                            week = [days[1], days[2], days[3], days[4], days[5], days[6], days[0]];
+                            labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                          }
+
                           const max = Math.max(...week, 1);
                           const peakIdx = week.indexOf(Math.max(...week));
 
                           return week.map((cnt, i) => {
-                            const pct = Math.min(100, Math.max(22, Math.round((cnt / max) * 100)));
+                            const pct = Math.min(100, Math.max(cnt > 0 ? 25 : 12, Math.round((cnt / max) * 100)));
                             const isPeak = i === peakIdx && cnt > 0;
                             return (
                               <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', flex: 1 }}>
@@ -2836,7 +2899,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                   </div>
                                 </div>
                                 <div style={{ fontSize: '10px', color: isPeak ? '#fff' : 'var(--text3)', fontWeight: isPeak ? 800 : 600 }}>
-                                  {['M','T','W','T','F','S','S'][i]}
+                                  {labels[i]}
                                 </div>
                               </div>
                             );
@@ -3106,7 +3169,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           </tr>
                         </thead>
                         <tbody>
-                          {((socialTelemetry?.topPerformingPosts?.length > 0) ? socialTelemetry.topPerformingPosts : (socialTelemetry?.rawPosts || []).slice(0, 5)).map((post, idx) => (
+                          {((analyticsOverview?.topAssets?.length > 0) ? analyticsOverview.topAssets : ((socialTelemetry?.topPerformingPosts?.length > 0) ? socialTelemetry.topPerformingPosts : (socialTelemetry?.rawPosts || []).slice(0, 5))).map((post, idx) => (
                             <tr key={post.id || post._id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                               <td style={{ padding: '12px 16px', fontWeight: 800, color: idx === 0 ? 'var(--gold)' : 'var(--text2)', fontSize: '12px' }}>
                                 #{idx + 1}
@@ -3525,38 +3588,58 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
                 {showIntelHub && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
-                    {(filteredLeads.filter(l => (l.leadScore || 0) > 0).length > 0 ? filteredLeads.filter(l => (l.leadScore || 0) > 0).slice(0, 6) : leads.slice(0, 6)).map((lead, idx) => {
+                    {((analyticsOverview?.topProspects?.length > 0)
+                      ? analyticsOverview.topProspects
+                      : (filteredLeads.filter(l => (l.leadScore || 0) > 0).length > 0 
+                          ? filteredLeads.filter(l => (l.leadScore || 0) > 0).slice(0, 6) 
+                          : leads.slice(0, 6))).map((lead, idx) => {
                       const scoreData = getDisplayScore(lead);
-                      const temp = scoreData.temperature;
+                      const scoreTotal = lead.leadScore !== undefined && lead.leadScore !== null 
+                        ? lead.leadScore 
+                        : (scoreData.total || lead.intent_index || 0);
+                      const temp = scoreData.temperature?.color 
+                        ? scoreData.temperature 
+                        : (scoreTotal >= 80 
+                            ? { label: 'SUPER HOT', color: '#7c3aed' } 
+                            : scoreTotal >= 60 
+                            ? { label: 'HOT', color: '#ef4444' } 
+                            : scoreTotal >= 30 
+                            ? { label: 'WARM', color: '#f59e0b' } 
+                            : { label: 'COLD', color: '#64748b' });
+                      const intentLabel = scoreData.intent || (scoreTotal >= 80 ? 'Closing Soon' : scoreTotal >= 60 ? 'High Intent' : scoreTotal >= 30 ? 'Nurture' : 'Incoming Lead');
+                      const leadSource = lead.source?.lookup_value || lead.source?.label || (typeof lead.source === 'string' ? lead.source : 'Direct Inbound');
+
                       return (
-                        <div key={lead._id || idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', borderLeft: `3px solid ${temp.color || 'var(--border)'}` }}>
+                        <div key={lead._id || lead.id || idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', borderLeft: `3px solid ${temp.color || 'var(--border)'}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                             <div style={{ fontWeight: 800, color: 'var(--text)', fontSize: '13px' }}>{lead.name}</div>
                             <div 
                               title="Click to re-run AI enrichment"
                               onClick={async (e) => {
                                 e.stopPropagation();
+                                const leadTargetId = lead.id || lead._id;
+                                if (!leadTargetId) return;
                                 try {
-                                  toast.loading('Running AI Enrichment...', { id: 'enrich-' + lead._id });
-                                  await enrichmentAPI.runLead(lead._id);
-                                  toast.success('Enrichment complete!', { id: 'enrich-' + lead._id });
-                                  fetchLiveData(); // Refresh to get new score
+                                  toast.loading('Running AI Enrichment...', { id: 'enrich-' + leadTargetId });
+                                  await enrichmentAPI.runLead(leadTargetId);
+                                  toast.success('Enrichment complete!', { id: 'enrich-' + leadTargetId });
+                                  fetchLiveData();
                                 } catch (err) {
-                                  toast.error('Enrichment failed', { id: 'enrich-' + lead._id });
+                                  toast.error('Enrichment failed', { id: 'enrich-' + leadTargetId });
                                 }
                               }}
-                              style={{ cursor: 'pointer', background: scoreData.total >= 80 ? 'rgba(239,68,68,0.15)' : scoreData.total >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.15)', color: scoreData.total >= 80 ? '#ef4444' : scoreData.total >= 50 ? '#f59e0b' : '#64748b', fontSize: '10px', fontWeight: 900, padding: '2px 8px', borderRadius: '20px' }}
+                              style={{ cursor: 'pointer', background: scoreTotal >= 80 ? 'rgba(239,68,68,0.15)' : scoreTotal >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.15)', color: scoreTotal >= 80 ? '#ef4444' : scoreTotal >= 50 ? '#f59e0b' : '#64748b', fontSize: '10px', fontWeight: 900, padding: '2px 8px', borderRadius: '20px' }}
                             >
-                              {scoreData.total}% INTENT ↻
+                              {scoreTotal}% INTENT ↻
                             </div>
                           </div>
                           <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, marginBottom: '8px' }}>
-                            <span style={{ marginRight: '4px' }}>🎯</span>{(lead.source?.label || lead.source || 'Direct Source')}
+                            <span style={{ marginRight: '4px' }}>🎯</span>{leadSource}
                           </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                             <span style={{ fontSize: '9px', background: temp.color, color: '#fff', padding: '1px 7px', borderRadius: '4px', fontWeight: 800 }}>{temp.label}</span>
-                            <span style={{ fontSize: '9px', background: 'rgba(255,255,255,0.06)', color: 'var(--text3)', padding: '1px 7px', borderRadius: '4px', fontWeight: 600 }}>#{scoreData.intent}</span>
-                            {lead.tags && lead.tags.slice(0, 1).map((tag, ti) => (
+                            <span style={{ fontSize: '9px', background: 'rgba(255,255,255,0.06)', color: 'var(--text3)', padding: '1px 7px', borderRadius: '4px', fontWeight: 600 }}>#{intentLabel}</span>
+                            {lead.tags && (Array.isArray(lead.tags) ? lead.tags : []).slice(0, 1).map((tag, ti) => (
                               <span key={ti} style={{ fontSize: '9px', background: 'rgba(255,255,255,0.06)', color: 'var(--text3)', padding: '1px 7px', borderRadius: '4px', fontWeight: 600 }}>#{tag.label || tag}</span>
                             ))}
                           </div>

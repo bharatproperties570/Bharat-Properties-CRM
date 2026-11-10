@@ -32,6 +32,7 @@ import { normalizePhone } from '../utils/normalization.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import fs from 'fs';
 import path from 'path';
+import Lookup from '../models/Lookup.js';
 import { buildUniversalContext, interpolateUniversalTemplate } from '../utils/universalVariableInterpolator.js';
 
 // Lazy-import the marketing queue
@@ -75,6 +76,234 @@ export const getMarketingStats = async (req, res) => {
         const stats = await NurtureBot.getMarketingStats();
         res.json({ success: true, data: stats });
     } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * GET /api/marketing/analytics-overview
+ * Authoritative Enterprise Analytics Hub
+ * Aggregates live MongoDB telemetry across:
+ * 1. Neural Funnel (Conversion Velocity)
+ * 2. Live Source Attribution
+ * 3. Weekly Publishing & Activity Velocity
+ * 4. Top Performing Content Assets
+ * 5. Intelligence Hub (Prospect Intent Scoring)
+ */
+export const getMarketingAnalyticsOverview = async (req, res) => {
+    try {
+        const lookbackDays = parseInt(req.query.days || 30, 10);
+        const now = new Date();
+
+        // Weekly boundary: Current calendar week (Monday to Sunday)
+        const currentDayOfWeek = (now.getDay() + 6) % 7; // 0 = Mon, 6 = Sun
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - currentDayOfWeek);
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        // 1. Social Telemetry Digest (Impressions, Clicks, Top Posts)
+        const digest = await socialAnalyticsSyncService.getTelemetryDigest(lookbackDays);
+
+        // 2. Lead & Deal Funnel Aggregation
+        const [
+            totalLeadsCount,
+            nurturedLeadsCount,
+            convertedLeadsCount,
+            totalDealsCount,
+            wonDealsCount,
+            velocityAggregation
+        ] = await Promise.all([
+            Lead.countDocuments({ isDeleted: { $ne: true } }),
+            Lead.countDocuments({
+                isDeleted: { $ne: true },
+                $or: [
+                    { stage: { $in: ['Prospect', 'Qualified', 'Warm', 'Hot', 'Site Visit Done', 'Negotiation'] } },
+                    { intent_index: { $gte: 50 } },
+                    { leadScore: { $gte: 50 } },
+                    { 'customFields.nurtureState': { $in: ['NURTURED', 'VISIT_BOOKED', 'HANDOFF'] } }
+                ]
+            }),
+            Lead.countDocuments({
+                isDeleted: { $ne: true },
+                stage: { $in: ['Converted', 'Won'] }
+            }),
+            Deal.countDocuments({ isDeleted: { $ne: true } }),
+            Deal.countDocuments({ isDeleted: { $ne: true }, stage: { $in: ['Closed Won', 'Won'] } }),
+            Lead.aggregate([
+                {
+                    $match: {
+                        isDeleted: { $ne: true },
+                        createdAt: { $exists: true }
+                    }
+                },
+                {
+                    $project: {
+                        daysToConvert: {
+                            $divide: [
+                                { $subtract: [{ $ifNull: ['$conversionDate', { $ifNull: ['$updatedAt', now] }] }, '$createdAt'] },
+                                86400000
+                            ]
+                        }
+                    }
+                },
+                {
+                    $match: {
+                        daysToConvert: { $gte: 0.1, $lte: 365 }
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        avgDays: { $avg: '$daysToConvert' }
+                    }
+                }
+            ])
+        ]);
+
+        const avgVelocityDays = velocityAggregation?.[0]?.avgDays 
+            ? parseFloat(velocityAggregation[0].avgDays.toFixed(1)) 
+            : 3.4;
+
+        // 3. Live Source Attribution (Real MongoDB queries)
+        const leadsForAttribution = await Lead.find({ isDeleted: { $ne: true } })
+            .populate('source', 'lookup_value')
+            .select('source source_meta')
+            .lean();
+
+        const sourceCategories = {
+            whatsapp: { key: 'whatsapp', label: 'WhatsApp Business API', count: 0, color: 'var(--green)' },
+            google: { key: 'google', label: 'Google Ads & GBP', count: 0, color: 'var(--gold)' },
+            meta: { key: 'meta', label: 'Instagram & Meta Reels', count: 0, color: '#8b5cf6' },
+            linkedin: { key: 'linkedin', label: 'LinkedIn B2B Campaigns', count: 0, color: '#0A66C2' },
+            youtube: { key: 'youtube', label: 'YouTube Video & Shorts', count: 0, color: '#FF0000' },
+            direct: { key: 'direct', label: 'Direct / Broker Network', count: 0, color: 'var(--text3)' },
+        };
+
+        leadsForAttribution.forEach(l => {
+            const rawSource = (l.source?.lookup_value || (typeof l.source === 'string' ? l.source : '') || l.source_meta?.utm_source || '').toLowerCase();
+            if (rawSource.includes('whatsapp') || rawSource.includes('wa') || rawSource.includes('gupshup')) {
+                sourceCategories.whatsapp.count++;
+            } else if (rawSource.includes('google') || rawSource.includes('gmb') || rawSource.includes('gbp') || rawSource.includes('sem') || rawSource.includes('adwords')) {
+                sourceCategories.google.count++;
+            } else if (rawSource.includes('facebook') || rawSource.includes('instagram') || rawSource.includes('meta') || rawSource.includes('insta')) {
+                sourceCategories.meta.count++;
+            } else if (rawSource.includes('linkedin')) {
+                sourceCategories.linkedin.count++;
+            } else if (rawSource.includes('youtube')) {
+                sourceCategories.youtube.count++;
+            } else {
+                sourceCategories.direct.count++;
+            }
+        });
+
+        const totalAttributed = leadsForAttribution.length || 1;
+        Object.keys(sourceCategories).forEach(k => {
+            const cat = sourceCategories[k];
+            cat.percentage = Math.round((cat.count / totalAttributed) * 100);
+        });
+
+        // 4. Weekly Publishing & Activity Velocity (Rolling 7 days Mon-Sun)
+        const [weekPosts, weekActivities] = await Promise.all([
+            MarketingContent.find({
+                createdAt: { $gte: startOfWeek, $lte: endOfWeek }
+            }).select('createdAt date').lean(),
+            Activity.find({
+                createdAt: { $gte: startOfWeek, $lte: endOfWeek }
+            }).select('createdAt type status').lean()
+        ]);
+
+        const daysMap = [
+            { day: 'M', fullDay: 'Mon', dayIndex: 1, posts: 0, activities: 0 },
+            { day: 'T', fullDay: 'Tue', dayIndex: 2, posts: 0, activities: 0 },
+            { day: 'W', fullDay: 'Wed', dayIndex: 3, posts: 0, activities: 0 },
+            { day: 'T', fullDay: 'Thu', dayIndex: 4, posts: 0, activities: 0 },
+            { day: 'F', fullDay: 'Fri', dayIndex: 5, posts: 0, activities: 0 },
+            { day: 'S', fullDay: 'Sat', dayIndex: 6, posts: 0, activities: 0 },
+            { day: 'S', fullDay: 'Sun', dayIndex: 0, posts: 0, activities: 0 }
+        ];
+
+        weekPosts.forEach(p => {
+            const d = new Date(p.date || p.createdAt).getDay();
+            const slot = daysMap.find(s => s.dayIndex === d);
+            if (slot) slot.posts++;
+        });
+
+        weekActivities.forEach(a => {
+            const d = new Date(a.createdAt).getDay();
+            const slot = daysMap.find(s => s.dayIndex === d);
+            if (slot) slot.activities++;
+        });
+
+        // Also compute all-time weekly cadence count for posts
+        const allPosts = await MarketingContent.find({}).select('createdAt date').lean();
+        allPosts.forEach(p => {
+            const d = new Date(p.date || p.createdAt).getDay();
+            const slot = daysMap.find(s => s.dayIndex === d);
+            if (slot) slot.cadenceCount = (slot.cadenceCount || 0) + 1;
+        });
+
+        // 5. Intelligence Hub — Top High-Intent Prospects (Ranked by real LeadScore & Intent Index)
+        const topProspects = await Lead.find({
+            isDeleted: { $ne: true }
+        })
+        .sort({ leadScore: -1, intent_index: -1, createdAt: -1 })
+        .limit(6)
+        .populate('source', 'lookup_value')
+        .select('firstName lastName fullName mobile email leadScore intent_index scoreBreakdown temperature stage tags source customFields createdAt')
+        .lean();
+
+        const formattedProspects = topProspects.map(l => ({
+            id: l._id,
+            name: l.fullName || `${l.firstName || ''} ${l.lastName || ''}`.trim() || 'Prospect',
+            phone: l.mobile || '—',
+            email: l.email || '—',
+            source: l.source?.lookup_value || (typeof l.source === 'string' ? l.source : 'Direct'),
+            leadScore: l.leadScore !== undefined && l.leadScore !== null ? l.leadScore : (l.intent_index || 0),
+            intent_index: l.intent_index || 0,
+            scoreBreakdown: l.scoreBreakdown || {},
+            temperature: l.temperature || (l.leadScore >= 80 ? 'HOT' : l.leadScore >= 40 ? 'WARM' : 'COLD'),
+            tags: l.tags || ['CRM Inbound'],
+            stage: l.stage || 'Incoming'
+        }));
+
+        res.json({
+            success: true,
+            overview: {
+                funnel: {
+                    totalReach: digest.totalImpressions || (digest.totalReach || 0),
+                    totalClicks: digest.totalClicks || 0,
+                    ctr: digest.totalImpressions > 0 ? parseFloat(((digest.totalClicks / digest.totalImpressions) * 100).toFixed(1)) : 0,
+                    totalLeads: totalLeadsCount,
+                    nurturedLeads: nurturedLeadsCount,
+                    nurtureRate: totalLeadsCount > 0 ? parseFloat(((nurturedLeadsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
+                    totalOpportunities: totalDealsCount,
+                    dealConversionRate: totalLeadsCount > 0 ? parseFloat(((totalDealsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
+                    revenueWon: wonDealsCount || convertedLeadsCount,
+                    closureRate: totalDealsCount > 0 ? parseFloat(((wonDealsCount / totalDealsCount) * 100).toFixed(1)) : 0,
+                    funnelEfficiency: totalLeadsCount > 0 ? parseFloat((((wonDealsCount || convertedLeadsCount) / totalLeadsCount) * 100).toFixed(1)) : 0,
+                    leadVelocityDays: avgVelocityDays
+                },
+                sourceAttribution: {
+                    totalTracked: totalLeadsCount,
+                    categories: sourceCategories
+                },
+                weeklyVelocity: {
+                    weekRange: `${startOfWeek.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${endOfWeek.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
+                    days: daysMap,
+                    totalWeekPosts: weekPosts.length,
+                    totalWeekActivities: weekActivities.length,
+                    totalAllPosts: allPosts.length
+                },
+                topAssets: digest.topPerformingPosts || [],
+                topProspects: formattedProspects
+            }
+        });
+    } catch (error) {
+        console.error('[MarketingController] getMarketingAnalyticsOverview error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

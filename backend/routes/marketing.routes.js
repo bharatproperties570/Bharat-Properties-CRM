@@ -2,6 +2,7 @@ import express from 'express';
 console.log('--- MARKETING ROUTES INITIALIZING ---');
 import { 
     getMarketingStats,
+    getMarketingAnalyticsOverview,
     getCampaignRuns,
     getCampaignRunsForCampaign,
     getCampaignRunMetrics,
@@ -71,8 +72,9 @@ router.get('/linkedin/callback', handleLinkedInCallback);
 router.use(authenticate);
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
-router.get('/stats',         getMarketingStats);
-router.get('/campaign-runs', getCampaignRuns);
+router.get('/stats',              getMarketingStats);
+router.get('/analytics-overview', getMarketingAnalyticsOverview);
+router.get('/campaign-runs',      getCampaignRuns);
 router.get('/campaigns/:campaignId/runs', getCampaignRunsForCampaign);
 router.get('/campaign-runs/:runId/metrics', getCampaignRunMetrics);
 router.get('/campaigns/:campaignId/summary', getCampaignSummary);
