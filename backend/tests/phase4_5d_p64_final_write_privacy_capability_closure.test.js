@@ -20,6 +20,8 @@ import AuditLog, {
     validateControlledScalarValue,
     CONTROLLED_AUDIT_REASONS
 } from '../models/AuditLog.js';
+import User from '../models/User.js';
+import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import { CANONICAL_ORGANIZATION_ID, CANONICAL_ORGANIZATION_ID_STRING } from '../config/canonicalOrganization.js';
 
 let replSet = null;
@@ -50,6 +52,8 @@ beforeEach(async () => {
     if (mongoose.connection.readyState === 1) {
         await _testOnlyResetAuthoritySettings({});
         await AuditLog.deleteMany({});
+        await PropertyVerificationRunItem.deleteMany({});
+        await User.deleteMany({});
     }
 });
 
@@ -721,9 +725,22 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
         });
 
         test('4.6: Valid saga compensation succeeds with allowed keys', async () => {
+            const legitClaimId = new mongoose.Types.ObjectId();
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId: CANONICAL_ORG_ID,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: new mongoose.Types.ObjectId(),
+                authorityCode: 'HSVP',
+                status: 'FAILED',
+                applyClaim: {
+                    claimId: legitClaimId
+                }
+            });
+
             const audit = await AuditLog.create({
                 eventType: 'authority_changes_applied',
                 targetType: 'authority_settings',
+                targetId: runItem._id,
                 actorId: new mongoose.Types.ObjectId(),
                 userId: new mongoose.Types.ObjectId(),
                 status: 'success',
@@ -731,7 +748,8 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                 metadata: {
                     tenantId: CANONICAL_ORG_ID,
                     authorityCode: 'HSVP',
-                    claimId: 'claim_recovery_101'
+                    itemId: runItem._id,
+                    claimId: legitClaimId.toString()
                 }
             });
 
@@ -741,7 +759,7 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
                     $set: {
                         status: 'compensated',
                         'metadata.compensated': true,
-                        'metadata.compensationClaimId': 'claim_recovery_101',
+                        'metadata.compensationClaimId': legitClaimId.toString(),
                         'metadata.compensatedAt': new Date()
                     }
                 }
@@ -750,7 +768,7 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
             const updated = await AuditLog.findById(audit._id).lean();
             assert.strictEqual(updated.status, 'compensated');
             assert.strictEqual(updated.metadata?.compensated, true);
-            assert.strictEqual(updated.metadata?.compensationClaimId, 'claim_recovery_101');
+            assert.strictEqual(updated.metadata?.compensationClaimId, legitClaimId.toString());
         });
 
         test('4.7: Once compensated, record is terminal and strictly immutable', async () => {
@@ -789,23 +807,42 @@ describe('PHASE 4.5-D (PR #65) FINAL WRITE PRIVACY, DELETE BOUNDARY & CAPABILITY
     describe('Area 5: Owner Confirmation Static Workflow', () => {
 
         test('5.1: recordOwnerConfirmation succeeds for existing source with canonical tenant and valid authorityCode', async () => {
+            const actorUser = await User.create({
+                tenantId: CANONICAL_ORG_ID,
+                fullName: 'Portal Operator',
+                email: 'operator@bharatproperties.internal',
+                password: 'Password123!',
+                department: 'sales',
+                role: new mongoose.Types.ObjectId(),
+                status: 'active',
+                isActive: true
+            });
+
             const doc = new AuthoritySourceSettings({
                 tenantId: CANONICAL_ORG_ID,
                 authorityCode: 'HSVP',
                 isEnabled: false,
                 schedulingEnabled: false,
-                reviewStatus: 'UNDER_REVIEW'
+                reviewStatus: 'UNDER_REVIEW',
+                evidenceVersion: 1
             });
             await doc.save();
 
             const updated = await AuthoritySourceSettings.recordOwnerConfirmation(
                 CANONICAL_ORG_ID,
                 'HSVP',
-                { reportedBy: 'Bharat Properties Owner', claimedAuthorityRole: 'PORTAL_OPERATOR' }
+                {
+                    reportedBy: actorUser._id.toString(),
+                    claimedAuthorityRole: 'PORTAL_OPERATOR',
+                    evidenceReference: 'REF-001',
+                    evidenceType: 'CLIENT_STATEMENT',
+                    evidenceVersion: 1,
+                    notes: 'Portal operator recorded verification evidence'
+                }
             );
 
             assert.ok(updated);
-            assert.strictEqual(updated.userReportedEvidence?.reportedBy, 'Bharat Properties Owner');
+            assert.strictEqual(updated.userReportedEvidence?.reportedBy, actorUser._id.toString());
             assert.strictEqual(updated.userReportedEvidence?.claimedAuthorityRole, 'PORTAL_OPERATOR');
         });
 

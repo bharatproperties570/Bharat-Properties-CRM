@@ -152,18 +152,17 @@ test.after(async () => {
 // SECTION 1: CANONICAL AUTHORITY PERMISSION STATE (P1)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-test('Phase 4.5-D — Test 1: AuthoritySourceSettings.ensureDefaults establishes GRANTED permission with OWNER_ATTESTED evidence basis', async () => {
+test('Phase 4.5-D — Test 1: AuthoritySourceSettings.ensureDefaults establishes NOT_OBTAINED permission with neutral unverified defaults', async () => {
     const settingsList = await AuthoritySourceSettings.find({ tenantId });
     assert.equal(settingsList.length, 3);
 
     for (const s of settingsList) {
-        assert.equal(s.permissionStatus, 'GRANTED');
-        assert.equal(s.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
-        assert.equal(s.approvedAccessMethod, 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION');
-        assert.equal(s.ownerAttestation.claimedAuthorityRole, 'Authorized Broker');
-        assert.equal(s.ownerAttestation.attestingParty, 'Bharat Properties Owner');
-        assert.ok(s.ownerAttestation.attestedAt);
-        assert.ok(s.ownerAttestation.scope);
+        assert.equal(s.permissionStatus, 'NOT_OBTAINED');
+        assert.equal(s.evidenceBasis, null);
+        assert.equal(s.approvedAccessMethod, null);
+        assert.equal(s.ownerAttestation?.attestingParty ?? null, null);
+        assert.equal(s.isEnabled, false);
+        assert.equal(s.schedulingEnabled, false);
     }
 });
 
@@ -222,7 +221,7 @@ test('Phase 4.5-D — Test 5: In unapproved state, contractVerificationStatus is
 
 test('Phase 4.5-D — Test 6: Maker-checker review status is distinct from authority permission', async () => {
     const hsvp = await AuthoritySourceSettings.findOne({ tenantId, authorityCode: 'HSVP' });
-    assert.equal(hsvp.permissionStatus, 'GRANTED');
+    assert.equal(hsvp.permissionStatus, 'NOT_OBTAINED');
     assert.equal(hsvp.reviewStatus, 'UNDER_REVIEW');
 
     const check = hsvp.checkActivationEligibility();

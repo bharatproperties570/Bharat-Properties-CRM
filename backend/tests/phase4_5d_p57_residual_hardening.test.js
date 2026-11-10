@@ -882,7 +882,7 @@ test('Area 6.3: Canonical ensureDefaults() bulkWrite passes and initializes docu
         assert.strictEqual(s.isEnabled, false);
         assert.strictEqual(s.schedulingEnabled, false);
         assert.strictEqual(s.reviewStatus, 'UNDER_REVIEW');
-        assert.strictEqual(s.permissionStatus, 'GRANTED');
+        assert.strictEqual(s.permissionStatus, 'NOT_OBTAINED');
     }
 });
 

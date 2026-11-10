@@ -977,7 +977,7 @@ test('Bulk 23: canonical ensureDefaults() $setOnInsert -> Pass, remains disabled
         assert.strictEqual(doc.isEnabled, false);
         assert.strictEqual(doc.schedulingEnabled, false);
         assert.strictEqual(doc.reviewStatus, 'UNDER_REVIEW');
-        assert.strictEqual(doc.permissionStatus, 'GRANTED');
-        assert.strictEqual(doc.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
+        assert.strictEqual(doc.permissionStatus, 'NOT_OBTAINED');
+        assert.strictEqual(doc.evidenceBasis, null);
     }
 });

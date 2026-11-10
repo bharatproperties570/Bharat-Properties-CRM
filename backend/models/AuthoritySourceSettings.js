@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import { createRequire } from 'module';
 import { CANONICAL_ORGANIZATION_ID, CANONICAL_ORGANIZATION_ID_STRING } from '../config/canonicalOrganization.js';
 import {
     isProductionEnvironment,
@@ -7,6 +8,19 @@ import {
     getActiveMongooseConnectionIdentity,
     parseMongoDetails
 } from '../services/authority/databaseEnvironmentSafety.js';
+
+const requireModule = createRequire(import.meta.url);
+let MMS_MODULE = null;
+function getMmsModule() {
+    if (!MMS_MODULE) {
+        try {
+            MMS_MODULE = requireModule('mongodb-memory-server');
+        } catch (_) {
+            MMS_MODULE = null;
+        }
+    }
+    return MMS_MODULE;
+}
 
 /**
  * AuthoritySourceSettings
@@ -498,6 +512,11 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         reportedBy: { type: String, default: null },
         reportedAt: { type: Date, default: null },
         claimedAuthorityRole: { type: String, default: null },
+        statementType: { type: String, enum: ['BROKER_SELF_REPORT', 'OWNER_CONFIRMATION'], default: null },
+        evidenceReference: { type: String, default: null },
+        evidenceType: { type: String, default: null },
+        evidenceVersion: { type: Number, default: null },
+        evidenceHash: { type: String, default: null },
         notes: { type: String, default: null },
         verificationStatus: {
             type: String,
@@ -1842,25 +1861,19 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                     $setOnInsert: {
                         tenantId: effectiveTenantId,
                         authorityCode: code,
-                        permissionStatus: 'GRANTED',
-                        evidenceBasis: 'OWNER_ATTESTED_AUTHORITY_PERMISSION',
-                        approvedAccessMethod: 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION',
+                        permissionStatus: 'NOT_OBTAINED',
+                        evidenceBasis: null,
+                        approvedAccessMethod: null,
                         permittedFields: commonFields,
                         approvalReference: null,
                         authorizationScope: 'Read-only public property data retrieval, internal CRM staging and preview only.',
                         commercialUseAuthorized: false,
-                        readOnlySearchAuthorized: true,
+                        readOnlySearchAuthorized: false,
                         termsReviewed: false,
                         termsReference: cfg.termsReference,
                         contractVerificationStatus: 'NOT_VERIFIED',
                         contractEvidenceReference: null,
-                        ownerAttestation: {
-                            attestingParty: 'Bharat Properties Owner',
-                            attestedAt: new Date('2026-11-06T17:51:10+05:30'),
-                            scope: 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
-                            notes: 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
-                            claimedAuthorityRole: cfg.claimedAuthorityRole || 'Authorized Broker'
-                        },
+                        ownerAttestation: null,
                         ratePolicy: {
                             maxRequestsPerMinute: 1,
                             maxRequestsPerHour: 60,
@@ -1876,14 +1889,11 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
                         isPaused: false,
                         schedulingEnabled: false,
                         reviewStatus: 'UNDER_REVIEW',
-                        identityRequirements: cfg.identityRequirements,
-                        userReportedEvidence: {
-                            reportedBy: null,
-                            reportedAt: null,
-                            claimedAuthorityRole: null,
-                            notes: null,
-                            verificationStatus: 'UNVERIFIED'
-                        }
+                        identityRequirements: {
+                            ...cfg.identityRequirements,
+                            verified: false
+                        },
+                        userReportedEvidence: null
                     }
                 },
                 upsert: true
@@ -1899,7 +1909,9 @@ AuthoritySourceSettingsSchema.statics.ensureDefaults = async function (tenantId)
 };
 
 /**
- * Records or updates explicit owner confirmation in userReportedEvidence.
+ * Records explicit client or broker-reported evidence in userReportedEvidence.
+ * Strictly verifies actor as an active, authenticated User in the canonical organization.
+ * Distinguishes broker self-reports from owner confirmation and prevents any escalation to official permission.
  */
 AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (tenantIdOrOptions, authorityCodeArg, detailsArg) {
     let tenantId, authorityCode, details;
@@ -1939,14 +1951,48 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         throw err;
     }
 
-    const actor = details.reportedBy || details.actorId || details.userId || details.confirmedBy;
+    // 1. Actor resolution: MUST be a valid User ObjectId from authenticated context
+    const actor = details.actorId || details.userId || details.reportedBy || details.confirmedBy;
     if (!actor || String(actor).trim() === '') {
         const err = new Error('ACTOR_IDENTITY_REQUIRED: Owner confirmation requires an explicit authenticated actor identity.');
         err.code = 'ACTOR_IDENTITY_REQUIRED';
         throw err;
     }
     const actorStr = String(actor).trim();
+    if (!mongoose.Types.ObjectId.isValid(actorStr) || !/^[0-9a-fA-F]{24}$/.test(actorStr)) {
+        const err = new Error('ACTOR_IDENTITY_REQUIRED: Actor identity must be a valid User ObjectId.');
+        err.code = 'ACTOR_IDENTITY_REQUIRED';
+        throw err;
+    }
 
+    // 2. Verify User exists in MongoDB
+    const User = mongoose.model('User');
+    let userQuery = User.findById(actorStr);
+    if (mongoose.models.Role) {
+        userQuery = userQuery.populate('role');
+    }
+    const user = await userQuery.lean();
+    if (!user) {
+        const err = new Error('ACTOR_NOT_FOUND: Authenticated actor user does not exist in database.');
+        err.code = 'ACTOR_NOT_FOUND';
+        throw err;
+    }
+
+    // 3. Verify User belongs to canonical organization
+    if (!user.tenantId || String(user.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+        const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: Actor must belong to canonical organization '${CANONICAL_ORGANIZATION_ID_STRING}'.`);
+        err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+        throw err;
+    }
+
+    // 4. Verify User is active and not suspended
+    if (user.isActive === false || user.status === 'inactive' || user.status === 'suspended') {
+        const err = new Error('ACTOR_SUSPENDED_OR_INACTIVE: Actor user is inactive or suspended.');
+        err.code = 'ACTOR_SUSPENDED_OR_INACTIVE';
+        throw err;
+    }
+
+    // 5. Verify applicable authorization / claimed role
     const ALLOWED_CLAIMED_ROLES = new Set(['AUTHORIZED_BROKER', 'PORTAL_OPERATOR', 'OWNER_REPRESENTATIVE', 'BROKER_ADMIN', 'Authorized Broker']);
     const claimedRole = details.claimedAuthorityRole;
     if (!claimedRole || !ALLOWED_CLAIMED_ROLES.has(String(claimedRole).trim())) {
@@ -1954,8 +2000,73 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         err.code = 'CONFIRMATION_DETAILS_REQUIRED';
         throw err;
     }
+    const normalizedClaimedRole = String(claimedRole).trim();
 
-    let notes = details.notes ? String(details.notes).trim() : 'OWNER_ATTESTED_READ_ONLY_ACCESS';
+    // Verify user actually possesses permissions for the claimed role
+    const userRoleName = user.role?.name || '';
+    const userPermissions = Array.isArray(user.role?.permissions) ? user.role.permissions : [];
+    const isSuperAdmin = user.isSuperAdmin === true || userRoleName === 'Super Admin';
+    const hasAuthorityPermission = isSuperAdmin ||
+        userPermissions.includes('authorityVerification.admin') ||
+        userPermissions.includes('authorityVerification.manage') ||
+        userPermissions.includes('authorityVerification.view') ||
+        userPermissions.includes('*');
+
+    // Claimed role OWNER_REPRESENTATIVE requires explicit verified authority permissions
+    if (normalizedClaimedRole === 'OWNER_REPRESENTATIVE' && !hasAuthorityPermission) {
+        const err = new Error('ACTOR_UNAUTHORIZED: Claimed role OWNER_REPRESENTATIVE requires explicit verified authority permissions.');
+        err.code = 'ACTOR_UNAUTHORIZED';
+        throw err;
+    }
+
+    // Explicitly unauthorized or restricted role
+    if (user.unauthorized === true || (user.role && typeof user.role === 'object' && user.role.name && !hasAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker')) {
+        const err = new Error('ACTOR_UNAUTHORIZED: User does not possess authorization for the claimed authority role.');
+        err.code = 'ACTOR_UNAUTHORIZED';
+        throw err;
+    }
+
+    // Distinguish broker self-report vs owner confirmation
+    const isBrokerRole = normalizedClaimedRole === 'AUTHORIZED_BROKER' ||
+                         normalizedClaimedRole === 'Authorized Broker' ||
+                         userRoleName.toLowerCase().includes('broker');
+    const statementType = isBrokerRole ? 'BROKER_SELF_REPORT' : 'OWNER_CONFIRMATION';
+
+    // 6. Explicit evidence requirements (no invented or default evidence)
+    if (!details.evidenceReference || typeof details.evidenceReference !== 'string' || details.evidenceReference.trim() === '') {
+        const err = new Error('EVIDENCE_REFERENCE_REQUIRED: Explicit evidence reference is required.');
+        err.code = 'EVIDENCE_REFERENCE_REQUIRED';
+        throw err;
+    }
+    const evidenceRef = details.evidenceReference.trim();
+    if (!/^[a-zA-Z0-9_/:.-]{2,100}$/.test(evidenceRef)) {
+        const err = new Error('EVIDENCE_REFERENCE_REQUIRED: Evidence reference format is invalid.');
+        err.code = 'EVIDENCE_REFERENCE_REQUIRED';
+        throw err;
+    }
+
+    const ALLOWED_EV_TYPES = new Set(['CLIENT_STATEMENT', 'BROKER_ATTESTATION', 'OWNER_WRITTEN_CONFIRMATION', 'REPRESENTATIVE_AUTHORIZATION', 'BROKER_REPORT', 'DOCUMENT_VERIFICATION']);
+    if (!details.evidenceType || typeof details.evidenceType !== 'string' || !ALLOWED_EV_TYPES.has(details.evidenceType.trim())) {
+        const err = new Error(`EVIDENCE_TYPE_REQUIRED: Explicit evidence type is required (${Array.from(ALLOWED_EV_TYPES).join(', ')}).`);
+        err.code = 'EVIDENCE_TYPE_REQUIRED';
+        throw err;
+    }
+    const evidenceType = details.evidenceType.trim();
+
+    if (details.evidenceVersion === undefined || details.evidenceVersion === null || isNaN(Number(details.evidenceVersion)) || Number(details.evidenceVersion) < 1) {
+        const err = new Error('EVIDENCE_VERSION_REQUIRED: Explicit positive numeric evidence version is required.');
+        err.code = 'EVIDENCE_VERSION_REQUIRED';
+        throw err;
+    }
+    const evidenceVersion = Number(details.evidenceVersion);
+
+    // Explicit notes required — NEVER fabricate default notes
+    if (!details.notes || typeof details.notes !== 'string' || details.notes.trim() === '') {
+        const err = new Error('EVIDENCE_NOTES_REQUIRED: Explicit submission notes are required; default confirmation notes are prohibited.');
+        err.code = 'EVIDENCE_NOTES_REQUIRED';
+        throw err;
+    }
+    let notes = details.notes.trim();
     if (notes.length > 160) {
         notes = notes.slice(0, 160);
     }
@@ -1985,7 +2096,12 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
             $set: {
                 'userReportedEvidence.reportedBy': actorStr,
                 'userReportedEvidence.reportedAt': serverTimestamp,
-                'userReportedEvidence.claimedAuthorityRole': String(claimedRole).trim(),
+                'userReportedEvidence.claimedAuthorityRole': normalizedClaimedRole,
+                'userReportedEvidence.statementType': statementType,
+                'userReportedEvidence.evidenceReference': evidenceRef,
+                'userReportedEvidence.evidenceType': evidenceType,
+                'userReportedEvidence.evidenceVersion': evidenceVersion,
+                'userReportedEvidence.evidenceHash': details.evidenceHash ? String(details.evidenceHash).trim() : undefined,
                 'userReportedEvidence.notes': notes,
                 'userReportedEvidence.verificationStatus': verificationStatus
             }
@@ -2430,7 +2546,6 @@ AuthoritySourceSettingsSchema.statics.recordMakerCheckerApproval = async functio
  * It must NEVER independently grant approval. reviewStatus remains UNDER_REVIEW.
  */
 AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function (tenantId, options = {}) {
-    const defaultAttestedAt = options.attestedAt || new Date('2026-11-06T17:51:10+05:30');
     const commonFields = [
         'propertyId', 'fileNumber', 'formNumber', 'propertyType', 'propertyCategory',
         'sectorNumber', 'phaseCode', 'blockCode', 'schemeName', 'urbanEstate',
@@ -2448,7 +2563,7 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
             identityRequirements: {
                 required: ['urbanEstate', 'sectorNumber', 'propertyId'],
                 optional: ['phaseCode'],
-                verified: true
+                verified: false
             }
         },
         GMADA: {
@@ -2457,7 +2572,7 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
             identityRequirements: {
                 required: ['location', 'sectors', 'propertyNo'],
                 optional: ['usageType', 'propertyType', 'formNo'],
-                verified: true
+                verified: false
             }
         },
         CHD: {
@@ -2466,7 +2581,7 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
             identityRequirements: {
                 required: ['sectorNumber', 'propertyId'],
                 optional: ['fileType', 'fileNumber'],
-                verified: true
+                verified: false
             }
         }
     };
@@ -2481,25 +2596,19 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
             setting = new this({ tenantId, authorityCode: code });
         }
 
-        setting.permissionStatus = 'GRANTED';
-        setting.evidenceBasis = 'OWNER_ATTESTED_AUTHORITY_PERMISSION';
-        setting.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+        setting.permissionStatus = 'NOT_OBTAINED';
+        setting.evidenceBasis = null;
+        setting.approvedAccessMethod = null;
         setting.permittedFields = commonFields;
         setting.approvalReference = null;
         setting.authorizationScope = 'Read-only public property data retrieval, internal CRM staging and preview only.';
         setting.commercialUseAuthorized = false;
-        setting.readOnlySearchAuthorized = true;
+        setting.readOnlySearchAuthorized = false;
         setting.termsReviewed = false;
         setting.termsReference = cfg.termsReference;
         setting.contractVerificationStatus = 'NOT_VERIFIED';
         setting.contractEvidenceReference = null;
-        setting.ownerAttestation = {
-            attestingParty: options.attestingParty || 'Bharat Properties Owner',
-            attestedAt: defaultAttestedAt,
-            scope: options.scope || 'Read-only public property data retrieval, internal Bharat Properties CRM processing, staging and preview only. No writes or mutations.',
-            notes: options.notes || 'Owner reconfirmed on 6 November 2026 that read-only public property data integration is authorized.',
-            claimedAuthorityRole: cfg.claimedAuthorityRole
-        };
+        setting.ownerAttestation = null;
         setting.ratePolicy = {
             maxRequestsPerMinute: 1,
             maxRequestsPerHour: 60,
@@ -2511,7 +2620,10 @@ AuthoritySourceSettingsSchema.statics.reconcileOwnerAttestation = async function
             isInternalSafetyThrottle: true,
             policySource: throttleRef
         };
-        setting.identityRequirements = cfg.identityRequirements;
+        setting.identityRequirements = {
+            ...cfg.identityRequirements,
+            verified: false
+        };
         setting.reviewStatus = 'UNDER_REVIEW';
         setting.submittedBy = null;
         setting.submittedAt = null;
@@ -2707,29 +2819,35 @@ export function registerVerifiedEphemeralTestDatabase(instance) {
         throw err;
     }
 
-    let host = '';
-    let port = null;
-    let uri = '';
+    const mms = getMmsModule();
+    const isGenuineInstance = mms && (
+        (mms.MongoMemoryServer && instance instanceof mms.MongoMemoryServer) ||
+        (mms.MongoMemoryReplSet && instance instanceof mms.MongoMemoryReplSet)
+    );
 
-    if (typeof instance.getUri === 'function') {
-        uri = instance.getUri();
-        const parsed = parseMongoDetails(uri);
-        host = parsed.host;
-        port = parsed.effectivePort;
-    } else if (instance.instanceInfo?.port) {
-        port = Number(instance.instanceInfo.port);
-        host = '127.0.0.1';
-    } else if (typeof instance === 'string') {
-        uri = instance;
-        const parsed = parseMongoDetails(uri);
-        host = parsed.host;
-        port = parsed.effectivePort;
-    } else if (typeof instance === 'object' && instance.port) {
-        port = Number(instance.port);
-        host = instance.host || '127.0.0.1';
+    if (!isGenuineInstance) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Only genuine MongoMemoryServer or MongoMemoryReplSet instances may be registered.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
     }
 
-    const hostLower = String(host || '').toLowerCase();
+    if (instance.state !== 'running') {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Ephemeral test database instance must be in running state to register.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    let uri = '';
+    try {
+        uri = instance.getUri();
+    } catch (_) {
+        const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Unable to resolve URI from ephemeral test database instance.');
+        err.code = 'EPHEMERAL_DATABASE_REQUIRED';
+        throw err;
+    }
+
+    const parsed = parseMongoDetails(uri);
+    const hostLower = String(parsed.host || '').toLowerCase();
     const isLoopback = hostLower === '127.0.0.1' || hostLower === 'localhost' || hostLower === '::1';
     if (!isLoopback) {
         const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Ephemeral test database must be bound to loopback interface.');
@@ -2737,28 +2855,19 @@ export function registerVerifiedEphemeralTestDatabase(instance) {
         throw err;
     }
 
-    // Standard persistent MongoDB default port 27017 cannot be registered as ephemeral unless it is a verified memory server instance
-    if (port === 27017 && !instance.instanceInfo && !instance.constructor?.name?.includes('Memory')) {
+    if (!parsed.effectivePort || parsed.effectivePort === 27017) {
         const err = new Error('EPHEMERAL_DATABASE_REQUIRED: Persistent local MongoDB (port 27017) cannot be registered as an ephemeral test database.');
         err.code = 'EPHEMERAL_DATABASE_REQUIRED';
         throw err;
     }
 
-    REGISTERED_EPHEMERAL_INSTANCES.add({
-        instance,
-        host: hostLower,
-        port: port ? Number(port) : null,
-        uri
-    });
+    REGISTERED_EPHEMERAL_INSTANCES.add(instance);
+    return true;
 }
 
 export function unregisterVerifiedEphemeralTestDatabase(instance) {
     if (!instance) return;
-    for (const item of Array.from(REGISTERED_EPHEMERAL_INSTANCES)) {
-        if (item.instance === instance || item === instance) {
-            REGISTERED_EPHEMERAL_INSTANCES.delete(item);
-        }
-    }
+    REGISTERED_EPHEMERAL_INSTANCES.delete(instance);
 }
 
 export function clearVerifiedEphemeralTestDatabases() {
@@ -2772,26 +2881,70 @@ export function isVerifiedEphemeralTestDatabase() {
     if (REGISTERED_EPHEMERAL_INSTANCES.size === 0) return false;
 
     const active = getActiveMongooseConnectionIdentity(mongoose.connection);
-    if (!active || active.readyState !== 1) return false;
+    if (!active || active.readyState !== 1 || !active.host || !active.port) return false;
 
     const host = String(active.host || '').toLowerCase();
     const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
     if (!isLoopback) return false;
 
-    const activePort = active.port;
+    const activePort = Number(active.port);
     if (!activePort || activePort === 27017) {
         return false; // Persistent local MongoDB
     }
 
-    for (const item of REGISTERED_EPHEMERAL_INSTANCES) {
-        if (item.port && Number(item.port) === Number(activePort)) {
-            return true;
+    const mms = getMmsModule();
+    if (!mms) return false;
+
+    for (const inst of Array.from(REGISTERED_EPHEMERAL_INSTANCES)) {
+        // 1. Must be genuine instance
+        const isGenuine = (mms.MongoMemoryServer && inst instanceof mms.MongoMemoryServer) ||
+                          (mms.MongoMemoryReplSet && inst instanceof mms.MongoMemoryReplSet);
+        if (!isGenuine) {
+            REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
+            continue;
         }
-        if (item.instance && typeof item.instance.getUri === 'function') {
-            const parsed = parseMongoDetails(item.instance.getUri());
-            if (Number(parsed.effectivePort) === Number(activePort)) {
-                return true;
+
+        // 2. Must still be in running state (prevents port reuse after stop)
+        if (inst.state !== 'running') {
+            REGISTERED_EPHEMERAL_INSTANCES.delete(inst);
+            continue;
+        }
+
+        // 3. Match ports and dbName
+        try {
+            const instUri = inst.getUri();
+            const instParsed = parseMongoDetails(instUri);
+            const instPorts = [];
+
+            if (mms.MongoMemoryReplSet && inst instanceof mms.MongoMemoryReplSet && Array.isArray(inst.servers)) {
+                for (const s of inst.servers) {
+                    if (s?.instanceInfo?.port) {
+                        instPorts.push(Number(s.instanceInfo.port));
+                    }
+                }
             }
+            if (instParsed.effectivePort) {
+                instPorts.push(Number(instParsed.effectivePort));
+            }
+            if (inst.instanceInfo?.port) {
+                instPorts.push(Number(inst.instanceInfo.port));
+            }
+
+            if (!instPorts.includes(activePort)) {
+                continue;
+            }
+
+            // DB name check: if instance has an explicit dbName, it must match active connection dbName
+            if (instParsed.dbName && active.dbName && instParsed.dbName.toLowerCase() !== active.dbName.toLowerCase()) {
+                continue;
+            }
+            if (inst.instanceInfo?.dbName && active.dbName && inst.instanceInfo.dbName.toLowerCase() !== active.dbName.toLowerCase()) {
+                continue;
+            }
+
+            return true;
+        } catch (_) {
+            continue;
         }
     }
     return false;

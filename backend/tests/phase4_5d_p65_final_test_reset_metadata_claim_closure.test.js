@@ -51,6 +51,7 @@ import AuthoritySourceSettings, {
 
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
+import User from '../models/User.js';
 
 import {
     CANONICAL_ORGANIZATION_ID,
@@ -58,6 +59,7 @@ import {
 } from '../config/canonicalOrganization.js';
 
 let mongoServer;
+let testActorUser;
 const CANONICAL_ORG_ID = CANONICAL_ORGANIZATION_ID;
 const CANONICAL_ORG_ID_STRING = CANONICAL_ORGANIZATION_ID_STRING;
 const NON_CANONICAL_ORG_ID = new mongoose.Types.ObjectId('111111111111111111111111');
@@ -67,6 +69,17 @@ before(async () => {
     registerVerifiedEphemeralTestDatabase(mongoServer);
     const uri = mongoServer.getUri();
     await mongoose.connect(uri);
+
+    testActorUser = await User.create({
+        tenantId: CANONICAL_ORG_ID,
+        fullName: 'Test Broker',
+        email: 'testbroker@example.com',
+        password: 'Password123!',
+        department: 'sales',
+        role: new mongoose.Types.ObjectId(),
+        isActive: true,
+        status: 'active'
+    });
 });
 
 after(async () => {
@@ -204,8 +217,16 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
 
         test('1.7: Test cleanup helper on unverified remote database fails closed', async () => {
             clearVerifiedEphemeralTestDatabases();
-            // Register dummy loopback on wrong port
-            registerVerifiedEphemeralTestDatabase({ port: 12345, getUri: () => 'mongodb://127.0.0.1:12345/test' });
+            // Plain object registration is rejected under strict ephemeral identity contract
+            assert.throws(
+                () => {
+                    registerVerifiedEphemeralTestDatabase({ port: 12345, getUri: () => 'mongodb://127.0.0.1:12345/test' });
+                },
+                err => {
+                    assert.strictEqual(err.code, 'EPHEMERAL_DATABASE_REQUIRED');
+                    return true;
+                }
+            );
             try {
                 await assert.rejects(
                     async () => {
@@ -625,8 +646,11 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                     await AuthoritySourceSettings.recordOwnerConfirmation({
                         tenantId: CANONICAL_ORG_ID_STRING,
                         authorityCode: 'GMADA',
-                        reportedBy: new mongoose.Types.ObjectId().toString(),
+                        reportedBy: testActorUser._id.toString(),
                         claimedAuthorityRole: '   ',
+                        evidenceReference: 'REF-001',
+                        evidenceType: 'CLIENT_STATEMENT',
+                        evidenceVersion: 1,
                         notes: 'Valid controlled notes'
                     });
                 },
@@ -638,12 +662,15 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.4: Valid confirmation does not enable isEnabled (remains false)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed read-only integration.'
             });
 
@@ -652,12 +679,15 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.5: Valid confirmation does not enable schedulingEnabled (remains false)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed read-only integration.'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -665,12 +695,15 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.6: Valid confirmation does not change permissionStatus to GRANTED (remains NOT_OBTAINED)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed read-only integration.'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -678,12 +711,15 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.7: Valid confirmation does not set reviewStatus to APPROVED (remains unreviewed/null)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed read-only integration.'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -691,12 +727,15 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.8: Valid confirmation does not accept terms (termsReviewed remains false)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed read-only integration.'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -704,12 +743,15 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.9: Valid confirmation does not create commercial-use authorization (commercialUseAuthorized remains false)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed read-only integration.'
             });
             const fresh = await AuthoritySourceSettings.findOne({ tenantId: CANONICAL_ORG_ID, authorityCode: 'HSVP' }).lean();
@@ -718,13 +760,16 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
 
         test('3.10: Static method requires real server timestamp at time of submission (not hardcoded 2026-11-06)', async () => {
             const beforeTime = new Date(Date.now() - 2000);
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
 
             await AuthoritySourceSettings.recordOwnerConfirmation({
                 tenantId: CANONICAL_ORG_ID_STRING,
                 authorityCode: 'HSVP',
                 reportedBy: actorId,
                 claimedAuthorityRole: 'Authorized Broker',
+                evidenceReference: 'REF-001',
+                evidenceType: 'CLIENT_STATEMENT',
+                evidenceVersion: 1,
                 notes: 'Owner confirmed.'
             });
 
@@ -735,7 +780,7 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
         });
 
         test('3.11: Static method stores controlled minimized notes (no arbitrary narrative)', async () => {
-            const actorId = new mongoose.Types.ObjectId().toString();
+            const actorId = testActorUser._id.toString();
             await assert.rejects(
                 async () => {
                     await AuthoritySourceSettings.recordOwnerConfirmation({
@@ -743,6 +788,9 @@ describe('PHASE 4.5-D (PR #66) FINAL TEST RESET, METADATA SCHEMA & SAGA CLAIM CL
                         authorityCode: 'HSVP',
                         reportedBy: actorId,
                         claimedAuthorityRole: 'Authorized Broker',
+                        evidenceReference: 'REF-001',
+                        evidenceType: 'CLIENT_STATEMENT',
+                        evidenceVersion: 1,
                         notes: 'Shri Rajesh Kumar visited our office on Monday with original registry papers.'
                     });
                 },

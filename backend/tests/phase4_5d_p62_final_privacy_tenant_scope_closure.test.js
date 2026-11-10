@@ -47,6 +47,7 @@ import AuthoritySourceSettings, {
 } from '../models/AuthoritySourceSettings.js';
 
 import User from '../models/User.js';
+import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import { CANONICAL_ORGANIZATION_ID } from '../config/canonicalOrganization.js';
 import { PortalAuditSink } from '../services/authority/portal/infrastructure/portalAuditSink.js';
 
@@ -767,14 +768,29 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
         });
 
         test('4.11: Saga compensation exception on authority_changes_applied allows status: compensated only', async () => {
+            const legitClaimId = new mongoose.Types.ObjectId();
+            const runItem = await PropertyVerificationRunItem.create({
+                tenantId: CANONICAL_ORGANIZATION_ID,
+                runId: new mongoose.Types.ObjectId(),
+                inventoryId: new mongoose.Types.ObjectId(),
+                authorityCode: 'HSVP',
+                status: 'FAILED',
+                applyClaim: {
+                    claimId: legitClaimId
+                }
+            });
+
             const log = await AuditLog.create({
                 eventType: 'authority_changes_applied',
-                description: 'Authority changes applied for property prop_123',
+                description: 'Authority changes applied from HSVP',
                 status: 'success',
                 targetType: 'authority_settings',
-                targetId: new mongoose.Types.ObjectId(),
+                targetId: runItem._id,
                 metadata: {
-                    claimId: 'claim_recovery_101'
+                    tenantId: CANONICAL_ORGANIZATION_ID,
+                    authorityCode: 'HSVP',
+                    itemId: runItem._id,
+                    claimId: legitClaimId.toString()
                 }
             });
 
@@ -796,7 +812,7 @@ describe('PHASE 4.5-D (PR #63) FINAL PRIVACY, CANONICAL TENANT SCOPE & CAPABILIT
                     $set: {
                         status: 'compensated',
                         'metadata.compensated': true,
-                        'metadata.compensationClaimId': 'claim_recovery_101',
+                        'metadata.compensationClaimId': legitClaimId.toString(),
                         'metadata.compensatedAt': new Date()
                     }
                 }

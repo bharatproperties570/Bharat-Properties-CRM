@@ -606,8 +606,8 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
                 assert.strictEqual(s.isEnabled, false);
                 assert.strictEqual(s.schedulingEnabled, false);
                 assert.strictEqual(s.reviewStatus, 'UNDER_REVIEW');
-                assert.strictEqual(s.permissionStatus, 'GRANTED');
-                assert.strictEqual(s.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
+                assert.strictEqual(s.permissionStatus, 'NOT_OBTAINED');
+                assert.strictEqual(s.evidenceBasis, null);
                 assert.strictEqual(s.commercialUseAuthorized, false);
                 assert.strictEqual(s.termsReviewed, false);
             }
@@ -857,9 +857,9 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             for (const item of list) {
                 assert.strictEqual(item.isEnabled, false);
                 assert.strictEqual(item.schedulingEnabled, false);
-                assert.strictEqual(item.permissionStatus, 'GRANTED');
-                assert.strictEqual(item.evidenceBasis, 'OWNER_ATTESTED_AUTHORITY_PERMISSION');
-                assert.strictEqual(item.approvedAccessMethod, 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION');
+                assert.strictEqual(item.permissionStatus, 'NOT_OBTAINED');
+                assert.strictEqual(item.evidenceBasis, null);
+                assert.strictEqual(item.approvedAccessMethod, null);
             }
         });
 

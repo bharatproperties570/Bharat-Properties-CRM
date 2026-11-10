@@ -3696,6 +3696,38 @@ export const compensateApplySaga = async ({
     let inventoryRevertError = null;
     let auditCompensationError = null;
 
+    // 0. Pre-flight verification: Verify caller claimId against actual PropertyVerificationRunItem (PR #67 Fix 2)
+    let itemDoc = null;
+    if (itemId) {
+        try {
+            itemDoc = await PropertyVerificationRunItem.findById(itemId).lean();
+        } catch (findErr) {
+            console.warn('[SagaCompensation] Error finding RunItem for pre-flight verification:', findErr.message);
+        }
+
+        if (itemDoc) {
+            // Verify canonical tenant ID
+            if (itemDoc.tenantId && String(itemDoc.tenantId) !== CANONICAL_ORGANIZATION_ID_STRING) {
+                const err = new Error(`CANONICAL_ORGANIZATION_REQUIRED: RunItem does not belong to canonical organization.`);
+                err.code = 'CANONICAL_ORGANIZATION_REQUIRED';
+                throw err;
+            }
+
+            const realClaimId = itemDoc.applyClaim?.claimId ? String(itemDoc.applyClaim.claimId) : null;
+            const realReconcilerClaimId = itemDoc.applyClaim?.reconcilerClaimId ? String(itemDoc.applyClaim.reconcilerClaimId) : null;
+
+            if (claimId) {
+                const callerClaimStr = String(claimId);
+                const matchesReal = (realClaimId && realClaimId === callerClaimStr) || (realReconcilerClaimId && realReconcilerClaimId === callerClaimStr);
+                if ((realClaimId || realReconcilerClaimId) && !matchesReal) {
+                    const conflictErr = new Error(`CLAIM_CONFLICT: Caller claimId '${callerClaimStr}' conflicts with actual RunItem claim '${realClaimId || realReconcilerClaimId}'.`);
+                    conflictErr.code = 'CLAIM_CONFLICT';
+                    throw conflictErr;
+                }
+            }
+        }
+    }
+
     // 1. Revert Inventory mutation if stage indicates possible or confirmed mutation
     if (stage && ['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(stage)) {
         if (compensation?.inventoryBefore && typeof compensation.inventoryBefore === 'object') {
