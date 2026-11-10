@@ -20,7 +20,10 @@ import {
     distributeEntity,
     executeDistributionCycle,
     normalizeTriggerEvent,
-    evaluateConditions
+    evaluateConditions,
+    calculateActiveWorkloadMap,
+    isUserAvailableAndOnShift,
+    getCurrentTimeInTimezone
 } from '../src/utils/distributionEngine.js';
 
 describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Suite', () => {
@@ -785,5 +788,244 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
         assert.strictEqual(auditRecord.modelName, 'Lead');
         assert.strictEqual(auditRecord.reason, 'Simulated terminal BullMQ exhaustion');
         assert.strictEqual(auditRecord.attempt, 5);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 14: P7-R1 Load-Based Unified Workload (Leads + Deals)
+    // ─────────────────────────────────────────────────────────────
+    it('14. P7-R1 Load-Based Workload: accurately aggregates active Leads and Deals while excluding closed stages', async () => {
+        // Clean existing test entities to guarantee exact deterministic count
+        await Lead.deleteMany({});
+        await Deal.deleteMany({});
+
+        // User A: 1 active lead + 2 active deals = 3 active items
+        await Lead.create({ firstName: 'A_L1', lastName: 'Active', mobile: '9100000001', owner: userA._id, stage: 'Contacted' });
+        await Deal.create({ title: 'A_D1', assignedTo: userA._id, stage: 'Negotiation' });
+        await Deal.create({ title: 'A_D2', assignedTo: userA._id, stage: 'Quote' });
+        // User A closed items (should NOT count)
+        await Lead.create({ firstName: 'A_Closed', lastName: 'Lost', mobile: '9100000002', owner: userA._id, stage: 'Lost' });
+        await Deal.create({ title: 'A_ClosedWon', assignedTo: userA._id, stage: 'Closed Won' });
+
+        // User B: 1 active lead + 0 active deals = 1 active item
+        await Lead.create({ firstName: 'B_L1', lastName: 'Active', mobile: '9100000003', owner: userB._id, stage: 'New' });
+        // User B closed items (should NOT count)
+        await Deal.create({ title: 'B_Cancelled', assignedTo: userB._id, stage: 'Cancelled' });
+
+        const workloadMap = await calculateActiveWorkloadMap([userA._id, userB._id]);
+        assert.strictEqual(workloadMap[userA._id.toString()], 3, 'User A workload should equal 3 (1 active lead + 2 active deals)');
+        assert.strictEqual(workloadMap[userB._id.toString()], 1, 'User B workload should equal 1 (1 active lead + 0 active deals)');
+
+        // Now create a loadBased distribution rule
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'P7-R1 Load-Based Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'loadBased',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id, userB._id]
+            }
+        });
+
+        const newLead = await Lead.create({
+            firstName: 'Load',
+            lastName: 'Recipient',
+            mobile: '9100000099',
+            owner: null
+        });
+
+        const cycleId = `cycle_load_${Date.now()}`;
+        const assignmentResult = await executeDistributionCycle({
+            entityId: newLead._id,
+            modelName: 'Lead',
+            triggerEvent: 'onCreate',
+            cycleId,
+            attempt: 1
+        });
+
+        assert.ok(assignmentResult, 'Assignment must succeed');
+        assert.strictEqual(assignmentResult.assignedTo.toString(), userB._id.toString(), 'Load-based distribution must assign to User B who has lower combined workload (1 vs 3)');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 15: P7-R2 Capacity Limit Enforcement
+    // ─────────────────────────────────────────────────────────────
+    it('15. P7-R2 Capacity Limit: Filters out agents at capacity and routes to available agents or fallback', async () => {
+        await Lead.deleteMany({ $or: [{ owner: { $in: [userA._id, userB._id] } }, { 'assignment.assignedTo': { $in: [userA._id, userB._id] } }] });
+        await Deal.deleteMany({ $or: [{ assignedTo: { $in: [userA._id, userB._id] } }, { 'assignment.assignedTo': { $in: [userA._id, userB._id] } }] });
+
+        // User A capacity = 2, currently has 2 active items (AT CAPACITY)
+        await User.findByIdAndUpdate(userA._id, { 'preferences.capacityLimit': 2 });
+        await Lead.create({ firstName: 'A_Cap1', lastName: 'Active', mobile: '9200000001', owner: userA._id, stage: 'New' });
+        await Lead.create({ firstName: 'A_Cap2', lastName: 'Active', mobile: '9200000002', owner: userA._id, stage: 'New' });
+
+        // User B capacity = 5, currently has 0 active items (UNDER CAPACITY)
+        await User.findByIdAndUpdate(userB._id, { 'preferences.capacityLimit': 5 });
+
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'P7-R2 Capacity Test Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            lastAssignedIndex: -1, // Next would be index 0 (userA) if capacity was not checked!
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id, userB._id]
+            }
+        });
+
+        const leadToAssign = await Lead.create({
+            firstName: 'Cap',
+            lastName: 'TestLead',
+            mobile: '9200000099',
+            owner: null
+        });
+
+        const cycleId = `cycle_cap_${Date.now()}`;
+        const assignmentResult = await executeDistributionCycle({
+            entityId: leadToAssign._id,
+            modelName: 'Lead',
+            triggerEvent: 'onCreate',
+            cycleId,
+            attempt: 1
+        });
+
+        assert.ok(assignmentResult, 'Assignment must succeed');
+        assert.strictEqual(assignmentResult.assignedTo.toString(), userB._id.toString(), 'Capped User A must be bypassed in favor of under-capacity User B');
+
+        // Now set User B capacity to 1 (now User B has 1 active lead from the assignment above -> AT CAPACITY)
+        await User.findByIdAndUpdate(userB._id, { 'preferences.capacityLimit': 1 });
+
+        const cappedLead = await Lead.create({
+            firstName: 'AllCapped',
+            lastName: 'TestLead',
+            mobile: '9200000098',
+            owner: null
+        });
+
+        // Both User A (2/2) and User B (1/1) are at capacity. Distribution must reject cleanly with no owner.
+        await assert.rejects(
+            executeDistributionCycle({
+                entityId: cappedLead._id,
+                modelName: 'Lead',
+                triggerEvent: 'onCreate',
+                cycleId: `cycle_all_capped_${Date.now()}`,
+                attempt: 1
+            }),
+            /No eligible agents available yet/
+        );
+
+        const checkLead = await Lead.findById(cappedLead._id);
+        assert.strictEqual(checkLead.owner || null, null, 'Lead must remain unassigned when all agents are capped');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 16: P7-R3 Shift Timezone Handling
+    // ─────────────────────────────────────────────────────────────
+    it('16. P7-R3 Shift Timezone: Computes Asia/Kolkata shift times accurately including overnight shifts', () => {
+        // UTC 04:30:00 is 10:00:00 IST (UTC + 5:30)
+        const morningUtc = new Date('2026-11-10T04:30:00Z');
+        const istHours = getCurrentTimeInTimezone(morningUtc, 'Asia/Kolkata');
+        assert.strictEqual(Math.round(istHours * 100) / 100, 10, '04:30 UTC must be 10:00 IST');
+
+        // Test normal daytime shift (09:00 to 18:00)
+        const dayUser = {
+            preferences: {
+                timezone: 'Asia/Kolkata',
+                workingHours: { start: '09:00', end: '18:00' },
+                enforceShiftInTest: true
+            }
+        };
+
+        // At 10:00 IST -> On shift
+        assert.strictEqual(isUserAvailableAndOnShift(dayUser, morningUtc), true, '10:00 IST is within 09:00-18:00 shift');
+
+        // At 21:00 IST (15:30 UTC) -> Off shift
+        const eveningUtc = new Date('2026-11-10T15:30:00Z');
+        assert.strictEqual(isUserAvailableAndOnShift(dayUser, eveningUtc), false, '21:00 IST is outside 09:00-18:00 shift');
+
+        // Test overnight shift (21:00 to 05:00)
+        const nightUser = {
+            preferences: {
+                timezone: 'Asia/Kolkata',
+                workingHours: { start: '21:00', end: '05:00' },
+                enforceShiftInTest: true
+            }
+        };
+
+        // At 22:00 IST (16:30 UTC) -> On shift
+        const nightUtc = new Date('2026-11-10T16:30:00Z');
+        assert.strictEqual(isUserAvailableAndOnShift(nightUser, nightUtc), true, '22:00 IST is within 21:00-05:00 overnight shift');
+
+        // At 03:00 IST (21:30 UTC previous day) -> On shift
+        const earlyMorningUtc = new Date('2026-11-10T21:30:00Z');
+        assert.strictEqual(isUserAvailableAndOnShift(nightUser, earlyMorningUtc), true, '03:00 IST is within 21:00-05:00 overnight shift');
+
+        // At 12:00 IST (06:30 UTC) -> Off shift
+        const noonUtc = new Date('2026-11-10T06:30:00Z');
+        assert.strictEqual(isUserAvailableAndOnShift(nightUser, noonUtc), false, '12:00 IST is outside 21:00-05:00 overnight shift');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 17: P7-R4 Authoritative Server-Side Bulk Distribution
+    // ─────────────────────────────────────────────────────────────
+    it('17. P7-R4 Bulk Distribute: Executes server-side atomic distribution cycle for multiple leads', async () => {
+        // Reset capacities
+        await User.findByIdAndUpdate(userA._id, { 'preferences.capacityLimit': 100 });
+        await User.findByIdAndUpdate(userB._id, { 'preferences.capacityLimit': 100 });
+
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'P7-R4 Bulk Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate', 'onLeadReassignment'],
+            distributionType: 'roundRobin',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id, userB._id]
+            }
+        });
+
+        const bLead1 = await Lead.create({ firstName: 'Bulk1', lastName: 'Test', mobile: '9300000001', owner: null });
+        const bLead2 = await Lead.create({ firstName: 'Bulk2', lastName: 'Test', mobile: '9300000002', owner: null });
+
+        const { bulkDistributeLeads } = await import('../controllers/lead.controller.js');
+
+        let responseStatusCode = 200;
+        let responseJsonData = null;
+
+        const req = {
+            body: { leadIds: [bLead1._id.toString(), bLead2._id.toString()] },
+            user: { _id: userA._id }
+        };
+        const res = {
+            status(code) {
+                responseStatusCode = code;
+                return this;
+            },
+            json(data) {
+                responseJsonData = data;
+                return this;
+            }
+        };
+
+        await bulkDistributeLeads(req, res, () => {});
+
+        assert.strictEqual(responseStatusCode, 200);
+        assert.strictEqual(responseJsonData.success, true);
+        assert.strictEqual(responseJsonData.count, 2, 'Both leads must be distributed');
+
+        const reloaded1 = await Lead.findById(bLead1._id);
+        const reloaded2 = await Lead.findById(bLead2._id);
+        assert.ok(reloaded1.owner, 'Lead 1 must have an assigned owner in DB');
+        assert.ok(reloaded2.owner, 'Lead 2 must have an assigned owner in DB');
     });
 });

@@ -2,6 +2,7 @@
  * Distribution Engine - Backend Implementation
  * Handles automated assignment of Leads, Deals, and Activities based on Business Rules.
  */
+import mongoose from "mongoose";
 import User from "../../models/User.js";
 import Team from "../../models/Team.js";
 import Lead from "../../models/Lead.js";
@@ -30,14 +31,41 @@ export const normalizeTriggerEvent = (evt) => {
 };
 
 /**
- * Checks if a user is currently on shift based on preferences.workingHours
- * and verifies they are not currently Out Of Office (OOO)
+ * P7-R3: Calculates fractional hour (e.g. 14.5 for 14:30) in a specific IANA timezone (default: Asia/Kolkata).
  */
+export const getCurrentTimeInTimezone = (date = new Date(), timeZone = 'Asia/Kolkata') => {
+    try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false
+        });
+        const parts = formatter.formatToParts(date);
+        let hour = 0;
+        let minute = 0;
+        for (const p of parts) {
+            if (p.type === 'hour') hour = parseInt(p.value, 10);
+            if (p.type === 'minute') minute = parseInt(p.value, 10);
+        }
+        if (hour === 24) hour = 0;
+        return hour + minute / 60;
+    } catch (e) {
+        // Fallback: IST is UTC+5:30
+        const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+        const istDate = new Date(utc + (3600000 * 5.5));
+        return istDate.getHours() + istDate.getMinutes() / 60;
+    }
+};
 
-const isUserAvailableAndOnShift = (user) => {
+/**
+ * P7-R3: Checks if a user is currently on shift based on preferences.workingHours
+ * in the configured or default (Asia/Kolkata) timezone and verifies OOO status.
+ */
+export const isUserAvailableAndOnShift = (user, referenceDate = new Date()) => {
     // 1. Check Out of Office
     if (user.outOfOffice?.active) {
-        if (!user.outOfOffice.until || new Date(user.outOfOffice.until) > new Date()) {
+        if (!user.outOfOffice.until || new Date(user.outOfOffice.until) > referenceDate) {
             return false; // User is on active leave
         }
     }
@@ -48,14 +76,12 @@ const isUserAvailableAndOnShift = (user) => {
     if (!start || !end) return true;
 
     // In automated testing environments, avoid time-of-day flake unless explicitly testing shift enforcement
-    if (process.env.NODE_ENV === 'test' && !user.preferences?.enforceShiftInTest) {
+    if (process.env.NODE_ENV === 'test' && !user.preferences?.enforceShiftInTest && !user.enforceShiftInTest) {
         return true;
     }
 
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    const currentTime = currentHour + currentMinute / 60;
+    const timeZone = user.preferences?.timezone || 'Asia/Kolkata';
+    const currentTime = getCurrentTimeInTimezone(referenceDate, timeZone);
 
     const [startHour, startMinute] = start.split(':').map(Number);
     const startTime = startHour + (startMinute || 0) / 60;
@@ -71,13 +97,130 @@ const isUserAvailableAndOnShift = (user) => {
     }
 };
 
-const isUserEligible = (user) => {
+export const isUserEligible = (user, referenceDate = new Date()) => {
     if (!user) return false;
     if (user.isDeleted === true) return false;
     if (user.isActive !== true) return false;
     if (user.status !== 'active') return false;
     if (user.availability && user.availability !== 'Available') return false;
-    return isUserAvailableAndOnShift(user);
+    return isUserAvailableAndOnShift(user, referenceDate);
+};
+
+/**
+ * P7-R1: Unified active workload aggregator across Leads and Deals.
+ * Excludes terminal stages:
+ *   Leads: 'Closed', 'Lost', 'Converted', 'Junk'
+ *   Deals: 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost'
+ * Excludes deleted entities. Avoids double-counting with $ifNull.
+ */
+export const calculateActiveWorkloadMap = async (userIds, session = null) => {
+    const workloadMap = {};
+    if (!Array.isArray(userIds) || userIds.length === 0) return workloadMap;
+
+    userIds.forEach(id => {
+        workloadMap[id.toString()] = 0;
+    });
+
+    const LeadModel = (await import('../../models/Lead.js')).default;
+    const DealModel = (await import('../../models/Deal.js')).default;
+    const LookupModel = (await import('../../models/Lookup.js')).default;
+
+    let closedLeadStageValues = ['Closed', 'Lost', 'Converted', 'Junk'];
+    if (mongoose.connection?.readyState === 1 && LookupModel && typeof LookupModel.find === 'function') {
+        try {
+            const lookups = await LookupModel.find({
+                lookup_type: 'Stage',
+                lookup_value: { $in: ['Closed', 'Lost', 'Converted', 'Junk'] }
+            }).select('_id').lean();
+            if (lookups && lookups.length > 0) {
+                closedLeadStageValues = [...closedLeadStageValues, ...lookups.map(l => l._id)];
+            }
+        } catch (e) {
+            // Ignore lookup resolution error
+        }
+    }
+
+    const objectIds = userIds.map(id => (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : id));
+    const opts = session ? { session } : {};
+
+    try {
+        const leadAggPromise = typeof LeadModel.aggregate === 'function'
+            ? LeadModel.aggregate([
+                {
+                    $match: {
+                        $or: [
+                            { owner: { $in: objectIds } },
+                            { assignedTo: { $in: objectIds } },
+                            { 'assignment.assignedTo': { $in: objectIds } }
+                        ],
+                        stage: { $nin: closedLeadStageValues },
+                        isDeleted: { $ne: true }
+                    }
+                },
+                {
+                    $project: {
+                        assignedUser: { $ifNull: ['$owner', { $ifNull: ['$assignedTo', '$assignment.assignedTo'] }] }
+                    }
+                },
+                {
+                    $match: {
+                        assignedUser: { $in: objectIds }
+                    }
+                },
+                { $group: { _id: '$assignedUser', count: { $sum: 1 } } }
+            ], opts)
+            : Promise.resolve([]);
+
+        const dealAggPromise = typeof DealModel.aggregate === 'function'
+            ? DealModel.aggregate([
+                {
+                    $match: {
+                        $or: [
+                            { assignedTo: { $in: objectIds } },
+                            { 'assignment.assignedTo': { $in: objectIds } }
+                        ],
+                        stage: { $nin: ['Closed', 'Cancelled', 'Closed Won', 'Closed Lost'] },
+                        isDeleted: { $ne: true }
+                    }
+                },
+                {
+                    $project: {
+                        assignedUser: { $ifNull: ['$assignedTo', '$assignment.assignedTo'] }
+                    }
+                },
+                {
+                    $match: {
+                        assignedUser: { $in: objectIds }
+                    }
+                },
+                { $group: { _id: '$assignedUser', count: { $sum: 1 } } }
+            ], opts)
+            : Promise.resolve([]);
+
+        const [leadCounts, dealCounts] = await Promise.all([leadAggPromise, dealAggPromise]);
+
+        if (Array.isArray(leadCounts)) {
+            leadCounts.forEach(c => {
+                if (c && c._id) {
+                    const k = c._id.toString();
+                    workloadMap[k] = (workloadMap[k] || 0) + c.count;
+                }
+            });
+        }
+
+        if (Array.isArray(dealCounts)) {
+            dealCounts.forEach(c => {
+                if (c && c._id) {
+                    const k = c._id.toString();
+                    workloadMap[k] = (workloadMap[k] || 0) + c.count;
+                }
+            });
+        }
+    } catch (err) {
+        console.warn('[DistributionEngine] Workload aggregation fallback:', err.message);
+    }
+
+    return workloadMap;
 };
 /**
  * Evaluates conditions against entity data.
@@ -258,7 +401,21 @@ export const executeDistributionCycle = async (pointerPayload) => {
         let potentialUsers = await User.find({ _id: { $in: agentIds } }).lean();
         let eligibleUsers = potentialUsers.filter(isUserEligible);
 
-        if (eligibleUsers.length === 0) {
+        // P7-R2: Filter eligible agents who are strictly under their configured capacityLimit
+        let underCapacityUsers = [];
+        let workloadMap = {};
+        if (eligibleUsers.length > 0) {
+            workloadMap = await calculateActiveWorkloadMap(eligibleUsers.map(u => u._id));
+            underCapacityUsers = eligibleUsers.filter(u => {
+                const load = workloadMap[u._id.toString()] || 0;
+                const capacityLimit = (u.preferences?.capacityLimit !== undefined && u.preferences?.capacityLimit !== null)
+                    ? u.preferences.capacityLimit
+                    : 100;
+                return capacityLimit <= 0 || load < capacityLimit;
+            });
+        }
+
+        if (underCapacityUsers.length === 0) {
             if (rule.fallbackTarget && rule.fallbackTarget.id) {
                 let fallbackAgentIds = [];
                 if (rule.fallbackTarget.type === 'team') {
@@ -271,10 +428,20 @@ export const executeDistributionCycle = async (pointerPayload) => {
                 if (fallbackAgentIds.length > 0) {
                     let potentialFallbackUsers = await User.find({ _id: { $in: fallbackAgentIds } }).lean();
                     let eligibleFallbackUsers = potentialFallbackUsers.filter(isUserEligible);
-
                     if (eligibleFallbackUsers.length > 0) {
-                        const assignedTo = eligibleFallbackUsers[0]._id;
-                        return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name + " (Fallback)", originalAssignedTo, cycleId, normalizedTrigger, attempt);
+                        const fallbackWorkloadMap = await calculateActiveWorkloadMap(eligibleFallbackUsers.map(u => u._id));
+                        const underCapacityFallbackUsers = eligibleFallbackUsers.filter(u => {
+                            const load = fallbackWorkloadMap[u._id.toString()] || 0;
+                            const capacityLimit = (u.preferences?.capacityLimit !== undefined && u.preferences?.capacityLimit !== null)
+                                ? u.preferences.capacityLimit
+                                : 100;
+                            return capacityLimit <= 0 || load < capacityLimit;
+                        });
+
+                        if (underCapacityFallbackUsers.length > 0) {
+                            const assignedTo = underCapacityFallbackUsers[0]._id;
+                            return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name + " (Fallback)", originalAssignedTo, cycleId, normalizedTrigger, attempt);
+                        }
                     }
                 }
             }
@@ -283,7 +450,7 @@ export const executeDistributionCycle = async (pointerPayload) => {
 
         let assignedTo = null;
 
-        // 10. PRESERVE EXISTING DISTRIBUTION LOGIC
+        // 10. PRESERVE EXISTING DISTRIBUTION LOGIC AMONG UNDER-CAPACITY USERS
         switch (rule.distributionType) {
                 case 'roundRobin': {
                     const updatedRule = await DistributionRule.findByIdAndUpdate(
@@ -291,35 +458,19 @@ export const executeDistributionCycle = async (pointerPayload) => {
                         { $inc: { lastAssignedIndex: 1 } },
                         { new: true }
                     );
-                    const nextIdx = Math.abs(updatedRule.lastAssignedIndex) % eligibleUsers.length;
-                    assignedTo = eligibleUsers[nextIdx]._id;
+                    const nextIdx = Math.abs(updatedRule.lastAssignedIndex) % underCapacityUsers.length;
+                    assignedTo = underCapacityUsers[nextIdx]._id;
                     break;
                 }
 
                 case 'loadBased': {
-                    const userIds = eligibleUsers.map(u => u._id);
-                    const counts = await Lead.aggregate([
-                        {
-                            $match: {
-                                $or: [
-                                    { owner: { $in: userIds } },
-                                    { 'assignment.assignedTo': { $in: userIds } }
-                                ],
-                                stage: { $nin: ['Closed', 'Lost', 'Converted'] }
-                            }
-                        },
-                        { $group: { _id: '$owner', count: { $sum: 1 } } }
-                    ]);
-
-                    const workloadMap = {};
-                    userIds.forEach(id => workloadMap[id.toString()] = 0);
-                    counts.forEach(c => { if(c._id) workloadMap[c._id.toString()] = c.count; });
-
                     let lowestLoad = Infinity;
-                    for (const user of eligibleUsers) {
-                        const load = workloadMap[user._id.toString()];
-                        const capacityLimit = user.preferences?.capacityLimit || 100;
-                        const loadRatio = load / capacityLimit;
+                    for (const user of underCapacityUsers) {
+                        const load = workloadMap[user._id.toString()] || 0;
+                        const capacityLimit = (user.preferences?.capacityLimit !== undefined && user.preferences?.capacityLimit !== null)
+                            ? user.preferences.capacityLimit
+                            : 100;
+                        const loadRatio = capacityLimit > 0 ? (load / capacityLimit) : load;
 
                         if (loadRatio < lowestLoad) {
                             lowestLoad = loadRatio;
@@ -332,15 +483,15 @@ export const executeDistributionCycle = async (pointerPayload) => {
                 case 'locationBased': {
                     const location = entityData.locCity || entityData.locArea || entityData.location;
                     if (!location) {
-                        assignedTo = eligibleUsers[0]._id;
+                        assignedTo = underCapacityUsers[0]._id;
                         break;
                     }
-                    const locationAgents = eligibleUsers.filter(u => u.territories && u.territories.includes(location));
+                    const locationAgents = underCapacityUsers.filter(u => u.territories && u.territories.includes(location));
                     if (locationAgents.length > 0) {
                         const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
                         assignedTo = locationAgents[Math.abs(updatedRule.lastAssignedIndex) % locationAgents.length]._id;
                     } else {
-                        assignedTo = eligibleUsers[0]._id;
+                        assignedTo = underCapacityUsers[0]._id;
                     }
                     break;
                 }
@@ -352,34 +503,34 @@ export const executeDistributionCycle = async (pointerPayload) => {
                     else if (score >= 61) band = 'hot';
                     else if (score >= 31) band = 'warm';
 
-                    const bandAgentIds = rule.assignmentTarget.weights?.get(band);
-                    let bandAgents = eligibleUsers;
+                    const bandAgentIds = rule.assignmentTarget.weights?.get ? rule.assignmentTarget.weights.get(band) : (rule.assignmentTarget.weights && rule.assignmentTarget.weights[band]);
+                    let bandAgents = underCapacityUsers;
                     if (bandAgentIds && Array.isArray(bandAgentIds)) {
-                        bandAgents = eligibleUsers.filter(u => bandAgentIds.includes(u._id.toString()));
+                        bandAgents = underCapacityUsers.filter(u => bandAgentIds.includes(u._id.toString()));
                     }
 
                     if (bandAgents.length > 0) {
                         const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
                         assignedTo = bandAgents[Math.abs(updatedRule.lastAssignedIndex) % bandAgents.length]._id;
                     } else {
-                        assignedTo = eligibleUsers[0]._id;
+                        assignedTo = underCapacityUsers[0]._id;
                     }
                     break;
                 }
 
                 case 'sourceBased': {
                     const source = entityData.source;
-                    const sourceAgentIds = rule.assignmentTarget.weights?.get(source);
-                    let sourceAgents = eligibleUsers;
+                    const sourceAgentIds = rule.assignmentTarget.weights?.get ? rule.assignmentTarget.weights.get(source) : (rule.assignmentTarget.weights && rule.assignmentTarget.weights[source]);
+                    let sourceAgents = underCapacityUsers;
                     if (sourceAgentIds && Array.isArray(sourceAgentIds)) {
-                        sourceAgents = eligibleUsers.filter(u => sourceAgentIds.includes(u._id.toString()));
+                        sourceAgents = underCapacityUsers.filter(u => sourceAgentIds.includes(u._id.toString()));
                     }
 
                     if (sourceAgents.length > 0) {
                         const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
                         assignedTo = sourceAgents[Math.abs(updatedRule.lastAssignedIndex) % sourceAgents.length]._id;
                     } else {
-                        assignedTo = eligibleUsers[0]._id;
+                        assignedTo = underCapacityUsers[0]._id;
                     }
                     break;
                 }
@@ -388,7 +539,7 @@ export const executeDistributionCycle = async (pointerPayload) => {
                     let bestScore = -1;
                     let selectedAgent = null;
 
-                    for (const user of eligibleUsers) {
+                    for (const user of underCapacityUsers) {
                         let score = 0;
                         const skills = user.skills || {};
 
@@ -410,12 +561,12 @@ export const executeDistributionCycle = async (pointerPayload) => {
                             selectedAgent = user._id;
                         }
                     }
-                    assignedTo = selectedAgent || eligibleUsers[0]._id;
+                    assignedTo = selectedAgent || underCapacityUsers[0]._id;
                     break;
                 }
 
                 default:
-                    assignedTo = eligibleUsers[0]._id;
+                    assignedTo = underCapacityUsers[0]._id;
             }
 
         if (assignedTo) {
@@ -475,6 +626,58 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
 
     try {
         await withMongoTransaction(async (session) => {
+            // P7-R2: Atomic capacity check within the transaction session to prevent race exceeding cap
+            const LeadModel = (await import('../../models/Lead.js')).default;
+            const DealModel = (await import('../../models/Deal.js')).default;
+
+            let capLimit = 100;
+            if (typeof User.findById === 'function') {
+                try {
+                    const userQuery = User.findById(assignedTo);
+                    const assignedUserDoc = typeof userQuery?.session === 'function'
+                        ? await userQuery.session(session).lean()
+                        : (typeof userQuery?.lean === 'function' ? await userQuery.lean() : await userQuery);
+                    if (assignedUserDoc?.preferences?.capacityLimit !== undefined && assignedUserDoc?.preferences?.capacityLimit !== null) {
+                        capLimit = assignedUserDoc.preferences.capacityLimit;
+                    }
+                } catch (e) {}
+            }
+
+            if (capLimit > 0 && mongoose.connection?.readyState === 1 && typeof LeadModel.countDocuments === 'function' && typeof DealModel.countDocuments === 'function') {
+                const LookupModel = (await import('../../models/Lookup.js')).default;
+                let closedLeadStageValues = ['Closed', 'Lost', 'Converted', 'Junk'];
+                if (LookupModel && typeof LookupModel.find === 'function') {
+                    try {
+                        const lookups = await LookupModel.find({
+                            lookup_type: 'Stage',
+                            lookup_value: { $in: ['Closed', 'Lost', 'Converted', 'Junk'] }
+                        }).select('_id').lean();
+                        if (lookups && lookups.length > 0) {
+                            closedLeadStageValues = [...closedLeadStageValues, ...lookups.map(l => l._id)];
+                        }
+                    } catch (e) {}
+                }
+
+                const activeLeadsCount = await LeadModel.countDocuments({
+                    $or: [{ owner: assignedTo }, { assignedTo: assignedTo }, { 'assignment.assignedTo': assignedTo }],
+                    stage: { $nin: closedLeadStageValues },
+                    isDeleted: { $ne: true }
+                }).session(session);
+
+                const activeDealsCount = await DealModel.countDocuments({
+                    $or: [{ assignedTo }, { 'assignment.assignedTo': assignedTo }],
+                    stage: { $nin: ['Closed', 'Cancelled', 'Closed Won', 'Closed Lost'] },
+                    isDeleted: { $ne: true }
+                }).session(session);
+
+                const alreadyOwns = (modelName === 'Lead' && String(entity.owner) === String(assignedTo)) ||
+                                    (modelName === 'Deal' && String(entity.assignedTo) === String(assignedTo));
+                const currentLoad = activeLeadsCount + activeDealsCount;
+                if (!alreadyOwns && currentLoad >= capLimit) {
+                    throw new Error(`CAPACITY_EXCEEDED: Agent ${assignedTo} reached capacity limit (${capLimit})`);
+                }
+            }
+
             const predicate = { _id: entity._id };
 
             // 6. EXACT CONCURRENCY PREDICATE (Atomic Compare-and-Set)
@@ -590,6 +793,19 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
     } catch (txErr) {
         if (txErr.code === 11000) {
             console.log(`[Distribution] Duplicate audit detected. Safely skipping cycle ${cycleId}.`);
+            return null;
+        }
+        if (txErr.message && txErr.message.includes('CAPACITY_EXCEEDED')) {
+            console.warn(`[Distribution] ${txErr.message}. Writing SKIPPED audit.`);
+            await logAudit({
+                entityId: entity._id,
+                modelName,
+                cycleId,
+                triggerEvent,
+                status: 'SKIPPED',
+                reason: txErr.message,
+                attempt
+            });
             return null;
         }
         throw txErr;

@@ -1085,25 +1085,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 leadPayload.contactDetails = finalContactId;
             }
 
-            // ─── DISTRIBUTION ENGINE ───
-            if (!formData.owner) {
-                try {
-                    const distributionResult = executeDistribution('leads', {
-                        ...formData,
-                        id: `temp_${Date.now()}`,
-                        budget: formData.budgetMax || formData.budgetMin,
-                        location: formData.locArea || formData.searchLocation,
-                        propertyType: formData.propertyType[0],
-                        leadScore: formData.leadScore || 0
-                    }, { users, teams, leads: [], activities: [] });
-
-                    if (distributionResult.success) {
-                        leadPayload.owner = distributionResult.assignedTo;
-                    }
-                } catch (distError) {
-                    console.error('Distribution engine error:', distError);
-                }
-            }
+            // ─── P7-R4: BACKEND DISTRIBUTION AUTHORITY ───
+            // When no owner is explicitly picked by user, leave owner unpopulated so backend atomic CAS distribution engine assigns authoritatively.
 
             // Call Add/Update Lead API
             try {

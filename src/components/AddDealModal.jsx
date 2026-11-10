@@ -625,13 +625,6 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         let team = projectTeam || formData.team;
         let visibleTo = projectVisibility || formData.visibleTo || 'Team';
 
-        const result = executeDistribution('deals', { ...formData, projectName, block: defaultBlock });
-        if (result && result.success) {
-            assignedTo = result.assignedTo;
-            team = result.team || team;
-            toast.success(`Deal automatically assigned to ${result.assignedTo}`);
-        }
-
         setFormData(prev => ({
             ...prev,
             projectName,
