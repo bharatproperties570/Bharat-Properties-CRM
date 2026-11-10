@@ -400,6 +400,9 @@ test('Phase 4.5-C — Test 14: No source activation occurs when mandatory checks
     assert.ok(check2.blockers.some(b => b.includes('submitter and reviewer must be distinct')));
 
     // Test Valid Distinct Parties
+    chd.permissionStatus = 'GRANTED';
+    chd.approvedAccessMethod = 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+    chd.approvalReference = 'CHD/AUTH/2026/VALID';
     chd.submittedBy = submitterUser._id;
     chd.approvedBy = approverUser._id;
     chd.reviewedBy = reviewerUser._id;

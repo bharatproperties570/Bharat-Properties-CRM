@@ -374,11 +374,14 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
         index: true
     },
     ownerAttestation: {
-        attestingParty: { type: String, default: null },
-        attestedAt: { type: Date, default: null },
-        scope: { type: String, default: null },
-        notes: { type: String, default: null },
-        claimedAuthorityRole: { type: String, default: null }
+        type: new mongoose.Schema({
+            attestingParty: { type: String, default: null },
+            attestedAt: { type: Date, default: null },
+            scope: { type: String, default: null },
+            notes: { type: String, default: null },
+            claimedAuthorityRole: { type: String, default: null }
+        }, { _id: false }),
+        default: null
     },
     policyVersion: {
         type: String,
@@ -509,20 +512,23 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
     // ========== User-Reported Evidence Metadata ==========
     // Captures verbal / preliminary confirmation claims without treating them as formal approvals
     userReportedEvidence: {
-        reportedBy: { type: String, default: null },
-        reportedAt: { type: Date, default: null },
-        claimedAuthorityRole: { type: String, default: null },
-        statementType: { type: String, enum: ['BROKER_SELF_REPORT', 'OWNER_CONFIRMATION'], default: null },
-        evidenceReference: { type: String, default: null },
-        evidenceType: { type: String, default: null },
-        evidenceVersion: { type: Number, default: null },
-        evidenceHash: { type: String, default: null },
-        notes: { type: String, default: null },
-        verificationStatus: {
-            type: String,
-            enum: ['UNVERIFIED', 'PENDING_WRITTEN_REFERENCE', 'VALIDATED', 'REJECTED'],
-            default: 'UNVERIFIED'
-        }
+        type: new mongoose.Schema({
+            reportedBy: { type: String, default: null },
+            reportedAt: { type: Date, default: null },
+            claimedAuthorityRole: { type: String, default: null },
+            statementType: { type: String, enum: ['BROKER_SELF_REPORT', 'OWNER_CONFIRMATION'], default: null },
+            evidenceReference: { type: String, default: null },
+            evidenceType: { type: String, default: null },
+            evidenceVersion: { type: Number, default: null },
+            evidenceHash: { type: String, default: null },
+            notes: { type: String, default: null },
+            verificationStatus: {
+                type: String,
+                enum: ['UNVERIFIED', 'PENDING_WRITTEN_REFERENCE', 'VALIDATED', 'REJECTED'],
+                default: 'UNVERIFIED'
+            }
+        }, { _id: false }),
+        default: null
     },
 
     // ========== Rate & Concurrency Policy ==========
@@ -1296,15 +1302,13 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                 return next(err);
             }
 
-            if (isOwnerAttestedPortal) {
-                const tempInstance = new this.model(merged);
-                const check = tempInstance.checkActivationEligibility();
-                if (!check.canActivate) {
-                    const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation and scheduling are prohibited without complete, independently verified approval record. Blockers: ${check.blockers.join('; ')}`);
-                    err.code = 'ACTIVATION_LOCKED_PHASE3';
-                    err.blockers = check.blockers;
-                    return next(err);
-                }
+            const tempInstance = new this.model(merged);
+            const check = tempInstance.checkActivationEligibility();
+            if (!check.canActivate) {
+                const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation and scheduling are prohibited without complete, independently verified approval record. Blockers: ${check.blockers.join('; ')}`);
+                err.code = 'ACTIVATION_LOCKED_PHASE3';
+                err.blockers = check.blockers;
+                return next(err);
             }
         }
 
