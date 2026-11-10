@@ -264,7 +264,7 @@ class MarketingService {
                 if (deal) {
                     targetPillar = 'ct-project';
                 } else {
-                    const festCheck = this.detectUpcomingFestival(new Date());
+                    const festCheck = await this.detectUpcomingFestival(new Date());
                     targetPillar = festCheck.isFestival ? 'ct-festival' : 'ct-project';
                 }
             }
@@ -273,11 +273,11 @@ class MarketingService {
                 pillar: targetPillar,
                 deal,
                 maskUnitNo: options.maskUnitNo !== undefined ? options.maskUnitNo : true,
-                festivalName: options.festival?.name || options.festivalName || 'Dhanteras & Diwali',
+                festivalName: options.festival?.name || options.festivalName || 'Festive Greetings',
                 greeting: options.festival?.greeting || options.greeting,
-                customTitleHi: options.customTitleHi || (targetPillar === 'ct-festival' ? 'शुभ धनतेरस एवं दीपावली' : undefined),
-                customTitleEn: options.customTitleEn || (targetPillar === 'ct-festival' ? 'HAPPY DHANTERAS & DIWALI' : undefined),
-                subtext: options.subtext,
+                customTitleHi: options.customTitleHi || options.festival?.customTitleHi || (targetPillar === 'ct-festival' ? 'त्योहार की हार्दिक शुभकामनाएं' : undefined),
+                customTitleEn: options.customTitleEn || options.festival?.customTitleEn || (targetPillar === 'ct-festival' ? 'FESTIVE GREETINGS' : undefined),
+                subtext: options.subtext || options.festival?.subtext,
                 edu: options.edu,
                 trust: options.trust,
                 phone: `+91 ${phone} | 99913-33570`,
@@ -298,43 +298,195 @@ class MarketingService {
     // ── 🧠 AUTONOMOUS ENTERPRISE MARKETING OS ENGINE ─────────────────────────
 
     /**
-     * Detect upcoming major Indian festivals within 3 days of target date
+     * Detect major Indian festivals for the exact target date and enforce once-per-year idempotency
+     * Rule: Festival posts must ONLY trigger on the exact festival day (in the morning) and never repeatedly.
      * @param {Date} date 
+     * @param {Object} options
      */
-    detectUpcomingFestival(date = new Date()) {
+    async detectUpcomingFestival(date = new Date(), options = {}) {
         const d = new Date(date);
         const m = d.getMonth() + 1; // 1-12
         const day = d.getDate();
+        const year = d.getFullYear();
 
-        // Major festival calendar
+        // Major festival calendar with exact dates, dynamic titles & auspicious greetings
         const festivalCalendar = [
-            { name: 'Lohri & Makar Sankranti', month: 1, day: 14, windowDays: 2, greeting: 'Happy Lohri & Makar Sankranti! May this harvest season bring prosperity and your dream home closer to your family.' },
-            { name: 'Republic Day', month: 1, day: 26, windowDays: 2, greeting: 'Happy Republic Day! Proudly celebrating the foundation and growth of our nation. Invest in a secure future with Bharat Properties.' },
-            { name: 'Maha Shivratri', month: 2, day: 26, windowDays: 2, greeting: 'Har Har Mahadev! Warm greetings on Maha Shivratri. May Lord Shiva bless your home with peace and prosperity.' },
-            { name: 'Holi', month: 3, day: 14, windowDays: 2, greeting: 'Happy Holi! Wishing you and your family vibrant colors of joy, success, and prosperity in your new home.' },
-            { name: 'Baisakhi', month: 4, day: 14, windowDays: 2, greeting: 'Happy Baisakhi! May Waheguru shower you with success and prosperity this harvest season.' },
-            { name: 'Independence Day', month: 8, day: 15, windowDays: 2, greeting: 'Happy Independence Day! Celebrate the freedom of owning your own land with Bharat Properties.' },
-            { name: 'Raksha Bandhan', month: 8, day: 28, windowDays: 2, greeting: 'Happy Raksha Bandhan! Gift the promise of lifetime security with a verified property.' },
-            { name: 'Janmashtami', month: 9, day: 4, windowDays: 2, greeting: 'Jai Shri Krishna! Warm wishes on Janmashtami from the land of Gita, Kurukshetra.' },
-            { name: 'Gandhi Jayanti', month: 10, day: 2, windowDays: 1, greeting: 'Remembering Mahatma Gandhi on his birth anniversary. Dedicated to honesty, truth, and transparency in real estate.' },
-            { name: 'Navratri & Dussehra', month: 10, day: 20, windowDays: 3, greeting: 'Subh Navratri & Happy Dussehra! May the victory of good over evil bring abundant prosperity to your household.' },
-            { name: 'Dhanteras & Diwali', month: 11, day: 8, windowDays: 3, greeting: 'Shubh Dhanteras & Happy Diwali! This festive season, invest in enduring wealth with prime verified real estate.' },
-            { name: 'Bhai Dooj', month: 11, day: 11, windowDays: 1, greeting: 'Happy Bhai Dooj! Strengthening the bonds of trust and care with Bharat Properties.' },
-            { name: 'Guru Nanak Jayanti (Gurpurab)', month: 11, day: 24, windowDays: 2, greeting: 'Gurpurab Di Lakh Lakh Vadhaiyan! May Guru Nanak Dev Ji guide your path with peace, harmony, and prosperity.' },
-            { name: 'New Year', month: 1, day: 1, windowDays: 2, greeting: 'Happy New Year! Start this year with the foundation of your family\'s financial freedom through prime property investments.' }
+            { 
+                name: 'Lohri & Makar Sankranti', 
+                month: 1, 
+                day: 14, 
+                customTitleHi: 'शुभ लोहड़ी एवं मकर संक्रांति',
+                customTitleEn: 'HAPPY LOHRI & MAKAR SANKRANTI',
+                greeting: 'Happy Lohri & Makar Sankranti! May this harvest season bring prosperity and your dream home closer to your family.',
+                subtext: 'May this auspicious harvest festival bring immense prosperity, happiness, and enduring real estate wealth to your household.'
+            },
+            { 
+                name: 'Republic Day', 
+                month: 1, 
+                day: 26, 
+                customTitleHi: 'गणतंत्र दिवस की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY REPUBLIC DAY',
+                greeting: 'Happy Republic Day! Proudly celebrating the foundation and growth of our nation. Invest in a secure future with Bharat Properties.',
+                subtext: 'Celebrating the sovereign glory of India with trust, transparency, and pride in verified land ownership.'
+            },
+            { 
+                name: 'Maha Shivratri', 
+                month: 2, 
+                day: 26, 
+                customTitleHi: 'महाशिवरात्रि की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY MAHA SHIVRATRI',
+                greeting: 'Har Har Mahadev! Warm greetings on Maha Shivratri. May Lord Shiva bless your home with peace and prosperity.',
+                subtext: 'May Lord Shiva shower divine blessings of peace, health, and abundant prosperity upon your family.'
+            },
+            { 
+                name: 'Holi', 
+                month: 3, 
+                day: 14, 
+                customTitleHi: 'रंगों के महापर्व होली की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY HOLI',
+                greeting: 'Happy Holi! Wishing you and your family vibrant colors of joy, success, and prosperity in your new home.',
+                subtext: 'May this festival of vibrant colors fill your lives with joy, eternal peace, and fruitful investments.'
+            },
+            { 
+                name: 'Baisakhi', 
+                month: 4, 
+                day: 14, 
+                customTitleHi: 'बैसाखी दी लख-लख वधाइयां',
+                customTitleEn: 'HAPPY BAISAKHI',
+                greeting: 'Happy Baisakhi! May Waheguru shower you with success and prosperity this harvest season.',
+                subtext: 'May the harvest season bring abundant joy, successful ventures, and prime property ownership.'
+            },
+            { 
+                name: 'Independence Day', 
+                month: 8, 
+                day: 15, 
+                customTitleHi: 'स्वतंत्रता दिवस की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY INDEPENDENCE DAY',
+                greeting: 'Happy Independence Day! Celebrate the freedom of owning your own land with Bharat Properties.',
+                subtext: 'Celebrating 100% verified titles and freedom from property disputes with 15+ years of trust.'
+            },
+            { 
+                name: 'Raksha Bandhan', 
+                month: 8, 
+                day: 28, 
+                customTitleHi: 'रक्षाबंधन की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY RAKSHA BANDHAN',
+                greeting: 'Happy Raksha Bandhan! Gift the promise of lifetime security with a verified property.',
+                subtext: 'Securing the future of your family with undisputed registry and permanent asset protection.'
+            },
+            { 
+                name: 'Janmashtami', 
+                month: 9, 
+                day: 4, 
+                customTitleHi: 'श्री कृष्ण जन्माष्टमी की शुभकामनाएं',
+                customTitleEn: 'HAPPY JANMASHTAMI',
+                greeting: 'Jai Shri Krishna! Warm wishes on Janmashtami from the land of Gita, Kurukshetra.',
+                subtext: 'Divine blessings of Lord Krishna from the holy land of Dharamkshetra Kurukshetra.'
+            },
+            { 
+                name: 'Gandhi Jayanti', 
+                month: 10, 
+                day: 2, 
+                customTitleHi: 'गांधी जयंती की शुभकामनाएं',
+                customTitleEn: 'GANDHI JAYANTI GREETINGS',
+                greeting: 'Remembering Mahatma Gandhi on his birth anniversary. Dedicated to honesty, truth, and transparency in real estate.',
+                subtext: 'Upholding uncompromising truth, ethics, and full transparency in every land transaction.'
+            },
+            { 
+                name: 'Navratri & Dussehra', 
+                month: 10, 
+                day: 20, 
+                customTitleHi: 'विजयादशमी एवं दशहरा की शुभकामनाएं',
+                customTitleEn: 'HAPPY DUSSEHRA',
+                greeting: 'Subh Navratri & Happy Dussehra! May the victory of good over evil bring abundant prosperity to your household.',
+                subtext: 'May the victory of truth illuminate new beginnings and auspicious milestones in real estate ownership.'
+            },
+            { 
+                name: 'Dhanteras & Diwali', 
+                month: 11, 
+                day: 8, 
+                customTitleHi: 'शुभ धनतेरस एवं दीपावली',
+                customTitleEn: 'HAPPY DHANTERAS & DIWALI',
+                greeting: 'Shubh Dhanteras & Happy Diwali! This festive season, invest in enduring wealth with prime verified real estate.',
+                subtext: 'May Goddess Lakshmi illuminate your life with infinite wealth, happiness, and your dream home!'
+            },
+            { 
+                name: 'Bhai Dooj', 
+                month: 11, 
+                day: 11, 
+                customTitleHi: 'भाई दूज की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY BHAI DOOJ',
+                greeting: 'Happy Bhai Dooj! Strengthening the bonds of trust and care with Bharat Properties.',
+                subtext: 'Celebrating timeless bonds with lifetime security and transparent real estate investments.'
+            },
+            { 
+                name: 'Guru Nanak Jayanti (Gurpurab)', 
+                month: 11, 
+                day: 24, 
+                customTitleHi: 'गुरुपर्व दी लख-लख वधाइयां',
+                customTitleEn: 'GURPURAB DI LAKH LAKH VADHAYIAN',
+                greeting: 'Gurpurab Di Lakh Lakh Vadhaiyan! May Guru Nanak Dev Ji guide your path with peace, harmony, and prosperity.',
+                subtext: 'May Guru Nanak Dev Ji bless you with inner peace, selfless service, and lasting family prosperity.'
+            },
+            { 
+                name: 'Christmas', 
+                month: 12, 
+                day: 25, 
+                customTitleHi: 'क्रिसमस की हार्दिक शुभकामनाएं',
+                customTitleEn: 'MERRY CHRISTMAS',
+                greeting: 'Merry Christmas! May this joyful festive season bring peace, warmth, and blessings to your home.',
+                subtext: 'Wishing you and your loved ones peace, warmth, and joyous milestones this Christmas season.'
+            },
+            { 
+                name: 'New Year', 
+                month: 1, 
+                day: 1, 
+                customTitleHi: 'नव वर्ष की हार्दिक शुभकामनाएं',
+                customTitleEn: 'HAPPY NEW YEAR',
+                greeting: 'Happy New Year! Start this year with the foundation of your family\'s financial freedom through prime property investments.',
+                subtext: 'Stepping into a new year of growth, landmark developments, and wealth creation with Bharat Properties.'
+            }
         ];
 
         for (const fest of festivalCalendar) {
-            if (fest.month === m) {
-                const diff = Math.abs(day - fest.day);
-                if (diff <= fest.windowDays) {
-                    return {
-                        isFestival: true,
-                        name: fest.name,
-                        greeting: fest.greeting,
-                        hashtags: `#${fest.name.replace(/[^a-zA-Z0-9]/g, '')} #BharatProperties #Kurukshetra #FestiveSeason #RealEstateHaryana`
-                    };
+            // Strict Date Mandate: Festival posts MUST ONLY trigger on the exact date of the festival
+            if (fest.month === m && fest.day === day) {
+                // Deduplication Mandate: Check if a post for this festival has already been published/scheduled this year
+                if (mongoose.connection && mongoose.connection.readyState === 1 && !options.ignoreDuplicateCheck) {
+                    try {
+                        const startOfYear = new Date(year, 0, 1);
+                        const endOfYear = new Date(year, 11, 31, 23, 59, 59);
+                        const keyword = fest.name.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '');
+                        const alreadyPosted = await MarketingContent.exists({
+                            $or: [
+                                { type: 'ct-festival', createdAt: { $gte: startOfYear, $lte: endOfYear }, title: { $regex: new RegExp(keyword, 'i') } },
+                                { title: { $regex: new RegExp(keyword, 'i') }, createdAt: { $gte: startOfYear, $lte: endOfYear } }
+                            ]
+                        });
+
+                        if (alreadyPosted) {
+                            console.log(`[AutonomousMarketingOS] Festival "${fest.name}" already posted for year ${year}. Enforcing once-per-year idempotency.`);
+                            return { 
+                                isFestival: false, 
+                                alreadyPosted: true, 
+                                name: fest.name, 
+                                reason: `Festival post already published for ${fest.name} in ${year}` 
+                            };
+                        }
+                    } catch (dbErr) {
+                        console.warn('[AutonomousMarketingOS] Error checking festival deduplication:', dbErr.message);
+                    }
                 }
+
+                return {
+                    isFestival: true,
+                    name: fest.name,
+                    customTitleHi: fest.customTitleHi,
+                    customTitleEn: fest.customTitleEn,
+                    greeting: fest.greeting,
+                    subtext: fest.subtext,
+                    hashtags: `#${fest.name.replace(/[^a-zA-Z0-9]/g, '')} #BharatProperties #Kurukshetra #FestiveSeason #RealEstateHaryana`
+                };
             }
         }
         return { isFestival: false };
@@ -652,7 +804,7 @@ class MarketingService {
         const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, ..., 4 = Thu
         let pillar = options.pillar || (options.dealId ? 'ct-project' : null);
 
-        const festival = this.detectUpcomingFestival(now);
+        const festival = await this.detectUpcomingFestival(now);
         if (!pillar) {
             if (festival.isFestival) {
                 pillar = 'ct-festival';
@@ -695,8 +847,19 @@ class MarketingService {
 
             let candidates = await Deal.find(query).sort({ score: -1, price: -1, createdAt: -1 }).limit(10).lean();
             if (!candidates || candidates.length === 0) {
-                // Fallback: Pick any open deal if all have been posted
-                candidates = await Deal.find({ stage: { $in: ['Open', 'Qualified', 'Ready to Market'] } }).sort({ updatedAt: 1 }).limit(5).lean();
+                // Fallback: Pick deals that were LEAST recently posted (oldest in MarketingContent), never repeating the same one immediately
+                const oldestPostedDeals = await MarketingContent.find({
+                    dealId: { $ne: null }
+                }).sort({ createdAt: 1 }).limit(10).distinct('dealId');
+
+                candidates = await Deal.find({
+                    _id: { $in: oldestPostedDeals },
+                    stage: { $in: ['Open', 'Qualified', 'Ready to Market'] }
+                }).limit(5).lean();
+
+                if (!candidates || candidates.length === 0) {
+                    candidates = await Deal.find({ stage: { $in: ['Open', 'Qualified', 'Ready to Market'] } }).sort({ updatedAt: 1 }).limit(5).lean();
+                }
             }
 
             if (options.dealId) {
@@ -705,7 +868,20 @@ class MarketingService {
                     return { success: false, reason: 'Specified deal not found or inaccessible under compliance rules' };
                 }
             } else if (candidates && candidates.length > 0) {
-                chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(candidates[0]._id, 'deal', { isSystem: true });
+                // 24-Hour Anti-Duplicate Guard: Check if candidate was posted within last 24 hours
+                const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                let selectedCandidate = candidates[0];
+                for (const cand of candidates) {
+                    const postedToday = await MarketingContent.exists({
+                        dealId: cand._id,
+                        createdAt: { $gte: oneDayAgo }
+                    });
+                    if (!postedToday) {
+                        selectedCandidate = cand;
+                        break;
+                    }
+                }
+                chosenDeal = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(selectedCandidate._id, 'deal', { isSystem: true });
             }
 
             if (chosenDeal) {
@@ -807,9 +983,9 @@ class MarketingService {
                 festival,
                 festivalName: festival.name,
                 greeting: festival.greeting,
-                customTitleHi: 'शुभ धनतेरस एवं दीपावली',
-                customTitleEn: 'HAPPY DHANTERAS & DIWALI',
-                subtext: 'May this festive season illuminate your life with joy, enduring wealth, and your dream home!'
+                customTitleHi: festival.customTitleHi || 'त्योहार की हार्दिक शुभकामनाएं',
+                customTitleEn: festival.customTitleEn || `HAPPY ${festival.name.toUpperCase()}`,
+                subtext: festival.subtext || 'May this festive season illuminate your life with joy, enduring wealth, and your dream home!'
             });
 
         } else if (pillar === 'ct-edu') {
@@ -876,11 +1052,14 @@ class MarketingService {
 
         // 4. Determine Target Dispatch Slot (BullMQ Delay)
         // Morning Slot: 10:00 AM IST | Evening Slot: 06:00 PM (18:00) IST
+        // Festival Mandate: Festival posts MUST dispatch in the morning (08:00 AM IST) on the festival day
         const targetDate = new Date();
         const currentHour = targetDate.getHours();
         let targetSlotTime = '10:00';
         
-        if (currentHour >= 12 && currentHour < 19) {
+        if (pillar === 'ct-festival') {
+            targetSlotTime = config.festivalMorningTime || '08:00';
+        } else if (currentHour >= 12 && currentHour < 19) {
             targetSlotTime = config.eveningTime || '18:00';
         } else if (currentHour >= 19) {
             targetDate.setDate(targetDate.getDate() + 1);
@@ -902,6 +1081,23 @@ class MarketingService {
             ? config.channels
             : ['facebook', 'instagram', 'linkedin', 'youtube', 'google_business'];
         const enqueuedJobs = [];
+
+        // 4b. Strict Anti-Duplicate Protection: Avoid repeating identical content within same day
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const duplicateRecent = await MarketingContent.findOne({
+            title: postTitle,
+            createdAt: { $gte: startOfToday }
+        });
+        if (duplicateRecent && !options.forceImmediate && !options.force) {
+            console.log(`[AutonomousMarketingOS] Duplicate post detected for today: "${postTitle}". Skipping to prevent duplicate publishing.`);
+            return {
+                success: true,
+                skipped: true,
+                reason: `Duplicate post already created today: "${postTitle}"`,
+                contentId: duplicateRecent._id
+            };
+        }
 
         // 5. Enqueue to BullMQ marketingQueue with Intelligent Platform-Specific Staggering
         if (!options.dryRun && marketingQueue) {
