@@ -33,7 +33,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
         appId: '',
         appSecret: '',
         redirectUri: `${window.location.origin}/api/marketing/linkedin/callback`,
-        orgId: '42752175'
+        orgId: ''
     });
 
     const [testing, setTesting] = useState(false);
@@ -1324,8 +1324,16 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                     </div>
                                 </div>
                                 <div className="card-input-group">
-                                    <label>Organization ID</label>
-                                    <input type="text" placeholder="e.g. 42752175" value={config.orgId || '42752175'} onChange={e => setConfig({ ...config, orgId: e.target.value })} />
+                                    <label>Company Page Organization ID (Numeric)</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Enter your LinkedIn Company Page Numeric ID" 
+                                        value={config.orgId || ''} 
+                                        onChange={e => setConfig({ ...config, orgId: e.target.value.trim() })} 
+                                    />
+                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                        💡 <strong>How to find your Company Page ID:</strong> Open your Bharat Properties LinkedIn Company Page as an admin in your browser. The URL looks like: <code>linkedin.com/company/<strong>[YOUR_ORG_ID]</strong>/admin/</code>. Enter that numeric ID above.
+                                    </p>
                                 </div>
                                 <div style={{ background: 'var(--bg-light)', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', marginTop: '10px' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
