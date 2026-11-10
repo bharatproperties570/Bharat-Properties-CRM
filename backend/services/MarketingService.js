@@ -272,6 +272,7 @@ class MarketingService {
             const bannerResult = await brandBannerComposer.composeBanner({
                 pillar: targetPillar,
                 deal,
+                maskUnitNo: options.maskUnitNo !== undefined ? options.maskUnitNo : true,
                 festivalName: options.festival?.name || options.festivalName || 'Dhanteras & Diwali',
                 greeting: options.festival?.greeting || options.greeting,
                 customTitleHi: options.customTitleHi || (targetPillar === 'ct-festival' ? 'शुभ धनतेरस एवं दीपावली' : undefined),
@@ -670,6 +671,10 @@ class MarketingService {
         let postTitle = '';
         let channelCaptions = {};
         let visualAsset = null;
+        let displayUnit = 'Prime Property';
+        let loc = 'Kurukshetra, Haryana';
+        const isManual = Boolean(options.manualTrigger || options.force || options.forceImmediate);
+        const allowRevealUnitNo = isManual && Boolean(options.showUnitNumber === true);
         const regionalPhone = '+91 99913 33570';
         const website = 'www.bharatproperties.co';
 
@@ -726,15 +731,28 @@ class MarketingService {
                 });
             } else {
                 const facts = marketingComplianceEnforcementService.extractAuthoritativeFacts(chosenDeal);
-                const unitNo = chosenDeal.unitNo || 'Prime Unit';
+
+                if (allowRevealUnitNo && chosenDeal.unitNo) {
+                    displayUnit = chosenDeal.unitNo;
+                } else if (chosenDeal.sizeLabel) {
+                    const cleanSize = String(chosenDeal.sizeLabel).replace(/\s*\([^)]*\)/g, '').trim();
+                    displayUnit = `${cleanSize} Plot`;
+                } else if (chosenDeal.propertyType || chosenDeal.unitType) {
+                    displayUnit = `Prime ${chosenDeal.propertyType || chosenDeal.unitType}`;
+                } else {
+                    displayUnit = 'Prime Plot';
+                }
+
                 const projName = chosenDeal.projectName || 'Kurukshetra Prime';
                 
-                let loc = 'Kurukshetra, Haryana';
-                if (typeof chosenDeal.location === 'string' && chosenDeal.location.length < 60 && !chosenDeal.location.match(/^[0-9a-fA-F]{24}$/)) {
+                loc = 'Kurukshetra, Haryana';
+                if (typeof chosenDeal.location === 'string' && chosenDeal.location.length < 80 && !chosenDeal.location.match(/^[0-9a-fA-F]{24}$/)) {
                     loc = chosenDeal.location;
                 } else if (chosenDeal.city || chosenDeal.state) {
                     loc = [chosenDeal.city, chosenDeal.state].filter(Boolean).join(', ') || 'Kurukshetra, Haryana';
                 }
+                // Strictly scrub any GPS latitude/longitude coordinates (e.g. 29.9695, 76.8783)
+                loc = loc.replace(/\b-?\d{1,3}\.\d{4,}\b/g, '').replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim() || 'Kurukshetra, Haryana';
 
                 let sizeStr = chosenDeal.sizeLabel || 'Prime Area';
                 if (!chosenDeal.sizeLabel) {
@@ -746,7 +764,7 @@ class MarketingService {
                 }
 
                 const priceStr = chosenDeal.price ? `₹${Number(chosenDeal.price).toLocaleString('en-IN')}` : 'Best Offer';
-                postTitle = `Hot Property Spotlight: ${unitNo} at ${projName}`;
+                postTitle = `Hot Property Spotlight: ${displayUnit} at ${projName}`;
                 const verifiedHashtag = facts.isTitleVerified ? '#VerifiedDeal' : '#PrimeListing';
                 const reraText = chosenDeal.reraNumber ? `\n📋 RERA Registration: ${chosenDeal.reraNumber}` : '';
                 const specBullets = [
@@ -757,14 +775,22 @@ class MarketingService {
                 ].filter(Boolean).join('\n');
 
                 // Generate Captions per Channel
-                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${unitNo} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Verified listing specifications:\n\n📍 Location: ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Expected Price: ${priceStr}${reraText}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
-                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${unitNo} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Investment: ${priceStr}${reraText}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
-                channelCaptions.linkedin = `🏛️ INVESTMENT OPPORTUNITY | ${unitNo} at ${projName}, ${loc}\n\nBharat Properties presents verified real estate inventory in high-demand growth corridors of Haryana.\n\nKey Highlights:\n• Location: ${loc}\n• Plot/Floor Area: ${sizeStr}\n${chosenDeal.facing ? '• Facing: ' + chosenDeal.facing + '\n' : ''}${chosenDeal.roadWidth ? '• Road Width: ' + chosenDeal.roadWidth + '\n' : ''}${chosenDeal.dimensions ? '• Dimensions: ' + chosenDeal.dimensions + '\n' : ''}• Capital Value: ${priceStr}${reraText}\n• Due Diligence: 100% Clear Title & Verified Documentation\n\nDirect mandate. High capital appreciation and rental yield potential.\nInquire with our senior mandate team:\n📞 ${regionalPhone} | 🌐 ${website}\n\n#CommercialRealEstate #HaryanaProperty #RealEstateInvestment #WealthCreation #BharatProperties`;
-                channelCaptions.youtube = `Shorts: ${unitNo} at ${projName}, ${loc} — ${sizeStr} ${chosenDeal.facing ? `(${chosenDeal.facing})` : ''} Full Walkthrough & Price Reveal! Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
-                channelCaptions.google_business = `Fresh Real Estate Listing: ${unitNo} at ${projName}, ${loc}. Size: ${sizeStr}. ${chosenDeal.roadWidth ? `Road: ${chosenDeal.roadWidth}. ` : ''}Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
+                channelCaptions.facebook = `🔥 FRESH DEAL ALERT | ${displayUnit} at ${projName}\n\nLooking for a prime real estate opportunity in ${loc}? Verified listing specifications:\n\n📍 Location: ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Expected Price: ${priceStr}${reraText}\n\nDirect deal with transparent paperwork. Book your private site visit today!\n📞 Call / WhatsApp: ${regionalPhone}\n🌐 Visit: ${website}\n\n#BharatProperties #KurukshetraRealEstate #PropertyInHaryana ${verifiedHashtag} #LuxuryLiving`;
+                channelCaptions.instagram = `⚡ EXCLUSIVE LISTING ALERT in ${loc}! 🏡\n\n${displayUnit} at ${projName} is available for site visits.\n\nKey Highlights:\n📍 ${loc}\n📏 Size: ${sizeStr}\n${specBullets ? specBullets + '\n' : ''}💰 Investment: ${priceStr}${reraText}\n\nDM us "VISIT" or call ${regionalPhone} for blueprint & location pin!\n\n#BharatProperties #Kurukshetra #PropertyAlert #RealEstateIndia #DreamHome #InvestInKurukshetra #HaryanaProperty`;
+                channelCaptions.linkedin = `🏛️ INVESTMENT OPPORTUNITY | ${displayUnit} at ${projName}, ${loc}\n\nBharat Properties presents verified real estate inventory in high-demand growth corridors of Haryana.\n\nKey Highlights:\n• Location: ${loc}\n• Plot/Floor Area: ${sizeStr}\n${chosenDeal.facing ? '• Facing: ' + chosenDeal.facing + '\n' : ''}${chosenDeal.roadWidth ? '• Road Width: ' + chosenDeal.roadWidth + '\n' : ''}${chosenDeal.dimensions ? '• Dimensions: ' + chosenDeal.dimensions + '\n' : ''}• Capital Value: ${priceStr}${reraText}\n• Due Diligence: 100% Clear Title & Verified Documentation\n\nDirect mandate. High capital appreciation and rental yield potential.\nInquire with our senior mandate team:\n📞 ${regionalPhone} | 🌐 ${website}\n\n#CommercialRealEstate #HaryanaProperty #RealEstateInvestment #WealthCreation #BharatProperties`;
+                channelCaptions.youtube = `Shorts: ${displayUnit} at ${projName}, ${loc} — ${sizeStr} ${chosenDeal.facing ? `(${chosenDeal.facing})` : ''} Full Walkthrough & Price Reveal! Call ${regionalPhone} to book private viewing. 🌐 ${website}`;
+                channelCaptions.google_business = `Fresh Real Estate Listing: ${displayUnit} at ${projName}, ${loc}. Size: ${sizeStr}. ${chosenDeal.roadWidth ? `Road: ${chosenDeal.roadWidth}. ` : ''}Price: ${priceStr}. Call ${regionalPhone} or visit Bharat Properties office today!`;
 
                 // Generate photorealistic visual
-                visualAsset = await this.generateVisualAsset({ deal: chosenDeal, type: 'image', pillar: 'ct-project', angle: 'drone', mood: 'golden_hour', format: 'post' });
+                visualAsset = await this.generateVisualAsset({ 
+                    deal: chosenDeal, 
+                    type: 'image', 
+                    pillar: 'ct-project', 
+                    angle: 'drone', 
+                    mood: 'golden_hour', 
+                    format: 'post',
+                    maskUnitNo: !allowRevealUnitNo
+                });
             }
         } else if (pillar === 'ct-festival') {
             postTitle = `Festive Greetings: ${festival.name}`;
@@ -963,7 +989,7 @@ class MarketingService {
             captions: channelCaptions,
             agentOutputs: {
                 metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Telemetry Ingested: 30-day reach & cross-platform engagement aggregated\n• Selected Pillar: ${pillar.toUpperCase()} (Cadence: 80% Deals / 10% Edu / 7% Trust / 3% Festival)\n• Audience Window: Multi-channel staggered peak analysis complete\n• High-Demand Corridor: Kurukshetra Growth Sectors prioritized\n• Handoff: Transferred audience telemetry and demand mandate to Social Media Manager`,
-                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Strategic Decision: Evaluated active CRM inventory against 14-day anti-cannibalization rule\n• Canonical 3-Way Join Resolved (Deal ➔ Inventory ➔ Project):\n  - Unit No: ${chosenDeal?.unitNo || 'Prime Unit'} (${chosenDeal?.block || 'Sector Block'})\n  - Project: ${chosenDeal?.projectName || 'Kurukshetra Corridor'}\n  - Location: ${chosenDeal?.location || 'Kurukshetra, Haryana'}\n  - Size: ${chosenDeal?.sizeLabel || (chosenDeal?.size ? `${chosenDeal.size} sq.yd` : 'Prime Area')}\n  - Physical Specs: ${specsSummary || 'Verified Physical Specs'}\n  - RERA Registration: ${chosenDeal?.reraNumber || 'HRERA Compliant'}\n• Multi-Channel Copywriting: Generated tailored hooks for Facebook, Instagram, LinkedIn, YouTube & Google Business Profile`,
+                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Privacy Shield: ${allowRevealUnitNo ? '⚠️ MANUAL OVERRIDE (Unit No Disclosed: ' + (chosenDeal?.unitNo || 'N/A') + ')' : '🛡️ ACTIVE (Unit No & GPS Coordinates Masked: Promoted as "' + displayUnit + '")'}\n• Strategic Decision: Evaluated active CRM inventory against 14-day anti-cannibalization rule\n• Canonical 3-Way Join Resolved (Deal ➔ Inventory ➔ Project):\n  - Public Headline: ${displayUnit} ${allowRevealUnitNo ? `[Unit ${chosenDeal?.unitNo || 'N/A'}]` : '[Unit Number Protected]'}\n  - Project: ${chosenDeal?.projectName || 'Kurukshetra Corridor'}\n  - Location: ${loc || 'Kurukshetra, Haryana'} [Zero GPS Coordinates]\n  - Size: ${chosenDeal?.sizeLabel || (chosenDeal?.size ? `${chosenDeal.size} sq.yd` : 'Prime Area')}\n  - Physical Specs: ${specsSummary || 'Verified Physical Specs'}\n  - RERA Registration: ${chosenDeal?.reraNumber || 'HRERA Compliant'}\n• Multi-Channel Copywriting: Generated tailored hooks for Facebook, Instagram, LinkedIn, YouTube & Google Business Profile`,
                 designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Deal Identity & Physical Specs Ingested: Retrieved ${chosenDeal?.sizeLabel || 'Size'}, ${chosenDeal?.facing || 'Facing'}, ${chosenDeal?.roadWidth || 'Road Access'}\n• Designer Studio (Visual Prompt Lab): Composed 1080x1080 high-conversion flyer\n• Brand Kit Enforced: Official Navy & Gold palette, RERA Badge, Gold Price Pill, Contact Strip\n• Asset URL: ${visualAsset?.url || 'Generated'}\n• Regional Contact Strip: ${regionalPhone} | ${website}`,
                 scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Staggered Scheduling Delay Matrix Applied:\n${enqueuedJobs.map(j => `  - ${j.platform.toUpperCase()}: ${j.delayMs === 0 ? '⚡ INSTANT DISPATCH' : `+${Math.round(j.delayMs / 60000)} min delay (Peak Slot)`}`).join('\n') || '  - Instant dispatch requested'}\n• Active Syndication Channels: [${targetChannels.join(', ')}]\n• Queue Dispatch: ${enqueuedJobs.length} BullMQ jobs enqueued with automatic backoff\n• CRM Attribution: Deal ID bound to MarketingContent and Deal Activity timeline`
             }

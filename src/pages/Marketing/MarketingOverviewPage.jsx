@@ -167,6 +167,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [realLeads, setRealLeads] = useState([]);
   const [realDeals, setRealDeals] = useState([]);
   const [selectedTargetDealId, setSelectedTargetDealId] = useState('');
+  const [showUnitNumberInManual, setShowUnitNumberInManual] = useState(false);
   const [realAgents, setRealAgents] = useState([]); // Phase B: real AI agents from backend
   const [activeSmsStatus, setActiveSmsStatus] = useState(null);
   const [realSocialStatus, setRealSocialStatus] = useState({ 
@@ -384,7 +385,9 @@ export default function MarketingOverviewPage({ onNavigate }) {
       const res = await marketingAPI.triggerAutonomousCycle({ 
         force: true, 
         forceImmediate: immediate,
-        dealId: targetDealId 
+        dealId: targetDealId,
+        showUnitNumber: showUnitNumberInManual,
+        manualTrigger: true
       });
       if (res?.success) {
         const successMsg = immediate
@@ -2873,6 +2876,43 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           🤖 Autonomous Intelligence Active: Top Unposted Deal will be selected
                         </span>
                       )}
+                    </div>
+
+                    {/* Privacy Shield & Manual Unit Number Reveal Toggle */}
+                    <div style={{ 
+                      marginTop: "10px", 
+                      padding: "8px 12px", 
+                      background: showUnitNumberInManual ? "rgba(245, 158, 11, 0.08)" : "rgba(16, 185, 129, 0.06)", 
+                      border: showUnitNumberInManual ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid rgba(16, 185, 129, 0.2)", 
+                      borderRadius: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "10px"
+                    }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", fontWeight: 700, cursor: "pointer", color: showUnitNumberInManual ? "#fbbf24" : "#e2e8f0" }}>
+                        <input 
+                          type="checkbox" 
+                          checked={showUnitNumberInManual} 
+                          onChange={(e) => setShowUnitNumberInManual(e.target.checked)}
+                          style={{ cursor: "pointer", accentColor: "#f59e0b" }}
+                        />
+                        <span>Publicly Reveal Unit Number (Manual Mode Only)</span>
+                      </label>
+                      <span style={{ fontSize: "10px", color: showUnitNumberInManual ? "#fde68a" : "#94a3b8", display: "flex", alignItems: "center", gap: "5px" }}>
+                        {showUnitNumberInManual ? (
+                          <>
+                            <i className="fas fa-exclamation-triangle" style={{ color: "#f59e0b" }}></i>
+                            <span>Warning: Unit number will appear on public flyer &amp; captions. Coordinates are always scrubbed.</span>
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-shield-alt" style={{ color: "#10b981" }}></i>
+                            <span>🛡️ Privacy Shield Active: Unit numbers &amp; GPS coordinates are masked (Auto-Pilot always masks them).</span>
+                          </>
+                        )}
+                      </span>
                     </div>
                   </div>
 
