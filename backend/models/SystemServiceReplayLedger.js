@@ -38,6 +38,10 @@ const SystemServiceReplayLedgerSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    inTransaction: {
+        type: Boolean,
+        default: false
+    },
     status: {
         type: String,
         enum: ['CONSUMED', 'COMMITTED', 'FAILED'],

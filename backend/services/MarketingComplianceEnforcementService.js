@@ -460,12 +460,14 @@ export async function recordNonceConsumptionDurable(signature, record) {
  * 
  * @param {string} signature
  * @param {string} claimToken
+ * @param {Object} [options={}]
  * @returns {Promise<{ committed: boolean }>}
  */
-export async function commitNonceConsumptionDurable(signature, claimToken) {
+export async function commitNonceConsumptionDurable(signature, claimToken, options = {}) {
     if (!signature || !claimToken) {
         throw new Error('STALE_CLAIM_SUPERSEDED: Signature and claimToken are required to commit nonce consumption.');
     }
+    const queryOpts = options && options.session ? { session: options.session } : {};
     if (mongoose.connection && mongoose.connection.readyState === 1) {
         const filter = { signature, claimToken, status: 'CONSUMED' };
         const writeRes = await SystemServiceReplayLedgerModel.updateOne(
@@ -474,9 +476,11 @@ export async function commitNonceConsumptionDurable(signature, claimToken) {
                 $set: { 
                     status: 'COMMITTED', 
                     committedAt: new Date(), 
-                    leaseExpiresAt: null 
+                    leaseExpiresAt: null,
+                    inTransaction: false
                 } 
-            }
+            },
+            queryOpts
         );
         if (!writeRes || writeRes.matchedCount === 0) {
             throw new Error('STALE_CLAIM_SUPERSEDED: Nonce claim has expired or been reclaimed by another worker.');

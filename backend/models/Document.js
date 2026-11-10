@@ -412,12 +412,16 @@ if (typeof DocumentModel.bulkSave === 'function') {
 
 // Register privileged audit executor with internalAuditBridge.
 // This is the ONLY mechanism through which DocumentAuditService writes audit evidence.
-registerAuditExecutor(async (docFilter, updateOps) => {
+registerAuditExecutor(async (docFilter, updateOps, options = {}) => {
     const filter = typeof docFilter === 'object' && docFilter !== null && docFilter._id ? docFilter : { _id: docFilter };
+    const queryOptions = { [PRIVATE_AUDIT_SECRET]: true };
+    if (options && options.session) {
+        queryOptions.session = options.session;
+    }
     return DocumentModel.updateOne(
         filter,
         updateOps,
-        { [PRIVATE_AUDIT_SECRET]: true }
+        queryOptions
     );
 });
 

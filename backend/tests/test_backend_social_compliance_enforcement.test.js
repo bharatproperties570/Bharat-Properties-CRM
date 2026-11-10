@@ -6342,6 +6342,554 @@ describe('Gate 1-6: Backend Social Publishing Compliance & Evidence Gate Suite',
                 });
             });
 
+            // =====================================================================
+            // SECTION 18: FINAL ATOMIC AUDIT WRITE & REPLAY LEASE CLOSURE SUITE
+            // =====================================================================
+            describe('Section 18: Final Atomic Audit Write & Replay Lease Closure Suite', () => {
+                it('18.1 Lease expires after ownership validation but before Document mutation -> aborted with STALE_CLAIM_SUPERSEDED and document unmutated', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-expire-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const origStartSession = mongoose.startSession;
+                    mongoose.startSession = async function() {
+                        // Simulate lease expiring after signature verification but before transaction lock
+                        await SystemServiceReplayLedgerModel.updateOne(
+                            { signature: sig },
+                            { $set: { leaseExpiresAt: new Date(Date.now() - 5000) } }
+                        );
+                        return origStartSession.apply(this, arguments);
+                    };
+
+                    try {
+                        await assert.rejects(async () => {
+                            await DocumentAuditService.recordVerificationAudit({
+                                documentId: replDoc.documentId,
+                                auditPayload: {
+                                    documentId: replDoc.documentId,
+                                    versionId: String(replDocVer._id),
+                                    entityId: replEntId,
+                                    entityType: 'Deal',
+                                    verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    verifiedAt: now,
+                                    outcome: 'VERIFIED'
+                                },
+                                systemContext: {
+                                    serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    systemSignature: sig,
+                                    nonce
+                                }
+                            });
+                        }, /STALE_CLAIM_SUPERSEDED/);
+
+                        const untouchedDoc = await Document.findById(replDoc._id);
+                        assert.strictEqual(untouchedDoc.verificationAudit, undefined);
+                        const ledger = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                        assert.strictEqual(ledger.status, 'CONSUMED');
+                    } finally {
+                        mongoose.startSession = origStartSession;
+                    }
+                });
+
+                it('18.2 Another worker cannot reclaim active lease while worker is in transaction', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-reclaim-${Date.now()}`;
+                    const idKey = `idkey-reclaim-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    let w2AttemptDuringTx = null;
+                    let txReached = false;
+                    const origUpdateOne = SystemServiceReplayLedgerModel.updateOne;
+                    SystemServiceReplayLedgerModel.updateOne = async function(filter, update, options) {
+                        const res = await origUpdateOne.apply(this, arguments);
+                        if (update && update.$set && update.$set.inTransaction === true && !txReached) {
+                            txReached = true;
+                            // Worker 2 attempts to reclaim during active transaction
+                            w2AttemptDuringTx = await recordNonceConsumptionDurable(sig, {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                entityId: ctx.entityId,
+                                documentId: ctx.documentId,
+                                nonce,
+                                idempotencyKey: idKey
+                            });
+                        }
+                        return res;
+                    };
+
+                    try {
+                        const audited = await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                verifiedAt: now,
+                                outcome: 'VERIFIED'
+                            },
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                systemSignature: sig,
+                                nonce,
+                                idempotencyKey: idKey
+                            }
+                        });
+
+                        assert.ok(audited.verificationAudit);
+                        assert.strictEqual(txReached, true);
+                        assert.strictEqual(w2AttemptDuringTx.consumed, false);
+                        assert.ok(w2AttemptDuringTx.error && w2AttemptDuringTx.error.includes('OPERATION_IN_PROGRESS'));
+
+                        // After transaction committed: Worker 2 attempts to claim with different idempotency key
+                        const w2Retry = await recordNonceConsumptionDurable(sig, {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            entityId: ctx.entityId,
+                            documentId: ctx.documentId,
+                            nonce,
+                            idempotencyKey: 'different-worker-key'
+                        });
+                        assert.strictEqual(w2Retry.consumed, false);
+                        assert.ok(w2Retry.error && w2Retry.error.includes('SIGNATURE_REPLAY_DETECTED'));
+                    } finally {
+                        SystemServiceReplayLedgerModel.updateOne = origUpdateOne;
+                    }
+                });
+
+                it('18.3 Old worker attempts to mutate after lease was reclaimed by another worker -> fails closed with STALE_CLAIM_SUPERSEDED', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-old-worker-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const w1 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w1.consumed, true);
+
+                    await SystemServiceReplayLedgerModel.updateOne(
+                        { signature: sig },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    const w2 = await recordNonceConsumptionDurable(sig, {
+                        serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                        entityId: ctx.entityId,
+                        documentId: ctx.documentId,
+                        nonce
+                    });
+                    assert.strictEqual(w2.consumed, true);
+                    assert.notStrictEqual(w2.claimToken, w1.claimToken);
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                verifiedAt: now,
+                                outcome: 'VERIFIED'
+                            },
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                systemSignature: sig,
+                                nonce
+                            }
+                        });
+                    }, /SIGNATURE_REPLAY_DETECTED|OPERATION_IN_PROGRESS|STALE_CLAIM_SUPERSEDED/);
+
+                    const ledger = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                    assert.strictEqual(ledger.status, 'CONSUMED');
+                    assert.strictEqual(ledger.claimToken, w2.claimToken);
+                });
+
+                it('18.4 Document mutation succeeds but ledger commit fails -> transaction aborts, rolling back Document mutation', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-commit-fail-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const origUpdateOne = SystemServiceReplayLedgerModel.updateOne;
+                    let commitCalled = false;
+                    SystemServiceReplayLedgerModel.updateOne = function(filter, update, options) {
+                        if (update && update.$set && update.$set.status === 'COMMITTED') {
+                            commitCalled = true;
+                            throw new Error('FORCED_LEDGER_COMMIT_FAILURE');
+                        }
+                        return origUpdateOne.apply(this, arguments);
+                    };
+
+                    try {
+                        await assert.rejects(async () => {
+                            await DocumentAuditService.recordVerificationAudit({
+                                documentId: replDoc.documentId,
+                                auditPayload: {
+                                    documentId: replDoc.documentId,
+                                    versionId: String(replDocVer._id),
+                                    entityId: replEntId,
+                                    entityType: 'Deal',
+                                    verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    verifiedAt: now,
+                                    outcome: 'VERIFIED'
+                                },
+                                systemContext: {
+                                    serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    systemSignature: sig,
+                                    nonce
+                                }
+                            });
+                        }, /FORCED_LEDGER_COMMIT_FAILURE/);
+
+                        assert.strictEqual(commitCalled, true);
+
+                        const docInDb = await Document.findById(replDoc._id);
+                        assert.strictEqual(docInDb.verificationAudit, undefined);
+
+                        const ledger = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                        assert.notStrictEqual(ledger?.status, 'COMMITTED');
+                    } finally {
+                        SystemServiceReplayLedgerModel.updateOne = origUpdateOne;
+                    }
+                });
+
+                it('18.5 Ledger update succeeds but Document mutation fails -> transaction aborts, leaving ledger uncommitted and document unmodified', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-doc-fail-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    await Document.updateOne({ _id: replDoc._id }, { $set: { isRevoked: true, status: 'REVOKED' } });
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                verifiedAt: now,
+                                outcome: 'VERIFIED'
+                            },
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                systemSignature: sig,
+                                nonce
+                            }
+                        });
+                    }, /DOCUMENT_REVOKED|DOCUMENT_STATE_CONFLICT/);
+
+                    const ledger = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                    assert.notStrictEqual(ledger?.status, 'COMMITTED');
+                });
+
+                it('18.6 Transaction abort guarantees atomicity: zero partial Document mutation and zero partial COMMITTED ledger state', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-atomicity-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const docPre = await Document.findById(replDoc._id);
+                    assert.strictEqual(docPre.verificationAudit, undefined);
+
+                    const origCommit = SystemServiceReplayLedgerModel.updateOne;
+                    let callCount = 0;
+                    SystemServiceReplayLedgerModel.updateOne = function(filter, update, options) {
+                        callCount++;
+                        if (callCount === 2) {
+                            throw new Error('SIMULATED_NETWORK_PARTITION_AT_COMMIT');
+                        }
+                        return origCommit.apply(this, arguments);
+                    };
+
+                    try {
+                        await assert.rejects(async () => {
+                            await DocumentAuditService.recordVerificationAudit({
+                                documentId: replDoc.documentId,
+                                auditPayload: {
+                                    documentId: replDoc.documentId,
+                                    versionId: String(replDocVer._id),
+                                    entityId: replEntId,
+                                    entityType: 'Deal',
+                                    verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    verifiedAt: now,
+                                    outcome: 'VERIFIED'
+                                },
+                                systemContext: {
+                                    serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    systemSignature: sig,
+                                    nonce
+                                }
+                            });
+                        }, /SIMULATED_NETWORK_PARTITION_AT_COMMIT/);
+
+                        const docPost = await Document.findById(replDoc._id);
+                        assert.strictEqual(docPost.verificationAudit, undefined);
+
+                        const ledgerPost = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                        assert.notStrictEqual(ledgerPost?.status, 'COMMITTED');
+                    } finally {
+                        SystemServiceReplayLedgerModel.updateOne = origCommit;
+                    }
+                });
+
+                it('18.7 Two concurrent workers attempting the same operation in parallel: exactly one commits, other rejected', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-parallel-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const callWorker = () => DocumentAuditService.recordVerificationAudit({
+                        documentId: replDoc.documentId,
+                        auditPayload: {
+                            documentId: replDoc.documentId,
+                            versionId: String(replDocVer._id),
+                            entityId: replEntId,
+                            entityType: 'Deal',
+                            verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            verifiedAt: now,
+                            outcome: 'VERIFIED'
+                        },
+                        systemContext: {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemSignature: sig,
+                            nonce
+                        }
+                    });
+
+                    const results = await Promise.allSettled([callWorker(), callWorker()]);
+                    const fulfilled = results.filter(r => r.status === 'fulfilled');
+                    const rejected = results.filter(r => r.status === 'rejected');
+
+                    assert.strictEqual(fulfilled.length, 1);
+                    assert.strictEqual(rejected.length, 1);
+                    assert.ok(rejected[0].reason.message.includes('OPERATION_IN_PROGRESS') || rejected[0].reason.message.includes('SIGNATURE_REPLAY_DETECTED') || rejected[0].reason.message.includes('STALE_CLAIM_SUPERSEDED'));
+
+                    const docInDb = await Document.findById(replDoc._id);
+                    assert.ok(docInDb.verificationAudit);
+                    assert.strictEqual(docInDb.verificationAudit.outcome, 'VERIFIED');
+
+                    const ledgerInDb = await SystemServiceReplayLedgerModel.findOne({ signature: sig });
+                    assert.strictEqual(ledgerInDb.status, 'COMMITTED');
+                });
+
+                it('18.8 Concurrent verification and revocation boundary: revocation cannot be undone by verification worker', async () => {
+                    const now = new Date();
+                    const nonceVerify = `test-tx-v-vs-r-v-${Date.now()}`;
+                    const nonceRevoke = `test-tx-v-vs-r-r-${Date.now()}`;
+
+                    const ctxV = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce: nonceVerify
+                    };
+                    const sigV = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctxV);
+
+                    const ctxR = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce: nonceRevoke
+                    };
+                    const sigR = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctxR);
+
+                    await DocumentAuditService.recordVerificationAudit({
+                        documentId: replDoc.documentId,
+                        auditPayload: {
+                            documentId: replDoc.documentId,
+                            versionId: String(replDocVer._id),
+                            entityId: replEntId,
+                            entityType: 'Deal',
+                            verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            verifiedAt: now,
+                            outcome: 'VERIFIED'
+                        },
+                        systemContext: {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemSignature: sigV,
+                            nonce: nonceVerify
+                        }
+                    });
+
+                    const revokedDoc = await DocumentAuditService.revokeVerificationAudit({
+                        documentId: replDoc.documentId,
+                        revocationReason: 'STATUTORY_REVOCATION_TEST',
+                        revokedBy: 'SYSTEM_COMPLIANCE_ENGINE',
+                        systemContext: {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemSignature: sigR,
+                            nonce: nonceRevoke,
+                            timestamp: now
+                        }
+                    });
+                    assert.strictEqual(revokedDoc.isRevoked, true);
+
+                    const nonceV2 = `test-tx-v-vs-r-v2-${Date.now()}`;
+                    const ctxV2 = { entityId: String(replEntId), documentId: replDoc.documentId, nonce: nonceV2 };
+                    const sigV2 = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctxV2);
+
+                    await assert.rejects(async () => {
+                        await DocumentAuditService.recordVerificationAudit({
+                            documentId: replDoc.documentId,
+                            auditPayload: {
+                                documentId: replDoc.documentId,
+                                versionId: String(replDocVer._id),
+                                entityId: replEntId,
+                                entityType: 'Deal',
+                                verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                verifiedAt: now,
+                                outcome: 'VERIFIED'
+                            },
+                            systemContext: {
+                                serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                systemSignature: sigV2,
+                                nonce: nonceV2
+                            }
+                        });
+                    }, /DOCUMENT_REVOKED/);
+
+                    const finalDoc = await Document.findById(replDoc._id);
+                    assert.strictEqual(finalDoc.isRevoked, true);
+                    assert.strictEqual(finalDoc.verificationAudit.isRevoked, true);
+                });
+
+                it('18.9 Idempotent retry after successful transaction returns committed result without duplicate history', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-idem-${Date.now()}`;
+                    const idKey = `idkey-idem-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce,
+                        idempotencyKey: idKey
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const doc1 = await DocumentAuditService.recordVerificationAudit({
+                        documentId: replDoc.documentId,
+                        auditPayload: {
+                            documentId: replDoc.documentId,
+                            versionId: String(replDocVer._id),
+                            entityId: replEntId,
+                            entityType: 'Deal',
+                            verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            verifiedAt: now,
+                            outcome: 'VERIFIED'
+                        },
+                        systemContext: {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemSignature: sig,
+                            nonce,
+                            idempotencyKey: idKey
+                        }
+                    });
+                    assert.ok(doc1.verificationAudit);
+                    const initialHistoryLen = doc1.auditHistory ? doc1.auditHistory.length : 0;
+
+                    const doc2 = await DocumentAuditService.recordVerificationAudit({
+                        documentId: replDoc.documentId,
+                        auditPayload: {
+                            documentId: replDoc.documentId,
+                            versionId: String(replDocVer._id),
+                            entityId: replEntId,
+                            entityType: 'Deal',
+                            verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            verifiedAt: now,
+                            outcome: 'VERIFIED'
+                        },
+                        systemContext: {
+                            serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                            systemSignature: sig,
+                            nonce,
+                            idempotencyKey: idKey
+                        }
+                    });
+
+                    assert.strictEqual(String(doc1._id), String(doc2._id));
+                    assert.strictEqual(doc2.auditHistory ? doc2.auditHistory.length : 0, initialHistoryLen, 'Idempotent retry must not append duplicate audit history');
+                });
+
+                it('18.10 Database transaction support unavailable -> system operation fails closed with TRANSACTION_UNAVAILABLE', async () => {
+                    const now = new Date();
+                    const nonce = `test-tx-unavail-${Date.now()}`;
+                    const ctx = {
+                        entityId: String(replEntId),
+                        documentId: replDoc.documentId,
+                        nonce
+                    };
+                    const sig = generateSystemServiceSignature('SYSTEM_COMPLIANCE_ENGINE', now, ctx);
+
+                    const origStartSession = mongoose.startSession;
+                    mongoose.startSession = async () => {
+                        throw new Error('Transaction numbers are only allowed on a replica set member or mongos');
+                    };
+
+                    try {
+                        await assert.rejects(async () => {
+                            await DocumentAuditService.recordVerificationAudit({
+                                documentId: replDoc.documentId,
+                                auditPayload: {
+                                    documentId: replDoc.documentId,
+                                    versionId: String(replDocVer._id),
+                                    entityId: replEntId,
+                                    entityType: 'Deal',
+                                    verifierId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    verifiedAt: now,
+                                    outcome: 'VERIFIED'
+                                },
+                                systemContext: {
+                                    serviceId: 'SYSTEM_COMPLIANCE_ENGINE',
+                                    systemSignature: sig,
+                                    nonce
+                                }
+                            });
+                        }, /TRANSACTION_UNAVAILABLE/);
+
+                        const docInDb = await Document.findById(replDoc._id);
+                        assert.strictEqual(docInDb.verificationAudit, undefined);
+                    } finally {
+                        mongoose.startSession = origStartSession;
+                    }
+                });
+            });
+
         });
     });
 });

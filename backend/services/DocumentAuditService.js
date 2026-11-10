@@ -17,11 +17,11 @@ bindAuditPersistence((writer) => {
     privilegedAuditWriter = writer;
 });
 
-async function executePrivilegedAuditWrite(filter, updateOps) {
+async function executePrivilegedAuditWrite(filter, updateOps, options = {}) {
     if (!privilegedAuditWriter) {
         throw new Error('AUDIT_PERSISTENCE_UNAVAILABLE: Privileged audit writer has not been initialized.');
     }
-    return privilegedAuditWriter(filter, updateOps);
+    return privilegedAuditWriter(filter, updateOps, options);
 }
 
 /**
@@ -244,21 +244,95 @@ export class DocumentAuditService {
             updateOps.$push = { auditHistory: historyEntry };
         }
 
-        // 6. Mutate Document via privileged internal bridge with atomic state fencing
-        try {
-            // Fence mutation against expired/superseded worker lease
-            if (consumedSignature && consumedClaimToken && mongoose.connection && mongoose.connection.readyState === 1) {
-                const activeLease = await SystemServiceReplayLedgerModel.findOne({
+        // 6. Mutate Document via privileged internal bridge with atomic state fencing & transaction boundary
+        if (consumedSignature && consumedClaimToken) {
+            if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+                throw new Error('DURABLE_STORAGE_UNAVAILABLE: MongoDB storage is offline.');
+            }
+
+            let session = null;
+            try {
+                session = await mongoose.startSession();
+            } catch (err) {
+                throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start MongoDB session: ${err.message}`);
+            }
+
+            let transactionStarted = false;
+            try {
+                session.startTransaction();
+                transactionStarted = true;
+            } catch (err) {
+                await session.endSession();
+                throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start transaction: ${err.message}`);
+            }
+
+            try {
+                const now = new Date();
+
+                // Step 1: Conditionally update replay ledger within transaction to establish exclusive ownership
+                // Enforces exact signature, claimToken, status CONSUMED, leaseExpiresAt > now
+                const ownershipFilter = {
                     signature: consumedSignature,
                     claimToken: consumedClaimToken,
                     status: 'CONSUMED',
-                    leaseExpiresAt: { $gt: new Date() }
-                }).lean();
-                if (!activeLease) {
-                    throw new Error('STALE_CLAIM_SUPERSEDED: Worker lease expired or was superseded before write could be executed.');
-                }
-            }
+                    leaseExpiresAt: { $gt: now }
+                };
+                const ledgerLockRes = await SystemServiceReplayLedgerModel.updateOne(
+                    ownershipFilter,
+                    {
+                        $set: {
+                            updatedAt: now,
+                            inTransaction: true
+                        }
+                    },
+                    { session }
+                );
 
+                if (!ledgerLockRes || ledgerLockRes.matchedCount === 0) {
+                    throw new Error('STALE_CLAIM_SUPERSEDED: Replay lease expired or was superseded prior to transaction lock.');
+                }
+
+                // Step 2: Perform privileged Document mutation using the SAME MongoDB session
+                const atomicFilter = {
+                    _id: doc._id,
+                    isRevoked: { $ne: true },
+                    'verificationAudit.isRevoked': { $ne: true }
+                };
+                const writeRes = await executePrivilegedAuditWrite(atomicFilter, updateOps, { session });
+                if (!writeRes || writeRes.matchedCount === 0) {
+                    throw new Error('DOCUMENT_STATE_CONFLICT: Document is revoked or in an invalid state.');
+                }
+
+                // Step 3: Mark replay ledger COMMITTED in that SAME transaction
+                await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken, { session });
+
+                // Step 4: Commit transaction
+                await session.commitTransaction();
+                await session.endSession();
+                session = null;
+
+                return Document.findById(doc._id);
+            } catch (err) {
+                if (session && transactionStarted) {
+                    try {
+                        await session.abortTransaction();
+                    } catch (abortErr) {}
+                }
+                if (session) {
+                    try {
+                        await session.endSession();
+                    } catch (endErr) {}
+                }
+
+                if (consumedSignature && consumedClaimToken && err.message && !err.message.includes('STALE_CLAIM_SUPERSEDED')) {
+                    try {
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
+                    } catch (failErr) {}
+                }
+                throw err;
+            }
+        } else {
+            // Statutory Human Verifier (verifierUser / verifierStr)
             const atomicFilter = {
                 _id: doc._id,
                 isRevoked: { $ne: true },
@@ -268,18 +342,7 @@ export class DocumentAuditService {
             if (!writeRes || writeRes.matchedCount === 0) {
                 throw new Error('DOCUMENT_STATE_CONFLICT: Document is revoked or in an invalid state.');
             }
-
-            // Commit nonce in distributed ledger if system service
-            if (consumedSignature && consumedClaimToken) {
-                await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
-            }
-
             return Document.findById(doc._id);
-        } catch (err) {
-            if (consumedSignature && consumedClaimToken) {
-                await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
-            }
-            throw err;
         }
     }
 
@@ -399,46 +462,110 @@ export class DocumentAuditService {
             updateOps.$push = { auditHistory: historyEntry };
         }
 
-        // Mutate Document via privileged internal bridge with atomic filter
-        try {
-            // Fence mutation against expired/superseded worker lease
-            if (consumedSignature && consumedClaimToken && mongoose.connection && mongoose.connection.readyState === 1) {
-                const activeLease = await SystemServiceReplayLedgerModel.findOne({
+        // Mutate Document via privileged internal bridge with atomic filter & transaction boundary
+        if (consumedSignature && consumedClaimToken) {
+            if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+                throw new Error('DURABLE_STORAGE_UNAVAILABLE: MongoDB storage is offline.');
+            }
+
+            let session = null;
+            try {
+                session = await mongoose.startSession();
+            } catch (err) {
+                throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start MongoDB session: ${err.message}`);
+            }
+
+            let transactionStarted = false;
+            try {
+                session.startTransaction();
+                transactionStarted = true;
+            } catch (err) {
+                await session.endSession();
+                throw new Error(`TRANSACTION_UNAVAILABLE: Failed to start transaction: ${err.message}`);
+            }
+
+            try {
+                const now = new Date();
+
+                // Step 1: Conditionally update replay ledger within transaction to establish exclusive ownership
+                const ownershipFilter = {
                     signature: consumedSignature,
                     claimToken: consumedClaimToken,
                     status: 'CONSUMED',
-                    leaseExpiresAt: { $gt: new Date() }
-                }).lean();
-                if (!activeLease) {
-                    throw new Error('STALE_CLAIM_SUPERSEDED: Worker lease expired or was superseded before write could be executed.');
-                }
-            }
+                    leaseExpiresAt: { $gt: now }
+                };
+                const ledgerLockRes = await SystemServiceReplayLedgerModel.updateOne(
+                    ownershipFilter,
+                    {
+                        $set: {
+                            updatedAt: now,
+                            inTransaction: true
+                        }
+                    },
+                    { session }
+                );
 
+                if (!ledgerLockRes || ledgerLockRes.matchedCount === 0) {
+                    throw new Error('STALE_CLAIM_SUPERSEDED: Replay lease expired or was superseded prior to transaction lock.');
+                }
+
+                // Step 2: Perform privileged Document mutation using the SAME MongoDB session
+                const atomicFilter = { _id: doc._id, isRevoked: { $ne: true } };
+                const writeRes = await executePrivilegedAuditWrite(atomicFilter, updateOps, { session });
+
+                if (!writeRes || writeRes.matchedCount === 0) {
+                    // Check if already revoked concurrently (idempotent revocation)
+                    const refreshed = await Document.findById(doc._id).session(session);
+                    if (refreshed && refreshed.isRevoked === true) {
+                        await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken, { session });
+                        await session.commitTransaction();
+                        await session.endSession();
+                        session = null;
+                        return refreshed;
+                    }
+                    throw new Error('DOCUMENT_REVOCATION_CONFLICT: Document could not be revoked.');
+                }
+
+                // Step 3: Mark replay ledger COMMITTED in that SAME transaction
+                await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken, { session });
+
+                // Step 4: Commit transaction
+                await session.commitTransaction();
+                await session.endSession();
+                session = null;
+
+                return Document.findById(doc._id);
+            } catch (err) {
+                if (session && transactionStarted) {
+                    try {
+                        await session.abortTransaction();
+                    } catch (abortErr) {}
+                }
+                if (session) {
+                    try {
+                        await session.endSession();
+                    } catch (endErr) {}
+                }
+
+                if (consumedSignature && consumedClaimToken && err.message && !err.message.includes('STALE_CLAIM_SUPERSEDED')) {
+                    try {
+                        await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
+                    } catch (failErr) {}
+                }
+                throw err;
+            }
+        } else {
+            // Statutory Human Verifier (verifierUser / verifierStr)
             const atomicFilter = { _id: doc._id, isRevoked: { $ne: true } };
             const writeRes = await executePrivilegedAuditWrite(atomicFilter, updateOps);
-            // If already revoked concurrently, it's idempotent
             if (!writeRes || writeRes.matchedCount === 0) {
                 const refreshed = await Document.findById(doc._id);
                 if (refreshed && refreshed.isRevoked === true) {
-                    if (consumedSignature && consumedClaimToken) {
-                        await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
-                    }
                     return refreshed;
                 }
                 throw new Error('DOCUMENT_REVOCATION_CONFLICT: Document could not be revoked.');
             }
-
-            // Commit nonce if system service
-            if (consumedSignature && consumedClaimToken) {
-                await commitNonceConsumptionDurable(consumedSignature, consumedClaimToken);
-            }
-
             return Document.findById(doc._id);
-        } catch (err) {
-            if (consumedSignature && consumedClaimToken) {
-                await failNonceConsumptionDurable(consumedSignature, consumedClaimToken, err.message);
-            }
-            throw err;
         }
     }
 }
