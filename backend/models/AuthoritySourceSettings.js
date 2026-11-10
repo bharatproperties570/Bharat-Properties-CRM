@@ -2100,16 +2100,18 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
         { _id: existing._id, tenantId: effectiveTenantId, authorityCode: String(authorityCode) },
         {
             $set: {
-                'userReportedEvidence.reportedBy': actorStr,
-                'userReportedEvidence.reportedAt': serverTimestamp,
-                'userReportedEvidence.claimedAuthorityRole': normalizedClaimedRole,
-                'userReportedEvidence.statementType': statementType,
-                'userReportedEvidence.evidenceReference': evidenceRef,
-                'userReportedEvidence.evidenceType': evidenceType,
-                'userReportedEvidence.evidenceVersion': evidenceVersion,
-                'userReportedEvidence.evidenceHash': details.evidenceHash ? String(details.evidenceHash).trim() : undefined,
-                'userReportedEvidence.notes': notes,
-                'userReportedEvidence.verificationStatus': verificationStatus
+                userReportedEvidence: {
+                    reportedBy: actorStr,
+                    reportedAt: serverTimestamp,
+                    claimedAuthorityRole: normalizedClaimedRole,
+                    statementType: statementType,
+                    evidenceReference: evidenceRef,
+                    evidenceType: evidenceType,
+                    evidenceVersion: evidenceVersion,
+                    evidenceHash: details.evidenceHash ? String(details.evidenceHash).trim() : undefined,
+                    notes: notes,
+                    verificationStatus: verificationStatus
+                }
             }
         },
         {
