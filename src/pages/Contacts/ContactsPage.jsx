@@ -16,7 +16,6 @@ import SendMessageModal from "../../components/SendMessageModal";
 import AssignContactModal from "../../components/AssignContactModal";
 import ManageTagsModal from "../../components/ManageTagsModal";
 import { useCall } from "../../context/CallContext";
-import { useDistribution } from "../../context/DistributionContext";
 import EnrollSequenceModal from "../../components/EnrollSequenceModal";
 import ContactFilterPanel from "./components/ContactFilterPanel";
 import { applyContactFilters } from "../../utils/contactFilterLogic";
@@ -385,7 +384,6 @@ const ContactCard = memo(function ContactCard({
 function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
   const { isDark } = useTheme();
   const { startCall } = useCall();
-  const { executeDistribution } = useDistribution();
   
   const [stats, setStats] = useState({
     total: 0,
@@ -808,10 +806,8 @@ function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
                   }}><i className="fas fa-stream"></i> Sequence</button>
                 )}
                 <button className="action-btn" style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }} onClick={() => {
-                  let count = 0;
-                  getSelectedContacts().forEach(contact => { if (executeDistribution('contacts', contact, { users: [], teams: [] }).success) count++; });
-                  toast.success(`Distributed ${count} contacts.`);
-                  setSelectedIds([]);
+                  setSelectedContactsForAssign(getSelectedContacts());
+                  setIsAssignModalOpen(true);
                 }}><i className="fas fa-random"></i> Distribute</button>
                 <button className="action-btn" onClick={handleSendMessage}><i className="fas fa-paper-plane"></i> Send Message</button>
                 <PermissionGate module="contacts" action="edit">

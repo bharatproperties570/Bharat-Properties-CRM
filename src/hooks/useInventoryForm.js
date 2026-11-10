@@ -528,20 +528,9 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
             size: "",
             team: projectTeam || prev.team,
             assignedTo: projectAssignee || prev.assignedTo,
-            visibleTo: projectVisibility || prev.visibleTo || 'Team'
+            visibleTo: projectVisibility || prev.visibleTo || 'Team',
+            locationSearch: project?.location || prev.locationSearch
         }));
-
-        const result = executeDistribution('inventory', { ...formData, projectName: name, projectId });
-        if (result && result.success) {
-            setFormData(prev => ({
-                ...prev,
-                projectName: name,
-                assignedTo: result.assignedTo,
-                team: result.team || prev.team,
-                locationSearch: project?.location || prev.locationSearch
-            }));
-            toast.success(`Inventory automatically assigned to ${result.assignedTo}`);
-        }
 
         if (project) {
             let targetState = '';

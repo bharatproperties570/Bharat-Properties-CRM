@@ -1778,6 +1778,62 @@ export const bulkDeleteLeads = async (req, res, next) => {
     }
 };
 
+/**
+ * P7-R4: Authoritative bulk distribution endpoint for Leads.
+ * Executes server-side atomic CAS distribution cycle for each requested lead.
+ */
+export const bulkDistributeLeads = async (req, res, next) => {
+    try {
+        const leadIds = req.body.leadIds || req.body.ids;
+        if (!Array.isArray(leadIds) || leadIds.length === 0) {
+            return res.status(400).json({ success: false, message: "leadIds array is required" });
+        }
+
+        const { executeDistributionCycle } = await import('../src/utils/distributionEngine.js');
+        const Lead = (await import('../models/Lead.js')).default;
+
+        let successCount = 0;
+        const results = [];
+
+        for (const id of leadIds) {
+            try {
+                const lead = await Lead.findById(id);
+                if (!lead) {
+                    results.push({ leadId: id, success: false, reason: 'Lead not found' });
+                    continue;
+                }
+                const cycleId = `cycle_bulk_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+                const result = await executeDistributionCycle({
+                    entityId: lead._id,
+                    modelName: 'Lead',
+                    triggerEvent: 'onLeadReassignment',
+                    cycleId,
+                    attempt: 1
+                });
+
+                if (result && result.assignedTo) {
+                    successCount++;
+                    results.push({ leadId: id, success: true, assignedTo: result.assignedTo, ruleName: result.ruleName });
+                } else {
+                    results.push({ leadId: id, success: false, reason: 'No eligible rule or agent' });
+                }
+            } catch (err) {
+                console.warn(`[Bulk Distribution] Lead ${id} distribution skipped:`, err.message);
+                results.push({ leadId: id, success: false, error: err.message });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            count: successCount,
+            totalRequested: leadIds.length,
+            results
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const importLeads = async (req, res, next) => {
     try {
         const { data, updateDuplicates = false } = req.body;

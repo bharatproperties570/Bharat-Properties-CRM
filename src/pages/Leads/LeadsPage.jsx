@@ -23,7 +23,6 @@ import { STAGE_PIPELINE } from '../../utils/stageEngine';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
-import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import DocumentUploadModal from '../../components/DocumentUploadModal';
 import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
@@ -77,7 +76,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     // ────────────────────────────────────────────────────────────────
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
-    const { executeDistribution } = useDistribution();
     const { data: users = [] } = useUsers();
     
     const { data: teams = [] } = useTeams();
@@ -1398,13 +1396,19 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     if (!selectedLeadsForAssign.length) return;
                     try {
                         if (assignmentDetails.strategy === 'auto') {
-                            toast.loading(`Auto-Distributing ${selectedLeadsForAssign.length} lead(s)...`);
-                            let count = 0;
-                            selectedLeadsForAssign.forEach(lead => {
-                                const res = executeDistribution('leads', lead, { users: [], teams: [] });
-                                if (res.success) count++;
-                            });
-                            toast.success(`Distributed ${count} leads using active rules.`);
+                            const toastId = toast.loading(`Auto-Distributing ${selectedLeadsForAssign.length} lead(s)...`);
+                            try {
+                                const { data } = await api.post('/leads/bulk-distribute', {
+                                    leadIds: selectedLeadsForAssign.map(l => l._id)
+                                });
+                                if (data?.count > 0) {
+                                    toast.success(`Distributed ${data.count} of ${selectedLeadsForAssign.length} lead(s) using active rules.`, { id: toastId });
+                                } else {
+                                    toast.error(data?.message || 'No eligible agents available (all off-shift or at capacity).', { id: toastId });
+                                }
+                            } catch (err) {
+                                toast.error(err.response?.data?.message || err.message || 'Failed to auto-distribute leads', { id: toastId });
+                            }
                             setRefreshTrigger(prev => prev + 1);
                             setIsAssignModalOpen(false);
                             setSelectedIds([]);
