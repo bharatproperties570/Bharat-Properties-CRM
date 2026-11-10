@@ -107,10 +107,10 @@ class GeminiService {
      * Internal Gemini API caller.
      */
     async _callGemini(apiKey, apiVersion, model, systemPrompt, userPrompt, opts = {}) {
-        // Modern model alias resolution for 2026 active endpoints
+        // Modern model alias resolution for 2026 active endpoints (gemini-3.8-flash)
         let targetModel = model;
-        if (!targetModel || targetModel.includes('1.5-pro') || targetModel.includes('1.5-flash') || targetModel.includes('flash-latest')) {
-            targetModel = 'gemini-2.5-flash';
+        if (!targetModel || targetModel.includes('1.5') || targetModel.includes('2.5') || targetModel.includes('flash-latest')) {
+            targetModel = 'gemini-3.8-flash';
         }
 
         const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${targetModel}:generateContent?key=${apiKey}`;
