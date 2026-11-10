@@ -197,7 +197,7 @@ describe('PHASE 4.5-D (PR #68) FINAL FAIL-CLOSED SECURITY REMEDIATION', () => {
         });
 
         test('1.4: Stopped or non-running instance throws EPHEMERAL_DATABASE_REQUIRED', async () => {
-            const temp = await MongoMemoryServer.create();
+            const temp = await createVerifiedEphemeralTestDatabase();
             await temp.stop();
             try {
                 assert.throws(
