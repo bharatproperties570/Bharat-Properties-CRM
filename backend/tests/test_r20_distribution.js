@@ -29,7 +29,8 @@ mock.module('../models/DistributionRule.js', {
 mock.module('../models/User.js', {
     defaultExport: {
         find: mock.fn(),
-        findById: mock.fn()
+        findById: mock.fn(),
+        updateOne: mock.fn(() => Promise.resolve({ modifiedCount: 1, matchedCount: 1 }))
     }
 });
 

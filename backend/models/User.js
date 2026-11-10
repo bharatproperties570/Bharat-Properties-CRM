@@ -147,6 +147,14 @@ const UserSchema = new mongoose.Schema({
     },
 
     // ========== Security & Audit ==========
+    // Assignment & Concurrency Serialization Lock
+    assignmentLockSeq: {
+        type: Number,
+        default: 0
+    },
+    lastAssignmentAttemptAt: {
+        type: Date
+    },
     lastLogin: {
         type: Date
     },

@@ -106,12 +106,22 @@ export const isUserEligible = (user, referenceDate = new Date()) => {
     return isUserAvailableAndOnShift(user, referenceDate);
 };
 
+export class WorkloadAggregationError extends Error {
+    constructor(message, cause) {
+        super(message);
+        this.name = 'WorkloadAggregationError';
+        this.code = 'WORKLOAD_AGGREGATION_FAILED';
+        if (cause) this.cause = cause;
+    }
+}
+
 /**
  * P7-R1: Unified active workload aggregator across Leads and Deals.
  * Excludes terminal stages:
  *   Leads: 'Closed', 'Lost', 'Converted', 'Junk'
  *   Deals: 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost'
  * Excludes deleted entities. Avoids double-counting with $ifNull.
+ * Fails closed on any aggregation failure (P7-PostMerge-Hardening).
  */
 export const calculateActiveWorkloadMap = async (userIds, session = null) => {
     const workloadMap = {};
@@ -217,7 +227,8 @@ export const calculateActiveWorkloadMap = async (userIds, session = null) => {
             });
         }
     } catch (err) {
-        console.warn('[DistributionEngine] Workload aggregation fallback:', err.message);
+        console.error('[DistributionEngine] 🚨 Workload aggregation failed — failing closed:', err.message);
+        throw new WorkloadAggregationError(`Failed to aggregate active workload: ${err.message}`, err);
     }
 
     return workloadMap;
@@ -405,7 +416,21 @@ export const executeDistributionCycle = async (pointerPayload) => {
         let underCapacityUsers = [];
         let workloadMap = {};
         if (eligibleUsers.length > 0) {
-            workloadMap = await calculateActiveWorkloadMap(eligibleUsers.map(u => u._id));
+            try {
+                workloadMap = await calculateActiveWorkloadMap(eligibleUsers.map(u => u._id));
+            } catch (aggErr) {
+                console.error('[DistributionEngine] 🚨 Primary candidate workload aggregation failed (fail-closed):', aggErr.message);
+                await logAudit({
+                    entityId,
+                    modelName,
+                    cycleId,
+                    triggerEvent: normalizedTrigger,
+                    status: 'SKIPPED',
+                    reason: `Workload aggregation failed (fail-closed): ${aggErr.message}`,
+                    attempt
+                });
+                throw aggErr;
+            }
             underCapacityUsers = eligibleUsers.filter(u => {
                 const load = workloadMap[u._id.toString()] || 0;
                 const capacityLimit = (u.preferences?.capacityLimit !== undefined && u.preferences?.capacityLimit !== null)
@@ -415,7 +440,7 @@ export const executeDistributionCycle = async (pointerPayload) => {
             });
         }
 
-        if (underCapacityUsers.length === 0) {
+        const tryFallback = async () => {
             if (rule.fallbackTarget && rule.fallbackTarget.id) {
                 let fallbackAgentIds = [];
                 if (rule.fallbackTarget.type === 'team') {
@@ -429,7 +454,22 @@ export const executeDistributionCycle = async (pointerPayload) => {
                     let potentialFallbackUsers = await User.find({ _id: { $in: fallbackAgentIds } }).lean();
                     let eligibleFallbackUsers = potentialFallbackUsers.filter(isUserEligible);
                     if (eligibleFallbackUsers.length > 0) {
-                        const fallbackWorkloadMap = await calculateActiveWorkloadMap(eligibleFallbackUsers.map(u => u._id));
+                        let fallbackWorkloadMap = {};
+                        try {
+                            fallbackWorkloadMap = await calculateActiveWorkloadMap(eligibleFallbackUsers.map(u => u._id));
+                        } catch (fallbackAggErr) {
+                            console.error('[DistributionEngine] 🚨 Fallback workload aggregation failed (fail-closed):', fallbackAggErr.message);
+                            await logAudit({
+                                entityId,
+                                modelName,
+                                cycleId,
+                                triggerEvent: normalizedTrigger,
+                                status: 'SKIPPED',
+                                reason: `Fallback workload aggregation failed (fail-closed): ${fallbackAggErr.message}`,
+                                attempt
+                            });
+                            throw fallbackAggErr;
+                        }
                         const underCapacityFallbackUsers = eligibleFallbackUsers.filter(u => {
                             const load = fallbackWorkloadMap[u._id.toString()] || 0;
                             const capacityLimit = (u.preferences?.capacityLimit !== undefined && u.preferences?.capacityLimit !== null)
@@ -440,11 +480,25 @@ export const executeDistributionCycle = async (pointerPayload) => {
 
                         if (underCapacityFallbackUsers.length > 0) {
                             const assignedTo = underCapacityFallbackUsers[0]._id;
-                            return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name + " (Fallback)", originalAssignedTo, cycleId, normalizedTrigger, attempt);
+                            try {
+                                return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name + " (Fallback)", originalAssignedTo, cycleId, normalizedTrigger, attempt);
+                            } catch (fbAssignErr) {
+                                if (fbAssignErr.message && fbAssignErr.message.includes('CAPACITY_EXCEEDED')) {
+                                    console.warn(`[DistributionEngine] Fallback agent ${assignedTo} capped during race.`);
+                                } else {
+                                    throw fbAssignErr;
+                                }
+                            }
                         }
                     }
                 }
             }
+            return null;
+        };
+
+        if (underCapacityUsers.length === 0) {
+            const fallbackResult = await tryFallback();
+            if (fallbackResult) return fallbackResult;
             continue;
         }
 
@@ -570,7 +624,21 @@ export const executeDistributionCycle = async (pointerPayload) => {
             }
 
         if (assignedTo) {
-            return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name, originalAssignedTo, cycleId, normalizedTrigger, attempt);
+            try {
+                return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name, originalAssignedTo, cycleId, normalizedTrigger, attempt);
+            } catch (assignErr) {
+                if (assignErr.message && assignErr.message.includes('CAPACITY_EXCEEDED')) {
+                    console.warn(`[DistributionEngine] Candidate ${assignedTo} capped during race. Disqualifying from cycle.`);
+                    underCapacityUsers = underCapacityUsers.filter(u => String(u._id) !== String(assignedTo));
+                    if (underCapacityUsers.length > 0) {
+                        const nextCandidate = underCapacityUsers[0];
+                        return await performAssignment(freshEntity, Model, modelName, nextCandidate._id, rule.name, originalAssignedTo, cycleId, normalizedTrigger, attempt);
+                    }
+                    const fallbackResult = await tryFallback();
+                    if (fallbackResult) return fallbackResult;
+                }
+                throw assignErr;
+            }
         }
     }
 
@@ -626,6 +694,21 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
 
     try {
         await withMongoTransaction(async (session) => {
+            // 🛡️ CRITICAL HARDENING: Shared per-user atomic serialization guard (forces write conflict on concurrent transactions)
+            if (typeof User.updateOne === 'function') {
+                const lockResult = await User.updateOne(
+                    { _id: assignedTo },
+                    {
+                        $inc: { assignmentLockSeq: 1 },
+                        $set: { lastAssignmentAttemptAt: now }
+                    },
+                    { session }
+                );
+                if (lockResult && lockResult.matchedCount === 0) {
+                    throw new Error(`ASSIGNMENT_GUARD_FAILED: Target user ${assignedTo} not found`);
+                }
+            }
+
             // P7-R2: Atomic capacity check within the transaction session to prevent race exceeding cap
             const LeadModel = (await import('../../models/Lead.js')).default;
             const DealModel = (await import('../../models/Deal.js')).default;
@@ -806,7 +889,7 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
                 reason: txErr.message,
                 attempt
             });
-            return null;
+            throw txErr;
         }
         throw txErr;
     }
