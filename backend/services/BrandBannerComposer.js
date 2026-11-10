@@ -374,14 +374,14 @@ class BrandBannerComposer {
             <g transform="translate(540, 240)">
                 <!-- Flash Badge -->
                 <rect x="-180" y="-35" width="360" height="36" rx="18" fill="#FFB703" filter="url(#propShadow)"/>
-                <text x="0" y="-11" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="900" fill="#0B2545" text-anchor="middle" letter-spacing="2">⚡ PRIME INVESTMENT OPPORTUNITY</text>
+                <text x="0" y="-11" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="900" fill="#0B2545" text-anchor="middle" letter-spacing="2">★ PRIME INVESTMENT OPPORTUNITY</text>
 
                 <!-- Main Bold Title -->
                 <text x="0" y="35" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="44" font-weight="900" fill="#FFFFFF" text-anchor="middle" filter="url(#propShadow)" letter-spacing="1">
                     ${safeHeadline}
                 </text>
                 <text x="0" y="75" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="700" fill="#FFD700" text-anchor="middle">
-                    📍 ${safeSub}
+                    ✦ ${safeSub}
                 </text>
             </g>
 
@@ -396,7 +396,7 @@ class BrandBannerComposer {
                 <!-- Modern Visual Accents -->
                 <circle cx="480" cy="180" r="140" fill="rgba(37, 99, 235, 0.15)" />
                 <text x="480" y="170" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="32" font-weight="900" fill="#FFFFFF" text-anchor="middle">
-                    🏡 READY POSSESSION &amp; DIRECT REGISTRY
+                    READY POSSESSION &amp; DIRECT REGISTRY
                 </text>
                 <text x="480" y="210" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="600" fill="#94A3B8" text-anchor="middle">
                     ${safeFacingRoad}
@@ -468,7 +468,7 @@ class BrandBannerComposer {
                 <!-- Left Column -->
                 <g transform="translate(40, 42)">
                     <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#C1121F" letter-spacing="1">BOOK SITE VISIT / INQUIRY</text>
-                    <text x="0" y="26" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#0B2545" letter-spacing="0.5">📞 ${safePhone}</text>
+                    <text x="0" y="26" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#0B2545" letter-spacing="0.5">TEL: ${safePhone}</text>
                     <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#475569">Direct Discussion • Transparent Deal</text>
                 </g>
 
@@ -477,8 +477,8 @@ class BrandBannerComposer {
                 <!-- Right Column -->
                 <g transform="translate(520, 42)">
                     <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#2563EB" letter-spacing="1">HEAD OFFICE</text>
-                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#1E293B">📍 ${safeAddress}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#0B2545">🌐 ${safeWebsite}  |  f @bharatproperties570</text>
+                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#1E293B">${safeAddress}</text>
+                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#0B2545">${safeWebsite}  |  fb: @bharatproperties570</text>
                 </g>
             </g>
         </svg>
