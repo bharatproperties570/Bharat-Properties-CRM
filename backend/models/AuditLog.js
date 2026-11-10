@@ -901,6 +901,8 @@ export const APPROVED_MORTGAGE_PHRASES = new Set([
     'Under mortgage with financial institution',
     'Mortgaged to bank',
     'Mortgaged to financial institution',
+    'No mortgage recorded',
+    'No mortgage pending',
     'NO_MORTGAGE',
     'MORTGAGED',
     'UNDER_MORTGAGE',
@@ -909,7 +911,7 @@ export const APPROVED_MORTGAGE_PHRASES = new Set([
     'NONE'
 ]);
 
-export const MORTGAGE_STATUS_PATTERN = /^(?:Under\s+mortgage\s+with\s+(?:SBI|State\s+Bank\s+of\s+India|HDFC(?:\s+Bank)?|ICICI(?:\s+Bank)?|PNB|Punjab\s+National\s+Bank|Axis\s+Bank|Bank\s+of\s+Baroda|Canara\s+Bank|Union\s+Bank(?:\s+of\s+India)?|Kotak(?:\s+Mahindra)?(?:\s+Bank)?|bank|financial\s+institution)|Mortgaged\s+to\s+(?:bank|financial\s+institution)|NO_MORTGAGE|MORTGAGED|UNDER_MORTGAGE|BANK_CHARGE|CLEAR|NONE)$/i;
+export const MORTGAGE_STATUS_PATTERN = /^(?:Under\s+mortgage\s+with\s+(?:SBI|State\s+Bank\s+of\s+India|HDFC(?:\s+Bank)?|ICICI(?:\s+Bank)?|PNB|Punjab\s+National\s+Bank|Axis\s+Bank|Bank\s+of\s+Baroda|Canara\s+Bank|Union\s+Bank(?:\s+of\s+India)?|Kotak(?:\s+Mahindra)?(?:\s+Bank)?|bank|financial\s+institution)|Mortgaged\s+to\s+(?:bank|financial\s+institution)|No\s+mortgage\s+(?:recorded|pending)|NO_MORTGAGE|MORTGAGED|UNDER_MORTGAGE|BANK_CHARGE|CLEAR|NONE)$/i;
 
 export const APPROVED_PROPERTY_CATEGORIES_AND_TYPES = new Set([
     'Residential Plot', 'Residential Floor', 'Residential Flat', 'Residential Villa', 'Residential House',
@@ -941,7 +943,19 @@ export const CONTROLLED_FIELD_SENTINELS = new Set([
     '[CONTROLLED_AUDIT_NOTE]',
     'Unknown',
     'UNKNOWN',
+    'Unverified',
+    'UNVERIFIED',
+    'Not Verified',
+    'NOT_VERIFIED',
+    'Pending Verification',
+    'PENDING_VERIFICATION',
+    'NOT_OBTAINED',
+    'Not Obtained',
+    'No record found',
+    'NO_RECORD_FOUND',
+    'RECORD_NOT_FOUND',
     'NONE',
+    'None',
     'CLEAR',
     'PENDING',
     'NOT_APPLICABLE',
