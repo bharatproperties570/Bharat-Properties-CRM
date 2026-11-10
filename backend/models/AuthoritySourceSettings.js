@@ -2167,7 +2167,7 @@ AuthoritySourceSettingsSchema.statics.recordOwnerConfirmation = async function (
 
     // Explicitly unauthorized or restricted role
     const hasAnyAuthorityPermission = hasAdminOrManagePermission || userPermissions.includes('authorityVerification.view');
-    if (user.unauthorized === true || (!hasAnyAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker')) {
+    if (user.unauthorized === true || (!hasAnyAuthorityPermission && normalizedClaimedRole !== 'AUTHORIZED_BROKER' && normalizedClaimedRole !== 'Authorized Broker' && normalizedClaimedRole !== 'PORTAL_OPERATOR')) {
         const err = new Error('ACTOR_UNAUTHORIZED: User does not possess authorization for the claimed authority role.');
         err.code = 'ACTOR_UNAUTHORIZED';
         throw err;

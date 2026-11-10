@@ -1226,4 +1226,219 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
             );
         });
     });
+
+    // =========================================================================
+    // MATRIX 7: Targeted Canonical Authority Value Validation & Strict Free-Text Boundary
+    // =========================================================================
+    describe('Matrix 7: Targeted Canonical Authority Value Validation & Strict Free-Text Boundary', () => {
+        test('7.1: Canonical structured authority values succeed on valid authority verification paths', async () => {
+            const canonicalValidEntries = [
+                { field: 'authorityVerification.propertySize', val: '10 Marla (Auction)' },
+                { field: 'authorityVerification.propertySize', val: '350 Sq Yards' },
+                { field: 'authorityVerification.sectorNumber', val: 'Sector 34' },
+                { field: 'authorityVerification.phaseCode', val: 'Phase 2' },
+                { field: 'authorityVerification.blockCode', val: 'Block B' },
+                { field: 'authorityVerification.litigationStatus', val: 'Litigation pending in High Court' },
+                { field: 'authorityVerification.litigationStatus', val: 'Court case pending in High Court' },
+                { field: 'authorityVerification.mortgageStatus', val: 'Under mortgage with SBI' }
+            ];
+
+            for (const item of canonicalValidEntries) {
+                const log = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    metadata: {
+                        authorityCode: 'HSVP',
+                        appliedFields: [
+                            { field: item.field, before: null, after: item.val }
+                        ],
+                        changes: {
+                            after: { [item.field]: item.val }
+                        }
+                    }
+                });
+                assert.ok(log._id, `Log must persist for valid ${item.field}`);
+            }
+        });
+
+        test('7.2: Personal names remain rejected on canonical authority fields', async () => {
+            const personalNames = ['Rajesh Kumar', 'Amit Sharma', 'Priya Devi', 'Vikram Singh'];
+            for (const name of personalNames) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: 'authorityVerification.sectorNumber', before: null, after: name }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+
+        test('7.3: Embedded emails and phone numbers remain rejected on canonical authority fields', async () => {
+            const piiInputs = [
+                '10 Marla user@example.com',
+                'Sector 34 test@domain.org',
+                'Court case 9876543210',
+                'Phase 2 +919876543210'
+            ];
+            for (const pii of piiInputs) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: 'authorityVerification.propertySize', before: null, after: pii }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+
+        test('7.4: Arbitrary metadata notes and description narratives remain rejected', async () => {
+            await assert.rejects(
+                async () => {
+                    await AuditLog.create({
+                        eventType: 'authority_changes_applied',
+                        targetType: 'inventory',
+                        targetId: testTargetInventory._id,
+                        tenantId: CANONICAL_ORG_ID,
+                        actorId: testAdminUser._id,
+                        actorEmail: 'admin@bharatproperties.com',
+                        actorRole: 'SYSTEM_ADMIN',
+                        claimId: new mongoose.Types.ObjectId().toString(),
+                        description: 'Authority verification changes applied from HSVP',
+                        metadata: {
+                            authorityCode: 'HSVP',
+                            notes: 'Arbitrary customer phone conversation transcript'
+                        }
+                    });
+                },
+                err => {
+                    assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                    return true;
+                }
+            );
+
+            await assert.rejects(
+                async () => {
+                    await AuditLog.create({
+                        eventType: 'authority_changes_applied',
+                        targetType: 'inventory',
+                        targetId: testTargetInventory._id,
+                        tenantId: CANONICAL_ORG_ID,
+                        actorId: testAdminUser._id,
+                        actorEmail: 'admin@bharatproperties.com',
+                        actorRole: 'SYSTEM_ADMIN',
+                        claimId: new mongoose.Types.ObjectId().toString(),
+                        description: 'Arbitrary description not matching template',
+                        metadata: {
+                            authorityCode: 'HSVP'
+                        }
+                    });
+                },
+                err => {
+                    assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                    return true;
+                }
+            );
+        });
+
+        test('7.5: Multi-word values on arbitrary non-canonical fields remain rejected', async () => {
+            const nonCanonicalPaths = ['customNotes', 'externalReference', 'ownerRemark', 'unauthorizedField'];
+            for (const nonCanon of nonCanonicalPaths) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: nonCanon, before: null, after: '10 Marla (Auction)' }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                after: { [nonCanon]: '10 Marla (Auction)' }
+                            },
+                            metadata: {
+                                authorityCode: 'HSVP'
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+    });
 });

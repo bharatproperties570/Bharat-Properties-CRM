@@ -539,6 +539,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
                     before: {},
                     after: {
                         contactEmail: 'raw@example.com',
+                        contactPhone: '+919876543210',
                         note: 'Contacted user at testuser@example.com with phone +919876543210'
                     }
                 },
@@ -546,9 +547,12 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
             );
 
             assert.equal(log.changes.after.contactEmail, '[PII_MINIMIZED]');
-            assert.ok(!log.changes.after.note.includes('testuser@example.com'), 'Email must be masked');
-            assert.ok(log.changes.after.note.includes('t***@example.com') || log.changes.after.note.includes('[EMAIL_MINIMIZED]'), 'Email must have masked form');
-            assert.ok(log.changes.after.note.includes('[PHONE_MINIMIZED]'), 'Phone number must be minimized');
+            assert.equal(log.changes.after.contactPhone, '[PII_MINIMIZED]');
+            assert.equal(log.changes.after.note, 'OTHER_CONTROLLED_REASON');
+            const serialized = JSON.stringify(log);
+            assert.ok(!serialized.includes('raw@example.com'), 'Raw email must not appear');
+            assert.ok(!serialized.includes('testuser@example.com'), 'Raw note email must not appear');
+            assert.ok(!serialized.includes('+919876543210'), 'Raw phone must not appear');
         });
 
         it('3.4 should reject invalid authority eventType on save', async () => {
