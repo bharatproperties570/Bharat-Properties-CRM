@@ -6,7 +6,7 @@ import app from '../app.js';
 import redisProxy from '../src/config/redis.js';
 import { REQUIRED_WORKERS, isWorkerRunning, evaluateWorkerReadiness } from '../src/workers/workerRegistry.js';
 
-describe('Phase 7 — Strict Worker Readiness & Health Endpoints', () => {
+describe('Phase 7 — Strict Fail-Closed Worker Readiness & Health Endpoints', () => {
     let server;
     let baseUrl;
     let origDbReadyState;
@@ -58,7 +58,7 @@ describe('Phase 7 — Strict Worker Readiness & Health Endpoints', () => {
         }
     });
 
-    test('1. All required workers running → HTTP 200 on both readiness endpoints', async () => {
+    test('1. Valid BullMQ-style worker → HTTP 200 on both readiness endpoints', async () => {
         // GET /api/ready
         const readyRes = await fetch(`${baseUrl}/api/ready`);
         assert.equal(readyRes.status, 200, 'Expected 200 from /api/ready when all workers running');
@@ -103,7 +103,7 @@ describe('Phase 7 — Strict Worker Readiness & Health Endpoints', () => {
         assert.equal(workersData.activeCount, 11);
     });
 
-    test('3. One worker stopped → HTTP 503 on both endpoints with stopped worker identified', async () => {
+    test('3. One worker stopped (isRunning() returning false) → HTTP 503 on both endpoints', async () => {
         // Mark cronQueue as stopped
         const workers = createHealthyWorkerList();
         const cron = workers.find(w => w.name === 'cronQueue');
@@ -173,32 +173,154 @@ describe('Phase 7 — Strict Worker Readiness & Health Endpoints', () => {
         assert.equal(readyData.reason, 'Redis is unavailable');
     });
 
-    test('7. Unit evaluation: evaluateWorkerReadiness correctly handles paused, closed, and alias names', () => {
-        // Normal list
-        const normal = createHealthyWorkerList();
-        const r1 = evaluateWorkerReadiness(normal);
-        assert.equal(r1.ready, true);
-        assert.equal(r1.expectedCount, 12);
-        assert.equal(r1.activeCount, 12);
+    test('7. Worker missing isRunning() method → HTTP 503 on both endpoints', async () => {
+        const workers = createHealthyWorkerList();
+        const target = workers.find(w => w.name === 'distributionQueue');
+        delete target.isRunning;
+        app.locals.workers = workers;
 
-        // Alias support: domainEventQueue mapped to domain-event-queue
-        const withAlias = normal.map(w => w.name === 'domain-event-queue' ? { ...w, name: 'domainEventQueue' } : w);
-        const r2 = evaluateWorkerReadiness(withAlias);
-        assert.equal(r2.ready, true);
-        assert.equal(r2.workers['domain-event-queue'], 'running');
+        const readyRes = await fetch(`${baseUrl}/api/ready`);
+        assert.equal(readyRes.status, 503, 'Expected 503 when worker lacks isRunning');
+        const readyData = await readyRes.json();
+        assert.ok(readyData.stoppedWorkers.includes('distributionQueue'));
 
-        // Paused worker
-        const pausedList = createHealthyWorkerList();
-        pausedList[0].isPaused = () => true;
-        const r3 = evaluateWorkerReadiness(pausedList);
-        assert.equal(r3.ready, false);
-        assert.equal(r3.stopped[0], pausedList[0].name);
+        const workersRes = await fetch(`${baseUrl}/api/workers/readiness`);
+        assert.equal(workersRes.status, 503, 'Expected 503 from /api/workers/readiness when worker lacks isRunning');
+        const workersData = await workersRes.json();
+        assert.equal(workersData.ready, false);
+        assert.ok(workersData.stoppedWorkers.includes('distributionQueue'));
+    });
 
-        // Closed worker
-        const closedList = createHealthyWorkerList();
-        closedList[1].closed = true;
-        const r4 = evaluateWorkerReadiness(closedList);
-        assert.equal(r4.ready, false);
-        assert.equal(r4.stopped[0], closedList[1].name);
+    test('8. Worker missing isPaused() method → HTTP 503 on both endpoints', async () => {
+        const workers = createHealthyWorkerList();
+        const target = workers.find(w => w.name === 'enrichmentQueue');
+        delete target.isPaused;
+        app.locals.workers = workers;
+
+        const readyRes = await fetch(`${baseUrl}/api/ready`);
+        assert.equal(readyRes.status, 503, 'Expected 503 when worker lacks isPaused');
+        const readyData = await readyRes.json();
+        assert.ok(readyData.stoppedWorkers.includes('enrichmentQueue'));
+
+        const workersRes = await fetch(`${baseUrl}/api/workers/readiness`);
+        assert.equal(workersRes.status, 503);
+        const workersData = await workersRes.json();
+        assert.equal(workersData.ready, false);
+        assert.ok(workersData.stoppedWorkers.includes('enrichmentQueue'));
+    });
+
+    test('9. Worker with neither lifecycle method → HTTP 503 on both endpoints', async () => {
+        const workers = createHealthyWorkerList();
+        const target = workers.find(w => w.name === 'notificationQueue');
+        delete target.isRunning;
+        delete target.isPaused;
+        app.locals.workers = workers;
+
+        const readyRes = await fetch(`${baseUrl}/api/ready`);
+        assert.equal(readyRes.status, 503, 'Expected 503 when worker lacks both methods');
+        const readyData = await readyRes.json();
+        assert.ok(readyData.stoppedWorkers.includes('notificationQueue'));
+
+        const workersRes = await fetch(`${baseUrl}/api/workers/readiness`);
+        assert.equal(workersRes.status, 503);
+        const workersData = await workersRes.json();
+        assert.equal(workersData.ready, false);
+        assert.ok(workersData.stoppedWorkers.includes('notificationQueue'));
+    });
+
+    test('10. isRunning() returning non-boolean → HTTP 503 on both endpoints', async () => {
+        const workers = createHealthyWorkerList();
+        const target = workers.find(w => w.name === 'googleSyncQueue');
+        target.isRunning = () => 'truthy_string'; // Non-boolean truthy
+        app.locals.workers = workers;
+
+        const readyRes = await fetch(`${baseUrl}/api/ready`);
+        assert.equal(readyRes.status, 503, 'Expected 503 when isRunning returns non-boolean');
+        const readyData = await readyRes.json();
+        assert.ok(readyData.stoppedWorkers.includes('googleSyncQueue'));
+
+        const workersRes = await fetch(`${baseUrl}/api/workers/readiness`);
+        assert.equal(workersRes.status, 503);
+        const workersData = await workersRes.json();
+        assert.equal(workersData.ready, false);
+        assert.ok(workersData.stoppedWorkers.includes('googleSyncQueue'));
+    });
+
+    test('11. isPaused() returning non-boolean → HTTP 503 on both endpoints', async () => {
+        const workers = createHealthyWorkerList();
+        const target = workers.find(w => w.name === 'whatsapp_baileys_outbound');
+        target.isPaused = () => 0; // Non-boolean falsy
+        app.locals.workers = workers;
+
+        const readyRes = await fetch(`${baseUrl}/api/ready`);
+        assert.equal(readyRes.status, 503, 'Expected 503 when isPaused returns non-boolean');
+        const readyData = await readyRes.json();
+        assert.ok(readyData.stoppedWorkers.includes('whatsapp_baileys_outbound'));
+
+        const workersRes = await fetch(`${baseUrl}/api/workers/readiness`);
+        assert.equal(workersRes.status, 503);
+        const workersData = await workersRes.json();
+        assert.equal(workersData.ready, false);
+        assert.ok(workersData.stoppedWorkers.includes('whatsapp_baileys_outbound'));
+    });
+
+    test('12. Lifecycle method throwing an exception → HTTP 503 on both endpoints (fail-closed)', async () => {
+        const workers = createHealthyWorkerList();
+        const target = workers.find(w => w.name === 'UnifiedIntakeQueue');
+        target.isRunning = () => { throw new Error('Simulated socket fault during inspection'); };
+        app.locals.workers = workers;
+
+        const readyRes = await fetch(`${baseUrl}/api/ready`);
+        assert.equal(readyRes.status, 503, 'Expected 503 when lifecycle method throws');
+        const readyData = await readyRes.json();
+        assert.ok(readyData.stoppedWorkers.includes('UnifiedIntakeQueue'));
+
+        const workersRes = await fetch(`${baseUrl}/api/workers/readiness`);
+        assert.equal(workersRes.status, 503);
+        const workersData = await workersRes.json();
+        assert.equal(workersData.ready, false);
+        assert.ok(workersData.stoppedWorkers.includes('UnifiedIntakeQueue'));
+    });
+
+    test('13. Unit test: isWorkerRunning() strict fail-closed contract matrix', () => {
+        // 1. Valid BullMQ worker
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => false }), true);
+
+        // 2. Missing isRunning()
+        assert.equal(isWorkerRunning({ isPaused: () => false }), false);
+
+        // 3. Missing isPaused()
+        assert.equal(isWorkerRunning({ isRunning: () => true }), false);
+
+        // 4. Neither method
+        assert.equal(isWorkerRunning({}), false);
+        assert.equal(isWorkerRunning(null), false);
+        assert.equal(isWorkerRunning(undefined), false);
+        assert.equal(isWorkerRunning("worker"), false);
+
+        // 5. isRunning returning non-boolean
+        assert.equal(isWorkerRunning({ isRunning: () => 1, isPaused: () => false }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => "yes", isPaused: () => false }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => ({}), isPaused: () => false }), false);
+
+        // 6. isPaused returning non-boolean
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => 0 }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => "" }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => null }), false);
+
+        // 7. Exception thrown
+        assert.equal(isWorkerRunning({ isRunning: () => { throw new Error('crash'); }, isPaused: () => false }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => { throw new Error('crash'); } }), false);
+
+        // 8. Explicit closed / closing / paused flags
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => false, closed: true }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => false, closing: true }), false);
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => false, paused: true }), false);
+
+        // 9. Running true but paused true
+        assert.equal(isWorkerRunning({ isRunning: () => true, isPaused: () => true }), false);
+
+        // 10. Running false and paused false
+        assert.equal(isWorkerRunning({ isRunning: () => false, isPaused: () => false }), false);
     });
 });

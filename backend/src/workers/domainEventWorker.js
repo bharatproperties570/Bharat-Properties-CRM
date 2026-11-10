@@ -716,29 +716,26 @@ try {
 
 const domainEventWorker = {
     name: 'domain-event-queue',
-    get running() {
-        if (typeof outboxWorker?.isRunning === 'function') {
-            return outboxWorker.isRunning();
-        }
-        return Boolean(outboxWorker);
-    },
     isRunning: () => {
-        if (typeof outboxWorker?.isRunning === 'function') {
-            return outboxWorker.isRunning();
+        if (outboxWorker && typeof outboxWorker.isRunning === 'function') {
+            const val = outboxWorker.isRunning();
+            return typeof val === 'boolean' ? val : false;
         }
-        return Boolean(outboxWorker);
+        return false;
     },
     isClosed: () => {
-        if (typeof outboxWorker?.isClosed === 'function') {
-            return outboxWorker.isClosed();
+        if (outboxWorker && typeof outboxWorker.isClosed === 'function') {
+            const val = outboxWorker.isClosed();
+            return typeof val === 'boolean' ? val : false;
         }
         return Boolean(outboxWorker?.closed);
     },
     isPaused: () => {
-        if (typeof outboxWorker?.isPaused === 'function') {
-            return outboxWorker.isPaused();
+        if (outboxWorker && typeof outboxWorker.isPaused === 'function') {
+            const val = outboxWorker.isPaused();
+            return typeof val === 'boolean' ? val : false;
         }
-        return Boolean(outboxWorker?.paused);
+        return false;
     },
     close: async () => {
         await Promise.allSettled([
