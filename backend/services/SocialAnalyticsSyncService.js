@@ -273,6 +273,7 @@ class SocialAnalyticsSyncService {
                 pb.reach = (pb.reach || 0) + (m.reach || 0);
                 pb.engagement = (pb.engagement || 0) + (m.engagement || 0);
                 if (m.likes) pb.likes = (pb.likes || 0) + m.likes;
+                if (m.comments) pb.comments = (pb.comments || 0) + m.comments;
                 if (m.shares) pb.shares = (pb.shares || 0) + m.shares;
                 if (m.saves) pb.saves = (pb.saves || 0) + m.saves;
                 if (m.videoViews) pb.videoViews = (pb.videoViews || 0) + m.videoViews;
@@ -296,6 +297,18 @@ class SocialAnalyticsSyncService {
             const p = summary.pillarBreakdown[key];
             if (p.reach > 0) {
                 p.avgRate = parseFloat(((p.engagement / p.reach) * 100).toFixed(2));
+            }
+        }
+
+        // Calculate avg rate per platform
+        for (const key of Object.keys(summary.platformBreakdown)) {
+            const pb = summary.platformBreakdown[key];
+            if (pb.reach > 0) {
+                pb.avgRate = parseFloat(((pb.engagement / pb.reach) * 100).toFixed(2));
+            } else if (pb.impressions > 0) {
+                pb.avgRate = parseFloat(((pb.engagement / pb.impressions) * 100).toFixed(2));
+            } else {
+                pb.avgRate = 0;
             }
         }
 

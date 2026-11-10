@@ -627,7 +627,7 @@ export const getSocialTelemetry = async (req, res) => {
         const lookbackDays = parseInt(req.query.days || 30, 10);
         const digest = await socialAnalyticsSyncService.getTelemetryDigest(lookbackDays);
         const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-        const posts = await SocialPostMetric.find({ publishedAt: { $gte: since } }).sort({ publishedAt: -1 }).limit(50).lean();
+        const posts = await SocialPostMetric.find({ publishedAt: { $gte: since } }).sort({ publishedAt: -1 }).limit(200).lean();
         res.json({ success: true, digest, posts });
     } catch (error) {
         console.error('[MarketingController] getSocialTelemetry error:', error);
