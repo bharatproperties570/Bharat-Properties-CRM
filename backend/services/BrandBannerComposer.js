@@ -76,6 +76,199 @@ class BrandBannerComposer {
     }
 
     /**
+     * Load official Director / Founder avatar with a circular alpha mask
+     */
+    async getDirectorAvatarBuffer(size = 92) {
+        const candidatePaths = [
+            '/home/ubuntu/bharat-crm-releases/shared/uploads/director_avatar.jpg',
+            '/home/ubuntu/bharat-crm-releases/shared/uploads/director_avatar.png',
+            path.join(process.cwd(), 'backend/assets/director_avatar.jpg'),
+            path.join(process.cwd(), 'backend/assets/director_avatar.png'),
+            path.join(process.cwd(), 'assets/director_avatar.jpg'),
+            path.join(process.cwd(), 'assets/director_avatar.png'),
+            path.join(process.cwd(), 'uploads/director_avatar.jpg')
+        ];
+
+        for (const p of candidatePaths) {
+            if (fs.existsSync(p)) {
+                try {
+                    const radius = Math.floor(size / 2);
+                    const circleMask = Buffer.from(
+                        `<svg><circle cx="${radius}" cy="${radius}" r="${radius}" fill="#fff" /></svg>`
+                    );
+                    return await sharp(p)
+                        .resize(size, size, { fit: 'cover' })
+                        .composite([{ input: circleMask, blend: 'dest-in' }])
+                        .png()
+                        .toBuffer();
+                } catch (e) {
+                    console.warn(`[BrandBannerComposer] Failed to load director avatar from ${p}:`, e.message);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Brands.live-Style Premier Business Identity Footer Frame (SVG)
+     * Features:
+     * 1. Director / Founder portrait with dual-layer gold ornate ring + executive credentials
+     * 2. WhatsApp Emerald Hot-Pill + dual verified phone numbers + trust seal
+     * 3. Corporate office location, official portal & social network handles
+     */
+    renderBrandsLiveFooter(options = {}) {
+        const {
+            phone = this.defaultPhone,
+            address = this.defaultAddress,
+            website = this.defaultWebsite,
+            directorName = 'Suraj Keshwar',
+            directorTitle = 'FOUNDER & MANAGING DIRECTOR',
+            companyName = 'BHARAT PROPERTIES',
+            companyTagline = 'Trusted Real Estate Since 1996',
+            trustPillText = '✓ 100% Clear Title • Direct Owner Meet',
+            socialHandles = 'f: @bharatproperties570  |  ig: @bhaaratproperties'
+        } = options;
+
+        const safeDirector = this.escapeXml(directorName);
+        const safeDirectorTitle = this.escapeXml(directorTitle);
+        const safeCompany = this.escapeXml(companyName);
+        const safeTagline = this.escapeXml(companyTagline);
+        const safeTrustPill = this.escapeXml(trustPillText);
+        const safeSocial = this.escapeXml(socialHandles);
+        const safeWebsite = this.escapeXml(website);
+
+        // Parse phone numbers
+        let primaryPhone = '94160-35570';
+        let secondaryPhone = '📞 +91 99913-33570';
+        if (phone) {
+            const rawParts = String(phone).split(/[|/,]+/).map(s => s.trim()).filter(Boolean);
+            if (rawParts.length > 0) {
+                primaryPhone = rawParts[0].replace(/^\+91[\s-]*/, '');
+            }
+            if (rawParts.length > 1) {
+                secondaryPhone = `📞 +91 ${rawParts[1].replace(/^\+91[\s-]*/, '')}`;
+            }
+        }
+        const safePrimaryPhone = this.escapeXml(primaryPhone);
+        const safeSecondaryPhone = this.escapeXml(secondaryPhone);
+
+        // Address formatting into 2 clean lines
+        let addrLine1 = '#166, Sector 3, Huda Market';
+        let addrLine2 = 'Kurukshetra, Haryana';
+        if (address) {
+            const parts = String(address).split(',').map(s => s.trim()).filter(Boolean);
+            if (parts.length >= 3) {
+                addrLine1 = parts.slice(0, -1).join(', ');
+                addrLine2 = parts[parts.length - 1];
+                if (!/haryana/i.test(addrLine2)) {
+                    addrLine2 += ', Haryana';
+                }
+            } else if (parts.length === 2) {
+                addrLine1 = parts[0];
+                addrLine2 = parts[1];
+            } else if (parts.length === 1) {
+                addrLine1 = parts[0];
+            }
+        }
+        const safeAddr1 = this.escapeXml(addrLine1);
+        const safeAddr2 = this.escapeXml(addrLine2);
+
+        return `
+        <!-- BRANDS.LIVE-GRADE PREMIER BUSINESS IDENTITY FOOTER FRAME -->
+        <g id="brandsLiveFooter" transform="translate(35, 915)">
+            <defs>
+                <linearGradient id="blGoldBar" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#D4AF37" />
+                    <stop offset="35%" stop-color="#FFF2A3" />
+                    <stop offset="70%" stop-color="#D4AF37" />
+                    <stop offset="100%" stop-color="#AA771C" />
+                </linearGradient>
+                <filter id="blCardShadow" x="-5%" y="-10%" width="110%" height="125%">
+                    <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.55"/>
+                </filter>
+            </defs>
+
+            <!-- Base White Elevation Card -->
+            <rect x="0" y="0" width="1010" height="135" rx="22" fill="#FFFFFF" filter="url(#blCardShadow)" />
+            
+            <!-- Metallic Gold Top Border Strip -->
+            <rect x="0" y="0" width="1010" height="6" rx="3" fill="url(#blGoldBar)" />
+
+            <!-- ============================================== -->
+            <!-- SECTION 1: FOUNDER & MANAGING DIRECTOR IDENTITY -->
+            <!-- ============================================== -->
+            <g transform="translate(15, 12)">
+                <!-- Dual-Layer Gold Ring Frame (Avatar will overlay inside at x=54, y=936) -->
+                <circle cx="50" cy="55" r="50" fill="none" stroke="url(#blGoldBar)" stroke-width="3.5" />
+                <circle cx="50" cy="55" r="46" fill="none" stroke="#FFFFFF" stroke-width="1.8" />
+
+                <!-- Fallback Monogram (visible if avatar image fails to load) -->
+                <circle cx="50" cy="55" r="45" fill="#0B2545" />
+                <text x="50" y="52" font-family="Noto Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#FFD700" text-anchor="middle">BP</text>
+                <text x="50" y="68" font-family="Noto Sans, Arial, sans-serif" font-size="8.5" font-weight="800" fill="#FFF2A3" text-anchor="middle">EST. 1996</text>
+
+                <!-- Executive Text & Badges -->
+                <text x="110" y="38" font-family="Noto Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#0B2545">${safeDirector}</text>
+                
+                <rect x="110" y="47" width="170" height="20" rx="10" fill="#FEF3C7" stroke="#F59E0B" stroke-width="0.8" />
+                <text x="118" y="61" font-family="Noto Sans, Arial, sans-serif" font-size="9.5" font-weight="800" fill="#92400E">★ ${safeDirectorTitle}</text>
+                
+                <text x="110" y="85" font-family="Noto Sans, Arial, sans-serif" font-size="12" font-weight="900" fill="#C1121F">${safeCompany}</text>
+                <text x="110" y="100" font-family="Noto Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#64748B">${safeTagline}</text>
+            </g>
+
+            <!-- Column Divider 1 -->
+            <line x1="375" y1="20" x2="375" y2="120" stroke="#E2E8F0" stroke-width="1.5" />
+
+            <!-- ============================================== -->
+            <!-- SECTION 2: DIRECT INQUIRY & WHATSAPP STRIP     -->
+            <!-- ============================================== -->
+            <g transform="translate(395, 20)">
+                <text x="0" y="14" font-family="Noto Sans, Arial, sans-serif" font-size="10.5" font-weight="900" fill="#C1121F" letter-spacing="1">DIRECT INQUIRY &amp; SITE VISIT</text>
+                
+                <!-- Emerald WhatsApp Hot-Pill -->
+                <g transform="translate(0, 24)">
+                    <rect x="0" y="0" width="28" height="28" rx="14" fill="#25D366" />
+                    <text x="14" y="20" font-size="15" fill="#FFFFFF" text-anchor="middle" font-weight="900">☎</text>
+                    <text x="36" y="21" font-family="Noto Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#0B2545">${safePrimaryPhone}</text>
+                </g>
+
+                <text x="0" y="74" font-family="Noto Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#334155">${safeSecondaryPhone}</text>
+
+                <!-- Trust Pill Assurance -->
+                <g transform="translate(0, 83)">
+                    <rect x="0" y="0" width="245" height="18" rx="9" fill="rgba(5, 150, 105, 0.1)" />
+                    <text x="8" y="13" font-family="Noto Sans, Arial, sans-serif" font-size="9.5" font-weight="800" fill="#059669">${safeTrustPill}</text>
+                </g>
+            </g>
+
+            <!-- Column Divider 2 -->
+            <line x1="680" y1="20" x2="680" y2="120" stroke="#E2E8F0" stroke-width="1.5" />
+
+            <!-- ============================================== -->
+            <!-- SECTION 3: HEAD OFFICE & DIGITAL CHANNELS      -->
+            <!-- ============================================== -->
+            <g transform="translate(700, 20)">
+                <text x="0" y="14" font-family="Noto Sans, Arial, sans-serif" font-size="10" font-weight="900" fill="#2563EB" letter-spacing="1">HEAD OFFICE &amp; DIGITAL</text>
+                
+                <g transform="translate(0, 24)">
+                    <text x="0" y="14" font-family="Noto Sans, Arial, sans-serif" font-size="12" font-weight="800" fill="#1E293B">📍 ${safeAddr1}</text>
+                    <text x="16" y="30" font-family="Noto Sans, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#475569">${safeAddr2}</text>
+                </g>
+
+                <text x="0" y="73" font-family="Noto Sans, Arial, sans-serif" font-size="12" font-weight="800" fill="#2563EB">🌐 ${safeWebsite}</text>
+
+                <!-- Social Handles Strip -->
+                <g transform="translate(0, 81)">
+                    <rect x="0" y="0" width="280" height="20" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1" />
+                    <text x="10" y="14" font-family="Noto Sans, Arial, sans-serif" font-size="9.5" font-weight="800" fill="#475569">${safeSocial}</text>
+                </g>
+            </g>
+        </g>
+        `;
+    }
+
+    /**
      * Sanitize string for XML/SVG inclusion
      */
     escapeXml(unsafe) {
@@ -251,37 +444,27 @@ class BrandBannerComposer {
             </g>
 
             <!-- STANDARDIZED BRAND BOTTOM FOOTER (Y: 915) -->
-            <g transform="translate(60, 915)">
-                <rect x="0" y="0" width="960" height="110" rx="20" fill="#FFFFFF" filter="url(#festDropShadow)" />
-                <rect x="0" y="0" width="960" height="5" rx="2.5" fill="#C1121F" />
-
-                <!-- Left: Phone -->
-                <g transform="translate(40, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#C1121F" letter-spacing="1">BOOK SITE VISIT / INQUIRY</text>
-                    <text x="0" y="26" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#0B2545" letter-spacing="0.5">📞 ${safePhone}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#475569">Direct Discussion • Transparent Deal</text>
-                </g>
-
-                <line x1="490" y1="20" x2="490" y2="90" stroke="#E2E8F0" stroke-width="1.5" />
-
-                <!-- Right: Address & Web -->
-                <g transform="translate(520, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#2563EB" letter-spacing="1">HEAD OFFICE</text>
-                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#1E293B">📍 ${safeAddress}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#0B2545">🌐 ${safeWebsite}  |  f @bharatproperties570</text>
-                </g>
-            </g>
+            ${this.renderBrandsLiveFooter(options)}
         </svg>
         `;
 
         let compositeInstance = sharp(Buffer.from(svg));
+        const composites = [];
 
         // Add brand logo
         const logo = await this.getLogoBuffer(66, 66);
         if (logo) {
-            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite([
-                { input: logo, left: 68, top: 61 }
-            ]);
+            composites.push({ input: logo, left: 68, top: 61 });
+        }
+
+        // Add director avatar
+        const avatar = await this.getDirectorAvatarBuffer(92);
+        if (avatar) {
+            composites.push({ input: avatar, left: 54, top: 936 });
+        }
+
+        if (composites.length > 0) {
+            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite(composites);
         }
 
         return await this.saveBanner(compositeInstance, 'festival');
@@ -480,37 +663,27 @@ class BrandBannerComposer {
             </g>
 
             <!-- BOTTOM FOOTER STRIP (Y: 915) -->
-            <g transform="translate(60, 915)">
-                <rect x="0" y="0" width="960" height="110" rx="20" fill="#FFFFFF" filter="url(#propShadow)" />
-                <rect x="0" y="0" width="960" height="5" rx="2.5" fill="#C1121F" />
-
-                <!-- Left Column -->
-                <g transform="translate(40, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#C1121F" letter-spacing="1">BOOK SITE VISIT / INQUIRY</text>
-                    <text x="0" y="26" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#0B2545" letter-spacing="0.5">TEL: ${safePhone}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#475569">Direct Discussion • Transparent Deal</text>
-                </g>
-
-                <line x1="490" y1="20" x2="490" y2="90" stroke="#E2E8F0" stroke-width="1.5" />
-
-                <!-- Right Column -->
-                <g transform="translate(520, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#2563EB" letter-spacing="1">HEAD OFFICE</text>
-                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#1E293B">${safeAddress}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#0B2545">${safeWebsite}  |  fb: @bharatproperties570</text>
-                </g>
-            </g>
+            ${this.renderBrandsLiveFooter(options)}
         </svg>
         `;
 
         let compositeInstance = sharp(Buffer.from(svg));
+        const composites = [];
 
         // Add brand logo
         const logo = await this.getLogoBuffer(66, 66);
         if (logo) {
-            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite([
-                { input: logo, left: 68, top: 46 }
-            ]);
+            composites.push({ input: logo, left: 68, top: 46 });
+        }
+
+        // Add director avatar
+        const avatar = await this.getDirectorAvatarBuffer(92);
+        if (avatar) {
+            composites.push({ input: avatar, left: 54, top: 936 });
+        }
+
+        if (composites.length > 0) {
+            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite(composites);
         }
 
         return await this.saveBanner(compositeInstance, 'property');
@@ -595,30 +768,25 @@ class BrandBannerComposer {
             </g>
 
             <!-- Footer Strip -->
-            <g transform="translate(60, 915)">
-                <rect x="0" y="0" width="960" height="110" rx="20" fill="#FFFFFF" filter="url(#eduShadow)" />
-                <rect x="0" y="0" width="960" height="5" rx="2.5" fill="#C1121F" />
-                <g transform="translate(40, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#C1121F" letter-spacing="1">FREE LEGAL VERIFICATION</text>
-                    <text x="0" y="26" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#0B2545" letter-spacing="0.5">📞 ${safePhone}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#475569">Senior Legal &amp; Property Advisors</text>
-                </g>
-                <line x1="490" y1="20" x2="490" y2="90" stroke="#E2E8F0" stroke-width="1.5" />
-                <g transform="translate(520, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#2563EB" letter-spacing="1">HEAD OFFICE</text>
-                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#1E293B">📍 ${safeAddress}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#0B2545">🌐 ${safeWebsite}  |  f @bharatproperties570</text>
-                </g>
-            </g>
+            ${this.renderBrandsLiveFooter(options)}
         </svg>
         `;
 
         let compositeInstance = sharp(Buffer.from(svg));
+        const composites = [];
+
         const logo = await this.getLogoBuffer(66, 66);
         if (logo) {
-            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite([
-                { input: logo, left: 68, top: 51 }
-            ]);
+            composites.push({ input: logo, left: 68, top: 51 });
+        }
+
+        const avatar = await this.getDirectorAvatarBuffer(92);
+        if (avatar) {
+            composites.push({ input: avatar, left: 54, top: 936 });
+        }
+
+        if (composites.length > 0) {
+            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite(composites);
         }
 
         return await this.saveBanner(compositeInstance, 'educational');
@@ -716,30 +884,25 @@ class BrandBannerComposer {
             </g>
 
             <!-- Footer Strip -->
-            <g transform="translate(60, 915)">
-                <rect x="0" y="0" width="960" height="110" rx="20" fill="#FFFFFF" filter="url(#trustShadow)" />
-                <rect x="0" y="0" width="960" height="5" rx="2.5" fill="#C1121F" />
-                <g transform="translate(40, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#C1121F" letter-spacing="1">EXPERIENCE TRANSPARENCY</text>
-                    <text x="0" y="26" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#0B2545" letter-spacing="0.5">📞 ${safePhone}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="600" fill="#475569">Trusted by Thousands in Haryana</text>
-                </g>
-                <line x1="490" y1="20" x2="490" y2="90" stroke="#E2E8F0" stroke-width="1.5" />
-                <g transform="translate(520, 42)">
-                    <text x="0" y="0" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="800" fill="#2563EB" letter-spacing="1">HEAD OFFICE</text>
-                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#1E293B">📍 ${safeAddress}</text>
-                    <text x="0" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="700" fill="#0B2545">🌐 ${safeWebsite}  |  f @bharatproperties570</text>
-                </g>
-            </g>
+            ${this.renderBrandsLiveFooter(options)}
         </svg>
         `;
 
         let compositeInstance = sharp(Buffer.from(svg));
+        const composites = [];
+
         const logo = await this.getLogoBuffer(66, 66);
         if (logo) {
-            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite([
-                { input: logo, left: 68, top: 51 }
-            ]);
+            composites.push({ input: logo, left: 68, top: 51 });
+        }
+
+        const avatar = await this.getDirectorAvatarBuffer(92);
+        if (avatar) {
+            composites.push({ input: avatar, left: 54, top: 936 });
+        }
+
+        if (composites.length > 0) {
+            compositeInstance = sharp(await compositeInstance.png().toBuffer()).composite(composites);
         }
 
         return await this.saveBanner(compositeInstance, 'trust');
