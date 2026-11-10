@@ -199,6 +199,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
   // ══ v2.5 UPGRADE STATES ══
   const [agentOutputs, setAgentOutputs] = useState({ metrics: '', social: '', designer: '', scheduler: '' });
+  const [agentVisuals, setAgentVisuals] = useState({ designer: '' });
   const [agentLoading, setAgentLoading] = useState({ metrics: false, social: false, designer: false, scheduler: false });
   const [orchStep, setOrchStep] = useState(0); // 0-4
   const [isOrchestrating, setIsOrchestrating] = useState(false);
@@ -373,13 +374,19 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const handleRunAutopilotCycle = async () => {
     setIsRunningAutopilot(true);
     addLog('$ [Autonomous Marketing OS] Triggering live agent cycle across pillars...', 'cmd');
-    toast.loading('Running Autonomous Marketing Cycle...', { id: 'auto-cycle' });
+    toast.loading('Running 4-Agent Autonomous Pipeline...', { id: 'auto-cycle' });
     try {
       const res = await marketingAPI.triggerAutonomousCycle({ force: true });
       if (res?.success) {
-        toast.success(`Cycle complete! Scheduled for ${res.scheduledTime} (${res.pillar}) across ${res.channels?.length || 4} channels`, { id: 'auto-cycle' });
-        addLog(`✓ Cycle success! Pillar: ${res.pillar} · Scheduled: ${res.scheduledFor}`, 'success');
-        if (res.visualUrl) addLog(`  Asset Render: ${res.visualUrl}`, 'info');
+        toast.success(`Pipeline complete! Scheduled for ${res.scheduledTime} (${res.pillar}) across ${res.channels?.length || 4} channels`, { id: 'auto-cycle' });
+        addLog(`✓ 4-Agent Pipeline success! Pillar: ${res.pillar} · Scheduled: ${res.scheduledFor}`, 'success');
+        if (res.visualUrl) {
+          addLog(`  🎨 Asset Render: ${res.visualUrl}`, 'info');
+          setAgentVisuals(prev => ({ ...prev, designer: res.visualUrl }));
+        }
+        if (res.agentOutputs) {
+          setAgentOutputs(res.agentOutputs);
+        }
         fetchLiveData();
       } else {
         toast.error(`Autopilot error: ${res.reason || 'Could not complete cycle'}`, { id: 'auto-cycle' });
@@ -1237,7 +1244,16 @@ export default function MarketingOverviewPage({ onNavigate }) {
     setAgentOutputs(prev => ({ ...prev, [id]: '' }));
     addLog(`$ Activating ${config.label}...`, 'cmd');
     addLog(`  Provider: ${config.provider.toUpperCase()} | Model: ${config.model}`, 'info');
-    const ctx = { deals: realDeals.slice(0,5), leads: leads.slice(0,5), hotLeads: realStats?.hotLeads, totalDeals: realDeals.length, posts };
+    const ctx = { 
+      deals: realDeals.slice(0,5), 
+      leads: leads.slice(0,5), 
+      hotLeads: realStats?.hotLeads, 
+      totalDeals: realDeals.length, 
+      posts,
+      metricsReport: agentOutputs.metrics || '',
+      socialPlan: agentOutputs.social || '',
+      visualUrl: agentVisuals.designer || ''
+    };
     
     // Inject Live Telemetry for Metrics Manager
     if (id === 'metrics') {
@@ -1255,6 +1271,12 @@ export default function MarketingOverviewPage({ onNavigate }) {
       if (currentTel) {
         addLog(`  📡 Ingested Live Telemetry: ${currentTel.totalReach || 0} reach, ${currentTel.totalEngagement || 0} engagements`, 'success');
       }
+    } else if (id === 'social' && agentOutputs.metrics) {
+      addLog(`  🔗 Chained Context: Ingested Metrics Manager findings into GPT-4o`, 'info');
+    } else if (id === 'designer' && agentOutputs.social) {
+      addLog(`  🔗 Chained Context: Ingested Social Media Manager plan into Designer Studio`, 'info');
+    } else if (id === 'scheduler') {
+      addLog(`  🔗 Chained Context: Queueing with Designer Visual & Social Captions`, 'info');
     }
 
     addLog(`  CRM context: ${ctx.deals.length} deals, ${ctx.leads.length} leads injected`, 'dim');
@@ -1266,7 +1288,13 @@ export default function MarketingOverviewPage({ onNavigate }) {
       let result = null;
       try {
         const apiRes = await marketingAPI.generateWithModel({ provider: config.provider, model: config.model, agentId: id, context: ctx });
-        if (apiRes?.success && apiRes?.content) result = apiRes.content;
+        if (apiRes?.success && apiRes?.content) {
+          result = apiRes.content;
+          if (apiRes.visualUrl) {
+            setAgentVisuals(prev => ({ ...prev, [id]: apiRes.visualUrl }));
+            addLog(`  🎨 Sharp Canvas Engine: Generated 1080x1080 Branded Asset`, 'success');
+          }
+        }
       } catch(_) {}
       if (!result) result = buildAgentResult(id, ctx);
       await new Promise(r => setTimeout(r, 300));
@@ -3043,6 +3071,27 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
               </div>
 
+              {/* ⚡ Enterprise 4-Agent Pipeline Execution Bar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(124,58,237,0.12) 100%)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '14px', padding: '16px 22px', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '14px' }}>
+                <div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span>⚡ Unified 4-Agent Autonomous Marketing Pipeline</span>
+                    <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', fontWeight: 800 }}>Continuous Chain Active</span>
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.5' }}>
+                    Step 1: <strong>Metrics Manager (Gemini 3.5)</strong> ➔ Step 2: <strong>Social Media Manager (GPT-4o)</strong> ➔ Step 3: <strong>Designer AI (Sharp Studio)</strong> ➔ Step 4: <strong>Scheduling Manager (BullMQ)</strong>
+                  </div>
+                </div>
+                <button 
+                  className="tact-btn primary" 
+                  onClick={handleRunAutopilotCycle} 
+                  disabled={isRunningAutopilot}
+                  style={{ padding: '10px 24px', fontSize: '0.84rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 16px rgba(79, 70, 229, 0.45)', cursor: isRunningAutopilot ? 'not-allowed' : 'pointer' }}
+                >
+                  {isRunningAutopilot ? <><span className="spinner-sm"></span> Orchestrating 4 Agents...</> : <>🚀 Run Full 4-Agent Cycle</>}
+                </button>
+              </div>
+
               {/* 4-Agent Cards — Model-Aware */}
               <div className="agents-grid-2col">
                 {[
@@ -3118,6 +3167,29 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           </div>
                           <div className="ach-oi-content" style={{ whiteSpace: 'pre-wrap', fontSize: '11.5px', lineHeight: '1.75', color: 'var(--text2)' }}>{agentOutputs[a.id]}</div>
                        </div>
+                    )}
+                    {a.id === 'designer' && agentVisuals.designer && (
+                      <div style={{ marginTop: '12px', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(251,188,4,0.3)', background: 'rgba(0,0,0,0.35)', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+                        <div style={{ padding: '8px 14px', background: 'rgba(251,188,4,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(251,188,4,0.2)' }}>
+                          <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#fbbc04', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>🎨</span> Real Rendered Asset (1080x1080)
+                          </span>
+                          <button 
+                            className="tact-btn sm" 
+                            onClick={() => window.open(agentVisuals.designer, '_blank')} 
+                            style={{ padding: '3px 10px', fontSize: '9.5px', fontWeight: 800, background: '#fbbc04', color: '#000', border: 'none' }}
+                          >
+                            View Full Resolution
+                          </button>
+                        </div>
+                        <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', background: '#070b14' }}>
+                          <img 
+                            src={agentVisuals.designer} 
+                            alt="Brand Banner Output" 
+                            style={{ width: '100%', maxHeight: '280px', objectFit: 'contain', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }} 
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))}
