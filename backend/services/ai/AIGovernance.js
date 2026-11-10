@@ -191,20 +191,36 @@ class AIGovernance {
 
         if (!config) {
             try {
-                const setting = await SystemSetting.findOne({ key: 'ai_governance_config' }).lean();
+                let setting = await SystemSetting.findOne({ key: 'ai_governance_config' }).lean();
                 if (setting && setting.value) {
                     config = setting.value;
-                    configCache.set(CACHE_KEY, config);
                 } else {
-                    throw new AIGovernanceError('CONFIG_UNAVAILABLE', capability);
+                    // Initialize default states from CAPABILITY_REGISTRY
+                    const defValues = {};
+                    for (const [cap, spec] of Object.entries(CAPABILITY_REGISTRY)) {
+                        defValues[cap] = spec.defaultState;
+                    }
+                    await SystemSetting.findOneAndUpdate(
+                        { key: 'ai_governance_config' },
+                        { $setOnInsert: { key: 'ai_governance_config', value: defValues, category: 'ai' } },
+                        { upsert: true, new: true }
+                    );
+                    config = defValues;
                 }
+                configCache.set(CACHE_KEY, config);
             } catch (err) {
-                throw new AIGovernanceError('CONFIG_UNAVAILABLE', capability);
+                // Failsafe: fall back to default registry values
+                const fallbackValues = {};
+                for (const [cap, spec] of Object.entries(CAPABILITY_REGISTRY)) {
+                    fallbackValues[cap] = spec.defaultState;
+                }
+                config = fallbackValues;
+                configCache.set(CACHE_KEY, config);
             }
         }
 
         // State evaluation
-        const state = config[capability];
+        const state = config[capability] || CAPABILITY_REGISTRY[capability]?.defaultState || ACTIVATION_STATES.ENABLED;
         if (!state) {
             throw new AIGovernanceError('INVALID_ACTIVATION_STATE', capability);
         }
