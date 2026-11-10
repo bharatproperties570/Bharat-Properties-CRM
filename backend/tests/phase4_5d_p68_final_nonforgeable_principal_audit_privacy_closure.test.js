@@ -1440,5 +1440,550 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
                 );
             }
         });
+
+        test('7.6: Approved litigation and mortgage values pass validation across varied canonical phrases and casing', async () => {
+            const approvedLitigation = [
+                'Stay order by High Court',
+                'Court case pending in Civil Court',
+                'Status quo ordered by court',
+                'No litigation pending',
+                'STAY_ORDER',
+                'LITIGATION_PENDING',
+                'CLEAR',
+                'NONE'
+            ];
+            for (const val of approvedLitigation) {
+                const log = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    metadata: {
+                        authorityCode: 'HSVP',
+                        appliedFields: [
+                            { field: 'authorityVerification.litigationStatus', before: null, after: val }
+                        ]
+                    },
+                    changes: {
+                        after: { 'authorityVerification.litigationStatus': val }
+                    }
+                });
+                assert.ok(log._id, `Log must persist for approved litigation phrase: ${val}`);
+            }
+
+            const approvedMortgage = [
+                'Under mortgage with HDFC Bank',
+                'Under mortgage with ICICI Bank',
+                'Under mortgage with Punjab National Bank',
+                'Under mortgage with State Bank of India',
+                'Under mortgage with bank',
+                'Mortgaged to bank',
+                'UNDER_MORTGAGE',
+                'NO_MORTGAGE',
+                'CLEAR',
+                'NONE'
+            ];
+            for (const val of approvedMortgage) {
+                const log = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    metadata: {
+                        authorityCode: 'HSVP',
+                        appliedFields: [
+                            { field: 'authorityVerification.mortgageStatus', before: null, after: val }
+                        ]
+                    },
+                    changes: {
+                        after: { 'authorityVerification.mortgageStatus': val }
+                    }
+                });
+                assert.ok(log._id, `Log must persist for approved mortgage phrase: ${val}`);
+            }
+        });
+
+        test('7.7: Arbitrary lowercase narratives on canonical fields fail', async () => {
+            const arbitraryNarratives = [
+                'case pending since last five years in district court',
+                'dispute regarding boundary with neighbor',
+                'loan sanctioned by private financier',
+                'pending clearance from local tehsildar office',
+                'tenant dispute under trial',
+                'urgent hearing listed for tomorrow morning'
+            ];
+
+            for (const narrative of arbitraryNarratives) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: 'authorityVerification.litigationStatus', before: null, after: narrative }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                after: { 'authorityVerification.litigationStatus': narrative }
+                            },
+                            metadata: {
+                                authorityCode: 'HSVP'
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+
+        test('7.8: Arbitrary multi-word mortgage descriptions fail', async () => {
+            const invalidMortgages = [
+                'under mortgage with SBI awaiting legal action',
+                'under mortgage with private lender John Doe',
+                'mortgage deed submitted for cancellation',
+                'loan defaulted under recovery proceedings',
+                'pledged against commercial working capital loan'
+            ];
+
+            for (const mortgage of invalidMortgages) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: 'authorityVerification.mortgageStatus', before: null, after: mortgage }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                after: { 'authorityVerification.mortgageStatus': mortgage }
+                            },
+                            metadata: {
+                                authorityCode: 'HSVP'
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+
+        test('7.9: Arbitrary multi-word property category/type descriptions fail', async () => {
+            const invalidCategories = [
+                'status awaiting document review',
+                'please contact owner for details',
+                'luxury villa with swimming pool',
+                'corner commercial booth near main gate',
+                'semi constructed residential floor'
+            ];
+
+            for (const cat of invalidCategories) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: 'authorityVerification.propertyCategory', before: null, after: cat }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                after: { 'authorityVerification.propertyCategory': cat }
+                            },
+                            metadata: {
+                                authorityCode: 'HSVP'
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+
+        test('7.10: Forged nested canonical paths fail', async () => {
+            const forgedPaths = [
+                'custom.authorityVerification.litigationStatus',
+                'metadata.authorityVerification.propertySize',
+                'forged.authorityVerification.mortgageStatus',
+                'extra.authorityVerification.sectorNumber'
+            ];
+
+            for (const forged of forgedPaths) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: forged, before: null, after: '10 Marla (Auction)' }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                after: { [forged]: '10 Marla (Auction)' }
+                            },
+                            metadata: {
+                                authorityCode: 'HSVP'
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+
+            // Test nested forged object structure in changes.after
+            await assert.rejects(
+                async () => {
+                    await AuditLog.create({
+                        eventType: 'authority_changes_applied',
+                        targetType: 'inventory',
+                        targetId: testTargetInventory._id,
+                        tenantId: CANONICAL_ORG_ID,
+                        actorId: testAdminUser._id,
+                        actorEmail: 'admin@bharatproperties.com',
+                        actorRole: 'SYSTEM_ADMIN',
+                        claimId: new mongoose.Types.ObjectId().toString(),
+                        description: 'Authority verification changes applied from HSVP',
+                        changes: {
+                            after: {
+                                custom: {
+                                    authorityVerification: {
+                                        propertySize: '10 Marla (Auction)'
+                                    }
+                                }
+                            }
+                        },
+                        metadata: {
+                            authorityCode: 'HSVP'
+                        }
+                    });
+                },
+                err => {
+                    assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                    return true;
+                }
+            );
+
+            await assert.rejects(
+                async () => {
+                    await AuditLog.create({
+                        eventType: 'authority_changes_applied',
+                        targetType: 'inventory',
+                        targetId: testTargetInventory._id,
+                        tenantId: CANONICAL_ORG_ID,
+                        actorId: testAdminUser._id,
+                        actorEmail: 'admin@bharatproperties.com',
+                        actorRole: 'SYSTEM_ADMIN',
+                        claimId: new mongoose.Types.ObjectId().toString(),
+                        description: 'Authority verification changes applied from HSVP',
+                        changes: {
+                            after: {
+                                otherPrefix: {
+                                    authorityVerification: {
+                                        litigationStatus: 'Litigation pending in High Court'
+                                    }
+                                }
+                            }
+                        },
+                        metadata: {
+                            authorityCode: 'HSVP'
+                        }
+                    });
+                },
+                err => {
+                    assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                    return true;
+                }
+            );
+        });
+
+        test('7.11: Invalid field paths cannot authorize multi-word values', async () => {
+            const invalidBareFields = [
+                'propertySize',
+                'sectorNumber',
+                'litigationStatus',
+                'mortgageStatus',
+                'authorityVerification.unapprovedField',
+                'unknownField'
+            ];
+
+            for (const fieldName of invalidBareFields) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: fieldName, before: null, after: '10 Marla (Auction)' }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
+
+        test('7.12: Existing legitimate property configurations continue passing', async () => {
+            const legitimateConfigs = [
+                { field: 'authorityVerification.propertyCategory', val: 'Residential Plot' },
+                { field: 'authorityVerification.propertyCategory', val: 'Commercial SCO' },
+                { field: 'authorityVerification.propertyType', val: 'Commercial Booth' },
+                { field: 'authorityVerification.propertyType', val: 'Commercial Shop' },
+                { field: 'authorityVerification.possessionStatus', val: 'Physical Possession Given' },
+                { field: 'authorityVerification.possessionStatus', val: 'Paper Possession Given' },
+                { field: 'authorityVerification.possessionStatus', val: 'Not Possessed' },
+                { field: 'authorityVerification.allotmentMode', val: 'Allotment by Auction' },
+                { field: 'authorityVerification.allotmentMode', val: 'Direct Allotment' },
+                { field: 'authorityVerification.duesStatus', val: 'Dues Pending' },
+                { field: 'authorityVerification.duesStatus', val: 'No Dues' },
+                { field: 'authorityVerification.duesStatus', val: 'Lease Rent Due' },
+                { field: 'authorityVerification.estateOffice', val: 'Estate Office Gurugram' },
+                { field: 'authorityVerification.urbanEstate', val: 'Urban Estate Faridabad' },
+                { field: 'authorityVerification.schemeName', val: 'Scheme 2024 Phase 1' }
+            ];
+
+            for (const cfg of legitimateConfigs) {
+                const log = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    metadata: {
+                        authorityCode: 'HSVP',
+                        appliedFields: [
+                            { field: cfg.field, before: null, after: cfg.val }
+                        ]
+                    },
+                    changes: {
+                        before: { [cfg.field]: null },
+                        after: { [cfg.field]: cfg.val }
+                    }
+                });
+                assert.ok(log._id, `Log must persist for legitimate property configuration: ${cfg.field} = ${cfg.val}`);
+            }
+
+            // Structured nested authorityVerification inside changes
+            const structuredLog = await AuditLog.create({
+                eventType: 'authority_changes_applied',
+                targetType: 'inventory',
+                targetId: testTargetInventory._id,
+                tenantId: CANONICAL_ORG_ID,
+                actorId: testAdminUser._id,
+                actorEmail: 'admin@bharatproperties.com',
+                actorRole: 'SYSTEM_ADMIN',
+                claimId: new mongoose.Types.ObjectId().toString(),
+                description: 'Authority verification changes applied from HSVP',
+                changes: {
+                    before: {
+                        authorityVerification: {
+                            possessionStatus: 'Not Possessed'
+                        }
+                    },
+                    after: {
+                        authorityVerification: {
+                            possessionStatus: 'Physical Possession Given'
+                        }
+                    }
+                },
+                metadata: {
+                    authorityCode: 'HSVP'
+                }
+            });
+            assert.ok(structuredLog._id, 'Structured nested authorityVerification in changes must persist cleanly');
+        });
+
+        test('7.13: Strict PII, personal names, and arbitrary audit notes remain rejected across all fields', async () => {
+            const piiAttempts = [
+                { field: 'authorityVerification.propertyCategory', val: 'Suresh Kumar' },
+                { field: 'authorityVerification.possessionStatus', val: 'Anita Verma' },
+                { field: 'authorityVerification.allotmentMode', val: 'Mr. John Doe' },
+                { field: 'authorityVerification.litigationStatus', val: 'Shri Rajesh Kumar' },
+                { field: 'authorityVerification.mortgageStatus', val: 'owner@estate.org' },
+                { field: 'authorityVerification.sectorNumber', val: '+919876543210' }
+            ];
+
+            for (const attempt of piiAttempts) {
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: attempt.field, before: null, after: attempt.val }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    }
+                );
+            }
+        });
     });
 });

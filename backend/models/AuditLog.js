@@ -729,7 +729,7 @@ export const CONTROLLED_AUTHORITY_METADATA_SCHEMA = {
 };
 
 const NARRATIVE_PII_PATTERNS = [
-    /\b[6-9]\d{9}\b/, // 10-digit mobile
+    /(?:\+?91[\-\s]?)?[6-9]\d{9}\b/, // 10-digit mobile with optional country code
     /\b[A-Z]{5}[0-9]{4}[A-Z]\b/, // PAN
     /\b\d{4}\s\d{4}\s\d{4}\b/, // Aadhaar
     /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, // Email
@@ -837,26 +837,26 @@ export const CANONICAL_AUTHORITY_VERIFICATION_FIELDS = new Set([
 
 export function getCanonicalAuthorityFieldName(fieldPath) {
     if (!fieldPath || typeof fieldPath !== 'string') return null;
-    let clean = fieldPath.trim();
-    if (clean.startsWith('authorityVerification.')) {
-        clean = clean.substring('authorityVerification.'.length);
+    const clean = fieldPath.trim();
+
+    // Must be exactly 'authorityVerification.<canonicalField>' with no extra segments
+    const parts = clean.split('.');
+    if (parts.length === 2 && parts[0] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[1])) {
+        return parts[1];
     }
-    if (clean.includes('.')) {
-        const parts = clean.split('.');
-        const last = parts[parts.length - 1];
-        if (CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(last)) {
-            if (parts.includes('authorityVerification')) {
-                return last;
-            }
-        }
-    }
-    return CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(clean) ? clean : null;
+
+    return null;
 }
 
-export const PROPERTY_SIZE_PATTERN = /^[0-9]+(?:\.[0-9]+)?\s+(?:(?:sq(?:uare)?\.?\s*(?:yards?|yd|feet|ft|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards))(?:\s*\((?:Auction|Allotted|Residential|Commercial|Industrial|Institutional|General|Reserved|Private|Government)\))?$/i;
-export const SECTOR_NUMBER_PATTERN = /^(?:(?:Urban\s+Estate\s+)?Sector\s+)?[0-9]{1,4}(?:-[A-Za-z0-9]+|[A-Za-z])?$/i;
-export const PHASE_CODE_PATTERN = /^(?:Phase\s+)?(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]+)$/i;
-export const BLOCK_CODE_PATTERN = /^(?:(?:Block|Pocket)\s+)?[A-Za-z0-9]{1,4}(?:-[A-Za-z0-9]+)?$/i;
+export const APPROVED_PROPERTY_SIZE_UNITS = '(?:sq(?:uare)?\\.?\\s*(?:yards?|yd|feet|ft|meters?|m)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|sq\\s*ft|sq\\s*yd|sq\\s*m|sq\\s*yards)';
+export const APPROVED_PROPERTY_SIZE_MODES = '(?:Auction|Allotted|Residential|Commercial|Industrial|Institutional|General|Reserved|Private|Government)';
+export const PROPERTY_SIZE_PATTERN = new RegExp(`^[0-9]+(?:\\.[0-9]+)?\\s+${APPROVED_PROPERTY_SIZE_UNITS}(?:\\s*\\(${APPROVED_PROPERTY_SIZE_MODES}\\))?$`, 'i');
+
+export const SECTOR_NUMBER_PATTERN = /^(?:(?:Urban\s+Estate\s+)?Sector\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4}|[A-Za-z])?|[0-9]{1,4}(?:-[A-Za-z0-9]{1,4}|[A-Za-z])?)$/i;
+
+export const PHASE_CODE_PATTERN = /^(?:Phase\s+(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6})|(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6}))$/i;
+
+export const BLOCK_CODE_PATTERN = /^(?:(?:Block|Pocket)\s+[A-Za-z0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?|[A-Za-z0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?)$/i;
 
 export const APPROVED_LITIGATION_PHRASES = new Set([
     'Litigation pending in High Court',
@@ -864,6 +864,7 @@ export const APPROVED_LITIGATION_PHRASES = new Set([
     'Litigation pending in District Court',
     'Court case pending in District Court',
     'Court case pending in Civil Court',
+    'Court case pending in Revenue Court',
     'Stay order by High Court',
     'Stay order by District Court',
     'Stay order by Supreme Court',
@@ -875,18 +876,31 @@ export const APPROVED_LITIGATION_PHRASES = new Set([
     'STAY_ORDER',
     'CLEAR',
     'PENDING',
-    'NONE'
+    'NONE',
+    'UNDER_REVIEW',
+    'STATUS_QUO'
 ]);
 
-export const LITIGATION_STATUS_PATTERN = /^(?:(?:Litigation|Court\s+case)\s+pending\s+in\s+(?:High\s+Court|District\s+Court|Supreme\s+Court|Civil\s+Court|Sub-Divisional\s+Court)|Stay\s+order\s+by\s+(?:High\s+Court|District\s+Court|Supreme\s+Court)|Status\s+quo\s+ordered\s+by\s+court|No\s+litigation\s+pending|[A-Z0-9_ -]{2,50})$/i;
+export const LITIGATION_STATUS_PATTERN = /^(?:(?:Litigation|Court\s+case)\s+pending\s+in\s+(?:High\s+Court|District\s+Court|Supreme\s+Court|Civil\s+Court|Revenue\s+Court|Sub-Divisional\s+Court)|Stay\s+order\s+by\s+(?:High\s+Court|District\s+Court|Supreme\s+Court)|Status\s+quo\s+ordered\s+by\s+court|No\s+litigation\s+pending|NO_LITIGATION|LITIGATION_PENDING|DISPUTED_TITLE|STAY_ORDER|CLEAR|PENDING|NONE|UNDER_REVIEW|STATUS_QUO)$/i;
 
 export const APPROVED_MORTGAGE_PHRASES = new Set([
     'Under mortgage with SBI',
     'Under mortgage with State Bank of India',
+    'Under mortgage with HDFC',
     'Under mortgage with HDFC Bank',
+    'Under mortgage with ICICI',
     'Under mortgage with ICICI Bank',
     'Under mortgage with PNB',
     'Under mortgage with Punjab National Bank',
+    'Under mortgage with Axis Bank',
+    'Under mortgage with Bank of Baroda',
+    'Under mortgage with Canara Bank',
+    'Under mortgage with Union Bank',
+    'Under mortgage with Kotak Mahindra Bank',
+    'Under mortgage with bank',
+    'Under mortgage with financial institution',
+    'Mortgaged to bank',
+    'Mortgaged to financial institution',
     'NO_MORTGAGE',
     'MORTGAGED',
     'UNDER_MORTGAGE',
@@ -895,7 +909,46 @@ export const APPROVED_MORTGAGE_PHRASES = new Set([
     'NONE'
 ]);
 
-export const MORTGAGE_STATUS_PATTERN = /^(?:Under\s+mortgage\s+with\s+[A-Za-z0-9 .&-]{2,40}|NO_MORTGAGE|MORTGAGED|UNDER_MORTGAGE|BANK_CHARGE|CLEAR|NONE|[A-Z0-9_ -]{2,50})$/i;
+export const MORTGAGE_STATUS_PATTERN = /^(?:Under\s+mortgage\s+with\s+(?:SBI|State\s+Bank\s+of\s+India|HDFC(?:\s+Bank)?|ICICI(?:\s+Bank)?|PNB|Punjab\s+National\s+Bank|Axis\s+Bank|Bank\s+of\s+Baroda|Canara\s+Bank|Union\s+Bank(?:\s+of\s+India)?|Kotak(?:\s+Mahindra)?(?:\s+Bank)?|bank|financial\s+institution)|Mortgaged\s+to\s+(?:bank|financial\s+institution)|NO_MORTGAGE|MORTGAGED|UNDER_MORTGAGE|BANK_CHARGE|CLEAR|NONE)$/i;
+
+export const APPROVED_PROPERTY_CATEGORIES_AND_TYPES = new Set([
+    'Residential Plot', 'Residential Floor', 'Residential Flat', 'Residential Villa', 'Residential House',
+    'Commercial SCO', 'Commercial Booth', 'Commercial Shop', 'Commercial Office', 'Commercial Plot',
+    'Industrial Plot', 'Industrial Shed', 'Institutional Plot', 'Agricultural Land',
+    'RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'INSTITUTIONAL', 'AGRICULTURAL',
+    'PLOT', 'SCO', 'BOOTH', 'FLAT', 'FLOOR', 'VILLA', 'SHOP', 'OFFICE', 'HOUSE', 'SHED',
+    'PENTHOUSE', 'DUPLEX', 'STUDIO', 'FARMHOUSE'
+]);
+
+export const PROPERTY_CATEGORY_TYPE_PATTERN = /^(?:(?:Residential|Commercial|Industrial|Institutional|Agricultural)\s+(?:Plot|Floor|Flat|Villa|House|SCO|Booth|Shop|Office|Shed|Land)|(?:Residential|Commercial|Industrial|Institutional|Agricultural|Plot|SCO|Booth|Flat|Floor|Villa|Shop|Office|House|Shed|Penthouse|Duplex|Studio|Farmhouse)|[A-Z0-9_]{2,30})$/i;
+
+export const POSSESSION_STATUS_PATTERN = /^(?:(?:Physical|Paper)\s+Possession\s+Given|Possession\s+Delivered|Not\s+Possessed|POSSESSION_GIVEN|PHYSICAL_POSSESSION|PAPER_POSSESSION|UNDER_OFFER|NOT_POSSESSED|PENDING|NONE|[A-Z0-9_]{2,30})$/i;
+
+export const ALLOTMENT_MODE_PATTERN = /^(?:Allotment\s+by\s+Auction|Direct\s+Allotment|Draw\s+of\s+Lots|Transfer\s+Allotment|AUCTION|ALLOTMENT|DIRECT|DRAW_OF_LOTS|TRANSFER|GENERAL|RESERVED|[A-Z0-9_]{2,30})$/i;
+
+export const DUES_STATUS_PATTERN = /^(?:Dues\s+Pending|No\s+Dues|Lease\s+Rent\s+Due|No\s+Lease\s+Rent\s+Due|CLEAR|NO_DUES|DUES_PENDING|DEFICIT|PAID|EXEMPT|ACTIVE|INACTIVE|SUSPENDED|VERIFIED|NOT_VERIFIED|PENDING|NONE|[A-Z0-9_]{2,30})$/i;
+
+export const ESTATE_OFFICE_PATTERN = /^(?:(?:Estate\s+Office|Urban\s+Estate)\s+(?:Gurugram|Panchkula|Faridabad|Mohali|Chandigarh|Karnal|Rohtak|Hisar|Ambala|Panipat|Sonipat|Rewari|Kurukshetra|Yamunanagar|[A-Za-z0-9]{2,25})|(?:Chandigarh|GMADA|HSVP)\s+Estate\s+Office|[A-Za-z0-9_-]{2,30})$/i;
+
+export const URBAN_ESTATE_PATTERN = /^(?:Urban\s+Estate\s+(?:Sector\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?|[A-Za-z0-9]{2,25})|[A-Za-z0-9_-]{2,30})$/i;
+
+export const SCHEME_NAME_PATTERN = /^(?:(?:Scheme|Sector)\s+(?:No\.?\s*)?[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|(?:Residential|Commercial|Industrial)\s+Scheme(?:\s+[0-9]{1,4})?|[A-Za-z0-9_-]{2,30})$/i;
+
+export const CONTROLLED_FIELD_SENTINELS = new Set([
+    '[ADDRESS_MINIMIZED]',
+    '[PII_MINIMIZED]',
+    '[REDACTED]',
+    '[CONTROLLED_AUDIT_NOTE]',
+    'Unknown',
+    'UNKNOWN',
+    'NONE',
+    'CLEAR',
+    'PENDING',
+    'NOT_APPLICABLE',
+    'N/A',
+    'NA',
+    'NULL'
+]);
 
 export function validateControlledScalarValue(val, pathStr, isErrorField = false, canonicalField = null) {
     if (val === null || val === undefined) return;
@@ -923,23 +976,25 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
             throw err;
         }
 
-        // Field-aware canonical authority verification matching
+        // Field-aware canonical authority verification matching (only on legitimate authority changes paths)
         if (!canonicalField && pathStr && typeof pathStr === 'string') {
-            const pathSegments = pathStr.split('.');
-            const lastSeg = pathSegments[pathSegments.length - 1];
-            if (CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(lastSeg)) {
-                const isChangeOrAuthorityPath = pathSegments.some(seg =>
-                    seg === 'changes' || seg === 'before' || seg === 'after' || seg === 'authorityVerification'
-                );
-                if (isChangeOrAuthorityPath) {
-                    canonicalField = lastSeg;
-                }
+            const parts = pathStr.split('.');
+            if (parts.length === 3 && parts[0] === 'changes' && parts[1] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[2])) {
+                canonicalField = parts[2];
+            } else if (parts.length === 4 && parts[0] === 'changes' && (parts[1] === 'before' || parts[1] === 'after') && parts[2] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[3])) {
+                canonicalField = parts[3];
+            } else if (parts.length === 4 && parts[0] === 'metadata' && parts[1] === 'changes' && parts[2] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[3])) {
+                canonicalField = parts[3];
+            } else if (parts.length === 5 && parts[0] === 'metadata' && parts[1] === 'changes' && (parts[2] === 'before' || parts[2] === 'after') && parts[3] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[4])) {
+                canonicalField = parts[4];
             }
         }
 
         let isCanonicalMatch = false;
         if (canonicalField) {
-            if (canonicalField === 'propertySize' && PROPERTY_SIZE_PATTERN.test(trimmed)) {
+            if (CONTROLLED_FIELD_SENTINELS.has(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'propertySize' && PROPERTY_SIZE_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
             } else if (canonicalField === 'sectorNumber' && SECTOR_NUMBER_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
@@ -951,15 +1006,32 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
                 isCanonicalMatch = true;
             } else if (canonicalField === 'mortgageStatus' && (APPROVED_MORTGAGE_PHRASES.has(trimmed) || MORTGAGE_STATUS_PATTERN.test(trimmed))) {
                 isCanonicalMatch = true;
-            } else if ((canonicalField === 'schemeName' || canonicalField === 'urbanEstate' || canonicalField === 'estateOffice') && /^(?:(?:Urban\s+Estate|Estate\s+Office|Scheme)\s+)?[A-Za-z0-9 .&-]{2,50}$/i.test(trimmed)) {
+            } else if ((canonicalField === 'propertyCategory' || canonicalField === 'propertyType') && (APPROVED_PROPERTY_CATEGORIES_AND_TYPES.has(trimmed) || PROPERTY_CATEGORY_TYPE_PATTERN.test(trimmed))) {
                 isCanonicalMatch = true;
-            } else if ((canonicalField === 'propertyCategory' || canonicalField === 'propertyType') && /^(?:Residential\s+Plot|Commercial\s+SCO|Commercial\s+Booth|Commercial\s+Shop|Residential|Commercial|Industrial|Institutional|Agricultural|Plot|SCO|Booth|Flat|Floor|Villa|Shop|Office|[A-Z0-9_ -]{2,40})$/i.test(trimmed)) {
+            } else if (canonicalField === 'possessionStatus' && POSSESSION_STATUS_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
-            } else if ((canonicalField === 'possessionStatus' || canonicalField === 'allotmentMode' || canonicalField === 'authorityStatus' || canonicalField === 'duesStatus' || canonicalField === 'leaseRentStatus') && /^(?:Physical\s+Possession\s+Given|Paper\s+Possession\s+Given|Not\s+Possessed|Allotment\s+by\s+Auction|Direct\s+Allotment|Dues\s+Pending|Lease\s+Rent\s+Due|[A-Z0-9_ -]{2,50})$/i.test(trimmed)) {
+            } else if (canonicalField === 'allotmentMode' && ALLOTMENT_MODE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'authorityStatus' || canonicalField === 'duesStatus' || canonicalField === 'leaseRentStatus') && DUES_STATUS_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'estateOffice' && ESTATE_OFFICE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'urbanEstate' && URBAN_ESTATE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'schemeName' && SCHEME_NAME_PATTERN.test(trimmed)) {
                 isCanonicalMatch = true;
             } else if (canonicalField === 'propertyAreaUnit' && /^(?:sq(?:uare)?\s*(?:yards?|yd|feet|ft|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards|[A-Z0-9_]{2,30})$/i.test(trimmed)) {
                 isCanonicalMatch = true;
+            } else if ((canonicalField === 'propertyId' || canonicalField === 'fileNumber' || canonicalField === 'formNumber' || canonicalField === 'authorityCode' || canonicalField === 'verificationRunId' || canonicalField === 'verificationSnapshotId' || canonicalField === 'snapshotContentHash' || canonicalField === 'rawSnapshotHash' || canonicalField === 'applyClaimId') && /^[a-zA-Z0-9_-]{2,80}$/.test(trimmed)) {
+                isCanonicalMatch = true;
             }
+        }
+
+        // Canonical authority verification fields must strictly match their canonical patterns
+        if (canonicalField && !isCanonicalMatch) {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' does not conform to canonical pattern for '${canonicalField}'.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
         }
 
         // Reject uncontrolled narrative phrases (multi-word text with whitespace)
@@ -993,24 +1065,31 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
             }
         }
         // Reject personal human names (e.g. "Rajesh Kumar", "Amit Sharma", "Priya Devi")
-        const nameMatches = trimmed.match(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g);
-        if (nameMatches) {
-            const NON_HUMAN_WORDS = new Set([
-                'high', 'court', 'sq', 'yards', 'yard', 'feet', 'foot', 'meter', 'meters',
-                'floor', 'first', 'second', 'third', 'ground', 'sector', 'plot', 'phase',
-                'urban', 'estate', 'civil', 'suit', 'state', 'bank', 'india', 'punjab',
-                'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali',
-                'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim',
-                'marla', 'kanal', 'acre', 'auction', 'allotted', 'block', 'pocket', 'case', 'office', 'scheme'
-            ]);
-            for (const nm of nameMatches) {
-                const parts = nm.split(/\s+/);
-                const w1 = parts[0].toLowerCase();
-                const w2 = parts[1].toLowerCase();
-                if (!NON_HUMAN_WORDS.has(w1) && !NON_HUMAN_WORDS.has(w2)) {
-                    const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name.`);
-                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                    throw err;
+        if (!isCanonicalMatch) {
+            const nameMatches = trimmed.match(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g);
+            if (nameMatches) {
+                const NON_HUMAN_WORDS = new Set([
+                    'high', 'court', 'sq', 'yards', 'yard', 'feet', 'foot', 'meter', 'meters',
+                    'floor', 'first', 'second', 'third', 'ground', 'sector', 'plot', 'phase',
+                    'urban', 'estate', 'civil', 'suit', 'state', 'bank', 'india', 'punjab',
+                    'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali',
+                    'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim',
+                    'marla', 'kanal', 'acre', 'auction', 'allotted', 'block', 'pocket', 'case', 'office', 'scheme',
+                    'commercial', 'residential', 'industrial', 'institutional', 'agricultural',
+                    'booth', 'shop', 'house', 'villa', 'flat', 'shed', 'land',
+                    'physical', 'paper', 'possession', 'delivered', 'given',
+                    'direct', 'allotment', 'draw', 'lots', 'transfer',
+                    'dues', 'lease', 'rent', 'due', 'clear', 'active', 'verified'
+                ]);
+                for (const nm of nameMatches) {
+                    const parts = nm.split(/\s+/);
+                    const w1 = parts[0].toLowerCase();
+                    const w2 = parts[1].toLowerCase();
+                    if (!NON_HUMAN_WORDS.has(w1) && !NON_HUMAN_WORDS.has(w2)) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
                 }
             }
         }
@@ -1018,7 +1097,19 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
     }
     if (t === 'object' && !Array.isArray(val)) {
         for (const [k, v] of Object.entries(val)) {
-            const childCanonical = getCanonicalAuthorityFieldName(k);
+            const isLegitParent = pathStr === 'changes' || pathStr === 'changes.before' || pathStr === 'changes.after' ||
+                                  pathStr === 'metadata.changes' || pathStr === 'metadata.changes.before' || pathStr === 'metadata.changes.after';
+            const isLegitAuthorityParent = pathStr === 'changes.authorityVerification' || 
+                                           pathStr === 'changes.before.authorityVerification' || 
+                                           pathStr === 'changes.after.authorityVerification' ||
+                                           pathStr === 'metadata.changes.authorityVerification' ||
+                                           pathStr === 'metadata.changes.before.authorityVerification' ||
+                                           pathStr === 'metadata.changes.after.authorityVerification';
+
+            const resolvedChild = (isLegitParent && k.startsWith('authorityVerification.'))
+                ? k
+                : (isLegitAuthorityParent ? `authorityVerification.${k}` : null);
+            const childCanonical = getCanonicalAuthorityFieldName(resolvedChild);
             validateControlledScalarValue(v, `${pathStr}.${k}`, false, childCanonical);
         }
         return;
@@ -1974,7 +2065,16 @@ export function validateAuditChanges(changes, contextPath = 'changes', eventType
             } else if (normalizedKey === 'error' || normalizedKey === 'errorMessage' || normalizedKey === 'applyError' || normalizedKey === 'rollbackReason') {
                 validateControlledScalarValue(value, fullPath, true);
             } else {
-                const canonicalField = getCanonicalAuthorityFieldName(key) || getCanonicalAuthorityFieldName(normalizedKey);
+                const isLegitimateAuthorityContext = contextPath === 'changes.authorityVerification' ||
+                                                     contextPath === 'changes.before.authorityVerification' ||
+                                                     contextPath === 'changes.after.authorityVerification';
+                const isLegitimateParentContext = contextPath === 'changes' ||
+                                                  contextPath === 'changes.before' ||
+                                                  contextPath === 'changes.after';
+                const resolvedField = (isLegitimateParentContext && key.startsWith('authorityVerification.'))
+                    ? key
+                    : (isLegitimateAuthorityContext ? `authorityVerification.${key}` : null);
+                const canonicalField = getCanonicalAuthorityFieldName(resolvedField);
                 validateControlledScalarValue(value, fullPath, false, canonicalField);
             }
         } else if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date) && !value._bsontype) {
