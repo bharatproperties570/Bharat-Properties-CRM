@@ -33,7 +33,8 @@ const RoleSchema = new mongoose.Schema({
             view: { type: Boolean, default: false },
             create: { type: Boolean, default: false },
             edit: { type: Boolean, default: false },
-            delete: { type: Boolean, default: false }
+            delete: { type: Boolean, default: false },
+            reassign: { type: Boolean, default: false }
         },
         deals: {
             view: { type: Boolean, default: false },
@@ -151,6 +152,7 @@ const RoleSchema = new mongoose.Schema({
         approveStageChange: { type: Boolean, default: false },
         approveListingPublish: { type: Boolean, default: false },
         allowHardDelete: { type: Boolean, default: false }, // Enterprise Hard Delete Auth
+        reassignLeads: { type: Boolean, default: false },
         manageAuthoritySettings: { type: Boolean, default: false },
         approveAuthorityChanges: { type: Boolean, default: false }
     },

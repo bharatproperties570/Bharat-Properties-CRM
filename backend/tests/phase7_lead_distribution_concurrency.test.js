@@ -1299,4 +1299,214 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
             Lead.aggregate = originalAggregate;
         }
     });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 21: Capacity Configuration Read Failure (Fail-Closed)
+    // ─────────────────────────────────────────────────────────────
+    it('21. Capacity Configuration: Target user capacity read failure aborts transaction with typed error and no assignment committed', async () => {
+        const { CapacityConfigurationError } = await import('../src/utils/distributionEngine.js');
+
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'P7-Capacity-Test-Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id]
+            }
+        });
+
+        const testLead = await Lead.create({ firstName: 'CapacityFail', lastName: 'Test', mobile: '9700000001', owner: null });
+
+        // Inject failure on User.findById
+        const originalFindById = User.findById;
+        User.findById = (id) => {
+            const query = originalFindById.call(User, id);
+            return {
+                session(sess) {
+                    return {
+                        lean: async () => {
+                            throw new Error('Simulated network timeout reading user preferences');
+                        }
+                    };
+                },
+                lean: async () => {
+                    throw new Error('Simulated network timeout reading user preferences');
+                }
+            };
+        };
+
+        try {
+            await assert.rejects(
+                executeDistributionCycle({
+                    entityId: testLead._id,
+                    modelName: 'Lead',
+                    triggerEvent: 'onCreate',
+                    cycleId: `cycle_cap_fail_${Date.now()}`,
+                    attempt: 1
+                }),
+                (err) => {
+                    assert.strictEqual(err.name, 'CapacityConfigurationError');
+                    assert.strictEqual(err.code, 'CAPACITY_CONFIGURATION_READ_FAILED');
+                    assert.ok(err.message.includes('Simulated network timeout reading user preferences'));
+                    return true;
+                },
+                'Must throw CapacityConfigurationError when target user capacity read fails'
+            );
+
+            // Verify transaction aborted and NO lead assignment was committed
+            const checkLead = await Lead.findById(testLead._id);
+            assert.strictEqual(checkLead.owner || null, null, 'Lead must not be assigned when capacity read fails');
+            assert.strictEqual(checkLead.assignment?.assignedTo || null, null, 'Lead assignment.assignedTo must remain null');
+
+            // Verify an auditable SKIPPED record was persisted with CapacityConfigurationError reason
+            const audit = await DistributionAudit.findOne({ entityId: testLead._id, status: 'SKIPPED' });
+            assert.ok(audit, 'Audit must record SKIPPED entry on capacity configuration read failure');
+            assert.ok(audit.reason.includes('CapacityConfigurationError'));
+        } finally {
+            User.findById = originalFindById;
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 22: Explicit Bulk Reassignment Authority Matrix
+    // ─────────────────────────────────────────────────────────────
+    it('22. Bulk Reassignment Authority: Enforces explicit permission matrix (manager without perm rejected, authorized manager, owner and Super Admin permitted)', async () => {
+        const { bulkDistributeLeads } = await import('../controllers/lead.controller.js');
+
+        // Setup role without explicit reassignment authority (even with "Manager" in name)
+        const unauthManagerRole = await Role.create({
+            name: 'Operations Manager',
+            department: 'sales',
+            moduleAccess: {
+                leads: { view: true, create: true, edit: true, delete: true, reassign: false }
+            },
+            approvalRights: {
+                reassignLeads: false
+            },
+            permissions: {}
+        });
+
+        const unauthManagerUser = await User.create({
+            fullName: 'Unauthorized Manager',
+            email: 'unauth.manager@bharatproperties.co',
+            password: 'pwd',
+            department: 'sales',
+            role: unauthManagerRole._id,
+            teams: [teamAlpha._id],
+            dataScope: 'team',
+            isActive: true
+        });
+
+        // Setup role with explicit reassignment authority
+        const authManagerRole = await Role.create({
+            name: 'Regional Manager',
+            department: 'sales',
+            moduleAccess: {
+                leads: { view: true, create: true, edit: true, delete: true, reassign: true }
+            },
+            approvalRights: {
+                reassignLeads: true
+            },
+            permissions: { 'leads:reassign': true }
+        });
+
+        const authManagerUser = await User.create({
+            fullName: 'Authorized Manager',
+            email: 'auth.manager@bharatproperties.co',
+            password: 'pwd',
+            department: 'sales',
+            role: authManagerRole._id,
+            teams: [teamAlpha._id],
+            dataScope: 'team',
+            isActive: true
+        });
+
+        // Setup distribution rule supporting reassignment
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'P7 Reassignment Policy Test Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate', 'onLeadReassignment'],
+            distributionType: 'roundRobin',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id, userB._id]
+            }
+        });
+
+        const leadOwnedByA = await Lead.create({
+            firstName: 'TargetOwned',
+            lastName: 'ByA',
+            mobile: '9811111111',
+            owner: userA._id,
+            teams: [teamAlpha._id],
+            department: 'sales'
+        });
+
+        // 22.1 Manager WITHOUT explicit reassignment authority must be rejected
+        let resUnauthMgr = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [leadOwnedByA._id.toString()] }, user: unauthManagerUser },
+            { status() { return this; }, json(j) { resUnauthMgr = j; return this; } },
+            () => {}
+        );
+        assert.ok(resUnauthMgr, 'Response must be returned');
+        assert.strictEqual(resUnauthMgr.results[0].success, false, 'Manager without explicit reassignment authority must be rejected');
+        assert.strictEqual(resUnauthMgr.results[0].reason, 'Unauthorized reassignment: lead already assigned to another user');
+
+        // 22.2 Authorized Manager WITH explicit reassignment authority must succeed
+        let resAuthMgr = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [leadOwnedByA._id.toString()] }, user: authManagerUser },
+            { status() { return this; }, json(j) { resAuthMgr = j; return this; } },
+            () => {}
+        );
+        assert.ok(resAuthMgr, 'Response must be returned');
+        assert.strictEqual(resAuthMgr.results[0].success, true, 'Authorized manager must be permitted to reassign');
+
+        // 22.3 Current Owner of the lead must be authorized to reassign their own lead
+        const leadForOwnerTest = await Lead.create({ firstName: 'OwnerTest', lastName: 'Lead', mobile: '9822222222', owner: userB._id });
+        let resOwner = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [leadForOwnerTest._id.toString()] }, user: userB },
+            { status() { return this; }, json(j) { resOwner = j; return this; } },
+            () => {}
+        );
+        assert.ok(resOwner, 'Response must be returned');
+        assert.strictEqual(resOwner.results[0].success, true, 'Owner must be authorized to reassign their own lead');
+
+        // 22.4 Super Admin must be authorized to reassign
+        const superAdminUser = await User.create({
+            fullName: 'Super Admin User',
+            email: 'admin.super@bharatproperties.co',
+            password: 'pwd',
+            department: 'sales',
+            role: superAdminRole._id,
+            dataScope: 'all',
+            isActive: true
+        });
+
+        const leadForSuperAdmin = await Lead.create({
+            firstName: 'SuperAdminTest',
+            lastName: 'Lead',
+            mobile: '9833333333',
+            owner: userA._id,
+            visibleTo: 'Everyone'
+        });
+        let resSuperAdmin = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [leadForSuperAdmin._id.toString()] }, user: superAdminUser },
+            { status() { return this; }, json(j) { resSuperAdmin = j; return this; } },
+            () => {}
+        );
+        assert.ok(resSuperAdmin, 'Response must be returned');
+        assert.strictEqual(resSuperAdmin.results[0].success, true, 'Super Admin must be authorized to reassign');
+    });
 });

@@ -116,16 +116,18 @@ async function startServer() {
         const { default: automationWorker } = await import("../services/automationQueue/automationWorker.js");
         const { baileysWorker, baileysInboundWorker } = await import("../services/baileysQueue/baileysWorker.js");
         const { default: autoVerificationDispatcher } = await import("../services/intakeVerification/AutoVerificationDispatcher.js");
-        const { importWorker } = await import("./workers/importWorker.js");
-        const { exportWorker } = await import("./workers/exportWorker.js");
 
         const activeWorkers = [
             enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,
             distributionWorker, domainEventWorker, notificationWorker,
             intakeWorker, automationWorker, baileysWorker, baileysInboundWorker,
-            autoVerificationDispatcher._worker,
-            importWorker, exportWorker
+            autoVerificationDispatcher?._worker
         ].filter(Boolean);
+
+        if (app && app.locals) {
+            app.locals.workers = activeWorkers;
+            app.locals.workersRegistered = true;
+        }
 
         const { outboxPublisher } = await import("../services/OutboxPublisher.js");
         outboxPublisher.start();

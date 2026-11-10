@@ -1791,7 +1791,7 @@ export const bulkDistributeLeads = async (req, res, next) => {
 
         let user = req.user;
         const User = (await import('../models/User.js')).default;
-        if ((!user.department || !user.role) && (user._id || user.id)) {
+        if ((!user.department || !user.role || !user.role.moduleAccess || !user.role.name) && (user._id || user.id)) {
             const dbUser = await User.findById(user._id || user.id).populate('role').lean();
             if (dbUser) user = dbUser;
         }
@@ -1819,11 +1819,18 @@ export const bulkDistributeLeads = async (req, res, next) => {
             return res.status(400).json({ success: false, message: `Batch size exceeds maximum limit of ${MAX_BATCH_SIZE} leads` });
         }
 
-        // 3. Visibility Scope Filter & Reassignment Authority
+        // 3. Visibility Scope Filter & Explicit Reassignment Authority
+        const isSuperAdminUser = isSuperAdmin || userRoleName === 'super admin' || (user?.dataScope === 'all' && (isSuperAdmin || user?.email === 'bharatproperties570@gmail.com'));
+
+        const rolePermissions = user?.role?.permissions || user?.permissions;
+        const hasExplicitReassignPermission = isSuperAdminUser ||
+            (user?.role?.moduleAccess?.leads?.reassign === true) ||
+            (user?.role?.approvalRights?.reassignLeads === true) ||
+            (typeof rolePermissions === 'object' && rolePermissions !== null && (rolePermissions['leads:reassign'] === true || rolePermissions.reassignLeads === true)) ||
+            (Array.isArray(rolePermissions) && rolePermissions.includes('leads:reassign'));
+
         const { getVisibilityFilter } = await import('../utils/visibility.js');
         const visibilityFilter = await getVisibilityFilter(user);
-
-        const isAdminOrManager = userRoleName.includes('admin') || userRoleName.includes('manager') || user?.dataScope === 'all';
         const callerId = String(user?._id || user?.id || '');
 
         const { executeDistributionCycle } = await import('../src/utils/distributionEngine.js');
@@ -1856,7 +1863,7 @@ export const bulkDistributeLeads = async (req, res, next) => {
 
                 if (isAlreadyOwned) {
                     const isCurrentOwner = String(currentOwner) === callerId;
-                    if (!isAdminOrManager && !isCurrentOwner) {
+                    if (!isCurrentOwner && !hasExplicitReassignPermission) {
                         results.push({ leadId: id, success: false, reason: "Unauthorized reassignment: lead already assigned to another user" });
                         continue;
                     }
