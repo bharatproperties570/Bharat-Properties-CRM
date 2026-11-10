@@ -556,9 +556,13 @@ TASKS REQUIRED:
 4. 5 Actionable Strategic Growth Recommendations for the Social Media Manager's upcoming weekly calendar.
 5. Provide expected lead lift projection for next week.`;
             } else if (targetId.includes('social') || targetId.includes('content')) {
-                resolvedPrompt = `Generate a high-converting weekly social media content strategy for Bharat Properties across 4 content pillars: 80% Project Deals, 10% Educational, 7% Trust & Social Proof, and 3% Festivals. Detail daily platform, time, post hook, and hashtags for Instagram, Facebook, and WhatsApp.`;
+                const metricsContext = context?.metricsReport ? `\n\n━━━━━━━━ PREVIOUS METRICS REPORT ━━━━━━━━\n${context.metricsReport}\n` : '';
+                resolvedPrompt = `You are the Social Media Manager (ChatGPT GPT-4o) for Bharat Properties, Kurukshetra.${metricsContext}
+Generate a high-converting weekly social media content strategy for Bharat Properties across 4 content pillars: 80% Project Deals, 10% Educational, 7% Trust & Social Proof, and 3% Festivals. Formulate multi-platform post captions with strong Hinglish hooks, location tags, pricing, and clear CTA for Facebook, Instagram, and LinkedIn.`;
             } else if (targetId.includes('designer') || targetId.includes('visual')) {
-                resolvedPrompt = `Generate 2 photorealistic architectural visual prompts (DALL-E 3 / Flux) and 1 drone reel concept for prime luxury real estate in Kurukshetra. Incorporate Bharat Properties brand aesthetic: Deep Navy Blue (#1a2744), Warm Gold (#C9921A), and clear sky / golden hour lighting.`;
+                const socialContext = context?.socialPlan ? `\n\n━━━━━━━━ SOCIAL MEDIA MANAGER PLAN ━━━━━━━━\n${context.socialPlan}\n` : '';
+                resolvedPrompt = `You are the Designer (Visual AI & Studio Engine) for Bharat Properties.${socialContext}
+Generate photorealistic architectural visual prompts (DALL-E 3 / Flux) and specify precise brand kit design rules (Navy #0B1F3A, Gold #C9921A, White #FFFFFF, Bharat Properties emblem, RERA badges, contact strip).`;
             } else if (targetId.includes('schedul')) {
                 resolvedPrompt = `Formulate an optimal BullMQ multi-platform publishing schedule for Bharat Properties. Determine peak engagement windows (Instagram 7:00-8:30 PM, WhatsApp 9:00 AM & 6:00 PM, Facebook morning) and explain how anti-spam frequency capping and 14-day anti-cannibalization rules protect reach.`;
             } else {
@@ -578,7 +582,34 @@ TASKS REQUIRED:
             capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION
         });
 
-        res.json({ success: true, content: result });
+        // 🎨 Auto-Render Real Visual Asset for Designer AI via Sharp Studio Composer
+        let renderedVisualUrl = null;
+        let renderedAssetType = 'image';
+        const targetId = (agentId || agentName || '').toLowerCase();
+        if (targetId.includes('designer') || targetId.includes('visual')) {
+            try {
+                const candidateDeal = context?.deals?.[0] || null;
+                const visualRes = await marketingService.generateVisualAsset({
+                    deal: candidateDeal,
+                    type: 'image',
+                    pillar: context?.pillar || (candidateDeal ? 'ct-project' : 'ct-festival'),
+                    format: 'post'
+                });
+                if (visualRes?.url) {
+                    renderedVisualUrl = visualRes.url;
+                    renderedAssetType = visualRes.assetType || 'image';
+                }
+            } catch (vErr) {
+                console.warn('[MarketingController] Designer auto-render flyer warning:', vErr.message);
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            content: result,
+            visualUrl: renderedVisualUrl,
+            assetType: renderedAssetType
+        });
     } catch (error) {
         console.error('[MarketingController] generateWithModel Error:', error);
         res.status(500).json({ success: false, error: error.message });

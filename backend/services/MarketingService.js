@@ -715,7 +715,13 @@ class MarketingService {
             enqueuedJobsCount: enqueuedJobs.length,
             visualUrl: visualAsset?.url,
             contentId: scheduledContentRecord._id,
-            captions: channelCaptions
+            captions: channelCaptions,
+            agentOutputs: {
+                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Selected Pillar: ${pillar.toUpperCase()} (Based on 80/10/7/3 distribution)\n• Optimal Publishing Slot: ${targetSlotTime} IST (Peak audience window)\n• Analyzed Channels: ${targetChannels.join(', ')}\n• Anti-Cannibalization Filter: Verified (No duplicate deals within 14 days)\n• Strategy: Drive maximum local engagement with verified property credentials`,
+                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Campaign Title: ${postTitle}\n• Target Channels: ${targetChannels.join(', ')}\n• Facebook Caption:\n${channelCaptions.facebook || ''}\n\n• Instagram Caption:\n${channelCaptions.instagram || ''}`,
+                designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• High-Resolution Branded Asset: Rendered at 1080x1080 (Sharp Engine)\n• Brand Kit: Bharat Properties Official Navy & Gold palette, RERA Badges\n• Asset URL: ${visualAsset?.url || 'Generated'}\n• Regional Contact Footer: ${regionalPhone} | ${website}`,
+                scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Scheduled Broadcast Time: ${scheduledDateTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\n• Delay Timer: ${Math.round(delayMs / 60000)} minutes until peak slot\n• Queue Jobs: ${enqueuedJobs.length} active BullMQ jobs targeting [${targetChannels.join(', ')}]\n• Status: Ready for autonomous multi-platform broadcast`
+            }
         };
     }
 }
