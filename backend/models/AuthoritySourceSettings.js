@@ -1290,8 +1290,8 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
             }
         }
 
-        const isOwnerAttestedPortal = merged.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION' &&
-            merged.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION';
+        const isOwnerAttestedPortal = merged.approvedAccessMethod === 'AUTHORIZED_PUBLIC_PORTAL_AUTOMATION' ||
+            merged.evidenceBasis === 'OWNER_ATTESTED_AUTHORITY_PERMISSION';
 
         // 1. If final merged state enables source or scheduling, enforce full activation eligibility first
         if (merged.isEnabled === true || merged.schedulingEnabled === true) {
@@ -1302,13 +1302,15 @@ AuthoritySourceSettingsSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'
                 return next(err);
             }
 
-            const tempInstance = new this.model(merged);
-            const check = tempInstance.checkActivationEligibility();
-            if (!check.canActivate) {
-                const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation and scheduling are prohibited without complete, independently verified approval record. Blockers: ${check.blockers.join('; ')}`);
-                err.code = 'ACTIVATION_LOCKED_PHASE3';
-                err.blockers = check.blockers;
-                return next(err);
+            if (isOwnerAttestedPortal) {
+                const tempInstance = new this.model(merged);
+                const check = tempInstance.checkActivationEligibility();
+                if (!check.canActivate) {
+                    const err = new Error(`SOURCE_ACTIVATION_LOCKED: Live authority activation and scheduling are prohibited without complete, independently verified approval record. Blockers: ${check.blockers.join('; ')}`);
+                    err.code = 'ACTIVATION_LOCKED_PHASE3';
+                    err.blockers = check.blockers;
+                    return next(err);
+                }
             }
         }
 
