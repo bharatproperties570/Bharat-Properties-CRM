@@ -36,38 +36,51 @@ export function normalizeWorkerName(name) {
 
 /**
  * Evaluates whether an individual BullMQ worker instance is actively running.
- * Correctly handles BullMQ Worker API, MockWorker, and state transitions.
+ * Strict fail-closed verification:
+ *   - Worker must be a non-null object
+ *   - Reject workers with closed === true, closing === true, or paused === true
+ *   - Worker MUST expose both isRunning() and isPaused() functions
+ *   - Both methods must return actual boolean values
+ *   - isRunning() must return true
+ *   - isPaused() must return false
+ *   - Catches any exceptions thrown by lifecycle methods and fails closed (returns false)
+ *   - Rejects missing methods, malformed return values, thrown exceptions, and unknown worker objects
  *
  * @param {Object} worker - BullMQ Worker instance
- * @returns {boolean} True only if actively running and not paused/closed
+ * @returns {boolean} True strictly if actively running and not paused/closed
  */
 export function isWorkerRunning(worker) {
     if (!worker || typeof worker !== 'object') return false;
 
-    // Reject explicitly closed or closing workers
-    if (worker.closed === true || worker.closing) return false;
-
-    // Reject paused workers
-    if (typeof worker.isPaused === 'function' && worker.isPaused()) return false;
-    if (worker.paused === true) return false;
-
-    // Check official BullMQ isRunning() API
-    if (typeof worker.isRunning === 'function') {
-        return worker.isRunning() === true;
+    // Reject explicitly closed, closing, or paused flags
+    if (worker.closed === true || worker.closing === true || worker.paused === true) {
+        return false;
     }
 
-    // Check running property (BullMQ internal flag or wrapper property)
-    if (typeof worker.running === 'boolean') {
-        return worker.running;
+    // Must strictly expose both official BullMQ lifecycle methods
+    if (typeof worker.isRunning !== 'function' || typeof worker.isPaused !== 'function') {
+        return false;
     }
 
-    // Check mock worker internal running flag
-    if (typeof worker._running === 'boolean') {
-        return worker._running;
-    }
+    try {
+        const runningVal = worker.isRunning();
+        const pausedVal = worker.isPaused();
 
-    // If worker exists and has no explicit running/closed API, default to true
-    return true;
+        // Both methods must return actual boolean primitives
+        if (typeof runningVal !== 'boolean' || typeof pausedVal !== 'boolean') {
+            return false;
+        }
+
+        // isRunning() must return true, isPaused() must return false
+        if (runningVal !== true || pausedVal !== false) {
+            return false;
+        }
+
+        return true;
+    } catch {
+        // Any thrown exception during lifecycle probe fails closed
+        return false;
+    }
 }
 
 /**
