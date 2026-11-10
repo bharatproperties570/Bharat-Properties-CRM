@@ -1784,29 +1784,91 @@ export const bulkDeleteLeads = async (req, res, next) => {
  */
 export const bulkDistributeLeads = async (req, res, next) => {
     try {
-        const leadIds = req.body.leadIds || req.body.ids;
-        if (!Array.isArray(leadIds) || leadIds.length === 0) {
-            return res.status(400).json({ success: false, message: "leadIds array is required" });
+        // 1. RBAC Authentication & Permission Check
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: "Authentication required" });
         }
+
+        let user = req.user;
+        const User = (await import('../models/User.js')).default;
+        if ((!user.department || !user.role) && (user._id || user.id)) {
+            const dbUser = await User.findById(user._id || user.id).populate('role').lean();
+            if (dbUser) user = dbUser;
+        }
+
+        const userRoleName = String(user?.role?.name || user?.role || '').toLowerCase();
+        const isSuperAdmin = userRoleName.includes('super admin') || userRoleName.includes('superadmin') || user?.email === 'bharatproperties570@gmail.com';
+
+        let hasEditPerm = isSuperAdmin;
+        if (!hasEditPerm) {
+            const { hasPermission } = await import('../services/permission.service.js');
+            hasEditPerm = await hasPermission(user, 'leads', 'edit');
+        }
+        if (!hasEditPerm) {
+            return res.status(403).json({ success: false, message: "Access denied: edit permission required on leads" });
+        }
+
+        // 2. Request Shape & Batch Size Validation
+        const leadIds = req.body?.leadIds || req.body?.ids;
+        if (!Array.isArray(leadIds) || leadIds.length === 0) {
+            return res.status(400).json({ success: false, message: "leadIds array is required and must not be empty" });
+        }
+
+        const MAX_BATCH_SIZE = 100;
+        if (leadIds.length > MAX_BATCH_SIZE) {
+            return res.status(400).json({ success: false, message: `Batch size exceeds maximum limit of ${MAX_BATCH_SIZE} leads` });
+        }
+
+        // 3. Visibility Scope Filter & Reassignment Authority
+        const { getVisibilityFilter } = await import('../utils/visibility.js');
+        const visibilityFilter = await getVisibilityFilter(user);
+
+        const isAdminOrManager = userRoleName.includes('admin') || userRoleName.includes('manager') || user?.dataScope === 'all';
+        const callerId = String(user?._id || user?.id || '');
 
         const { executeDistributionCycle } = await import('../src/utils/distributionEngine.js');
         const Lead = (await import('../models/Lead.js')).default;
+        const mongoose = (await import('mongoose')).default;
 
         let successCount = 0;
         const results = [];
 
-        for (const id of leadIds) {
+        for (const rawId of leadIds) {
+            const id = typeof rawId === 'string' ? rawId.trim() : String(rawId);
+
+            // Validate ObjectId format
+            if (!mongoose.Types.ObjectId.isValid(id)) {
+                results.push({ leadId: id, success: false, reason: "Invalid ObjectId format" });
+                continue;
+            }
+
             try {
-                const lead = await Lead.findById(id);
+                // Fetch lead within caller's permitted visibility scope
+                const lead = await Lead.findOne({ _id: id, ...visibilityFilter });
                 if (!lead) {
-                    results.push({ leadId: id, success: false, reason: 'Lead not found' });
+                    results.push({ leadId: id, success: false, reason: "Lead not found or outside permitted scope" });
                     continue;
                 }
+
+                // Check reassignment authority for already-owned leads
+                const currentOwner = lead.owner || lead.assignedTo || lead.assignment?.assignedTo;
+                const isAlreadyOwned = Boolean(currentOwner);
+
+                if (isAlreadyOwned) {
+                    const isCurrentOwner = String(currentOwner) === callerId;
+                    if (!isAdminOrManager && !isCurrentOwner) {
+                        results.push({ leadId: id, success: false, reason: "Unauthorized reassignment: lead already assigned to another user" });
+                        continue;
+                    }
+                }
+
                 const cycleId = `cycle_bulk_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+                const triggerEvent = isAlreadyOwned ? 'onLeadReassignment' : 'onCreate';
+
                 const result = await executeDistributionCycle({
                     entityId: lead._id,
                     modelName: 'Lead',
-                    triggerEvent: 'onLeadReassignment',
+                    triggerEvent,
                     cycleId,
                     attempt: 1
                 });
@@ -1815,7 +1877,7 @@ export const bulkDistributeLeads = async (req, res, next) => {
                     successCount++;
                     results.push({ leadId: id, success: true, assignedTo: result.assignedTo, ruleName: result.ruleName });
                 } else {
-                    results.push({ leadId: id, success: false, reason: 'No eligible rule or agent' });
+                    results.push({ leadId: id, success: false, reason: "No eligible rule or agent" });
                 }
             } catch (err) {
                 console.warn(`[Bulk Distribution] Lead ${id} distribution skipped:`, err.message);
@@ -1827,6 +1889,7 @@ export const bulkDistributeLeads = async (req, res, next) => {
             success: true,
             count: successCount,
             totalRequested: leadIds.length,
+            failureCount: leadIds.length - successCount,
             results
         });
     } catch (error) {

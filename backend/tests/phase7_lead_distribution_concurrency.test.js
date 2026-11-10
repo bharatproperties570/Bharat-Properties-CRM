@@ -28,7 +28,7 @@ import {
 
 describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Suite', () => {
     let replset;
-    let salesRole;
+    let salesRole, superAdminRole;
     let teamAlpha;
     let userA, userB, userC, fallbackUser;
 
@@ -62,7 +62,21 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
         salesRole = await Role.create({
             name: 'Sales Agent',
             department: 'sales',
-            isSystemRole: false
+            isSystemRole: false,
+            moduleAccess: {
+                leads: { view: true, create: true, edit: true, delete: false },
+                deals: { view: true, create: true, edit: true, delete: false }
+            }
+        });
+
+        superAdminRole = await Role.create({
+            name: 'Super Admin',
+            department: 'sales',
+            isSystemRole: true,
+            moduleAccess: {
+                leads: { view: true, create: true, edit: true, delete: true },
+                deals: { view: true, create: true, edit: true, delete: true }
+            }
         });
 
         // Seed Team
@@ -976,8 +990,8 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
     // TEST 17: P7-R4 Authoritative Server-Side Bulk Distribution
     // ─────────────────────────────────────────────────────────────
     it('17. P7-R4 Bulk Distribute: Executes server-side atomic distribution cycle for multiple leads', async () => {
-        // Reset capacities
-        await User.findByIdAndUpdate(userA._id, { 'preferences.capacityLimit': 100 });
+        // Reset capacities and set dataScope to 'all' with superAdminRole for bulk distribution admin
+        await User.findByIdAndUpdate(userA._id, { 'preferences.capacityLimit': 100, dataScope: 'all', role: superAdminRole._id });
         await User.findByIdAndUpdate(userB._id, { 'preferences.capacityLimit': 100 });
 
         await DistributionRule.deleteMany({});
@@ -1002,9 +1016,10 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
         let responseStatusCode = 200;
         let responseJsonData = null;
 
+        const adminUser = await User.findById(userA._id).populate('role').lean();
         const req = {
             body: { leadIds: [bLead1._id.toString(), bLead2._id.toString()] },
-            user: { _id: userA._id }
+            user: adminUser
         };
         const res = {
             status(code) {
@@ -1027,5 +1042,261 @@ describe('Phase 7 — Lead Distribution & Round Robin Concurrency Engine Test Su
         const reloaded2 = await Lead.findById(bLead2._id);
         assert.ok(reloaded1.owner, 'Lead 1 must have an assigned owner in DB');
         assert.ok(reloaded2.owner, 'Lead 2 must have an assigned owner in DB');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 18: True Concurrent Capacity Enforcement (Write-Skew Prevention)
+    // ─────────────────────────────────────────────────────────────
+    it('18. True Concurrent Capacity Enforcement: Prevents write-skew when multiple workers assign to same user concurrently', async () => {
+        // Create a dedicated solo agent with strict capacityLimit: 1
+        const soloAgent = await User.create({
+            fullName: 'Solo Agent',
+            email: 'solo.agent@bharatproperties.co',
+            password: 'hashedpassword123',
+            department: 'sales',
+            role: salesRole._id,
+            teams: [teamAlpha._id],
+            isActive: true,
+            status: 'active',
+            availability: 'Available',
+            preferences: {
+                capacityLimit: 1,
+                workingHours: { start: '00:00', end: '23:59' }
+            }
+        });
+
+        // Rule targeting strictly soloAgent (no fallback)
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'Solo Agent Capacity Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [soloAgent._id]
+            }
+        });
+
+        // Create 4 distinct leads competing for the single available slot
+        const leads = await Promise.all([
+            Lead.create({ firstName: 'ConcurrentLead1', lastName: 'Race', mobile: '9400000001', owner: null }),
+            Lead.create({ firstName: 'ConcurrentLead2', lastName: 'Race', mobile: '9400000002', owner: null }),
+            Lead.create({ firstName: 'ConcurrentLead3', lastName: 'Race', mobile: '9400000003', owner: null }),
+            Lead.create({ firstName: 'ConcurrentLead4', lastName: 'Race', mobile: '9400000004', owner: null })
+        ]);
+
+        // Launch 4 concurrent distribution cycles racing for soloAgent's single capacity slot
+        const results = await Promise.allSettled(leads.map((lead, idx) => 
+            executeDistributionCycle({
+                entityId: lead._id,
+                modelName: 'Lead',
+                triggerEvent: 'onCreate',
+                cycleId: `cycle_cap_race_${Date.now()}_${idx}`,
+                attempt: 1
+            })
+        ));
+
+        // Count how many cycles succeeded
+        const succeeded = results.filter(r => r.status === 'fulfilled' && r.value && r.value.assignedTo);
+        assert.strictEqual(succeeded.length, 1, 'Exactly ONE concurrent worker must win the final capacity slot');
+
+        // Check active database workload for soloAgent across Leads and Deals
+        const totalAssignedLeads = await Lead.countDocuments({
+            $or: [{ owner: soloAgent._id }, { assignedTo: soloAgent._id }, { 'assignment.assignedTo': soloAgent._id }],
+            stage: { $nin: ['Closed', 'Lost', 'Converted', 'Junk'] }
+        });
+        assert.strictEqual(totalAssignedLeads, 1, 'Solo agent database workload must strictly equal capacityLimit (1); write-skew prevented');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 19: Bulk Distribution RBAC, Scope & Unauthorized Reassignment
+    // ─────────────────────────────────────────────────────────────
+    it('19. Bulk Distribution RBAC & Scope: Enforces permission, batch limits, format checks, and reassignment authority', async () => {
+        const { bulkDistributeLeads } = await import('../controllers/lead.controller.js');
+
+        // 19.1 Missing permission check (Role without edit permission)
+        const viewOnlyRole = await Role.create({
+            name: 'View Only Agent',
+            department: 'sales',
+            isSystemRole: false,
+            moduleAccess: {
+                leads: { view: true, create: false, edit: false, delete: false }
+            }
+        });
+        const viewOnlyUser = await User.create({
+            fullName: 'View Only',
+            email: 'viewonly@bharatproperties.co',
+            password: 'pwd',
+            department: 'sales',
+            role: viewOnlyRole._id,
+            isActive: true
+        });
+
+        let status403 = null;
+        let json403 = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [new mongoose.Types.ObjectId().toString()] }, user: viewOnlyUser },
+            { status(s) { status403 = s; return this; }, json(j) { json403 = j; return this; } },
+            () => {}
+        );
+        assert.strictEqual(status403, 403, 'Users lacking leads:edit must be rejected with 403');
+
+        // 19.2 Invalid request shape (non-array or empty)
+        let status400 = null;
+        const adminUser = await User.findById(userA._id).populate('role').lean();
+        await bulkDistributeLeads(
+            { body: { leadIds: 'not-an-array' }, user: adminUser },
+            { status(s) { status400 = s; return this; }, json() { return this; } },
+            () => {}
+        );
+        assert.strictEqual(status400, 400, 'Non-array leadIds must return 400 Bad Request');
+
+        // 19.3 Batch size limit exceeding 100
+        let statusBatchMax = null;
+        const hugeBatch = Array.from({ length: 101 }, () => new mongoose.Types.ObjectId().toString());
+        await bulkDistributeLeads(
+            { body: { leadIds: hugeBatch }, user: adminUser },
+            { status(s) { statusBatchMax = s; return this; }, json() { return this; } },
+            () => {}
+        );
+        assert.strictEqual(statusBatchMax, 400, 'Batches exceeding 100 leads must return 400 Bad Request');
+
+        // 19.4 Invalid ObjectId format reporting
+        let resFormat = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: ['invalid-id-xyz', '12345'] }, user: adminUser },
+            { status() { return this; }, json(j) { resFormat = j; return this; } },
+            () => {}
+        );
+        assert.strictEqual(resFormat.results[0].reason, 'Invalid ObjectId format');
+        assert.strictEqual(resFormat.results[1].reason, 'Invalid ObjectId format');
+
+        // 19.5 Scope restriction: Restricted agent cannot distribute leads outside scope
+        const restrictedUser = await User.create({
+            fullName: 'Restricted Agent',
+            email: 'restricted@bharatproperties.co',
+            password: 'pwd',
+            department: 'sales',
+            role: salesRole._id,
+            dataScope: 'assigned',
+            isActive: true
+        });
+        const unassignedLead = await Lead.create({ firstName: 'Unassigned', lastName: 'Lead', mobile: '9500000001', owner: null });
+        let resScope = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [unassignedLead._id.toString()] }, user: restrictedUser },
+            { status() { return this; }, json(j) { resScope = j; return this; } },
+            () => {}
+        );
+        assert.strictEqual(resScope.results[0].success, false);
+        assert.strictEqual(resScope.results[0].reason, 'Lead not found or outside permitted scope');
+
+        // 19.6 Unauthorized reassignment: Non-owner non-admin cannot reassign someone else's lead
+        const someoneElsesLead = await Lead.create({ firstName: 'Owned', lastName: 'Lead', mobile: '9500000002', owner: userB._id });
+        let resUnauth = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [someoneElsesLead._id.toString()] }, user: restrictedUser },
+            { status() { return this; }, json(j) { resUnauth = j; return this; } },
+            () => {}
+        );
+        assert.strictEqual(resUnauth.results[0].success, false);
+
+        // 19.7 Authorized reassignment: Admin CAN reassign already-owned lead
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'P7-R4 Bulk Reassignment Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate', 'onLeadReassignment'],
+            distributionType: 'roundRobin',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id, userB._id]
+            }
+        });
+
+        let resAdminReassign = null;
+        await bulkDistributeLeads(
+            { body: { leadIds: [someoneElsesLead._id.toString()] }, user: adminUser },
+            { status() { return this; }, json(j) { resAdminReassign = j; return this; } },
+            () => {}
+        );
+        assert.strictEqual(resAdminReassign.results[0].success, true, 'Admin must be authorized to reassign already-owned leads');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 20: Fail-Closed Workload Aggregation
+    // ─────────────────────────────────────────────────────────────
+    it('20. Fail-Closed Workload Aggregation: Propagates WorkloadAggregationError and fails closed without silent bypass', async () => {
+        const { calculateActiveWorkloadMap, WorkloadAggregationError } = await import('../src/utils/distributionEngine.js');
+
+        // 20.1 Direct failure injection on Lead.aggregate
+        const originalAggregate = Lead.aggregate;
+        try {
+            Lead.aggregate = () => {
+                throw new Error('Simulated transient MongoDB cluster network failure');
+            };
+
+            await assert.rejects(
+                calculateActiveWorkloadMap([userA._id]),
+                (err) => {
+                    assert.strictEqual(err.name, 'WorkloadAggregationError');
+                    assert.strictEqual(err.code, 'WORKLOAD_AGGREGATION_FAILED');
+                    assert.ok(err.message.includes('Simulated transient MongoDB cluster network failure'));
+                    return true;
+                },
+                'Must throw typed WorkloadAggregationError on aggregation failure'
+            );
+        } finally {
+            Lead.aggregate = originalAggregate;
+        }
+
+        // 20.2 Execution cycle fails closed when aggregation fails
+        await DistributionRule.deleteMany({});
+        await DistributionRule.create({
+            name: 'Fail Closed Cycle Rule',
+            enabled: true,
+            module: 'leads',
+            triggerEvent: ['onCreate'],
+            distributionType: 'roundRobin',
+            priority: 1,
+            assignmentTarget: {
+                type: 'user',
+                ids: [userA._id]
+            }
+        });
+
+        const testLead = await Lead.create({ firstName: 'FailClosed', lastName: 'Test', mobile: '9600000001', owner: null });
+        Lead.aggregate = () => {
+            throw new Error('Simulated DB fail-closed during cycle');
+        };
+
+        try {
+            await assert.rejects(
+                executeDistributionCycle({
+                    entityId: testLead._id,
+                    modelName: 'Lead',
+                    triggerEvent: 'onCreate',
+                    cycleId: `cycle_fail_closed_${Date.now()}`,
+                    attempt: 1
+                }),
+                /Simulated DB fail-closed/
+            );
+
+            // Verify lead was NOT assigned
+            const checkLead = await Lead.findById(testLead._id);
+            assert.strictEqual(checkLead.owner || null, null, 'Lead must remain unassigned when workload fails closed');
+
+            // Verify audit trail recorded failure
+            const audit = await DistributionAudit.findOne({ entityId: testLead._id, status: 'SKIPPED' });
+            assert.ok(audit, 'Audit must record SKIPPED entry on fail-closed aggregation');
+            assert.ok(audit.reason.includes('Workload aggregation failed (fail-closed)'));
+        } finally {
+            Lead.aggregate = originalAggregate;
+        }
     });
 });
