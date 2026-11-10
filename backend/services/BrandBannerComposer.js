@@ -301,14 +301,33 @@ class BrandBannerComposer {
             website = this.defaultWebsite
         } = options;
 
-        const unitNo = deal.unitNo || deal.name || deal.title || 'Prime Plot';
+        const maskUnitNo = options.maskUnitNo !== false;
+        let unitHeadline = 'PRIME PROPERTY';
+        if (!maskUnitNo && deal.unitNo) {
+            unitHeadline = deal.unitNo;
+        } else if (deal.sizeLabel) {
+            const cleanSize = String(deal.sizeLabel).replace(/\s*\([^)]*\)/g, '').trim();
+            unitHeadline = `${cleanSize} Plot`;
+        } else if (deal.propertyType || deal.unitType) {
+            unitHeadline = `Prime ${deal.propertyType || deal.unitType}`;
+        } else {
+            unitHeadline = deal.name || deal.title || 'Prime Property';
+        }
+
         const projName = deal.projectName?.name || deal.projectName || 'Prime Location';
-        const loc = deal.location || deal.locCity || 'Kurukshetra, Haryana';
+        let loc = deal.location || deal.locCity || 'Kurukshetra, Haryana';
+        if (typeof loc === 'string') {
+            loc = loc.replace(/\b-?\d{1,3}\.\d{4,}\b/g, '').replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim();
+            if (!loc || /^[0-9a-fA-F]{24}$/.test(loc)) {
+                loc = 'Kurukshetra, Haryana';
+            }
+        }
+
         const size = deal.sizeLabel || (deal.size ? `${deal.size} ${deal.sizeUnit || 'sq.yd'}` : '10 Marla (250 sq.yd)');
         const priceStr = deal.price ? `₹${Number(deal.price).toLocaleString('en-IN')}` : 'Best Offer';
 
         const facingRoad = [deal.facing ? `${deal.facing} Facing` : null, deal.roadWidth ? `${deal.roadWidth} Road` : null].filter(Boolean).join(' • ') || 'Wide Road Access • Green Belt';
-        const safeHeadline = this.escapeXml(`${unitNo.toUpperCase()} AVAILABLE FOR SALE`);
+        const safeHeadline = this.escapeXml(`${unitHeadline.toUpperCase()} AVAILABLE FOR SALE`);
         const safeSub = this.escapeXml(`At ${projName}, ${loc}`);
         const safePhone = this.escapeXml(phone);
         const safeAddress = this.escapeXml(address);
