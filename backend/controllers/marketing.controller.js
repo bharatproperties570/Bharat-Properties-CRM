@@ -182,13 +182,64 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             ? parseFloat(velocityAggregation[0].avgDays.toFixed(1)) 
             : 3.4;
 
-        // 3. Live Source Attribution (Real MongoDB queries)
+        // 3. Automated Drip Sequences & Enrollments Aggregation (Real MongoDB Atlas)
+        let dripMetrics = {
+            totalSequences: 0,
+            totalEnrollments: 0,
+            activeInFlight: 0,
+            goalAchieved: 0,
+            goalRate: 0,
+            failedCount: 0,
+            sequences: []
+        };
+
+        try {
+            const Sequence = (await import('../models/Sequence.js')).default;
+            const SequenceEnrollment = (await import('../models/SequenceEnrollment.js')).default;
+
+            const [allSequences, allEnrollments] = await Promise.all([
+                Sequence.find({}).lean(),
+                SequenceEnrollment.find({}).lean()
+            ]);
+
+            const achieved = allEnrollments.filter(e => e.status === 'exited' || e.status === 'completed').length;
+            const active = allEnrollments.filter(e => e.status === 'active' || e.status === 'paused').length;
+            const failed = allEnrollments.filter(e => e.status === 'failed').length;
+
+            dripMetrics = {
+                totalSequences: allSequences.length,
+                totalEnrollments: allEnrollments.length,
+                activeInFlight: active,
+                goalAchieved: achieved,
+                goalRate: allEnrollments.length > 0 ? parseFloat(((achieved / allEnrollments.length) * 100).toFixed(1)) : 0,
+                failedCount: failed,
+                sequences: allSequences.map(s => {
+                    const seqEnrs = allEnrollments.filter(e => (e.sequenceId || '').toString() === s._id.toString());
+                    const seqAchieved = seqEnrs.filter(e => e.status === 'exited' || e.status === 'completed').length;
+                    return {
+                        id: s._id,
+                        name: s.name,
+                        module: s.module || 'leads',
+                        stepsCount: s.steps?.length || 0,
+                        totalEnrolled: seqEnrs.length,
+                        goalAchieved: seqAchieved,
+                        goalRate: seqEnrs.length > 0 ? parseFloat(((seqAchieved / Math.max(1, seqEnrs.length)) * 100).toFixed(1)) : 0,
+                        status: s.isActive ?? s.active ? 'Active' : 'Paused'
+                    };
+                })
+            };
+        } catch (dripErr) {
+            console.error('[MarketingController] drip metrics aggregation error:', dripErr);
+        }
+
+        // 4. Live Source Attribution (Real MongoDB queries)
         const leadsForAttribution = await Lead.find({ isDeleted: { $ne: true } })
             .populate('source', 'lookup_value')
             .select('source source_meta')
             .lean();
 
         const sourceCategories = {
+            drip: { key: 'drip', label: 'CRM Automated Drip Sequences', count: dripMetrics.totalEnrollments, color: '#10B981' },
             whatsapp: { key: 'whatsapp', label: 'WhatsApp Business API', count: 0, color: 'var(--green)' },
             google: { key: 'google', label: 'Google Ads & GBP', count: 0, color: 'var(--gold)' },
             meta: { key: 'meta', label: 'Instagram & Meta Reels', count: 0, color: '#8b5cf6' },
@@ -214,7 +265,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             }
         });
 
-        const totalAttributed = leadsForAttribution.length || 1;
+        const totalAttributed = (leadsForAttribution.length + dripMetrics.totalEnrollments) || 1;
         Object.keys(sourceCategories).forEach(k => {
             const cat = sourceCategories[k];
             cat.percentage = Math.round((cat.count / totalAttributed) * 100);
@@ -300,9 +351,10 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                     leadVelocityDays: avgVelocityDays
                 },
                 sourceAttribution: {
-                    totalTracked: totalLeadsCount,
+                    totalTracked: totalLeadsCount + dripMetrics.totalEnrollments,
                     categories: sourceCategories
                 },
+                dripAnalytics: dripMetrics,
                 weeklyVelocity: {
                     weekRange: `${startOfWeek.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${endOfWeek.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
                     days: daysMap,
