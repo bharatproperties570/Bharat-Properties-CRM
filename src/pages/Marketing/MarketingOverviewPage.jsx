@@ -59,7 +59,6 @@ const PAGE_META = {
   analytics: { title: 'Analytics', subtitle: 'Metrics engine · ROI Tracking' },
   agents: { title: 'AI Agents', subtitle: 'Autonomous cross-platform orchestration' },
   campaign: { title: 'Campaign Engine', subtitle: '360° Omnichannel Dispatch' },
-  strategies: { title: 'Optimization', subtitle: 'Data-driven market strategies' },
   designer: { title: 'Designer Studio', subtitle: 'Visual Prompt Lab' },
   techstack: { title: 'Tech Stack', subtitle: 'Enterprise Infrastructure' },
   portals: { title: 'Property Portals', subtitle: 'Marketplace Integration' },
@@ -102,9 +101,6 @@ const CAMP_KPIS_FALLBACK = [
   { label: 'ACTIVITY', val: '—', sub: 'This month', type: 'blue' }
 ];
 
-const STRATEGIES_DATA = []; // Empty mock data
-
-
 const AGENT_RESULTS = {
   metrics: '',
   social: '',
@@ -112,13 +108,7 @@ const AGENT_RESULTS = {
   scheduler: ''
 };
 
-const STRAT_PROMPTS = {};
-
 const SAMPLE_CAPTION = "";
-
-const CONTENT_DISTRIBUTION = [];
-
-const TOP_PERFORMING = [];
 
 const SEND_TIMES = [];
 
@@ -126,21 +116,12 @@ const COMPLIANCE_CHECKS = [];
 
 const DRIP_STEPS = [];
 
-const KPI_CARDS = [
-  { label: 'EFFICIENCY', val: '94%', sub: '↑ 2.1% AI Yield', type: 'green' },
-  { label: 'MATCH RATE', val: '68%', sub: 'Nurture velocity', type: 'blue' },
-  { label: 'COST / LEAD', val: '₹420', sub: 'Targeting optimal', type: 'blue' },
-  { label: 'ROI INDEX', val: '4.8x', sub: 'Projected yield', type: 'green' }
-];
-
 const FLOW_STEPS = [
   { id: 1, n: 'Identity' },
   { id: 2, n: 'Audience' },
   { id: 3, n: 'Channel' },
   { id: 4, n: 'Launch' }
 ];
-
-const NEW_ANGLES_DATA = [];
 
 const PORTAL_DATA = [];
 
@@ -1481,13 +1462,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
     }
   };
 
-  const genStrategyContent = (id) => {
-    setStratOutputs(prev => ({ ...prev, [id]: '✦ Planning...' }));
-    setTimeout(() => {
-      simulateStreaming(STRAT_PROMPTS[id], (val) => setStratOutputs(prev => ({ ...prev, [id]: val })));
-    }, 1200);
-  };
-
   const genCaption = (e) => {
     e.preventDefault();
     setIsGeneratingCaption(true);
@@ -1550,15 +1524,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
     }
   };
 
-  const toggleStrategy = (id) => {
-    setOpenStrategies(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   // ── CALENDAR STATE ──
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
@@ -1571,10 +1536,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [isGeneratingVisual, setIsGeneratingVisual] = useState(false);
   const [generatedVisual, setGeneratedVisual] = useState(null);
   const [visualType, setVisualType] = useState('image'); // 'image' or 'video'
-
-  // ── OPTIMIZATION (STRATEGIES) STATE ──
-  const [openStrategies, setOpenStrategies] = useState(new Set(['reel_hooks']));
-  const [stratOutputs, setStratOutputs] = useState({});
 
   // ── CAMPAIGN STATE ──
   const [selectedSeg, setSelectedSeg] = useState('hot');
@@ -1951,7 +1912,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
           <div className="sidebar-section-label">AI System</div>
           <SidebarItem id="agents" label="AI Agents (4)" icon={Bot} />
           <SidebarItem id="designer" label="Designer Studio" icon={Palette} />
-          <SidebarItem id="strategies" label="Optimization" icon={Target} badge="7+3" />
         </div>
 
         <div className="sidebar-section">
@@ -4876,85 +4836,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
               </div>
             </div>
-          )}
-
-          {/* ════ OPTIMIZATION (STRATEGIES) ════ */}
-          {activePage === 'strategies' && (
-            <>
-              {/* Header Metrics */}
-              <div className="perf-kpi-grid">
-                {KPI_CARDS.map((k, idx) => (
-                  <div key={idx} className="kpi-card">
-                    <div className="kpi-label">{k.label}</div>
-                    <div className="kpi-val">{k.val}</div>
-                    <div className={`kpi-sub ${k.type}`}>{k.sub}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="card-header-clean">
-                <div className="card-title">Top 7 Optimization Strategies</div>
-              </div>
-              
-              <div className="strategies-list">
-                {STRATEGIES_DATA.map(s => (
-                  <div key={s.id} className={`strategy-card ${openStrategies.has(s.id) ? 'open' : ''}`}>
-                    <div className="sc-head" onClick={() => toggleStrategy(s.id)}>
-                      <div className="sc-num">{s.i}</div>
-                      <div className="sc-title">{s.n}</div>
-                      <div className={`sc-impact ${s.im}`}>{s.it}</div>
-                      <div className="sc-chev">›</div>
-                    </div>
-                    <div className="sc-body">
-                      <div className="sc-body-inner">
-                        <div className="sc-desc">{s.d}</div>
-                        {s.tags && (
-                          <div className="sc-tags">
-                            {s.tags.map(t => <span key={t} className="sc-tag">{t}</span>)}
-                          </div>
-                        )}
-                        
-                        <div className="strat-generate-area">
-                          <button className="strat-gen-btn" onClick={(e) => { e.stopPropagation(); genStrategyContent(s.id); }}>
-                            ✨ Regenerate
-                          </button>
-                          {stratOutputs[s.id] && (
-                            <div className="strat-ai-out">
-                              <div className="strat-ai-out-info">
-                                AI analysis complete. Output generated based on Bharat Properties data for Kurukshetra market. 
-                                All recommendations follow the 70% rule and 80-10-7-3 content distribution strategy.
-                              </div>
-                              <div className="strat-ai-out-text">{stratOutputs[s.id]}</div>
-                              <div className="strat-ai-out-actions">
-                                <button className="aop-copy" onClick={() => toast.success('Copied to clipboard')}>Copy</button>
-                                <button className="aop-copy" onClick={() => toast.success('Saved to Calendar')}>Save to Calendar</button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="card-header-clean" style={{ marginTop: '2rem' }}>
-                <div className="card-title">3 New Untried Content Angles</div>
-              </div>
-              <div className="angle-card-grid">
-                {NEW_ANGLES_DATA.map(a => (
-                  <div key={a.id} className="angle-card" style={{ borderLeft: `3px solid ${a.color}` }}>
-                    <div className="angle-head">
-                      <span className="angle-icon">{a.icon}</span>
-                      <span className="angle-name">{a.n}</span>
-                      <span className="angle-badge">New</span>
-                    </div>
-                    <div className="angle-desc">{a.d}</div>
-                    <div className="angle-quote" style={{ color: a.color }}>{a.q}</div>
-                  </div>
-                ))}
-              </div>
-            </>
           )}
 
           {/* ════ DESIGNER STUDIO ════ */}
