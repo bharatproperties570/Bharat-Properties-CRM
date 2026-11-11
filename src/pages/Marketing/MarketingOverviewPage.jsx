@@ -1617,6 +1617,16 @@ export default function MarketingOverviewPage({ onNavigate }) {
     return { hot, warm, conv, total: leads.length };
   }, [leads]);
 
+  // ── Unified Top Prospects Memo (Backend-Authoritative with Scored Fallback) ──
+  const topProspects = useMemo(() => {
+    if (analyticsOverview?.topProspects && Array.isArray(analyticsOverview.topProspects) && analyticsOverview.topProspects.length > 0) {
+      return analyticsOverview.topProspects;
+    }
+    const scored = (filteredLeads || []).filter(l => (l.leadScore || 0) > 0);
+    if (scored.length > 0) return scored.slice(0, 6);
+    return (leads || []).slice(0, 6);
+  }, [analyticsOverview, filteredLeads, leads]);
+
   // ══ H8: LIVE QUEUE TICKER ══
   useEffect(() => {
     const timer = setInterval(() => {
@@ -3776,11 +3786,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
                 {showIntelHub && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
-                    {((analyticsOverview?.topProspects?.length > 0)
-                      ? analyticsOverview.topProspects
-                      : (filteredLeads.filter(l => (l.leadScore || 0) > 0).length > 0 
-                          ? filteredLeads.filter(l => (l.leadScore || 0) > 0).slice(0, 6) 
-                          : leads.slice(0, 6))).map((lead, idx) => {
+                    {topProspects.map((lead, idx) => {
                       const scoreData = getDisplayScore(lead);
                       const scoreTotal = lead.leadScore !== undefined && lead.leadScore !== null 
                         ? lead.leadScore 
@@ -3915,9 +3921,11 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   {/* Dynamic Real-Time Growth & Efficiency KPIs */}
                   {(() => {
                     const optKpis = analyticsOverview?.optimization?.kpis;
+                    const getProspectScore = (p) => (p.score?.total != null ? p.score.total : (p.leadScore != null ? p.leadScore : (getDisplayScore(p)?.total || 0)));
+                    const highIntentProspectsCount = topProspects.filter(p => getProspectScore(p) >= 50).length;
                     const intentVal = optKpis?.intentConversionRate != null 
                       ? `${optKpis.intentConversionRate}%` 
-                      : (topProspects.length > 0 ? `${Math.round((topProspects.filter(p => (p.score?.total || 0) >= 50).length / topProspects.length) * 100)}%` : '84%');
+                      : (topProspects.length > 0 ? `${Math.round((highIntentProspectsCount / topProspects.length) * 100)}%` : '84%');
                     const matchVal = optKpis?.matchRate != null 
                       ? `${optKpis.matchRate}%` 
                       : (socialTelemetry?.totalPosts > 0 ? '78%' : '72%');
@@ -3936,7 +3944,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                             {intentVal}
                           </div>
                           <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                            {topProspects.filter(p => (p.score?.total || 0) >= 50).length} of {topProspects.length || 0} scored high-intent
+                            {highIntentProspectsCount} of {topProspects.length || 0} scored high-intent
                           </div>
                         </div>
 
@@ -4036,7 +4044,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         </span>
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: '1.5' }}>
-                        Currently <strong style={{ color: '#fff' }}>{topProspects.filter(p => (p.score?.total || 0) >= 50).length} hot prospects</strong> are waiting in pipeline with &gt;50% intent scores. Deploying a hyper-personalized WhatsApp broadcast highlighting upcoming Sector 4 & Ring Road registry openings will accelerate site visit bookings.
+                        Currently <strong style={{ color: '#fff' }}>{topProspects.filter(p => (p.score?.total != null ? p.score.total : (p.leadScore != null ? p.leadScore : (getDisplayScore(p)?.total || 0))) >= 50).length} hot prospects</strong> are waiting in pipeline with &gt;50% intent scores. Deploying a hyper-personalized WhatsApp broadcast highlighting upcoming Sector 4 & Ring Road registry openings will accelerate site visit bookings.
                       </div>
                       <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
                         <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Recommended Dispatch Route:</div>
