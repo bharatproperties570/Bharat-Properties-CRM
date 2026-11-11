@@ -24,7 +24,12 @@ function triggerControlledReload(key) {
     // Guard against reload loops: allow max 1 auto-reload every 12 seconds
     if (!lastReload || now - Number(lastReload) > 12000) {
         if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(storageKey, String(now));
-        window.location.reload();
+        if (typeof caches !== 'undefined') {
+            try { caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {}); } catch (_) {}
+        }
+        const cleanSearch = (window.location.search || '').replace(/([?&])_cb=\d+/, '');
+        const sep = cleanSearch ? (cleanSearch.includes('?') ? '&' : '?') : '?';
+        window.location.replace(window.location.origin + window.location.pathname + cleanSearch + sep + '_cb=' + Date.now());
         return true;
     }
     return false;

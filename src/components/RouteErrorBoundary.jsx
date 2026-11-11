@@ -25,7 +25,12 @@ export default function RouteErrorBoundary() {
             const now = Date.now();
             if (!lastReload || now - Number(lastReload) > 12000) {
                 if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('route_chunk_reload', String(now));
-                window.location.reload();
+                if (typeof caches !== 'undefined') {
+                    try { caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {}); } catch (_) {}
+                }
+                const cleanSearch = (window.location.search || '').replace(/([?&])_cb=\d+/, '');
+                const sep = cleanSearch ? (cleanSearch.includes('?') ? '&' : '?') : '?';
+                window.location.replace(window.location.origin + window.location.pathname + cleanSearch + sep + '_cb=' + Date.now());
             }
         }
     }, [error]);
