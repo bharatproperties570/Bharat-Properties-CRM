@@ -12,6 +12,17 @@ class ErrorBoundary extends React.Component {
 
     componentDidCatch(error, errorInfo) {
         console.error("Uncaught error:", error, errorInfo);
+        try {
+            const errDump = JSON.stringify({
+                message: error?.message || String(error),
+                name: error?.name || 'Error',
+                stack: error?.stack || '',
+                componentStack: errorInfo?.componentStack || '',
+                time: new Date().toISOString()
+            });
+            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('bp_last_uncaught_error', errDump);
+            if (typeof localStorage !== 'undefined') localStorage.setItem('bp_last_uncaught_error', errDump);
+        } catch (_) {}
         
         // Auto-recover from chunk load errors and MIME type mismatches (Vite HMR / Vercel deployments)
         const errString = (error?.message || error?.name || '').toLowerCase();
@@ -70,9 +81,20 @@ class ErrorBoundary extends React.Component {
                                 }
                                 if (typeof sessionStorage !== 'undefined') {
                                     sessionStorage.removeItem('chunk_reload');
+                                    sessionStorage.removeItem('chunk_reload_2');
+                                    sessionStorage.removeItem('route_chunk_reload');
+                                    sessionStorage.removeItem('vite_chunk_auto_reload');
                                 }
-                                // Force hard reload bypassing cache
-                                window.location.href = window.location.origin + window.location.pathname;
+                                if (typeof caches !== 'undefined') {
+                                    try {
+                                        caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {});
+                                    } catch (_) {}
+                                }
+                                // Append cache buster to force Safari/Chrome to load fresh index.html from server
+                                const sep = window.location.search ? '&' : '?';
+                                const cleanSearch = window.location.search.replace(/([?&])_cb=\d+/, '');
+                                const prefix = cleanSearch ? cleanSearch + '&' : '?';
+                                window.location.replace(window.location.origin + window.location.pathname + prefix + '_cb=' + Date.now());
                             }}
                             style={{
                                 background: '#ef4444',
@@ -87,28 +109,36 @@ class ErrorBoundary extends React.Component {
                             Hard Refresh (Clear Cache)
                         </button>
                     )}
-                    {(() => {
-                        try {
-                            // Safer check for development mode
-                            return (typeof process !== 'undefined' && process.env && (process.env.NODE_ENV === 'development' || process.env.EXPO_PUBLIC_DEV === 'true')) || 
-                                   (typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
-                        } catch (e) {
-                            return false;
-                        }
-                    })() && (
-                        <div style={{ marginTop: '24px', textAlign: 'left' }}>
-                            <p style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#666' }}>Error Details:</p>
+                    {this.state.error && (
+                        <div style={{ marginTop: '20px', textAlign: 'left', maxWidth: '800px', margin: '20px auto 0' }}>
                             <div style={{ 
-                                fontSize: '0.8rem', 
-                                color: '#444', 
-                                background: '#fff', 
-                                padding: '12px', 
-                                borderRadius: '4px', 
-                                marginTop: '8px',
-                                overflow: 'auto'
+                                fontSize: '0.85rem', 
+                                fontWeight: 700, 
+                                color: '#991b1b', 
+                                background: '#fee2e2', 
+                                padding: '10px 14px', 
+                                borderRadius: '6px 6px 0 0',
+                                border: '1px solid #fca5a5',
+                                borderBottom: 'none'
                             }}>
-                                {this.state.error && this.state.error.toString()}
+                                ⚠️ {this.state.error?.name || 'Error'}: {this.state.error?.message || String(this.state.error)}
                             </div>
+                            <pre style={{ 
+                                fontSize: '0.75rem', 
+                                color: '#374151', 
+                                background: '#ffffff', 
+                                padding: '12px 14px', 
+                                borderRadius: '0 0 6px 6px',
+                                border: '1px solid #fca5a5',
+                                margin: 0,
+                                maxHeight: '180px',
+                                overflow: 'auto',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                fontFamily: 'monospace'
+                            }}>
+                                {this.state.error?.stack || 'No stack trace available'}
+                            </pre>
                         </div>
                     )}
                 </div>

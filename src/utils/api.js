@@ -248,6 +248,10 @@ export const marketingAPI = {
     testPortalConnection: (portalId, config) => api.post('/marketing/portals/test', { portalId, config }).then(res => res.data),
     syndicateToPortals: (payload) => api.post('/marketing/portals/syndicate', payload).then(res => res.data),
 
+    // ── Omnichannel Hub & Multi-Platform Communities ──
+    getOmnichannelTelemetry: () => api.get('/marketing/omnichannel/telemetry').then(res => res.data),
+    broadcastToBrokerGroup: (payload) => api.post('/marketing/broadcast/bna', payload).then(res => res.data),
+
     // ── Orchestration & Scheduling Monitor ──
     getScheduled: () => api.get('/marketing/scheduled').then(res => res.data),
     deleteScheduled: (id, type) => api.delete(`/marketing/scheduled/${id}`, { params: { type } }).then(res => res.data),

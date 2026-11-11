@@ -47,7 +47,8 @@ import {
     getAutopilotConfig,
     saveAutopilotConfig,
     getSocialTelemetry,
-    triggerSocialTelemetrySync
+    triggerSocialTelemetrySync,
+    getOmnichannelTelemetry
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -106,6 +107,7 @@ console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);
 router.post('/broadcast',      broadcastToHub);
 router.post('/broadcast/bna',  broadcastToBrokerGroup);
 router.get('/broadcast/analytics/:dealId', getBNAAnalytics);
+router.get('/omnichannel/telemetry', getOmnichannelTelemetry);
 
 // ── Phase 4: Live Broadcast Progress Board & Operator Controls ────────────────
 router.get('/broadcast/live', getLiveBroadcasts);
