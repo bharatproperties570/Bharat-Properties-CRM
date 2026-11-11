@@ -220,44 +220,42 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             cat.percentage = Math.round((cat.count / totalAttributed) * 100);
         });
 
-        // 4. Weekly Publishing & Activity Velocity (Rolling 7 days Mon-Sun)
-        const [weekPosts, weekActivities] = await Promise.all([
-            MarketingContent.find({
-                createdAt: { $gte: startOfWeek, $lte: endOfWeek }
-            }).select('createdAt date').lean(),
-            Activity.find({
-                createdAt: { $gte: startOfWeek, $lte: endOfWeek }
-            }).select('createdAt type status').lean()
+        // 4. Weekly Publishing & Activity Velocity (Aggregated server-side in MongoDB for sub-second execution)
+        const [postsAgg, activitiesAgg, cadenceAgg] = await Promise.all([
+            MarketingContent.aggregate([
+                { $match: { createdAt: { $gte: startOfWeek, $lte: endOfWeek } } },
+                { $group: { _id: { $dayOfWeek: '$createdAt' }, count: { $sum: 1 } } }
+            ]),
+            Activity.aggregate([
+                { $match: { createdAt: { $gte: startOfWeek, $lte: endOfWeek } } },
+                { $group: { _id: { $dayOfWeek: '$createdAt' }, count: { $sum: 1 } } }
+            ]),
+            MarketingContent.aggregate([
+                { $group: { _id: { $dayOfWeek: '$createdAt' }, count: { $sum: 1 } } }
+            ])
         ]);
 
         const daysMap = [
-            { day: 'M', fullDay: 'Mon', dayIndex: 1, posts: 0, activities: 0 },
-            { day: 'T', fullDay: 'Tue', dayIndex: 2, posts: 0, activities: 0 },
-            { day: 'W', fullDay: 'Wed', dayIndex: 3, posts: 0, activities: 0 },
-            { day: 'T', fullDay: 'Thu', dayIndex: 4, posts: 0, activities: 0 },
-            { day: 'F', fullDay: 'Fri', dayIndex: 5, posts: 0, activities: 0 },
-            { day: 'S', fullDay: 'Sat', dayIndex: 6, posts: 0, activities: 0 },
-            { day: 'S', fullDay: 'Sun', dayIndex: 0, posts: 0, activities: 0 }
+            { day: 'M', fullDay: 'Mon', dayIndex: 1, mongoDay: 2, posts: 0, activities: 0, cadenceCount: 0 },
+            { day: 'T', fullDay: 'Tue', dayIndex: 2, mongoDay: 3, posts: 0, activities: 0, cadenceCount: 0 },
+            { day: 'W', fullDay: 'Wed', dayIndex: 3, mongoDay: 4, posts: 0, activities: 0, cadenceCount: 0 },
+            { day: 'T', fullDay: 'Thu', dayIndex: 4, mongoDay: 5, posts: 0, activities: 0, cadenceCount: 0 },
+            { day: 'F', fullDay: 'Fri', dayIndex: 5, mongoDay: 6, posts: 0, activities: 0, cadenceCount: 0 },
+            { day: 'S', fullDay: 'Sat', dayIndex: 6, mongoDay: 7, posts: 0, activities: 0, cadenceCount: 0 },
+            { day: 'S', fullDay: 'Sun', dayIndex: 0, mongoDay: 1, posts: 0, activities: 0, cadenceCount: 0 }
         ];
 
-        weekPosts.forEach(p => {
-            const d = new Date(p.date || p.createdAt).getDay();
-            const slot = daysMap.find(s => s.dayIndex === d);
-            if (slot) slot.posts++;
+        postsAgg.forEach(p => {
+            const slot = daysMap.find(s => s.mongoDay === p._id);
+            if (slot) slot.posts = p.count;
         });
-
-        weekActivities.forEach(a => {
-            const d = new Date(a.createdAt).getDay();
-            const slot = daysMap.find(s => s.dayIndex === d);
-            if (slot) slot.activities++;
+        activitiesAgg.forEach(a => {
+            const slot = daysMap.find(s => s.mongoDay === a._id);
+            if (slot) slot.activities = a.count;
         });
-
-        // Also compute all-time weekly cadence count for posts
-        const allPosts = await MarketingContent.find({}).select('createdAt date').lean();
-        allPosts.forEach(p => {
-            const d = new Date(p.date || p.createdAt).getDay();
-            const slot = daysMap.find(s => s.dayIndex === d);
-            if (slot) slot.cadenceCount = (slot.cadenceCount || 0) + 1;
+        cadenceAgg.forEach(c => {
+            const slot = daysMap.find(s => s.mongoDay === c._id);
+            if (slot) slot.cadenceCount = c.count;
         });
 
         // 5. Intelligence Hub — Top High-Intent Prospects (Ranked by real LeadScore & Intent Index)
@@ -308,9 +306,9 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                 weeklyVelocity: {
                     weekRange: `${startOfWeek.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${endOfWeek.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
                     days: daysMap,
-                    totalWeekPosts: weekPosts.length,
-                    totalWeekActivities: weekActivities.length,
-                    totalAllPosts: allPosts.length
+                    totalWeekPosts: postsAgg.reduce((sum, p) => sum + p.count, 0),
+                    totalWeekActivities: activitiesAgg.reduce((sum, a) => sum + a.count, 0),
+                    totalAllPosts: cadenceAgg.reduce((sum, c) => sum + c.count, 0)
                 },
                 topAssets: digest.topPerformingPosts || [],
                 topProspects: formattedProspects

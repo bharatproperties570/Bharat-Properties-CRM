@@ -59,7 +59,6 @@ const PAGE_META = {
   analytics: { title: 'Analytics', subtitle: 'Metrics engine · ROI Tracking' },
   agents: { title: 'AI Agents', subtitle: 'Autonomous cross-platform orchestration' },
   campaign: { title: 'Campaign Engine', subtitle: '360° Omnichannel Dispatch' },
-  leads: { title: 'CRM Leads', subtitle: 'High-intent lead pool management' },
   strategies: { title: 'Optimization', subtitle: 'Data-driven market strategies' },
   designer: { title: 'Designer Studio', subtitle: 'Visual Prompt Lab' },
   techstack: { title: 'Tech Stack', subtitle: 'Enterprise Infrastructure' },
@@ -1850,7 +1849,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
           <SidebarItem id="campaign" label="Campaign Engine" icon={Megaphone} />
           <SidebarItem id="sequences" label="Drip Sequences" icon={Workflow} badge="New" />
           <SidebarItem id="bna" label="Broker Network (BNA)" icon={Zap} badge="Active" isLive />
-          <SidebarItem id="leads" label="CRM Leads" icon={Home} badge={apiDataLoaded ? (realLeads.length || leads.length) : (stats.hot > 0 ? `${stats.hot}🔥` : '🏠')} />
           <SidebarItem id="portals" label="Property Portals" icon={Globe} badge="5" />
         </div>
 
@@ -1876,79 +1874,25 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
       {/* ══ MAIN ══ */}
       <div className="main">
-        <header className="topbar">
-          <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">☰</button>
-          
-          <div className="topbar-left">
-            <h1 className="page-title">{(PAGE_META[activePage] || PAGE_META['overview']).title}</h1>
-            <div className="page-sub">{(PAGE_META[activePage] || PAGE_META['overview']).subtitle}</div>
-          </div>
-
-          <div className="search-wrap-outer">
-            <div className="search-wrap">
-              <Search size={16} className="search-icon" style={{ opacity: 0.5 }} />
-              <input 
-                type="text" 
-                id="global-header-search"
-                aria-label="Search marketing system"
-                placeholder="Search leads, posts, assets..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="topbar-center-extras">
-            <div className="system-status-pill">
-              <span className="status-dot-active">●</span> 3 Active
-            </div>
-            <div className="system-date-pill">Apr 2026</div>
-            <div className="system-utility-icons">
-               <button className="util-icon-btn" aria-label="Notifications" onClick={() => setShowNotifPanel(!showNotifPanel)}>
-                 <Bell size={16} />
-               </button>
-
-               <button className="util-icon-btn" aria-label="Keyboard Shortcuts">
-                 <Type size={16} />
-               </button>
-            </div>
-          </div>
-
-          <div className="topbar-right">
-            <button 
-              className="notif-btn-fid" 
-              id="header-notifications"
-              aria-label="Show notification panel"
-              onClick={() => setShowNotifPanel(!showNotifPanel)} 
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-            >
-              <Bell size={20} color="var(--text2)" />
-              {notifs.length > 0 && <div className="notif-dot-fid" />}
-            </button>
-          </div>
-        </header>
-
-        {/* NOTIFICATION PANEL */}
-        {showNotifPanel && (
-          <div id="notif-panel" style={{ display: 'block', position: 'fixed', top: '60px', right: '1rem', width: '320px', background: 'var(--navy2)', border: '1px solid var(--border)', borderRadius: '14px', zIndex: 300, overflow: 'hidden' }}>
-            <div style={{ padding: '.75rem 1rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '13px', color: 'var(--white)' }}>Notifications</span>
-              <button onClick={() => setNotifs([])} style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '10px', cursor: 'pointer' }}>Clear all</button>
-            </div>
-            <div style={{ maxHeight: '360px', overflowY: 'auto', padding: '.5rem' }}>
-              {notifs.map(n => (
-                <div key={n.id} className={`alert-row ${n.type}`} style={{ background: 'var(--surface)', padding: '10px', borderRadius: '10px', marginBottom: '5px', position: 'relative' }}>
-                  <div className="alert-icon">{n.icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div className="alert-title">{n.title}</div>
-                    <div className="alert-desc">{n.desc}</div>
-                  </div>
-                  <button className="alert-dismiss" onClick={() => setNotifs(prev => prev.filter(x => x.id !== n.id))}>✕</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <button 
+          className="hamburger" 
+          onClick={() => setSidebarOpen(true)} 
+          aria-label="Open sidebar"
+          style={{ 
+            position: 'absolute', 
+            top: '12px', 
+            left: '12px', 
+            zIndex: 110,
+            background: 'var(--navy2)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '6px 10px',
+            color: 'var(--white)',
+            cursor: 'pointer'
+          }}
+        >
+          ☰
+        </button>
 
         <div className="page-content">
           {/* ════ OVERVIEW (COMMAND CENTER) ════ */}
@@ -2411,54 +2355,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-
-          {activePage === 'leads' && (
-            <div className="card">
-               <div className="card-header">
-                 <div className="card-title">Real-Time CRM Pipeline</div>
-                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <select className="tact-btn" value={leadFilter} onChange={(e) => setLeadFilter(e.target.value)} style={{ background: 'var(--navy2)', color: 'var(--gold-l)' }}>
-                      <option value="all">All Segments</option>
-                      <option value="hot">🔥 High Intent</option>
-                      <option value="warm">⚡ Warming Up</option>
-                      <option value="converted">✅ Closed Deals</option>
-                    </select>
-                    <button className="tact-btn primary" onClick={() => setShowAddLeadModal(true)}>+ New Inquiry</button>
-                 </div>
-               </div>
-               <div className="card-body" style={{ padding: 0 }}>
-                 <table className="bp-table">
-                   <thead>
-                     <tr>
-                       <th>Inquiry Identity</th>
-                       <th>Property Interest</th>
-                       <th>Budget Goal</th>
-                       <th>Status</th>
-                       <th style={{ textAlign: 'right' }}>Actions</th>
-                     </tr>
-                   </thead>
-                   <tbody>
-                     {filteredLeads.map(l => (
-                       <tr key={l.id}>
-                         <td><div style={{ fontWeight: 600, color: 'var(--white)' }}>{l.name}</div><div style={{ fontSize: '11px', color: 'var(--text2)' }}>{l.phone}</div></td>
-                         <td>{l.interest}</td>
-                         <td>{l.budget}</td>
-                         <td><span className={`pill pill-${l.status}`}>{l.status.toUpperCase()}</span></td>
-                         <td style={{ textAlign: 'right' }}>
-                           <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
-                             <button className="tact-btn" style={{ padding: '5px 10px', fontSize: '10px', background: 'rgba(37,211,102,0.1)', borderColor: 'rgba(37,211,102,0.3)', color: '#25d366' }} onClick={() => openMessageModal(l)}>💬 WA</button>
-                             <button className="tact-btn" style={{ padding: '5px 10px', fontSize: '10px', background: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', color: '#3b82f6' }} onClick={() => openEmailModal(l)}>📧 Mail</button>
-                             <button className="tact-btn" style={{ padding: '5px 10px', fontSize: '10px', background: 'rgba(139,92,246,0.1)', borderColor: 'rgba(139,92,246,0.3)', color: '#8b5cf6' }} onClick={() => openSequenceModal(l)}>⏳ Drip</button>
-                             <button className="tact-btn" style={{ padding: '5px 8px', fontSize: '10px', borderColor: 'rgba(224,82,82,0.3)', color: 'var(--red)' }} onClick={() => { if(confirm('Delete lead?')) deleteLead(l.id); }}>✕</button>
-                           </div>
-                         </td>
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-               </div>
             </div>
           )}
 
