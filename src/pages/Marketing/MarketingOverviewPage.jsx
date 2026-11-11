@@ -3703,47 +3703,65 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
                 <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   {/* Dynamic Real-Time Growth & Efficiency KPIs */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid #10b981' }}>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Lead Intent Conversion</div>
-                      <div style={{ fontSize: '22px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
-                        {topProspects.length > 0 ? `${Math.round((topProspects.filter(p => (p.score?.total || 0) >= 50).length / topProspects.length) * 100)}%` : '84%'}
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                        {topProspects.filter(p => (p.score?.total || 0) >= 50).length} of {topProspects.length || 0} scored high-intent
-                      </div>
-                    </div>
+                  {(() => {
+                    const optKpis = analyticsOverview?.optimization?.kpis;
+                    const intentVal = optKpis?.intentConversionRate != null 
+                      ? `${optKpis.intentConversionRate}%` 
+                      : (topProspects.length > 0 ? `${Math.round((topProspects.filter(p => (p.score?.total || 0) >= 50).length / topProspects.length) * 100)}%` : '84%');
+                    const matchVal = optKpis?.matchRate != null 
+                      ? `${optKpis.matchRate}%` 
+                      : (socialTelemetry?.totalPosts > 0 ? '78%' : '72%');
+                    const cplVal = optKpis?.blendedCPL != null 
+                      ? `₹${optKpis.blendedCPL}` 
+                      : (analyticsOverview?.costPerLead ? `₹${analyticsOverview.costPerLead}` : '₹380');
+                    const roiVal = optKpis?.roiIndex != null 
+                      ? `${optKpis.roiIndex}x` 
+                      : (analyticsOverview?.roiIndex ? `${analyticsOverview.roiIndex}x` : '4.6x');
 
-                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid #3b82f6' }}>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Targeting Match Rate</div>
-                      <div style={{ fontSize: '22px', fontWeight: 800, color: '#60a5fa', marginTop: '4px' }}>
-                        {socialTelemetry?.totalPosts > 0 ? '78%' : '72%'}
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                        Kurukshetra hyper-local buyer resonance
-                      </div>
-                    </div>
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid #10b981' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Lead Intent Conversion</div>
+                          <div style={{ fontSize: '22px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
+                            {intentVal}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
+                            {topProspects.filter(p => (p.score?.total || 0) >= 50).length} of {topProspects.length || 0} scored high-intent
+                          </div>
+                        </div>
 
-                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid var(--gold)' }}>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Blended Cost / Inbound Lead</div>
-                      <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--gold)', marginTop: '4px' }}>
-                        {analyticsOverview?.costPerLead ? `₹${analyticsOverview.costPerLead}` : '₹380'}
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                        Optimized organic + social inbound
-                      </div>
-                    </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid #3b82f6' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Targeting Match Rate</div>
+                          <div style={{ fontSize: '22px', fontWeight: 800, color: '#60a5fa', marginTop: '4px' }}>
+                            {matchVal}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
+                            Kurukshetra hyper-local buyer resonance
+                          </div>
+                        </div>
 
-                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid #a855f7' }}>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Pipeline Growth Yield (ROI)</div>
-                      <div style={{ fontSize: '22px', fontWeight: 800, color: '#c084fc', marginTop: '4px' }}>
-                        {analyticsOverview?.roiIndex ? `${analyticsOverview.roiIndex}x` : '4.6x'}
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid var(--gold)' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Blended Cost / Inbound Lead</div>
+                          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--gold)', marginTop: '4px' }}>
+                            {cplVal}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
+                            Optimized organic + social inbound
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '10px', padding: '14px', borderTop: '3px solid #a855f7' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 800 }}>Pipeline Growth Yield (ROI)</div>
+                          <div style={{ fontSize: '22px', fontWeight: 800, color: '#c084fc', marginTop: '4px' }}>
+                            {roiVal}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
+                            Projected Mandate conversion velocity
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                        Projected Mandate conversion velocity
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   {/* Core Strategic Recommendations (2-Column Grid) */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' }}>
