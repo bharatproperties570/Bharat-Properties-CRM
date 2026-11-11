@@ -122,7 +122,20 @@ const FLOW_STEPS = [
   { id: 4, n: 'Launch' }
 ];
 
-const PORTAL_DATA = [];
+// ── Enterprise 11 Indian Real Estate Portals Registry ──
+const DEFAULT_PORTALS_REGISTRY = [
+  { id: '99acres', name: '99acres.com', category: 'National Portal', method: 'XML_FEED', format: 'xml', color: '#005CA8', description: "India's highest traffic property search marketplace (XML Feed / FTP Syndication)." },
+  { id: 'magicbricks', name: 'Magicbricks', category: 'National Portal', method: 'REST_API', format: 'json', color: '#E40046', description: 'Times Group flagship property portal with high-intent buyer leads.' },
+  { id: 'housing', name: 'Housing.com', category: 'National Portal', method: 'REST_API', format: 'json', color: '#00A65A', description: 'REA India group portal with verified mobile-first buyer inquiries.' },
+  { id: 'squareyards', name: 'Square Yards', category: 'Enterprise Partner', method: 'REST_API', format: 'json', color: '#F37023', description: 'Enterprise real-estate distribution network for exclusive mandates & projects.' },
+  { id: 'olx', name: 'OLX India', category: 'Classifieds Marketplace', method: 'REST_API', format: 'json', color: '#002F34', description: 'High-velocity local classifieds and direct buyer/seller inquiries in Haryana.' },
+  { id: 'commonfloor', name: 'CommonFloor', category: 'Apartments & Communities', method: 'XML_FEED', format: 'xml', color: '#0084B4', description: 'Apartment community portal focusing on gated societies and verified residential plots.' },
+  { id: 'makaan', name: 'Makaan.com', category: 'Tier 2 & 3 Cities', method: 'REST_API', format: 'json', color: '#E91E63', description: 'PropTiger group buyer-matching platform with city-level scorecards.' },
+  { id: 'proptiger', name: 'PropTiger', category: 'New Launches & Mandates', method: 'REST_API', format: 'json', color: '#0A2540', description: 'Primary developer launch syndication and channel partner network.' },
+  { id: 'quikr', name: 'Quikr Homes', category: 'Local Classifieds', method: 'REST_API', format: 'json', color: '#0D47A1', description: 'Regional multi-category classifieds portal with real estate buyer leads.' },
+  { id: 'sulekha', name: 'Sulekha Property', category: 'Services & Real Estate', method: 'REST_API', format: 'json', color: '#FF6F00', description: 'Local consumer search engine for Haryana and North Indian property inquiries.' },
+  { id: 'propertyguide', name: 'Property Guide Online', category: 'Regional Directory', method: 'XML_FEED', format: 'xml', color: '#2E7D32', description: 'Regional real estate listings distributor for GT Road and Northern Haryana corridors.' }
+];
 
 export default function MarketingOverviewPage({ onNavigate }) {
   const navigate = useNavigate();
@@ -311,6 +324,14 @@ export default function MarketingOverviewPage({ onNavigate }) {
   });
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [lookups, setLookups] = useState({ leadStages: [], dealStages: [], projectNames: [], units: [], sizeTypes: [], segments: [], users: [], cities: [], leadSources: [], categories: [] });
+
+  // ── Real Estate Property Portals State (11 National Portals) ──
+  const [portalsList, setPortalsList] = useState(DEFAULT_PORTALS_REGISTRY);
+  const [portalsLoading, setPortalsLoading] = useState(false);
+  const [testingPortalId, setTestingPortalId] = useState(null);
+  const [configuringPortal, setConfiguringPortal] = useState(null);
+  const [portalConfigForm, setPortalConfigForm] = useState({ partnerId: '', apiKey: '', feedUrl: '' });
+  const [savingPortalConfig, setSavingPortalConfig] = useState(false);
 
   // ── AUTONOMOUS MARKETING AUTOPILOT STATE ──
   const [autopilotConfig, setAutopilotConfig] = useState({
@@ -616,9 +637,69 @@ export default function MarketingOverviewPage({ onNavigate }) {
     }
   };
 
+  // ── Real Estate Property Portals Sync & Test Handlers ──
+  const fetchPortals = useCallback(async (showToast = false) => {
+    setPortalsLoading(true);
+    try {
+      const res = await marketingAPI.getPortalStatuses();
+      if (res && res.success && Array.isArray(res.portals)) {
+        setPortalsList(res.portals);
+        if (showToast) toast.success(`✓ Synchronized ${res.portals.length} Property Portals`);
+      }
+    } catch (err) {
+      console.warn('[MarketingOS] Failed to fetch portal statuses:', err.message);
+      if (showToast) toast.error('Failed to sync portal statuses');
+    } finally {
+      setPortalsLoading(false);
+    }
+  }, []);
+
+  const handleTestPortal = async (portalId, portalName) => {
+    setTestingPortalId(portalId);
+    try {
+      const res = await marketingAPI.testPortalConnection(portalId);
+      if (res && res.success) {
+        toast.success(res.message || `✓ Connection to ${portalName} verified successfully!`);
+        await fetchPortals();
+      } else {
+        toast.error(res.error || `Authentication required: Please configure credentials for ${portalName}`);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || err.message || `Failed to test connection to ${portalName}`);
+    } finally {
+      setTestingPortalId(null);
+    }
+  };
+
+  const handleSavePortalConfig = async (e) => {
+    e.preventDefault();
+    if (!configuringPortal) return;
+    if (!portalConfigForm.partnerId || !portalConfigForm.apiKey) {
+      toast.error('Partner ID and API Key are required.');
+      return;
+    }
+    setSavingPortalConfig(true);
+    try {
+      const res = await marketingAPI.savePortalConfig(configuringPortal.id, portalConfigForm);
+      if (res && res.success) {
+        toast.success(`${configuringPortal.name} credentials saved & activated!`);
+        setConfiguringPortal(null);
+        setPortalConfigForm({ partnerId: '', apiKey: '', feedUrl: '' });
+        await fetchPortals();
+      } else {
+        toast.error(res.message || 'Failed to save configuration');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to save configuration');
+    } finally {
+      setSavingPortalConfig(false);
+    }
+  };
+
   useEffect(() => {
     fetchLiveData();
     fetchWhatsAppTemplates();
+    fetchPortals();
     // 🛡️ Adaptive 60s Cadence: Prevents request stampedes and only runs when tab is active
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -650,6 +731,46 @@ export default function MarketingOverviewPage({ onNavigate }) {
     { id: 'seller',   n: 'Seller',     c: String(leads.filter(l => l?.segment?.toLowerCase() === 'seller').length),   i: '🏠' },
     { id: 'tenant',   n: 'Tenant',     c: String(leads.filter(l => l?.segment?.toLowerCase() === 'tenant').length),   i: '🔑' },
   ], [leads]);
+
+  // ── LIVE PROPERTY PORTALS LEAD ATTRIBUTION & VELOCITY STATS ──
+  const portalLeadStats = useMemo(() => {
+    const isPortalLead = (l) => {
+      const s = (l.source?.lookup_value || l.source?.label || (typeof l.source === 'string' ? l.source : '')).toLowerCase();
+      return s.includes('99acres') || s.includes('99 acre') || s.includes('magicbricks') || 
+             s.includes('housing') || s.includes('olx') || s.includes('square') || 
+             s.includes('commonfloor') || s.includes('makaan') || s.includes('proptiger') || 
+             s.includes('quikr') || s.includes('sulekha') || s.includes('portal') || 
+             s.includes('real estate india');
+    };
+    const pLeads = (leads || []).filter(isPortalLead);
+    const hotLeads = pLeads.filter(l => (l.leadScore || 0) >= 50 || l.temperature === 'HOT' || l.temperature === 'SUPER HOT');
+    const visits = pLeads.filter(l => l.status !== 'cold' && l.status !== 'prospect').length;
+    const conversionRate = pLeads.length > 0 ? Math.round((visits / pLeads.length) * 100) : 0;
+    
+    // Top portal by leads
+    const countByPortal = {};
+    pLeads.forEach(l => {
+      const s = (l.source?.lookup_value || l.source?.label || (typeof l.source === 'string' ? l.source : '')).toLowerCase();
+      let key = '99acres.com';
+      if (s.includes('magicbricks')) key = 'Magicbricks';
+      else if (s.includes('housing')) key = 'Housing.com';
+      else if (s.includes('olx')) key = 'OLX India';
+      else if (s.includes('square')) key = 'Square Yards';
+      else if (s.includes('99')) key = '99acres.com';
+      else key = 'Direct Portal Feed';
+      countByPortal[key] = (countByPortal[key] || 0) + 1;
+    });
+    const sorted = Object.entries(countByPortal).sort((a, b) => b[1] - a[1]);
+    const topPortal = sorted.length > 0 ? sorted[0][0] : '99acres.com';
+
+    return {
+      totalLeads: pLeads.length,
+      hotCount: hotLeads.length,
+      conversionRate,
+      topPortal,
+      portalLeads: pLeads
+    };
+  }, [leads]);
 
   // ══ Phase E — LIVE OMNI CHANNELS ══
   const liveOmniChannels = useMemo(() => {
@@ -6158,91 +6279,213 @@ export default function MarketingOverviewPage({ onNavigate }) {
               </div>
             </>
           )}
-          {/* ════ PROPERTY PORTALS ════ */}
+          {/* ════ PROPERTY PORTALS GATEWAY ════ */}
           {activePage === 'portals' && (
             <div>
-              {/* Portal KPI Strip */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '1.25rem' }}>
-                {[
-                  { l: 'Total Portal Spend', v: `₹${PORTAL_DATA.reduce((s, p) => s + p.cost, 0).toLocaleString('en-IN')}`, icon: '💰', c: 'var(--gold)' },
-                  { l: 'Total Portal Leads', v: PORTAL_DATA.reduce((s, p) => s + p.leads, 0), icon: '🎯', c: 'var(--green)' },
-                  { l: 'Avg CPL', v: `₹${Math.round(PORTAL_DATA.reduce((s, p) => s + p.cpl, 0) / PORTAL_DATA.length)}`, icon: '⚡', c: 'var(--blue)' },
-                  { l: 'Best ROI Portal', v: 'SquareYards', icon: '🏆', c: 'var(--gold)' },
-                ].map((k, i) => (
-                  <div key={i} className="stat-card glass-card">
-                    <div style={{ fontSize: '20px', marginBottom: '4px' }}>{k.icon}</div>
-                    <div className="stat-label">{k.l}</div>
-                    <div style={{ fontSize: '22px', fontWeight: 500, color: k.c }}>{k.v}</div>
+              {/* Portal KPI Strip (Live Database & Telemetry) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '1.25rem' }}>
+                <div className="stat-card glass-card">
+                  <div style={{ fontSize: '20px', marginBottom: '4px' }}>🌐</div>
+                  <div className="stat-label">Active Portals</div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gold)' }}>
+                    {portalsList.filter(p => p.connected).length} of {portalsList.length}
                   </div>
-                ))}
-              </div>
-
-              {/* Portal Performance Table */}
-              <div className="card" style={{ marginBottom: '1.25rem' }}>
-                <div className="card-header">
-                  <div className="card-title">🏨 Portal Performance Dashboard</div>
-                  <button className="tact-btn" style={{ marginLeft: 'auto', fontSize: '10px' }} onClick={() => { toast.success('↺ Portals Synced!'); fetchLiveData(); }}>↺ Sync Portals</button>
+                  <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
+                    {portalsList.filter(p => p.connected).length > 0 ? 'Active syndication channels' : 'Configure credentials below'}
+                  </div>
                 </div>
-                <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.025)' }}>
-                        {['Portal', 'Package', 'Cost/Month', 'Listings', 'Leads', 'CPL', 'Avg Response', 'Performance'].map(h => (
-                          <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.08em', whiteSpace: 'nowrap' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {PORTAL_DATA.map(p => (
-                        <tr key={p.n} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--white)' }}>{p.i} {p.n}</td>
-                          <td style={{ padding: '12px 14px' }}><span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '6px', color: 'var(--text2)' }}>{p.pkg}</span></td>
-                          <td style={{ padding: '12px 14px', color: 'var(--gold)', fontWeight: 600 }}>₹{p.cost.toLocaleString('en-IN')}</td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text2)' }}>{p.listings}</td>
-                          <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--green)' }}>{p.leads}</td>
-                          <td style={{ padding: '12px 14px', color: p.cpl < 260 ? 'var(--green)' : 'var(--gold)' }}>₹{p.cpl}</td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text2)' }}>{p.resp}</td>
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: `${p.perf}%`, height: '100%', background: p.color, borderRadius: '4px' }}></div>
-                              </div>
-                              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)' }}>{p.perf}%</span>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+
+                <div className="stat-card glass-card">
+                  <div style={{ fontSize: '20px', marginBottom: '4px' }}>🎯</div>
+                  <div className="stat-label">Total Inbound Portal Leads</div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--green)' }}>
+                    {portalLeadStats.totalLeads}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
+                    {portalLeadStats.hotCount} hot-intent buyer prospects
+                  </div>
+                </div>
+
+                <div className="stat-card glass-card">
+                  <div style={{ fontSize: '20px', marginBottom: '4px' }}>⚡</div>
+                  <div className="stat-label">Portal Conversion Yield</div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--blue)' }}>
+                    {portalLeadStats.conversionRate}%
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
+                    Inbound to Site Visit / Opportunity
+                  </div>
+                </div>
+
+                <div className="stat-card glass-card">
+                  <div style={{ fontSize: '20px', marginBottom: '4px' }}>🏆</div>
+                  <div className="stat-label">Top Inbound Marketplace</div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gold)' }}>
+                    {portalLeadStats.topPortal}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
+                    Highest volume inbound portal
+                  </div>
                 </div>
               </div>
 
-              {/* Connection Status Badges */}
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">📶 Platform & Integration Status</div>
+              {/* 11 National Indian Property Portals Gateway */}
+              <div className="card glass-card" style={{ marginBottom: '1.25rem' }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
+                    <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>🏨</span>
+                      <span>National Property Portals & Multi-Listing Gateway</span>
+                      <span style={{ fontSize: '10px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                        11 Marketplaces
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
+                      Direct XML & REST API syndication feeds, multi-listing distribution & verified lead capture
+                    </div>
+                  </div>
+                  <button 
+                    className="tact-btn" 
+                    style={{ fontSize: '11px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => fetchPortals(true)}
+                    disabled={portalsLoading}
+                  >
+                    {portalsLoading ? <span className="spinner-sm"></span> : '↺'}
+                    <span>{portalsLoading ? 'Synchronizing...' : 'Refresh Portals Status'}</span>
+                  </button>
                 </div>
+
                 <div className="card-body">
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                    {[
-                      { name: 'LinkedIn', connected: linkedInStatus, icon: '🔵', desc: 'Professional content posts' },
-                      { name: 'Google Business', connected: !!googleSubStatus?.gmb, icon: '🟢', desc: 'Local SEO + GMB posts' },
-                      { name: 'YouTube', connected: !!googleSubStatus?.youtube, icon: '🟡', desc: 'Property tour videos' },
-                      { name: 'Instagram', connected: true, icon: '🟠', desc: 'Reels + Stories + Posts' },
-                      { name: 'Facebook', connected: true, icon: '🔵', desc: 'Ads + Business page' },
-                      { name: 'WhatsApp Business', connected: true, icon: '🟢', desc: 'Broadcast + template msgs' },
-                    ].map((pl, i) => (
-                      <div key={i} style={{ background: pl.connected ? 'rgba(53,185,122,0.06)' : 'rgba(255,255,255,0.03)', border: `1px solid ${pl.connected ? 'rgba(53,185,122,0.2)' : 'var(--border)'}`, borderRadius: '10px', padding: '14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--white)', fontSize: '13px' }}>{pl.icon} {pl.name}</div>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: pl.connected ? 'var(--green)' : '#666', boxShadow: pl.connected ? '0 0 6px var(--green)' : 'none' }}></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: '14px' }}>
+                    {portalsList.map(portal => {
+                      const isConnected = portal.connected;
+                      const isTesting = testingPortalId === portal.id;
+
+                      return (
+                        <div 
+                          key={portal.id} 
+                          style={{
+                            background: isConnected ? 'rgba(53,185,122,0.04)' : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${isConnected ? 'rgba(53,185,122,0.25)' : 'var(--border)'}`,
+                            borderRadius: '10px',
+                            padding: '16px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px',
+                            borderLeft: `4px solid ${portal.color || 'var(--gold)'}`
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: 800, color: 'var(--white)', fontSize: '14px' }}>{portal.name}</span>
+                                <span style={{ 
+                                  fontSize: '9px', 
+                                  background: 'rgba(255,255,255,0.06)', 
+                                  color: 'var(--text2)', 
+                                  padding: '2px 6px', 
+                                  borderRadius: '4px',
+                                  textTransform: 'uppercase',
+                                  fontWeight: 700
+                                }}>
+                                  {portal.method?.replace('_', ' ') || 'API'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
+                                {portal.category || 'National Portal'}
+                              </div>
+                            </div>
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '5px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              color: isConnected ? 'var(--green)' : 'var(--text3)',
+                              background: isConnected ? 'rgba(53,185,122,0.1)' : 'rgba(255,255,255,0.04)',
+                              padding: '3px 8px',
+                              borderRadius: '6px'
+                            }}>
+                              <span style={{ 
+                                width: '6px', 
+                                height: '6px', 
+                                borderRadius: '50%', 
+                                background: isConnected ? 'var(--green)' : '#666',
+                                boxShadow: isConnected ? '0 0 6px var(--green)' : 'none'
+                              }}></span>
+                              <span>{isConnected ? 'Connected' : 'Unconfigured'}</span>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: '1.4' }}>
+                            {portal.description}
+                          </div>
+
+                          <div style={{ 
+                            background: 'rgba(0,0,0,0.2)', 
+                            padding: '8px 10px', 
+                            borderRadius: '6px', 
+                            border: '1px solid rgba(255,255,255,0.04)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '10px',
+                            color: 'var(--text3)'
+                          }}>
+                            <span>Partner ID: <strong style={{ color: 'var(--white)' }}>{portal.maskedPartnerId || (isConnected ? 'Active' : 'Not Set')}</strong></span>
+                            <span>Feed: <strong style={{ color: 'var(--gold)' }}>{portal.format?.toUpperCase() || 'JSON'}</strong></span>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '4px' }}>
+                            <button
+                              onClick={() => handleTestPortal(portal.id, portal.name)}
+                              disabled={isTesting}
+                              style={{
+                                flex: 1,
+                                background: 'rgba(255,255,255,0.05)',
+                                border: '1px solid var(--border)',
+                                color: 'var(--text)',
+                                borderRadius: '6px',
+                                padding: '6px 10px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                              }}
+                            >
+                              {isTesting ? <span className="spinner-sm"></span> : '⚡'}
+                              <span>{isTesting ? 'Testing...' : 'Test Connection'}</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setConfiguringPortal(portal);
+                                setPortalConfigForm({ partnerId: '', apiKey: '', feedUrl: '' });
+                              }}
+                              style={{
+                                flex: 1,
+                                background: 'linear-gradient(135deg, rgba(201,146,26,0.18) 0%, rgba(201,146,26,0.08) 100%)',
+                                border: '1px solid rgba(201,146,26,0.3)',
+                                color: 'var(--gold)',
+                                borderRadius: '6px',
+                                padding: '6px 10px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                              }}
+                            >
+                              <span>⚙️</span>
+                              <span>{isConnected ? 'Update Config' : 'Configure'}</span>
+                            </button>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)' }}>{pl.desc}</div>
-                        <div style={{ fontSize: '10px', marginTop: '8px', color: pl.connected ? 'var(--green)' : 'var(--text3)', fontWeight: 600 }}>
-                          {pl.connected ? '✓ Connected' : '✕ Disconnected'}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -6253,6 +6496,139 @@ export default function MarketingOverviewPage({ onNavigate }) {
       </div>
 
       {/* ══ MODALS ══ */}
+      {/* ── PORTAL CONFIGURATION MODAL ── */}
+      {configuringPortal && (
+        <div className="modal-backdrop-v2" onClick={() => setConfiguringPortal(null)} style={{ zIndex: 9999 }}>
+          <div className="modal-v2" style={{ maxWidth: '520px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header-v2" style={{ borderBottom: `2px solid ${configuringPortal.color || 'var(--gold)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div className="modal-title-v2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⚙️</span>
+                  <span>Configure {configuringPortal.name}</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
+                  Enter partner credentials for direct {configuringPortal.method?.replace('_', ' ')} syndication
+                </div>
+              </div>
+              <button className="modal-close-v2" onClick={() => setConfiguringPortal(null)}>✕</button>
+            </div>
+            <form onSubmit={handleSavePortalConfig}>
+              <div className="modal-body-v2" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '11px', color: 'var(--text2)', lineHeight: '1.4' }}>
+                  {configuringPortal.description}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                    Partner ID / Agency Code / Merchant Code *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={portalConfigForm.partnerId}
+                    onChange={e => setPortalConfigForm(prev => ({ ...prev, partnerId: e.target.value }))}
+                    placeholder={`e.g. ${configuringPortal.id.toUpperCase()}-AGENCY-001`}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: 'var(--white)',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                    API Key / Secret Token / FTP Password *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={portalConfigForm.apiKey}
+                    onChange={e => setPortalConfigForm(prev => ({ ...prev, apiKey: e.target.value }))}
+                    placeholder="Enter secret API key or feed token"
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: 'var(--white)',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                    Custom Ingestion Endpoint (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={portalConfigForm.feedUrl}
+                    onChange={e => setPortalConfigForm(prev => ({ ...prev, feedUrl: e.target.value }))}
+                    placeholder="Leave blank to use default portal API endpoint"
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: 'var(--white)',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer-v2" style={{ padding: '14px 18px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setConfiguringPortal(null)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text2)',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPortalConfig}
+                  style={{
+                    background: 'var(--gold)',
+                    border: 'none',
+                    color: '#000',
+                    fontWeight: 700,
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {savingPortalConfig ? <span className="spinner-sm"></span> : '💾'}
+                  <span>{savingPortalConfig ? 'Saving...' : 'Save & Activate Portal'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showPostModal && (
         <div className="modal-backdrop-v2">
           <div className="modal-v2 post-modal-v2">
