@@ -304,6 +304,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [showMultiPostPicker, setShowMultiPostPicker] = useState(false);
   const [multiPostDate, setMultiPostDate] = useState(null);
   const [isQuickPostModalOpen, setIsQuickPostModalOpen] = useState(false);
+  const [isScanningStrategies, setIsScanningStrategies] = useState(false);
   const [quickPostInitialData, setQuickPostInitialData] = useState({
     title: "New Update from Bharat Properties",
     description: "Excited to share our latest listings with you all! Check out these exclusive opportunities in Kurukshetra.",
@@ -3678,12 +3679,23 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
                     <button 
-                      onClick={() => {
-                        toast.success('AI Optimization model synced with live MongoDB Atlas metrics!');
-                        fetchLiveData();
+                      onClick={async () => {
+                        setIsScanningStrategies(true);
+                        toast.loading('Running AI Deep Strategy Scan against MongoDB Atlas...', { id: 'strat-scan' });
+                        try {
+                          await fetchLiveData();
+                          setTimeout(() => {
+                            setIsScanningStrategies(false);
+                            toast.success('🎯 AI Deep Strategy Scan complete: All recommendations re-synchronized with MongoDB live transactions!', { id: 'strat-scan' });
+                          }, 600);
+                        } catch (err) {
+                          setIsScanningStrategies(false);
+                          toast.error('Strategy scan error', { id: 'strat-scan' });
+                        }
                       }}
+                      disabled={isScanningStrategies}
                       style={{
-                        background: 'rgba(255,255,255,0.06)',
+                        background: isScanningStrategies ? 'rgba(201,146,26,0.25)' : 'rgba(255,255,255,0.06)',
                         border: '1px solid var(--border)',
                         color: 'var(--text)',
                         borderRadius: '8px',
@@ -3696,7 +3708,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         gap: '6px'
                       }}
                     >
-                      🔄 Refresh Prescriptions
+                      {isScanningStrategies ? <span className="spinner-sm"></span> : '⚡'}
+                      <span>{isScanningStrategies ? 'Scanning Atlas Data...' : 'Run Deep Strategy Scan'}</span>
                     </button>
                   </div>
                 </div>
@@ -3788,8 +3801,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '8px' }}>
                         <button 
                           onClick={() => {
+                            setDesignPrompt(`[Pillar 3: Educational & Legal Guide]
+"Professional editorial infographic flyer for Kurukshetra Real Estate: 5-Point Registry & Circle Rate Checklist for Sector 4, 32 & GT Road plots. Elegant dark navy (#07162b) background with gold (#C9921A) typography, official RERA badge, verified legal audit stamp, clean modern layout, 1:1 format."`);
                             setActivePage('designer');
-                            toast.success('Navigating to Designer Studio to generate Educational & Legal visual assets!');
+                            toast.success('Navigated to Designer Studio with Pillar 3 Educational prompt loaded!');
                           }}
                           style={{
                             flex: 1,
@@ -3835,9 +3850,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '8px' }}>
                         <button 
                           onClick={() => {
+                            setSelectedSeg('hot');
                             setActivePage('campaign');
                             setCampaignTab('launch');
-                            toast.success('Navigating to Campaign Engine to configure High-Intent WhatsApp dispatch!');
+                            toast.success('Navigated to Campaign Engine with Hot Leads segment selected for WhatsApp dispatch!');
                           }}
                           style={{
                             flex: 1,
@@ -3864,45 +3880,159 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   {/* 3 High-Yield Untried Content Angles (Market Tested for Kurukshetra) */}
                   <div>
                     <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>💡</span> 3 High-Converting Content Angles for Kurukshetra Real Estate
+                      <span>💡</span> 3 High-Converting Content Angles for Kurukshetra Real Estate (1-Click Actionable)
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #f59e0b' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '14px' }}>
+                      {/* Angle 1: ROI */}
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #f59e0b', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '14px' }}>📈</span>
                           <span style={{ fontSize: '9px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>ROI Angle</span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff', marginBottom: '4px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff' }}>
                           "Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026"
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--text3)', lineHeight: '1.4' }}>
                           Targeted at conservative local business owners & doctors looking for safe 14-18% CAGR land appreciation near GT Road.
                         </div>
+                        <div style={{ display: 'flex', gap: '6px', marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          <button 
+                            onClick={() => {
+                              setDesignPrompt(`[ROI & Investment Angle]
+"High-contrast financial real estate visual: Comparison graph showing Kurukshetra Ring Road plot value appreciation (14-18% CAGR) vs traditional Fixed Deposits (6.5%) from 2020 to 2026. Premium Navy & Gold theme, professional typography, crisp architectural backdrop."`);
+                              setActivePage('designer');
+                              toast.success('Loaded Ring Road ROI prompt into Designer Studio!');
+                            }}
+                            style={{ flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', cursor: 'pointer' }}
+                          >
+                            🎨 Studio
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setQuickPostInitialData({
+                                title: "Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026 📈",
+                                description: "Are your savings beating inflation? While traditional FDs yield ~6.5-7%, verified residential and commercial plots near Kurukshetra Ring Road and GT Road have demonstrated consistent 14-18% CAGR capital appreciation over the last 5 years.\n\nKey drivers:\n✅ 150-ft Ring Road Expansion\n✅ Direct NH-44 connectivity\n✅ 100% Registry & CLU approved titles\n\nDM or WhatsApp Bharat Properties for verified site visits this weekend!\n\n#KurukshetraRealEstate #RingRoadPlots #PropertyInvestment #BharatProperties #WealthCreation",
+                                location: "Ring Road, Kurukshetra, Haryana"
+                              });
+                              setIsQuickPostModalOpen(true);
+                              toast.success('Loaded Ring Road ROI copy into Social Composer!');
+                            }}
+                            style={{ flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', cursor: 'pointer' }}
+                          >
+                            🚀 Post
+                          </button>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText("Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026: While FDs yield 6.5%, verified plots near Kurukshetra Ring Road have appreciated at 14-18% CAGR. 100% Registry & CLU approved titles. Contact Bharat Properties.");
+                              toast.success('Copied ROI Angle copy to clipboard!');
+                            }}
+                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            title="Copy Copywriting Hook"
+                          >
+                            📋
+                          </button>
+                        </div>
                       </div>
 
-                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #10b981' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      {/* Angle 2: Trust */}
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #10b981', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '14px' }}>🛡️</span>
                           <span style={{ fontSize: '9px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Trust Angle</span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff', marginBottom: '4px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff' }}>
                           "Registry & CLU Checklist: 5 Pitfalls Before Buying Colony Plots"
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--text3)', lineHeight: '1.4' }}>
                           Addresses the #1 buyer fear in Kurukshetra. Positions Bharat Properties as the verified, legally audited authority.
                         </div>
+                        <div style={{ display: 'flex', gap: '6px', marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          <button 
+                            onClick={() => {
+                              setDesignPrompt(`[Trust & Verification Angle]
+"Legal audit certificate flyer: '5 Pitfalls to Avoid Before Buying Land in Kurukshetra'. Checklist with clean checkmarks: 1. Jamabandi & Intkaal 2. Registry status 3. Colony NOC 4. Demarcation 5. Encumbrance Certificate. Official Gold seal of Bharat Properties, dark blue aesthetic."`);
+                              setActivePage('designer');
+                              toast.success('Loaded Legal Checklist prompt into Designer Studio!');
+                            }}
+                            style={{ flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', cursor: 'pointer' }}
+                          >
+                            🎨 Studio
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setQuickPostInitialData({
+                                title: "Registry & CLU Checklist: 5 Pitfalls Before Buying Land 🛡️",
+                                description: "Buying land in Kurukshetra? Never sign or pay advance without verifying these 5 critical documents:\n\n1️⃣ Jamabandi & Intkaal verification (current ownership record)\n2️⃣ Town & Country Planning CLU / Regularized colony status\n3️⃣ Actual on-ground demarcation (Nishan-dehi) vs Revenue records\n4️⃣ Non-encumbrance certificate (Bhaar-mukt praman patra)\n5️⃣ Registry readiness with official tehsil token\n\nAt Bharat Properties, every mandate undergoes a 100% title check before listing.\n\n#KurukshetraProperty #LegalChecklist #PropertyAdvice #BharatProperties #SafeInvestment",
+                                location: "Sector 4 & 32, Kurukshetra"
+                              });
+                              setIsQuickPostModalOpen(true);
+                              toast.success('Loaded Registry Checklist copy into Social Composer!');
+                            }}
+                            style={{ flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', cursor: 'pointer' }}
+                          >
+                            🚀 Post
+                          </button>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText("Registry & CLU Checklist for Kurukshetra Land: 1. Jamabandi & Intkaal, 2. CLU / Approved status, 3. On-ground demarcation, 4. Non-encumbrance certificate, 5. Tehsil token readiness. Verified by Bharat Properties.");
+                              toast.success('Copied Trust Angle copy to clipboard!');
+                            }}
+                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            title="Copy Copywriting Hook"
+                          >
+                            📋
+                          </button>
+                        </div>
                       </div>
 
-                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #3b82f6' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      {/* Angle 3: Urgency */}
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '14px' }}>⏱️</span>
                           <span style={{ fontSize: '9px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Urgency Angle</span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff', marginBottom: '4px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff' }}>
                           "Sector 32 Commercial Plots: Pre-Registry Price Freeze"
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--text3)', lineHeight: '1.4' }}>
                           Designed for quick booking conversions with high-intent retail investors seeking rental yield near commercial hubs.
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          <button 
+                            onClick={() => {
+                              setDesignPrompt(`[Urgency & Commercial Mandate]
+"Commercial real estate announcement: 'Exclusive Pre-Registry Price Freeze — Sector 32 Commercial Plots'. Sleek modern commercial complex visualization at twilight, bold gold price tag, high footfall GT Road corridor indicator, limited inventory badge."`);
+                              setActivePage('designer');
+                              toast.success('Loaded Sector 32 Commercial prompt into Designer Studio!');
+                            }}
+                            style={{ flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', cursor: 'pointer' }}
+                          >
+                            🎨 Studio
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setQuickPostInitialData({
+                                title: "Sector 32 Commercial Plots: Pre-Registry Price Freeze ⏱️",
+                                description: "Attention Investors & Business Owners: Pre-registry booking window is now open for prime commercial plots in Sector 32, Kurukshetra.\n\n🌟 Highlights:\n• High footfall commercial belt near GT Road\n• Flexible SCO & retail booth configurations\n• Immediate registry & possession post-allotment\n• Pre-launch pricing frozen for the first 5 investors only!\n\nSchedule a priority site visit today with Bharat Properties.\n\n#Sector32Kurukshetra #CommercialPlots #SCOKurukshetra #RealEstateOpportunity #BharatProperties",
+                                location: "Sector 32 Commercial Belt, Kurukshetra"
+                              });
+                              setIsQuickPostModalOpen(true);
+                              toast.success('Loaded Sector 32 Commercial copy into Social Composer!');
+                            }}
+                            style={{ flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(201,146,26,0.15)', color: 'var(--gold)', border: '1px solid rgba(201,146,26,0.3)', cursor: 'pointer' }}
+                          >
+                            🚀 Post
+                          </button>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText("Sector 32 Commercial Plots: Pre-Registry Price Freeze. High footfall commercial belt near GT Road, flexible SCO configurations, immediate registry. First 5 investors only. Contact Bharat Properties.");
+                              toast.success('Copied Urgency Angle copy to clipboard!');
+                            }}
+                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            title="Copy Copywriting Hook"
+                          >
+                            📋
+                          </button>
                         </div>
                       </div>
                     </div>
