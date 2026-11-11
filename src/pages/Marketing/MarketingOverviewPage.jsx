@@ -200,6 +200,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [dynamicBriefing, setDynamicBriefing] = useState('Syncing live CRM intelligence... One moment.');
   const termBodyRef = useRef(null);
   const hasInitialStatusFetched = useRef(false);
+  const isFetchingLiveRef = useRef(false);
 
   // ══ v2.5 UPGRADE STATES ══
   const [agentOutputs, setAgentOutputs] = useState({ metrics: '', social: '', designer: '', scheduler: '' });
@@ -417,6 +418,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
   // ══ REAL API FETCH FUNCTION (P1 + P4 + P8 + P9 + Phase B) ══
   const fetchLiveData = useCallback(async () => {
+    if (isFetchingLiveRef.current) return;
+    isFetchingLiveRef.current = true;
     try {
       const [sRes, lRes, dRes, agentRes, varRes, anRes] = await Promise.allSettled([
         marketingAPI.getStats(),
@@ -594,6 +597,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
       setApiDataLoaded(true);
     } catch (err) {
       console.warn('[MarketingOS] API fetch error:', err.message);
+    } finally {
+      isFetchingLiveRef.current = false;
     }
   }, []);
 
@@ -632,7 +637,12 @@ export default function MarketingOverviewPage({ onNavigate }) {
   useEffect(() => {
     fetchLiveData();
     fetchWhatsAppTemplates();
-    const interval = setInterval(fetchLiveData, 15000); // 15s refresh
+    // 🛡️ Adaptive 60s Cadence: Prevents request stampedes and only runs when tab is active
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchLiveData();
+      }
+    }, 60000);
     return () => clearInterval(interval);
   }, [fetchLiveData]);
 
@@ -1906,27 +1916,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
           <div className="topbar-right">
             <button 
-              className={`tact-btn ${isRunningAgent ? 'active' : ''}`} 
-              id="header-run-engine"
-              aria-label="Run Marketing Orchestration Agent"
-              onClick={runFullOrchestration}
-              disabled={isRunningAgent}
-            >
-              {isRunningAgent ? <><span className="spinner-sm"></span></> : <Play size={14} fill="currentColor" />}
-              <span>{isRunningAgent ? 'Running Agent...' : 'Run Engine'}</span>
-            </button>
-            <button 
-              className="tact-btn primary" 
-              id="header-run-campaign"
-              aria-label="Launch new campaign"
-              onClick={() => { setShowCampaignModal(true); setCampaignStep(1); }}
-              style={{ background: 'linear-gradient(135deg, var(--gold) 0%, #b8860b 100%)', border: 'none' }}
-            >
-              <Megaphone size={16} />
-              <span>Run Campaign</span>
-            </button>
-            
-            <button 
               className="notif-btn-fid" 
               id="header-notifications"
               aria-label="Show notification panel"
@@ -1977,18 +1966,36 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
                     </span>
                   </div>
-                  <div className="briefing-actions" style={{ display: 'flex', gap: '8px' }}>
-                    
+                  <div className="briefing-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button 
+                      className={`tact-btn ${isRunningAgent ? 'active' : ''}`} 
+                      id="command-center-run-engine"
+                      aria-label="Run Marketing Orchestration Agent"
+                      onClick={runFullOrchestration}
+                      disabled={isRunningAgent}
+                      style={{ 
+                        padding: '5px 14px', 
+                        fontWeight: 700, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        background: isRunningAgent ? 'rgba(201, 146, 26, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+                        borderColor: isRunningAgent ? 'var(--gold)' : 'var(--border)'
+                      }}
+                    >
+                      {isRunningAgent ? <span className="spinner-sm"></span> : <Play size={14} fill="currentColor" />}
+                      <span>{isRunningAgent ? 'Running Agent...' : 'Run Engine'}</span>
+                    </button>
                     <button 
                       className="tact-btn primary-gold" 
-                      style={{ padding: '4px 12px' }} 
+                      style={{ padding: '5px 12px' }} 
                       onClick={() => setIsQuickPostModalOpen(true)}
                     >
                       🚀 Quick Social Post
                     </button>
                     <button 
                       className="tact-btn" 
-                      style={{ padding: '4px 12px' }} 
+                      style={{ padding: '5px 12px' }} 
                       onClick={() => generateBriefing()}
                       disabled={loading}
                     >
@@ -4328,19 +4335,43 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 ))}
               </div>
 
-              {/* 🧠 SENIOR PROFESSIONAL: Sub-navigation Tab Bar */}
-              <div className="campaign-tab-nav">
-                <button className={`campaign-tab-btn ${campaignTab === 'launch' ? 'active' : ''}`} onClick={() => setCampaignTab('launch')}>
-                  <Zap size={14} /> Launch Engine
-                </button>
-                <button className={`campaign-tab-btn ${campaignTab === 'pipeline' ? 'active' : ''}`} onClick={() => setCampaignTab('pipeline')}>
-                  <Clock size={14} /> Active Pipeline <span className="tab-badge">{scheduledQueue.delayed.length + scheduledQueue.repeatable.length}</span>
-                </button>
-                <button className={`campaign-tab-btn ${campaignTab === 'reports' ? 'active' : ''}`} onClick={() => setCampaignTab('reports')}>
-                  <FileText size={14} /> Performance Reports <span className="tab-badge">{campaignRuns.length}</span>
-                </button>
-                <button className={`campaign-tab-btn ${campaignTab === 'roi' ? 'active' : ''}`} onClick={() => setCampaignTab('roi')} style={{ color: 'var(--gold)', borderColor: campaignTab === 'roi' ? 'var(--gold)' : 'transparent' }}>
-                  <Activity size={14} /> ROI & Loop Analytics
+              {/* 🧠 SENIOR PROFESSIONAL: Sub-navigation Tab Bar + Run Campaign Action */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '12px' }}>
+                <div className="campaign-tab-nav" style={{ marginBottom: 0 }}>
+                  <button className={`campaign-tab-btn ${campaignTab === 'launch' ? 'active' : ''}`} onClick={() => setCampaignTab('launch')}>
+                    <Zap size={14} /> Launch Engine
+                  </button>
+                  <button className={`campaign-tab-btn ${campaignTab === 'pipeline' ? 'active' : ''}`} onClick={() => setCampaignTab('pipeline')}>
+                    <Clock size={14} /> Active Pipeline <span className="tab-badge">{scheduledQueue.delayed.length + scheduledQueue.repeatable.length}</span>
+                  </button>
+                  <button className={`campaign-tab-btn ${campaignTab === 'reports' ? 'active' : ''}`} onClick={() => setCampaignTab('reports')}>
+                    <FileText size={14} /> Performance Reports <span className="tab-badge">{campaignRuns.length}</span>
+                  </button>
+                  <button className={`campaign-tab-btn ${campaignTab === 'roi' ? 'active' : ''}`} onClick={() => setCampaignTab('roi')} style={{ color: 'var(--gold)', borderColor: campaignTab === 'roi' ? 'var(--gold)' : 'transparent' }}>
+                    <Activity size={14} /> ROI & Loop Analytics
+                  </button>
+                </div>
+
+                <button 
+                  className="tact-btn primary" 
+                  id="campaign-page-run-campaign"
+                  aria-label="Launch new campaign"
+                  onClick={() => { setShowCampaignModal(true); setCampaignStep(1); }}
+                  style={{ 
+                    background: 'linear-gradient(135deg, var(--gold) 0%, #b8860b 100%)', 
+                    border: 'none', 
+                    padding: '8px 18px', 
+                    fontWeight: 700, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(201, 146, 26, 0.25)'
+                  }}
+                >
+                  <Megaphone size={16} />
+                  <span>Run Campaign</span>
                 </button>
               </div>
 

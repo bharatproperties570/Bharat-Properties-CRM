@@ -562,6 +562,10 @@ api.interceptors.response.use(
                                   reqUrl.includes('lookups') || 
                                   reqUrl.includes('lookup') || 
                                   reqUrl.includes('notifications') || 
+                                  reqUrl.includes('marketing/campaign-runs') ||
+                                  reqUrl.includes('marketing/analytics-overview') ||
+                                  reqUrl.includes('marketing/social-telemetry') ||
+                                  reqUrl.includes('marketing/scheduled') ||
                                   (reqUrl.includes('conversations') && reqUrl.includes('/read'));
 
             // 🛡️ Enterprise Strategy: Do not trigger intrusive UI toasts for missing system settings or read marks
