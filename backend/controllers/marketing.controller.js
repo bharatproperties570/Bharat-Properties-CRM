@@ -3383,22 +3383,17 @@ export const getOmnichannelTelemetry = async (req, res) => {
             Contact.find({
                 isDeleted: { $ne: true },
                 $or: [
-                    { professionCategory: /broker|channel partner|agent|real estate/i },
-                    { professionSubCategory: /broker|channel partner|agent/i },
                     { tags: /broker|partner|agent/i },
                     { description: /broker|agent/i },
                     { isVerifiedBroker: true }
                 ]
             })
-            .select('name surname phones emails professionCategory tags isVerifiedBroker personalAddress')
+            .select('name surname phones emails tags isVerifiedBroker personalAddress')
             .limit(30)
             .lean(),
             Company.find({
                 isDeleted: { $ne: true },
-                $or: [
-                    { isVerifiedBroker: true },
-                    { companyType: /broker|agency|partner/i }
-                ]
+                isVerifiedBroker: true
             })
             .select('name phones emails isVerifiedBroker')
             .limit(20)
