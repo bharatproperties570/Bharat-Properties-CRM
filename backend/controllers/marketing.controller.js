@@ -579,45 +579,114 @@ export const getCampaignRuns = async (req, res) => {
  */
 export const getScheduledCampaigns = async (req, res) => {
     try {
-        const queue = await getMarketingQueue();
-        const { default: redisConnection, isRedisOnline } = await import('../src/config/redis.js');
-        
-        if (!queue || redisConnection.isMock || !isRedisOnline) {
-            return res.json({ success: true, delayed: [], repeatable: [], message: 'Queue engine offline (Mock Mode)' });
-        }
-
         let delayedList = [];
         let repeatableList = [];
+        let dripSequences = [];
+        let dripEnrollments = [];
 
-        if (queue && !redisConnection.isMock && isRedisOnline) {
-            // 1. Fetch Delayed individual jobs from BullMQ
-            const delayedJobs = await queue.getJobs(['delayed']);
-            delayedList = delayedJobs.map(j => ({
-                id: j.id,
-                name: j.data?.name || 'Untitled',
-                channel: j.data?.channel || 'Unknown',
-                leads: j.data?.leads?.length || 0,
-                scheduledAt: new Date(j.timestamp + (j.opts?.delay || 0)).toISOString(),
-                type: 'delayed',
-                status: 'Pending'
+        // 1. Fetch Real-Time Drip Sequences & Enrollments from MongoDB Atlas
+        try {
+            const Sequence = (await import('../models/Sequence.js')).default;
+            const SequenceEnrollment = (await import('../models/SequenceEnrollment.js')).default;
+            const Lead = (await import('../models/Lead.js')).default;
+            const Deal = (await import('../models/Deal.js')).default;
+
+            const sequences = await Sequence.find({}).lean();
+            const enrollments = await SequenceEnrollment.find({})
+                .sort({ updatedAt: -1 })
+                .limit(50)
+                .lean();
+
+            const seqMap = new Map(sequences.map(s => [s._id.toString(), s]));
+
+            // Gather entity names (Lead or Deal)
+            const leadIds = enrollments.filter(e => e.module === 'leads').map(e => e.entityId);
+            const dealIds = enrollments.filter(e => e.module === 'deals').map(e => e.entityId);
+
+            const [leadsList, dealsList] = await Promise.all([
+                leadIds.length > 0 ? Lead.find({ _id: { $in: leadIds } }, { name: 1, phone: 1 }).lean() : [],
+                dealIds.length > 0 ? Deal.find({ _id: { $in: dealIds } }, { title: 1, dealName: 1 }).lean() : []
+            ]);
+
+            const entityNameMap = {};
+            leadsList.forEach(l => { entityNameMap[l._id.toString()] = l.name || l.phone || 'Lead'; });
+            dealsList.forEach(d => { entityNameMap[d._id.toString()] = d.title || d.dealName || 'Deal'; });
+
+            // Count enrollments per sequence
+            const countBySeq = {};
+            const activeBySeq = {};
+            enrollments.forEach(e => {
+                const sId = (e.sequenceId || '').toString();
+                countBySeq[sId] = (countBySeq[sId] || 0) + 1;
+                if (e.status === 'active' || e.status === 'paused') {
+                    activeBySeq[sId] = (activeBySeq[sId] || 0) + 1;
+                }
+            });
+
+            dripSequences = sequences.map(s => ({
+                id: s._id,
+                name: s.name,
+                module: s.module || 'leads',
+                stepsCount: s.steps?.length || 0,
+                totalEnrolled: countBySeq[s._id.toString()] || 0,
+                activeEnrolled: activeBySeq[s._id.toString()] || 0,
+                status: s.isActive ?? s.active ? 'Active' : 'Paused',
+                updatedAt: s.updatedAt || s.createdAt
             }));
 
-            // 2. Fetch Repeatable job definitions from BullMQ
-            const repeatableJobs = await queue.getRepeatableJobs();
-            repeatableList = repeatableJobs.map(rj => ({
-                id: rj.key,
-                name: rj.name || 'Recurring Campaign',
-                channel: 'Channel-Locked', 
-                leads: 'Dynamic Pool',
-                cron: rj.cron,
-                nextRun: new Date(rj.next).toISOString(),
-                type: 'repeatable',
-                status: 'Active Loop'
-            }));
+            dripEnrollments = enrollments.map(e => {
+                const seq = seqMap.get((e.sequenceId || '').toString());
+                return {
+                    id: e._id,
+                    sequenceName: seq?.name || 'Drip Sequence',
+                    sequenceId: e.sequenceId,
+                    entityName: entityNameMap[(e.entityId || '').toString()] || `${e.module === 'deals' ? 'Deal' : 'Lead'} #${(e.entityId || '').toString().slice(-6)}`,
+                    module: e.module,
+                    currentStepNumber: e.currentStepNumber || 1,
+                    totalSteps: seq?.steps?.length || 1,
+                    status: e.status || 'active',
+                    exitReason: e.exitReason || null,
+                    nextExecutionAt: e.nextExecutionAt ? new Date(e.nextExecutionAt).toISOString() : null,
+                    updatedAt: e.updatedAt ? new Date(e.updatedAt).toISOString() : new Date(e.createdAt || Date.now()).toISOString()
+                };
+            });
+        } catch (dbErr) {
+            console.error('[MarketingController] getScheduledCampaigns drip fetch error:', dbErr);
         }
 
-        // 🧠 SENIOR PROFESSIONAL: Merge In-Memory Jobs
-        // This ensures visibility even when Redis is offline
+        // 2. Fetch BullMQ queues if Redis is online
+        try {
+            const queue = await getMarketingQueue();
+            const { default: redisConnection, isRedisOnline } = await import('../src/config/redis.js');
+            if (queue && !redisConnection.isMock && isRedisOnline) {
+                const delayedJobs = await queue.getJobs(['delayed']);
+                delayedList = delayedJobs.map(j => ({
+                    id: j.id,
+                    name: j.data?.name || 'Untitled',
+                    channel: j.data?.channel || 'Unknown',
+                    leads: j.data?.leads?.length || 0,
+                    scheduledAt: new Date(j.timestamp + (j.opts?.delay || 0)).toISOString(),
+                    type: 'delayed',
+                    status: 'Pending'
+                }));
+
+                const repeatableJobs = await queue.getRepeatableJobs();
+                repeatableList = repeatableJobs.map(rj => ({
+                    id: rj.key,
+                    name: rj.name || 'Recurring Campaign',
+                    channel: 'Channel-Locked', 
+                    leads: 'Dynamic Pool',
+                    cron: rj.cron,
+                    nextRun: new Date(rj.next).toISOString(),
+                    type: 'repeatable',
+                    status: 'Active Loop'
+                }));
+            }
+        } catch (qErr) {
+            console.warn('[MarketingController] BullMQ fetch error:', qErr.message);
+        }
+
+        // 3. Merge In-Memory Jobs if any
         _memoryQueue.forEach(j => {
             delayedList.push({
                 id: j.id,
@@ -631,10 +700,16 @@ export const getScheduledCampaigns = async (req, res) => {
             });
         });
 
-        res.json({ success: true, delayed: delayedList, repeatable: repeatableList });
+        res.json({ 
+            success: true, 
+            delayed: delayedList, 
+            repeatable: repeatableList,
+            dripSequences,
+            dripEnrollments
+        });
     } catch (error) {
         console.error('[MarketingController] getScheduledCampaigns error:', error);
-        res.status(200).json({ success: true, delayed: [], repeatable: [], error: error.message });
+        res.status(200).json({ success: true, delayed: [], repeatable: [], dripSequences: [], dripEnrollments: [], error: error.message });
     }
 };
 

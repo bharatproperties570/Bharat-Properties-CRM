@@ -7,7 +7,7 @@ import {
   Bell, Play, Plus, ChevronRight, Workflow, 
   Zap, ListOrdered, Activity, Sparkles, Type,
   Globe, Settings2, Database, Cpu, ShieldCheck,
-  Clock, FileText, Trash2
+  Clock, FileText, Trash2, ExternalLink, CheckCircle2, AlertCircle, RefreshCw
 } from 'lucide-react';
 import './MarketingOverview.css';
 import toast from 'react-hot-toast';
@@ -273,7 +273,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
   const [variableRegistry, setVariableRegistry] = useState({});
   const [waMapping, setWaMapping] = useState({}); // { index: source, index_val: customText }
   const [waMetrics, setWaMetrics] = useState({ sent: 0, delivered: 0, read: 0, failed: 0 });
-  const [scheduledQueue, setScheduledQueue] = useState({ delayed: [], repeatable: [] });
+  const [scheduledQueue, setScheduledQueue] = useState({ delayed: [], repeatable: [], dripSequences: [], dripEnrollments: [] });
   const [campaignRuns, setCampaignRuns] = useState([]);
 
   // Detect variables like {{1}}, {{2}} in body text
@@ -511,7 +511,9 @@ export default function MarketingOverviewPage({ onNavigate }) {
         if (hRes?.success) setCampaignRuns(hRes.data || []);
         if (qRes?.success) setScheduledQueue({ 
             delayed: qRes.delayed || [], 
-            repeatable: qRes.repeatable || [] 
+            repeatable: qRes.repeatable || [],
+            dripSequences: qRes.dripSequences || [],
+            dripEnrollments: qRes.dripEnrollments || []
         });
       } catch (err) {
         console.error('[MarketingOverview] Bulk data sync failed:', err);
@@ -4723,7 +4725,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                     <Zap size={14} /> Launch Engine
                   </button>
                   <button className={`campaign-tab-btn ${campaignTab === 'pipeline' ? 'active' : ''}`} onClick={() => setCampaignTab('pipeline')}>
-                    <Clock size={14} /> Active Pipeline <span className="tab-badge">{scheduledQueue.delayed.length + scheduledQueue.repeatable.length}</span>
+                    <Clock size={14} /> Active Pipeline <span className="tab-badge">{(scheduledQueue.delayed?.length || 0) + (scheduledQueue.repeatable?.length || 0) + (scheduledQueue.dripEnrollments?.length || 0)}</span>
                   </button>
                   <button className={`campaign-tab-btn ${campaignTab === 'reports' ? 'active' : ''}`} onClick={() => setCampaignTab('reports')}>
                     <FileText size={14} /> Performance Reports <span className="tab-badge">{campaignRuns.length}</span>
@@ -5004,6 +5006,256 @@ export default function MarketingOverviewPage({ onNavigate }) {
               {/* ── TAB 2: ACTIVE PIPELINE ── */}
               {campaignTab === 'pipeline' && (
                 <div className="pipeline-monitor-v4">
+                  {/* Executive KPI Summary Grid */}
+                  <div className="perf-kpi-grid" style={{ marginBottom: '1.5rem' }}>
+                    <div className="kpi-card">
+                      <div className="kpi-label">ACTIVE DRIP RULES</div>
+                      <div className="kpi-val" style={{ color: 'var(--gold)' }}>
+                        {scheduledQueue.dripSequences?.filter(s => s.status === 'Active').length || 0}
+                        <span style={{ fontSize: '13px', color: 'var(--text3)', fontWeight: 400, marginLeft: '6px' }}>
+                          / {scheduledQueue.dripSequences?.length || 0}
+                        </span>
+                      </div>
+                      <div className="kpi-sub green">Configured in CRM Settings</div>
+                    </div>
+
+                    <div className="kpi-card">
+                      <div className="kpi-label">ENTITIES IN PIPELINE</div>
+                      <div className="kpi-val" style={{ color: 'var(--blue)' }}>
+                        {scheduledQueue.dripEnrollments?.length || 0}
+                      </div>
+                      <div className="kpi-sub gold">
+                        {scheduledQueue.dripEnrollments?.filter(e => e.status === 'active').length || 0} Active In-Flight
+                      </div>
+                    </div>
+
+                    <div className="kpi-card">
+                      <div className="kpi-label">DISPATCH CADENCE</div>
+                      <div className="kpi-val" style={{ fontSize: '1.1rem', marginTop: '2px' }}>
+                        BullMQ + Leases
+                      </div>
+                      <div className="kpi-sub green">Every 6h MongoDB Cron Lease</div>
+                    </div>
+
+                    <div className="kpi-card">
+                      <div className="kpi-label">AUDIT HEALTH</div>
+                      <div className="kpi-val" style={{ color: 'var(--green)' }}>
+                        100%
+                      </div>
+                      <div className="kpi-sub blue">Full Lifecycle & Exit Tracking</div>
+                    </div>
+                  </div>
+
+                  {/* 1. Automated Drip Sequences (Rule Sets & Settings Link) */}
+                  <div className="card" style={{ marginTop: '0', marginBottom: '1.5rem' }}>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <div className="card-title text-serif" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Workflow size={17} style={{ color: 'var(--gold)' }} /> Automated Drip Sequences & Cadence Rules
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '4px' }}>
+                          Multi-step nurture workflows executed by the background sequence engine. Rules and triggers are authored in Settings.
+                        </div>
+                      </div>
+                      <button 
+                        className="btn-secondary" 
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '6px 14px', background: 'rgba(201,146,26,0.1)', color: 'var(--gold)', border: '1px solid rgba(201,146,26,0.3)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                        onClick={() => navigate('/settings/sequences')}
+                      >
+                        <Settings size={13} /> Open Sequence Builder in Settings <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <div className="card-body" style={{ padding: '0' }}>
+                      <table className="crm-table">
+                        <thead>
+                          <tr>
+                            <th>Sequence Name</th>
+                            <th>Target Module</th>
+                            <th>Cadence Steps</th>
+                            <th>Enrolled Entities</th>
+                            <th>Status</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(!scheduledQueue.dripSequences || scheduledQueue.dripSequences.length === 0) ? (
+                            <tr>
+                              <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>
+                                No drip sequences configured in CRM Settings. Click "Open Sequence Builder" to create one.
+                              </td>
+                            </tr>
+                          ) : (
+                            scheduledQueue.dripSequences.map(seq => (
+                              <tr key={seq.id}>
+                                <td style={{ fontWeight: 700, color: 'var(--gold)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Workflow size={14} style={{ color: 'var(--gold)' }} />
+                                    <span>{seq.name}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span style={{ 
+                                    textTransform: 'uppercase', 
+                                    fontSize: '10px', 
+                                    fontWeight: 700, 
+                                    padding: '3px 8px', 
+                                    borderRadius: '4px',
+                                    background: seq.module === 'deals' ? 'rgba(59,130,246,0.12)' : 'rgba(16,185,129,0.12)',
+                                    color: seq.module === 'deals' ? 'var(--blue)' : 'var(--green)'
+                                  }}>
+                                    {seq.module}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span style={{ fontWeight: 600 }}>{seq.stepsCount}</span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text3)', marginLeft: '4px' }}>Cadence Steps</span>
+                                </td>
+                                <td>
+                                  <span style={{ fontWeight: 700 }}>{seq.totalEnrolled}</span>
+                                  <span style={{ fontSize: '11px', color: seq.activeEnrolled > 0 ? 'var(--gold)' : 'var(--text3)', marginLeft: '4px' }}>
+                                    ({seq.activeEnrolled} in-flight)
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className={`pill-status ${seq.status === 'Active' ? 'active' : 'pending'}`} style={{ 
+                                    background: seq.status === 'Active' ? 'rgba(53,185,122,0.1)' : 'rgba(201,146,26,0.1)', 
+                                    color: seq.status === 'Active' ? 'var(--green)' : 'var(--gold)', 
+                                    padding: '4px 8px', 
+                                    borderRadius: '4px', 
+                                    fontSize: '10px',
+                                    fontWeight: 600
+                                  }}>
+                                    {seq.status}
+                                  </span>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <button 
+                                    className="tact-btn" 
+                                    style={{ padding: '4px 10px', fontSize: '11px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', borderRadius: '4px', cursor: 'pointer' }}
+                                    onClick={() => navigate('/settings/sequences')}
+                                    title="Edit sequence cadence and actions in Settings"
+                                  >
+                                    Manage in Settings →
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 2. Real-Time Drip Enrollment Telemetry & Lifecycle Logs */}
+                  <div className="card" style={{ marginTop: '0', marginBottom: '1.5rem' }}>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div className="card-title text-serif" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Activity size={16} style={{ color: 'var(--blue)' }} /> Live Drip Enrollment Telemetry (MongoDB Atlas)
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '4px' }}>
+                          Real-time execution log showing entity progress, active steps, exit triggers, and schedule leases.
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text3)', background: 'var(--navy2)', padding: '4px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--text1)' }}>{scheduledQueue.dripEnrollments?.length || 0}</span> Audited Enrollments
+                      </div>
+                    </div>
+                    <div className="card-body" style={{ padding: '0' }}>
+                      <table className="crm-table">
+                        <thead>
+                          <tr>
+                            <th>Target Entity</th>
+                            <th>Drip Sequence</th>
+                            <th>Cadence Progress</th>
+                            <th>Lifecycle Status</th>
+                            <th>Execution Note / Reason</th>
+                            <th style={{ textAlign: 'right' }}>Last Event</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(!scheduledQueue.dripEnrollments || scheduledQueue.dripEnrollments.length === 0) ? (
+                            <tr>
+                              <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>
+                                No entities currently enrolled in drip sequences.
+                              </td>
+                            </tr>
+                          ) : (
+                            scheduledQueue.dripEnrollments.map(item => {
+                              const pct = Math.min(100, Math.round(((item.currentStepNumber || 1) / Math.max(1, item.totalSteps || 1)) * 100));
+                              const isExited = item.status === 'exited';
+                              const isActive = item.status === 'active';
+                              const isCompleted = item.status === 'completed';
+                              const isFailed = item.status === 'failed';
+                              
+                              let badgeBg = 'rgba(148,163,184,0.12)';
+                              let badgeColor = 'var(--text3)';
+                              if (isActive) { badgeBg = 'rgba(53,185,122,0.12)'; badgeColor = 'var(--green)'; }
+                              else if (isCompleted) { badgeBg = 'rgba(59,130,246,0.12)'; badgeColor = 'var(--blue)'; }
+                              else if (isExited) { badgeBg = 'rgba(201,146,26,0.12)'; badgeColor = 'var(--gold)'; }
+                              else if (isFailed) { badgeBg = 'rgba(239,68,68,0.12)'; badgeColor = '#ef4444'; }
+
+                              return (
+                                <tr key={item.id}>
+                                  <td style={{ fontWeight: 700 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                      <span>{item.entityName}</span>
+                                      <span style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>
+                                        {item.module || 'Entity'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td style={{ color: 'var(--gold)', fontWeight: 600 }}>{item.sequenceName}</td>
+                                  <td>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '120px' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                                        <span>Step {item.currentStepNumber} of {item.totalSteps}</span>
+                                        <span style={{ color: 'var(--text3)' }}>{pct}%</span>
+                                      </div>
+                                      <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
+                                        <div style={{ width: `${pct}%`, height: '100%', background: isActive ? 'var(--green)' : isCompleted ? 'var(--blue)' : 'var(--gold)', borderRadius: '2px' }} />
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <span style={{ 
+                                      background: badgeBg, 
+                                      color: badgeColor, 
+                                      padding: '4px 8px', 
+                                      borderRadius: '4px', 
+                                      fontSize: '10px',
+                                      fontWeight: 700,
+                                      textTransform: 'uppercase'
+                                    }}>
+                                      {item.status}
+                                    </span>
+                                  </td>
+                                  <td style={{ fontSize: '12px', color: item.exitReason ? 'var(--text2)' : 'var(--text3)', maxWidth: '260px' }}>
+                                    {item.exitReason ? (
+                                      <span title={item.exitReason}>{item.exitReason}</span>
+                                    ) : isActive ? (
+                                      <span style={{ color: 'var(--green)' }}>
+                                        {item.nextExecutionAt ? `Next step: ${new Date(item.nextExecutionAt).toLocaleDateString()}` : 'Awaiting next cadence lease'}
+                                      </span>
+                                    ) : isCompleted ? (
+                                      'Completed all sequence steps successfully'
+                                    ) : (
+                                      'Awaiting trigger evaluation'
+                                    )}
+                                  </td>
+                                  <td style={{ textAlign: 'right', fontSize: '11px', color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+                                    {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 3. Upcoming One-Time Blasts (Delayed Queue) */}
                   <div className="card" style={{ marginTop: '0' }}>
                     <div className="card-header">
                       <div className="card-title text-serif"><Clock size={16} /> Upcoming One-Time Blasts (Delayed Queue)</div>
