@@ -10,6 +10,7 @@ import ThemeToggle from './ThemeToggle';
 import NotificationDropdown from './Header/NotificationDropdown';
 import HeaderActionMenu from './Header/HeaderActionMenu';
 import ProfileMenu from './Header/ProfileMenu';
+import LiveOperationsIndicator from './Header/LiveOperationsIndicator';
 
 // Hooks
 import { useNotifications } from '../hooks/useNotifications';
@@ -111,6 +112,8 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                         setShowSearchDropdown={setShowSearchDropdown}
                     />
                 </div>
+
+                <LiveOperationsIndicator />
 
                 <ThemeToggle />
 

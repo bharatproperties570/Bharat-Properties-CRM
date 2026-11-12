@@ -61,6 +61,12 @@ const EnrichmentSettingsPage = lazy(() => import('../pages/Settings/views/Enrich
 const AiAgentsSettingsPage = lazy(() => import('../pages/Settings/views/AiAgentsSettingsPage'));
 const ContactDetail = lazy(() => import('../pages/Contacts/ContactDetail'));
 
+// Operations Center
+const OperationsDashboard = lazy(() => import('../pages/Operations/OperationsDashboard'));
+const OperationDetailPage = lazy(() => import('../pages/Operations/OperationDetailPage'));
+const ImportDetailPage = lazy(() => import('../pages/Operations/ImportDetailPage'));
+const ExportDetailPage = lazy(() => import('../pages/Operations/ExportDetailPage'));
+
 const RouteLoading = () => (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', height: '100vh', gap: '20px' }}>
         <div style={{ width: '40px', height: '40px', border: '3px solid #e2e8f0', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
@@ -240,6 +246,12 @@ export const router = createBrowserRouter([
                             
                             { path: '/google-callback', element: <WithNav Component={GoogleCallback} /> },
                             { path: '/facebook-callback', element: <WithNav Component={FacebookCallback} /> },
+                            
+                            // Operations Center
+                            { path: '/operations', element: <WithNav Component={OperationsDashboard} /> },
+                            { path: '/operations/:jobId', element: <WithNav Component={OperationDetailPage} /> },
+                            { path: '/operations/imports/:importJobId', element: <WithNav Component={ImportDetailPage} /> },
+                            { path: '/operations/exports/:exportJobId', element: <WithNav Component={ExportDetailPage} /> },
                             
                             // Fallback
                             { path: '*', element: <div style={{ padding: '50px', textAlign: 'center' }}><h1>404 - Not Found</h1></div> }

@@ -125,6 +125,15 @@ function Sidebar({ currentView, onNavigate }) {
                 >
                     <i className="fas fa-chart-line"></i>
                 </a>
+
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'operations' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('operations'); }}
+                    title="Operations Center"
+                >
+                    <i className="fas fa-satellite-dish"></i>
+                </a>
             </div>
 
             <div className="sidebar-footer">

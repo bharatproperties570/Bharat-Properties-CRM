@@ -20,6 +20,7 @@ import { ImportProvider } from './context/ImportContext';
 import { TemplateProvider } from './context/TemplateContext';
 import { WhatsAppTemplateProvider } from './context/WhatsAppTemplateContext';
 import { WhatsAppAnimationProvider } from './context/WhatsAppAnimationContext';
+import { OperationsProvider } from './context/OperationsContext';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Helper Wrapper to connect Context to Modal
@@ -59,6 +60,7 @@ function App() {
                                                         <TriggersProvider>
                                                             <CallProvider>
                                                                 <ImportProvider>
+                                                                    <OperationsProvider>
                                                                     <WhatsAppTemplateProvider>
                                                                     <TemplateProvider>
                                                                         {isWeb && <Toaster 
@@ -68,6 +70,7 @@ function App() {
                                                                         <AppContent />
                                                                     </TemplateProvider>
                                                                     </WhatsAppTemplateProvider>
+                                                                    </OperationsProvider>
                                                                 </ImportProvider>
                                                             </CallProvider>
                                                         </TriggersProvider>
