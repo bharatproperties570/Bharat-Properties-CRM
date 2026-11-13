@@ -54,10 +54,32 @@ export default class OwnerOutreachPlanningService {
             );
 
         if (!valid) {
-            await this.scheduler.releaseClaim({
-                batchId: batch._id, claimToken, now, reasonCode: 'RECIPIENT_LEDGER_REVALIDATION_FAILED'
-            });
-            return { processed: false, code: 'RECIPIENT_LEDGER_REVALIDATION_FAILED' };
+            // The scheduler has already advanced nextRunAt to the following
+            // scheduled batch. Releasing this invalid batch back to SCHEDULED
+            // would strand it permanently behind that cursor. Quarantine it
+            // for explicit reconciliation instead of silently retrying forever.
+            const quarantined = await OwnerOutreachBatch.findOneAndUpdate(
+                {
+                    _id: batch._id,
+                    status: 'CLAIMED',
+                    'claim.token': claimToken,
+                    'claim.leaseExpiresAt': { $gt: now }
+                },
+                {
+                    $set: {
+                        status: 'RECONCILIATION_REQUIRED',
+                        claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null },
+                        completedAt: now,
+                        lastErrorCode: 'RECIPIENT_LEDGER_REVALIDATION_FAILED'
+                    }
+                },
+                { new: true }
+            ).select('_id status lastErrorCode').lean();
+            return {
+                processed: false,
+                code: quarantined ? 'RECIPIENT_LEDGER_RECONCILIATION_REQUIRED' : 'CLAIM_LOST_OR_LEASE_EXPIRED',
+                dispatchEnabled: false
+            };
         }
 
         // The campaign lifecycle document is deliberately written in the same
