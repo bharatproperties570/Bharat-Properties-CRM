@@ -32,7 +32,7 @@ test('Phase 1 rejects fallback and sequence until delivery orchestration is impl
         name: 'Owner update',
         frequency: 'DAILY',
         batchSize: 100,
-        channels: ['whatsapp', 'sms'],
+        channels: ['whatsapp'],
         channelStrategy: 'PRIMARY_WITH_FALLBACK',
         startAt: '2026-11-13T04:30:00.000Z'
     };
