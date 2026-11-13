@@ -11,7 +11,7 @@ const OwnerOutreachBatchSchema = new mongoose.Schema({
     sequence: { type: Number, required: true, min: 1 },
     status: {
         type: String,
-        enum: ['SCHEDULED', 'CLAIMED', 'READY', 'DISPATCHING', 'COMPLETED', 'PARTIAL', 'CANCELLED', 'RECONCILIATION_REQUIRED'],
+        enum: ['SCHEDULED', 'CLAIMED', 'PLANNED', 'READY', 'DISPATCHING', 'COMPLETED', 'PARTIAL', 'CANCELLED', 'RECONCILIATION_REQUIRED'],
         default: 'SCHEDULED',
         index: true
     },
