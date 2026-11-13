@@ -74,6 +74,32 @@ test('replica-set concurrent reservations never exceed the global or channel cap
     assert.equal(channel.reservedCount, 5);
 });
 
+
+test('replica-set concurrent first-use reservations initialize each quota budget exactly once', async () => {
+    const bucketKey = '2026-11-13-first-use-race';
+    const requests = Array.from({ length: 12 }, (_, i) => request({
+        endpointHash: `first-use-endpoint-${i}`,
+        periodKey: `first-use-period-${i}`,
+        bucketKey,
+        globalDailyCap: 12,
+        channelDailyCap: 12
+    }));
+
+    const results = await Promise.all(requests.map((item) => service.reserve(item)));
+    assert.equal(results.filter((item) => item.reserved).length, 12);
+    assert.equal(results.filter((item) => !item.reserved).length, 0);
+
+    const budgets = await OwnerOutreachDispatchBudget.find({ bucketKey }).lean();
+    assert.equal(budgets.length, 2);
+    const global = budgets.find((item) => item.scope === 'GLOBAL');
+    const channel = budgets.find((item) => item.scope === 'whatsapp');
+    assert.equal(global.cap, 12);
+    assert.equal(global.reservedCount, 12);
+    assert.equal(channel.cap, 12);
+    assert.equal(channel.reservedCount, 12);
+    assert.equal(await OwnerOutreachPeriodReservation.countDocuments({ bucketKey }), 12);
+});
+
 test('replica-set unique period reservation blocks the same endpoint across campaigns', async () => {
     const bucketKey = '2026-11-13-duplicate';
     await seedBudgets(bucketKey, 20, 20);
