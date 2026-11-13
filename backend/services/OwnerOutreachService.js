@@ -234,6 +234,12 @@ export default class OwnerOutreachService {
             { new: true }
         );
         if (!campaign) throw new Error('Only an approved or active campaign can be paused');
+        // Invalidate any planner lease already claimed when the pause won the
+        // campaign-state compare-and-set. A stale worker token can no longer plan it.
+        await OwnerOutreachBatch.updateMany(
+            { campaignId: campaign._id, status: 'CLAIMED' },
+            { $set: { status: 'SCHEDULED', claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null }, startedAt: null } }
+        );
         return campaign;
     }
 
@@ -258,9 +264,11 @@ export default class OwnerOutreachService {
             { new: true }
         );
         if (!campaign) throw new Error('Campaign is already terminal or unavailable');
+        // Cancel both queued and currently leased planning batches. Clearing
+        // the claim token fences off any worker holding an older lease.
         await OwnerOutreachBatch.updateMany(
-            { campaignId: campaign._id, status: 'SCHEDULED' },
-            { $set: { status: 'CANCELLED' } }
+            { campaignId: campaign._id, status: { $in: ['SCHEDULED', 'CLAIMED'] } },
+            { $set: { status: 'CANCELLED', claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null }, startedAt: null } }
         );
         return campaign;
     }
