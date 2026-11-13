@@ -53,7 +53,7 @@ export function buildOwnerOutreachAudience(inventoryItems, options = {}) {
             const raw = item && typeof item === 'object' ? item.number : item;
             const normalized = normalizePhone(raw);
             if (normalized && normalized !== '-' && normalized.length >= 10 && !normalized.includes('@')) {
-                candidates.push({ channel: 'whatsapp', endpoint: normalized, consented: Boolean(contact.whatsappOptInAt) && contact.whatsappOptOut !== true, optedOut: contact.whatsappOptOut === true });
+                const optOutIsCurrent = contact.whatsappOptOut === true || (contact.whatsappOptOutAt && (!contact.whatsappOptInAt || new Date(contact.whatsappOptOutAt) >= new Date(contact.whatsappOptInAt)));\n                candidates.push({ channel: 'whatsapp', endpoint: normalized, consented: Boolean(contact.whatsappOptInAt) && !optOutIsCurrent, optedOut: Boolean(optOutIsCurrent) });
                 candidates.push({ channel: 'sms', endpoint: normalized, consented: false, optedOut: false });
                 candidates.push({ channel: 'rcs', endpoint: normalized, consented: false, optedOut: false });
             }
