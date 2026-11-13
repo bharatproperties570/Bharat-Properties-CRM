@@ -60,46 +60,71 @@ export default class OwnerOutreachPlanningService {
             return { processed: false, code: 'RECIPIENT_LEDGER_REVALIDATION_FAILED' };
         }
 
-        // Fence the final state transition with the lease token and current
-        // campaign status. Pause/cancel or lease replacement prevents planning.
-        const stillRunnable = await OwnerOutreachCampaign.exists({
-            _id: batch.campaignId,
-            status: { $in: ['APPROVED', 'ACTIVE'] }
-        });
-        if (!stillRunnable) {
+        // The campaign lifecycle document is deliberately written in the same
+        // transaction as the batch transition. Pause/Cancel also write that
+        // document in their transaction. MongoDB write-conflict serialization
+        // therefore guarantees exactly one side wins; a stale worker cannot
+        // pass a detached status check and plan after Pause/Cancel commits.
+        const mongoose = (await import('mongoose')).default;
+        const session = await mongoose.startSession();
+        let planned;
+        let campaignRunnable = false;
+        try {
+            await session.withTransaction(async () => {
+                const campaign = await OwnerOutreachCampaign.findOne({
+                    _id: batch.campaignId,
+                    status: { $in: ['APPROVED', 'ACTIVE'] }
+                }).select('_id').session(session).lean();
+                if (!campaign) return;
+
+                // Touch the campaign row as a serialization fence. The lifecycle
+                // actions update this same row, forcing concurrent transactions
+                // to conflict/retry rather than interleave across two documents.
+                const fence = await OwnerOutreachCampaign.updateOne(
+                    { _id: campaign._id, status: { $in: ['APPROVED', 'ACTIVE'] } },
+                    { $inc: { __v: 1 } },
+                    { session }
+                );
+                if (fence.modifiedCount !== 1) return;
+                campaignRunnable = true;
+
+                planned = await OwnerOutreachBatch.findOneAndUpdate(
+                    {
+                        _id: batch._id,
+                        status: 'CLAIMED',
+                        'claim.token': claimToken,
+                        'claim.leaseExpiresAt': { $gt: now }
+                    },
+                    {
+                        $set: {
+                            status: 'PLANNED',
+                            counts: {
+                                selected: recipients.length,
+                                consentBlocked: 0,
+                                suppressed: 0,
+                                accepted: 0,
+                                delivered: 0,
+                                failedConfirmed: 0,
+                                deliveryUnknown: 0
+                            },
+                            claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null },
+                            completedAt: now,
+                            lastErrorCode: null
+                        }
+                    },
+                    { new: true, session }
+                ).select('_id status counts').lean();
+            }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });
+        } finally {
+            await session.endSession();
+        }
+
+        if (!campaignRunnable) {
             await this.scheduler.releaseClaim({
                 batchId: batch._id, claimToken, now, reasonCode: 'CAMPAIGN_PAUSED_OR_CANCELLED'
             });
             return { processed: false, code: 'CAMPAIGN_PAUSED_OR_CANCELLED' };
         }
-
-        const planned = await OwnerOutreachBatch.findOneAndUpdate(
-            {
-                _id: batch._id,
-                status: 'CLAIMED',
-                'claim.token': claimToken,
-                'claim.leaseExpiresAt': { $gt: now }
-            },
-            {
-                $set: {
-                    status: 'PLANNED',
-                    counts: {
-                        selected: recipients.length,
-                        consentBlocked: 0,
-                        suppressed: 0,
-                        accepted: 0,
-                        delivered: 0,
-                        failedConfirmed: 0,
-                        deliveryUnknown: 0
-                    },
-                    claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null },
-                    completedAt: now,
-                    lastErrorCode: null
-                }
-            },
-            { new: true }
-        ).select('_id status counts').lean();
-
         if (!planned) return { processed: false, code: 'CLAIM_LOST_OR_LEASE_EXPIRED' };
 
         // nextRunAt remains the scheduler's next SCHEDULED batch cursor.
