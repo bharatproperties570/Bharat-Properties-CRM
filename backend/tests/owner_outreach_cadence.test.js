@@ -53,3 +53,21 @@ test('Phase 1 validates the server-side dispatch window contract', () => {
     assert.throws(() => validateCampaignConfig({ ...base, dispatchWindow: { start: '18:00', end: '10:00' } }), /Dispatch window must be valid/);
     assert.throws(() => validateCampaignConfig({ ...base, dispatchWindow: { start: '9am', end: '18:00' } }), /Dispatch window must be valid/);
 });
+
+
+test('Phase 1 rejects SMS, RCS and Email until consent evidence and provider adapters exist', () => {
+    const base = {
+        name: 'Owner update',
+        frequency: 'DAILY',
+        batchSize: 100,
+        channelStrategy: 'PRIMARY_ONLY',
+        startAt: '2026-11-13T04:30:00.000Z'
+    };
+    for (const channel of ['sms', 'rcs', 'email']) {
+        assert.throws(
+            () => validateCampaignConfig({ ...base, channels: [channel] }),
+            /unavailable in Phase 1/
+        );
+    }
+    assert.doesNotThrow(() => validateCampaignConfig({ ...base, channels: ['whatsapp'] }));
+});
