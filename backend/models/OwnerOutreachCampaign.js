@@ -14,6 +14,8 @@ const OwnerOutreachCampaignSchema = new mongoose.Schema({
         frozenAt: { type: Date }
     },
     channels: [{ type: String, enum: ['whatsapp', 'sms', 'rcs', 'email'] }],
+    messageBody: { type: String, required: true, trim: true, maxlength: 4096 },
+    providerAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'WhatsAppIntegration', required: true },
     channelStrategy: { type: String, enum: ['PRIMARY_ONLY', 'PRIMARY_WITH_FALLBACK', 'SEQUENCE'], default: 'PRIMARY_ONLY' },
     frequency: { type: String, enum: ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'], required: true },
     batchSize: { type: Number, required: true, min: 50, max: 2000 },
