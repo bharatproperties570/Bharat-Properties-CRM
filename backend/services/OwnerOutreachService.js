@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Inventory from '../models/Inventory.js';
 import OwnerOutreachCampaign from '../models/OwnerOutreachCampaign.js';
 import OwnerOutreachRecipient from '../models/OwnerOutreachRecipient.js';
+import OwnerOutreachBatch from '../models/OwnerOutreachBatch.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import { buildOwnerOutreachAudience, OWNER_OUTREACH_BATCH_SIZES, OWNER_OUTREACH_FREQUENCIES } from '../utils/ownerOutreachAudience.js';
 
@@ -20,6 +21,29 @@ function validateCampaignConfig(input = {}) {
     const endAt = input.endAt ? new Date(input.endAt) : null;
     if (endAt && (!Number.isFinite(endAt.getTime()) || endAt < startAt)) throw new Error('Campaign end date must be a valid date after start date');
     return { startAt, endAt };
+}
+
+
+function addCadence(startAt, frequency, offset) {
+    const date = new Date(startAt);
+    if (frequency === 'DAILY') date.setUTCDate(date.getUTCDate() + offset);
+    else if (frequency === 'WEEKLY') date.setUTCDate(date.getUTCDate() + (7 * offset));
+    else if (frequency === 'MONTHLY') {
+        const day = date.getUTCDate();
+        date.setUTCDate(1);
+        date.setUTCMonth(date.getUTCMonth() + offset);
+        const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+        date.setUTCDate(Math.min(day, lastDay));
+    } else if (frequency === 'YEARLY') {
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+        date.setUTCDate(1);
+        date.setUTCFullYear(date.getUTCFullYear() + offset);
+        date.setUTCMonth(month);
+        const lastDay = new Date(Date.UTC(date.getUTCFullYear(), month + 1, 0)).getUTCDate();
+        date.setUTCDate(Math.min(day, lastDay));
+    }
+    return date;
 }
 
 export default class OwnerOutreachService {
@@ -129,6 +153,93 @@ export default class OwnerOutreachService {
 
     async listCampaigns(user, limit = 50) {
         return OwnerOutreachCampaign.find({ createdBy: user._id }).sort({ createdAt: -1 }).limit(Math.min(Math.max(Number(limit) || 50, 1), 100)).lean();
+    }
+
+
+    async approveCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const campaign = await OwnerOutreachCampaign.findOne({ _id: campaignId, createdBy: user._id, status: 'DRAFT' });
+        if (!campaign) throw new Error('Only an existing draft owned by you can be approved');
+        if (!campaign.audience?.frozenAt || !campaign.channels?.length) throw new Error('Campaign audience snapshot is incomplete');
+
+        // Only recipients with explicit channel consent enter the planned schedule.
+        // Provider/account readiness and actual dispatch are intentionally not enabled here.
+        const eligible = await OwnerOutreachRecipient.find({
+            campaignId: campaign._id,
+            eligibility: 'ELIGIBLE',
+            consentState: 'CONSENTED',
+            dispatchState: 'PENDING'
+        }).select('_id').sort({ _id: 1 }).lean();
+        if (!eligible.length) throw new Error('No explicitly consented recipients are eligible for scheduling');
+
+        const batches = [];
+        for (let offset = 0, sequence = 1; offset < eligible.length; offset += campaign.batchSize, sequence += 1) {
+            batches.push({
+                campaignId: campaign._id,
+                sequence,
+                status: 'SCHEDULED',
+                scheduledAt: addCadence(campaign.startAt, campaign.frequency, sequence - 1),
+                recipientIds: eligible.slice(offset, offset + campaign.batchSize).map((item) => item._id),
+                counts: { selected: Math.min(campaign.batchSize, eligible.length - offset) }
+            });
+        }
+
+        const claimed = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaign._id, createdBy: user._id, status: 'DRAFT' },
+            { $set: { status: 'APPROVED', approvedAt: new Date(), nextRunAt: batches[0].scheduledAt } },
+            { new: true }
+        );
+        if (!claimed) throw new Error('Campaign state changed; refresh and try again');
+        try {
+            await OwnerOutreachBatch.insertMany(batches, { ordered: true });
+        } catch (error) {
+            await OwnerOutreachBatch.deleteMany({ campaignId: campaign._id });
+            await OwnerOutreachCampaign.updateOne(
+                { _id: campaign._id, status: 'APPROVED' },
+                { $set: { status: 'DRAFT', approvedAt: null, nextRunAt: null } }
+            );
+            throw error;
+        }
+        return { campaign: claimed.toObject(), plannedBatches: batches.length, scheduledRecipients: eligible.length, dispatchEnabled: false };
+    }
+
+    async pauseCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaignId, createdBy: user._id, status: { $in: ['APPROVED', 'ACTIVE'] } },
+            { $set: { status: 'PAUSED', nextRunAt: null } },
+            { new: true }
+        );
+        if (!campaign) throw new Error('Only an approved or active campaign can be paused');
+        return campaign;
+    }
+
+    async resumeCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const pending = await OwnerOutreachBatch.findOne({ campaignId, status: 'SCHEDULED' }).sort({ sequence: 1 }).lean();
+        if (!pending) throw new Error('No scheduled batches remain; campaign cannot be resumed');
+        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaignId, createdBy: user._id, status: 'PAUSED' },
+            { $set: { status: 'APPROVED', nextRunAt: pending.scheduledAt } },
+            { new: true }
+        );
+        if (!campaign) throw new Error('Only a paused campaign can be resumed');
+        return campaign;
+    }
+
+    async cancelCampaign(user, campaignId, reason = 'Cancelled by campaign owner') {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaignId, createdBy: user._id, status: { $in: ['DRAFT', 'APPROVED', 'ACTIVE', 'PAUSED'] } },
+            { $set: { status: 'CANCELLED', nextRunAt: null, cancellationReason: String(reason).slice(0, 500) } },
+            { new: true }
+        );
+        if (!campaign) throw new Error('Campaign is already terminal or unavailable');
+        await OwnerOutreachBatch.updateMany(
+            { campaignId: campaign._id, status: 'SCHEDULED' },
+            { $set: { status: 'CANCELLED' } }
+        );
+        return campaign;
     }
 
     async getCampaign(user, campaignId) {
