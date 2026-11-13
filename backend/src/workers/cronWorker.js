@@ -8,7 +8,7 @@ import AutomationLog from '../../models/AutomationLog.js';
 import OutboxEvent from '../../models/OutboxEvent.js';
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { notificationQueue, domainEventQueue } from '../queues/queueManager.js';
+import { notificationQueue, domainEventQueue, cronQueue } from '../queues/queueManager.js';
 import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
@@ -609,5 +609,16 @@ const outboxPollInterval = setInterval(async () => {
 }, OUTBOX_POLL_INTERVAL_MS);
 
 outboxPollInterval.unref();
+
+// Durable periodic planner tick. The MongoDB batch lease is the source of truth;
+ // the repeatable BullMQ job only wakes the planner and never dispatches messages.
+cronQueue.add('processOwnerOutreachPlanning', {}, {
+    jobId: 'owner-outreach-planning-tick',
+    repeat: { every: 60_000 },
+    removeOnComplete: true,
+    removeOnFail: false
+}).catch((err) => {
+    console.error('[OwnerOutreach] Failed to register planner tick:', err.message);
+});
 
 console.log('✅ Cron Worker Initialized');
