@@ -242,19 +242,29 @@ export default class OwnerOutreachService {
 
     async pauseCampaign(user, campaignId) {
         if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
-        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
-            { _id: campaignId, createdBy: user._id, status: { $in: ['APPROVED', 'ACTIVE'] } },
-            { $set: { status: 'PAUSED', nextRunAt: null } },
-            { new: true }
-        );
-        if (!campaign) throw new Error('Only an approved or active campaign can be paused');
-        // Invalidate any planner lease already claimed when the pause won the
-        // campaign-state compare-and-set. A stale worker token can no longer plan it.
-        await OwnerOutreachBatch.updateMany(
-            { campaignId: campaign._id, status: 'CLAIMED' },
-            { $set: { status: 'SCHEDULED', claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null }, startedAt: null } }
-        );
-        return campaign;
+        const session = await mongoose.startSession();
+        let campaign;
+        try {
+            await session.withTransaction(async () => {
+                campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+                    { _id: campaignId, createdBy: user._id, status: { $in: ['APPROVED', 'ACTIVE'] } },
+                    { $set: { status: 'PAUSED', nextRunAt: null } },
+                    { new: true, session }
+                );
+                if (!campaign) throw new Error('Only an approved or active campaign can be paused');
+                // Campaign state and claim invalidation commit atomically. The
+                // planner's final transaction also writes this campaign document,
+                // so MongoDB serializes the two lifecycle transitions.
+                await OwnerOutreachBatch.updateMany(
+                    { campaignId: campaign._id, status: 'CLAIMED' },
+                    { $set: { status: 'SCHEDULED', claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null }, startedAt: null } },
+                    { session }
+                );
+            }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });
+            return campaign;
+        } finally {
+            await session.endSession();
+        }
     }
 
     async resumeCampaign(user, campaignId) {
@@ -272,19 +282,26 @@ export default class OwnerOutreachService {
 
     async cancelCampaign(user, campaignId, reason = 'Cancelled by campaign owner') {
         if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
-        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
-            { _id: campaignId, createdBy: user._id, status: { $in: ['DRAFT', 'APPROVED', 'ACTIVE', 'PAUSED'] } },
-            { $set: { status: 'CANCELLED', nextRunAt: null, cancellationReason: String(reason).slice(0, 500) } },
-            { new: true }
-        );
-        if (!campaign) throw new Error('Campaign is already terminal or unavailable');
-        // Cancel both queued and currently leased planning batches. Clearing
-        // the claim token fences off any worker holding an older lease.
-        await OwnerOutreachBatch.updateMany(
-            { campaignId: campaign._id, status: { $in: ['SCHEDULED', 'CLAIMED'] } },
-            { $set: { status: 'CANCELLED', claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null }, startedAt: null } }
-        );
-        return campaign;
+        const session = await mongoose.startSession();
+        let campaign;
+        try {
+            await session.withTransaction(async () => {
+                campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+                    { _id: campaignId, createdBy: user._id, status: { $in: ['DRAFT', 'APPROVED', 'ACTIVE', 'PAUSED'] } },
+                    { $set: { status: 'CANCELLED', nextRunAt: null, cancellationReason: String(reason).slice(0, 500) } },
+                    { new: true, session }
+                );
+                if (!campaign) throw new Error('Campaign is already terminal or unavailable');
+                await OwnerOutreachBatch.updateMany(
+                    { campaignId: campaign._id, status: { $in: ['SCHEDULED', 'CLAIMED'] } },
+                    { $set: { status: 'CANCELLED', claim: { owner: null, token: null, claimedAt: null, leaseExpiresAt: null }, startedAt: null } },
+                    { session }
+                );
+            }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });
+            return campaign;
+        } finally {
+            await session.endSession();
+        }
     }
 
     async getCampaign(user, campaignId) {
