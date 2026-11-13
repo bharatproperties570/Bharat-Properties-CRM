@@ -7,13 +7,16 @@ import { getVisibilityFilter } from '../utils/visibility.js';
 import { buildOwnerOutreachAudience, OWNER_OUTREACH_BATCH_SIZES, OWNER_OUTREACH_FREQUENCIES } from '../utils/ownerOutreachAudience.js';
 
 const MAX_INVENTORY_SNAPSHOT = 10000;
-const allowedChannels = new Set(['whatsapp', 'sms', 'rcs', 'email']);
+const phaseOneChannels = new Set(['whatsapp']);
 
 export function validateCampaignConfig(input = {}) {
     if (!input.name || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Campaign name is required');
     if (!OWNER_OUTREACH_FREQUENCIES.includes(input.frequency)) throw new Error('Invalid campaign frequency');
     if (!OWNER_OUTREACH_BATCH_SIZES.includes(Number(input.batchSize))) throw new Error('Invalid batch size');
-    if (!Array.isArray(input.channels) || input.channels.length === 0 || input.channels.some((c) => !allowedChannels.has(c))) throw new Error('Select at least one supported channel');
+    if (!Array.isArray(input.channels) || input.channels.length === 0 || input.channels.some((c) => !['whatsapp', 'sms', 'rcs', 'email'].includes(c))) throw new Error('Select at least one supported channel');
+    if (input.channels.some((channel) => !phaseOneChannels.has(channel))) {
+        throw new Error('SMS, RCS and Email are unavailable in Phase 1 until channel-specific consent evidence and provider adapters are implemented');
+    }
 
     // Phase 1 creates a single primary-channel schedule only. Fallback and
     // sequence semantics are deliberately rejected until their delivery-state
