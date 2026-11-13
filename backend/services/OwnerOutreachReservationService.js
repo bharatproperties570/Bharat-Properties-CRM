@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import OwnerOutreachDispatchBudget from '../models/OwnerOutreachDispatchBudget.js';
 import OwnerOutreachPeriodReservation from '../models/OwnerOutreachPeriodReservation.js';
 
-const MAX_BUDGET_UPSERT_RACE_RETRIES = 3;
+const MAX_BUDGET_UPSERT_RACE_RETRIES = 8;
 
 function isPeriodDuplicate(error) {
     const keyPattern = error?.keyPattern || {};
@@ -72,6 +72,10 @@ export default class OwnerOutreachReservationService {
                     // same GLOBAL/channel budget row. Retry the entire transaction
                     // with a fresh session; never retry only the counter increment.
                     if (isBudgetUpsertRace(error) && attempt < MAX_BUDGET_UPSERT_RACE_RETRIES) {
+                        // Small bounded backoff prevents a thundering herd from
+                        // repeating the same first-insert race in lockstep.
+                        const backoffMs = Math.min(200, attempt * 25) + Math.floor(Math.random() * 20);
+                        await new Promise((resolve) => setTimeout(resolve, backoffMs));
                         continue;
                     }
 
