@@ -91,3 +91,82 @@ test('paused or cancelled campaigns are never claimed', async () => {
     await seed({ status: 'PAUSED', scheduledAt: new Date('2026-11-13T04:00:00.000Z') });
     assert.equal(await scheduler.claimNextDueBatch({ workerId: 'worker-a', now }), null);
 });
+
+test('planner cannot transition a claimed batch to PLANNED after Pause commits', async () => {
+    const { campaign, batch } = await seed({ scheduledAt: new Date('2026-11-13T04:00:00.000Z') });
+    const now = new Date('2026-11-13T05:00:00.000Z');
+    const claimed = await scheduler.claimNextDueBatch({ workerId: 'planner-pause-race', now });
+    assert.ok(claimed);
+    const { default: OwnerOutreachPlanningService } = await import('../services/OwnerOutreachPlanningService.js');
+    const { default: OwnerOutreachRecipient } = await import('../models/OwnerOutreachRecipient.js');
+    await OwnerOutreachRecipient.create({
+        _id: batch.recipientIds[0], campaignId: campaign._id, channel: 'whatsapp',
+        endpointHash: 'race-pause-endpoint', maskedEndpoint: '******1234',
+        consentState: 'CONSENTED', eligibility: 'ELIGIBLE', dispatchState: 'PENDING'
+    });
+    const originalFind = OwnerOutreachRecipient.find.bind(OwnerOutreachRecipient);
+    let reachedGate;
+    const gate = new Promise(resolve => { reachedGate = resolve; });
+    let continuePlanner;
+    const resume = new Promise(resolve => { continuePlanner = resolve; });
+    OwnerOutreachRecipient.find = (...args) => {
+        reachedGate();
+        return resume.then(() => originalFind(...args));
+    };
+    const planner = new OwnerOutreachPlanningService({ scheduler: { claimNextDueBatch: async () => claimed, releaseClaim: (...args) => scheduler.releaseClaim(...args) } });
+    try {
+        const processing = planner.processOne({ workerId: 'planner-pause-race', now });
+        await gate;
+        const service = new (await import('../services/OwnerOutreachService.js')).default();
+        await service.pauseCampaign({ _id: ownerId }, campaign._id);
+        continuePlanner();
+        const result = await processing;
+        assert.equal(result.processed, false);
+        assert.equal(result.code, 'CAMPAIGN_PAUSED_OR_CANCELLED');
+        const stored = await OwnerOutreachBatch.findById(batch._id).lean();
+        assert.equal(stored.status, 'SCHEDULED');
+        assert.equal((await OwnerOutreachCampaign.findById(campaign._id).lean()).status, 'PAUSED');
+    } finally {
+        OwnerOutreachRecipient.find = originalFind;
+    }
+});
+
+test('planner cannot transition a claimed batch to PLANNED after Cancel commits', async () => {
+    const { campaign, batch } = await seed({ scheduledAt: new Date('2026-11-13T04:00:00.000Z') });
+    const now = new Date('2026-11-13T05:00:00.000Z');
+    const claimed = await scheduler.claimNextDueBatch({ workerId: 'planner-cancel-race', now });
+    assert.ok(claimed);
+    const { default: OwnerOutreachRecipient } = await import('../models/OwnerOutreachRecipient.js');
+    await OwnerOutreachRecipient.create({
+        _id: batch.recipientIds[0], campaignId: campaign._id, channel: 'whatsapp',
+        endpointHash: 'race-cancel-endpoint', maskedEndpoint: '******5678',
+        consentState: 'CONSENTED', eligibility: 'ELIGIBLE', dispatchState: 'PENDING'
+    });
+    const originalFind = OwnerOutreachRecipient.find.bind(OwnerOutreachRecipient);
+    let reachedGate;
+    const gate = new Promise(resolve => { reachedGate = resolve; });
+    let continuePlanner;
+    const resume = new Promise(resolve => { continuePlanner = resolve; });
+    OwnerOutreachRecipient.find = (...args) => {
+        reachedGate();
+        return resume.then(() => originalFind(...args));
+    };
+    const planner = new (await import('../services/OwnerOutreachPlanningService.js')).default({
+        scheduler: { claimNextDueBatch: async () => claimed, releaseClaim: (...args) => scheduler.releaseClaim(...args) }
+    });
+    try {
+        const processing = planner.processOne({ workerId: 'planner-cancel-race', now });
+        await gate;
+        const service = new (await import('../services/OwnerOutreachService.js')).default();
+        await service.cancelCampaign({ _id: ownerId }, campaign._id, 'race test');
+        continuePlanner();
+        const result = await processing;
+        assert.equal(result.processed, false);
+        assert.equal(result.code, 'CAMPAIGN_PAUSED_OR_CANCELLED');
+        const stored = await OwnerOutreachBatch.findById(batch._id).lean();
+        assert.equal(stored.status, 'CANCELLED');
+        assert.equal((await OwnerOutreachCampaign.findById(campaign._id).lean()).status, 'CANCELLED');
+    } finally {
+        OwnerOutreachRecipient.find = originalFind;
+    }
+});
