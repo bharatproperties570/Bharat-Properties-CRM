@@ -174,15 +174,19 @@ export default class OwnerOutreachService {
 
         const batches = [];
         for (let offset = 0, sequence = 1; offset < eligible.length; offset += campaign.batchSize, sequence += 1) {
+            const scheduledAt = addCadence(campaign.startAt, campaign.frequency, sequence - 1);
+            // endAt is an inclusive instant: never create a batch scheduled after it.
+            if (campaign.endAt && scheduledAt > campaign.endAt) break;
             batches.push({
                 campaignId: campaign._id,
                 sequence,
                 status: 'SCHEDULED',
-                scheduledAt: addCadence(campaign.startAt, campaign.frequency, sequence - 1),
+                scheduledAt,
                 recipientIds: eligible.slice(offset, offset + campaign.batchSize).map((item) => item._id),
                 counts: { selected: Math.min(campaign.batchSize, eligible.length - offset) }
             });
         }
+        if (!batches.length) throw new Error('Campaign end date does not include the first scheduled batch');
 
         const claimed = await OwnerOutreachCampaign.findOneAndUpdate(
             { _id: campaign._id, createdBy: user._id, status: 'DRAFT' },
