@@ -97,7 +97,7 @@ test('replica-set concurrent first-use reservations initialize each quota budget
     assert.equal(global.reservedCount, 12);
     assert.equal(channel.cap, 12);
     assert.equal(channel.reservedCount, 12);
-    assert.equal(await OwnerOutreachPeriodReservation.countDocuments({ bucketKey }), 12);
+    assert.equal(await OwnerOutreachPeriodReservation.countDocuments({ endpointHash: { $in: requests.map((item) => item.endpointHash) }, channel: 'whatsapp', periodKey: { $in: requests.map((item) => item.periodKey) } }), 12);
 });
 
 test('replica-set unique period reservation blocks the same endpoint across campaigns', async () => {
