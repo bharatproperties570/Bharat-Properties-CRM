@@ -9,17 +9,31 @@ import { buildOwnerOutreachAudience, OWNER_OUTREACH_BATCH_SIZES, OWNER_OUTREACH_
 const MAX_INVENTORY_SNAPSHOT = 10000;
 const allowedChannels = new Set(['whatsapp', 'sms', 'rcs', 'email']);
 
-function validateCampaignConfig(input = {}) {
+export function validateCampaignConfig(input = {}) {
     if (!input.name || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Campaign name is required');
     if (!OWNER_OUTREACH_FREQUENCIES.includes(input.frequency)) throw new Error('Invalid campaign frequency');
     if (!OWNER_OUTREACH_BATCH_SIZES.includes(Number(input.batchSize))) throw new Error('Invalid batch size');
     if (!Array.isArray(input.channels) || input.channels.length === 0 || input.channels.some((c) => !allowedChannels.has(c))) throw new Error('Select at least one supported channel');
-    if (!['PRIMARY_ONLY', 'PRIMARY_WITH_FALLBACK', 'SEQUENCE'].includes(input.channelStrategy || 'PRIMARY_ONLY')) throw new Error('Invalid channel strategy');
-    if ((input.channelStrategy || 'PRIMARY_ONLY') === 'PRIMARY_ONLY' && input.channels.length !== 1) throw new Error('PRIMARY_ONLY requires exactly one selected channel');
+
+    // Phase 1 creates a single primary-channel schedule only. Fallback and
+    // sequence semantics are deliberately rejected until their delivery-state
+    // orchestration, consent re-checks and idempotent transition logic exist.
+    const strategy = input.channelStrategy || 'PRIMARY_ONLY';
+    if (strategy !== 'PRIMARY_ONLY') {
+        throw new Error('Only PRIMARY_ONLY is available in Phase 1; fallback and sequence are not implemented');
+    }
+    if (input.channels.length !== 1) throw new Error('PRIMARY_ONLY requires exactly one selected channel');
+
     const startAt = new Date(input.startAt);
     if (!Number.isFinite(startAt.getTime())) throw new Error('A valid campaign start date/time is required');
     const endAt = input.endAt ? new Date(input.endAt) : null;
     if (endAt && (!Number.isFinite(endAt.getTime()) || endAt < startAt)) throw new Error('Campaign end date must be a valid date after start date');
+
+    const window = input.dispatchWindow || { start: '10:00', end: '18:00' };
+    const validClock = (value) => typeof value === 'string' && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    if (!validClock(window.start) || !validClock(window.end) || window.start >= window.end) {
+        throw new Error('Dispatch window must be valid 24-hour HH:mm values with end after start');
+    }
     return { startAt, endAt };
 }
 
