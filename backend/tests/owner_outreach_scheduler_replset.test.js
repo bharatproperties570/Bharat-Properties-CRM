@@ -33,6 +33,8 @@ async function seed({ status = 'APPROVED', scheduledAt = new Date('2026-11-13T04
         createdBy: ownerId,
         status,
         channels: ['whatsapp'],
+        messageBody: 'Scheduler test fixture only; no dispatch is enabled.',
+        providerAccountId: new mongoose.Types.ObjectId(),
         frequency: 'DAILY',
         batchSize: 50,
         startAt: scheduledAt,
