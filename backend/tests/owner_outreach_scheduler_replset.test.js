@@ -65,7 +65,7 @@ test('two workers cannot claim the same due batch concurrently', async () => {
 test('expired lease is recoverable and replaces the fencing token', async () => {
     const now = new Date('2026-11-13T05:00:00.000Z');
     const { batch } = await seed({ scheduledAt: new Date('2026-11-13T04:00:00.000Z') });
-    const first = await scheduler.claimNextDueBatch({ workerId: 'worker-a', now: new Date(now.getTime() - 120_000), leaseMs: 60_000 });
+    const first = await scheduler.claimNextDueBatch({ workerId: 'worker-a', now: new Date('2026-11-13T04:30:00.000Z'), leaseMs: 60_000 });
     assert.ok(first);
     const recovered = await scheduler.claimNextDueBatch({ workerId: 'worker-b', now });
     assert.ok(recovered);
