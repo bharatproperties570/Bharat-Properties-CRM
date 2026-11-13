@@ -39,3 +39,19 @@ test('associate audience is opt-in to inclusion and WhatsApp opt-outs suppress e
     const withAssociate = buildOwnerOutreachAudience(items, { includeAssociates: true });
     assert.equal(withAssociate.uniquePeople, 2);
 });
+
+test('WhatsApp audience snapshot respects timestamped opt-out and later opt-in', () => {
+    const optedInAt = new Date('2026-11-01T10:00:00.000Z');
+    const optedOutAt = new Date('2026-11-02T10:00:00.000Z');
+    const suppressed = buildOwnerOutreachAudience([{
+        _id: 'inv-optout',
+        owners: [{ _id: 'contact-optout', phones: [{ number: '9876543212' }], whatsappOptInAt: optedInAt, whatsappOptOut: false, whatsappOptOutAt: optedOutAt }]
+    }]);
+    assert.equal(suppressed.endpoints.find((x) => x.channel === 'whatsapp').eligibility, 'SUPPRESSED_OPTOUT');
+
+    const optedInAgain = buildOwnerOutreachAudience([{
+        _id: 'inv-optin-again',
+        owners: [{ _id: 'contact-optin-again', phones: [{ number: '9876543213' }], whatsappOptInAt: new Date('2026-11-03T10:00:00.000Z'), whatsappOptOut: false, whatsappOptOutAt: optedOutAt }]
+    }]);
+    assert.equal(optedInAgain.endpoints.find((x) => x.channel === 'whatsapp').eligibility, 'ELIGIBLE');
+});
