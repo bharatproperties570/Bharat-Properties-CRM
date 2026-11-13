@@ -8,3 +8,9 @@ test('owner outreach scheduler uses bounded leases and bounded campaign scans', 
     assert.ok(OWNER_OUTREACH_BATCH_LEASE_MS >= 5_000);
     assert.ok(OWNER_OUTREACH_BATCH_LEASE_MS <= 10 * 60_000);
 });
+
+test('scheduler scan bound remains finite for stale lease recovery scans', () => {
+    assert.ok(Number.isInteger(OWNER_OUTREACH_MAX_CLAIM_SCAN));
+    assert.ok(OWNER_OUTREACH_MAX_CLAIM_SCAN > 0);
+    assert.ok(OWNER_OUTREACH_MAX_CLAIM_SCAN <= 100);
+});
