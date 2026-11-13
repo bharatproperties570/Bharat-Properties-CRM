@@ -72,9 +72,17 @@ test('planner marks a valid consented ledger batch PLANNED without dispatch', as
 test('planner releases batch when recipient consent or eligibility is no longer valid', async () => {
     const originals = {
         campaignFindOne: OwnerOutreachCampaign.findOne,
-        recipientFind: OwnerOutreachRecipient.find
+        recipientFind: OwnerOutreachRecipient.find,
+        batchFindOneAndUpdate: OwnerOutreachBatch.findOneAndUpdate
     };
     const released = [];
+    let quarantineUpdate = null;
+    OwnerOutreachBatch.findOneAndUpdate = (filter, update, options) => ({
+        select: () => ({ lean: async () => {
+            quarantineUpdate = { filter, update, options };
+            return { _id: 'batch-2', status: 'RECONCILIATION_REQUIRED' };
+        } })
+    });
     const batch = { _id: 'batch-2', campaignId: 'campaign-2', recipientIds: ['r1'] };
     OwnerOutreachCampaign.findOne = () => ({ select: () => ({ lean: async () => ({ _id: 'campaign-2', status: 'APPROVED' }) }) });
     OwnerOutreachRecipient.find = () => ({
@@ -88,11 +96,16 @@ test('planner releases batch when recipient consent or eligibility is no longer 
     };
     try {
         const result = await new OwnerOutreachPlanningService({ scheduler }).processOne({ workerId: 'test-worker' });
-        assert.equal(result.code, 'RECIPIENT_LEDGER_REVALIDATION_FAILED');
-        assert.equal(released.length, 1);
-        assert.equal(released[0].reasonCode, 'RECIPIENT_LEDGER_REVALIDATION_FAILED');
+        assert.equal(result.code, 'RECIPIENT_LEDGER_RECONCILIATION_REQUIRED');
+        assert.equal(result.dispatchEnabled, false);
+        assert.equal(released.length, 0);
+        assert.equal(quarantineUpdate.filter.status, 'CLAIMED');
+        assert.equal(quarantineUpdate.filter['claim.token'], 'fenced-token');
+        assert.equal(quarantineUpdate.update.$set.status, 'RECONCILIATION_REQUIRED');
+        assert.equal(quarantineUpdate.update.$set.lastErrorCode, 'RECIPIENT_LEDGER_REVALIDATION_FAILED');
     } finally {
         OwnerOutreachCampaign.findOne = originals.campaignFindOne;
         OwnerOutreachRecipient.find = originals.recipientFind;
+        OwnerOutreachBatch.findOneAndUpdate = originals.batchFindOneAndUpdate;
     }
 });
