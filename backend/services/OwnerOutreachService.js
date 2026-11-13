@@ -14,21 +14,21 @@ function validateCampaignConfig(input = {}) {
     if (!OWNER_OUTREACH_BATCH_SIZES.includes(Number(input.batchSize))) throw new Error('Invalid batch size');
     if (!Array.isArray(input.channels) || input.channels.length === 0 || input.channels.some((c) => !allowedChannels.has(c))) throw new Error('Select at least one supported channel');
     if (!['PRIMARY_ONLY', 'PRIMARY_WITH_FALLBACK', 'SEQUENCE'].includes(input.channelStrategy || 'PRIMARY_ONLY')) throw new Error('Invalid channel strategy');
+    if ((input.channelStrategy || 'PRIMARY_ONLY') === 'PRIMARY_ONLY' && input.channels.length !== 1) throw new Error('PRIMARY_ONLY requires exactly one selected channel');
     const startAt = new Date(input.startAt);
     if (!Number.isFinite(startAt.getTime())) throw new Error('A valid campaign start date/time is required');
-    if (input.endAt && new Date(input.endAt) < startAt) throw new Error('Campaign end date must be after start date');
-    return { startAt, endAt: input.endAt ? new Date(input.endAt) : null };
+    const endAt = input.endAt ? new Date(input.endAt) : null;
+    if (endAt && (!Number.isFinite(endAt.getTime()) || endAt < startAt)) throw new Error('Campaign end date must be a valid date after start date');
+    return { startAt, endAt };
 }
 
 export default class OwnerOutreachService {
     async resolveAudience(input = {}, user) {
         const visibility = user ? await getVisibilityFilter(user) : {};
-        const query = { ...visibility, isDeleted: { $ne: true }, isMerged: { $ne: true } };
+        const query = { ...visibility, isDeleted: { $ne: true } };
         const inventoryIds = Array.isArray(input.inventoryIds) ? input.inventoryIds : [];
         if (inventoryIds.length) {
-            if (inventoryIds.length > MAX_INVENTORY_SNAPSHOT || inventoryIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
-                throw new Error('Invalid inventory selection');
-            }
+            if (inventoryIds.length > MAX_INVENTORY_SNAPSHOT || inventoryIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) throw new Error('Invalid inventory selection');
             query._id = { $in: inventoryIds.map((id) => new mongoose.Types.ObjectId(id)) };
         }
         const filters = input.filters || {};
@@ -51,38 +51,43 @@ export default class OwnerOutreachService {
             includeAssociates: input.includeAssociates === true,
             excludeBrokers: input.excludeBrokers !== false
         });
-        return { ...audience, inventoryCount: inventory.length };
+        return { ...audience, inventoryCount: inventory.length, inventoryIds: inventory.map((item) => item._id) };
     }
 
     async preview(input, user) {
         const audience = await this.resolveAudience(input, user);
+        const selected = input.channels?.length ? audience.endpoints.filter((item) => input.channels.includes(item.channel)) : audience.endpoints;
         const counts = {
             uniquePeople: audience.uniquePeople,
-            uniqueEndpoints: audience.endpoints.length,
+            uniqueEndpoints: selected.length,
             byChannel: {},
-            consentRequired: audience.endpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
-            suppressed: audience.endpoints.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
+            consentRequired: selected.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
+            suppressed: selected.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
         };
-        for (const endpoint of audience.endpoints) {
-            counts.byChannel[endpoint.channel] = (counts.byChannel[endpoint.channel] || 0) + 1;
-        }
-        return { inventoryCount: audience.inventoryCount, counts, endpoints: audience.endpoints.map(({ channel, maskedEndpoint, eligibility, inventoryIds, relationships }) => ({ channel, maskedEndpoint, eligibility, inventoryCount: inventoryIds.length, relationships })) };
+        for (const endpoint of selected) counts.byChannel[endpoint.channel] = (counts.byChannel[endpoint.channel] || 0) + 1;
+        return {
+            inventoryCount: audience.inventoryCount,
+            counts,
+            endpoints: selected.map(({ channel, maskedEndpoint, eligibility, inventoryIds, relationships }) => ({ channel, maskedEndpoint, eligibility, inventoryCount: inventoryIds.length, relationships }))
+        };
     }
 
     async createDraft(input, user) {
         const { startAt, endAt } = validateCampaignConfig(input);
-        const audience = await this.resolveAudience(input.audience || input, user);
-        if (!audience.endpoints.length) throw new Error('No valid owner or associate contact endpoints found');
+        const audienceInput = input.audience || input;
+        const audience = await this.resolveAudience(audienceInput, user);
+        const selectedEndpoints = audience.endpoints.filter((endpoint) => input.channels.includes(endpoint.channel));
+        if (!selectedEndpoints.length) throw new Error('No valid endpoints found for the selected channels');
         const campaign = await OwnerOutreachCampaign.create({
             name: input.name.trim(),
             createdBy: user._id,
             status: 'DRAFT',
             audience: {
-                inventoryIds: (input.audience?.inventoryIds || input.inventoryIds || []).filter((id) => mongoose.Types.ObjectId.isValid(id)),
-                filters: input.audience?.filters || input.filters || {},
-                includeOwners: (input.audience || input).includeOwners !== false,
-                includeAssociates: (input.audience || input).includeAssociates === true,
-                excludeBrokers: (input.audience || input).excludeBrokers !== false,
+                inventoryIds: audience.inventoryIds,
+                filters: audienceInput.filters || {},
+                includeOwners: audienceInput.includeOwners !== false,
+                includeAssociates: audienceInput.includeAssociates === true,
+                excludeBrokers: audienceInput.excludeBrokers !== false,
                 frozenAt: new Date()
             },
             channels: input.channels,
@@ -95,15 +100,15 @@ export default class OwnerOutreachService {
             dispatchWindow: input.dispatchWindow || { start: '10:00', end: '18:00' },
             totals: {
                 uniquePeople: audience.uniquePeople,
-                uniqueEndpoints: audience.endpoints.length,
-                recipients: audience.endpoints.length,
-                consentRequired: audience.endpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
-                suppressed: audience.endpoints.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
+                uniqueEndpoints: selectedEndpoints.length,
+                recipients: selectedEndpoints.length,
+                consentRequired: selectedEndpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
+                suppressed: selectedEndpoints.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
             }
         });
 
         try {
-            const docs = audience.endpoints.map((endpoint) => ({
+            await OwnerOutreachRecipient.insertMany(selectedEndpoints.map((endpoint) => ({
                 campaignId: campaign._id,
                 channel: endpoint.channel,
                 endpointHash: endpoint.endpointHash,
@@ -114,13 +119,12 @@ export default class OwnerOutreachService {
                 consentState: endpoint.consentState,
                 eligibility: endpoint.eligibility,
                 dispatchState: endpoint.eligibility === 'SUPPRESSED_OPTOUT' ? 'SUPPRESSED' : 'PENDING'
-            }));
-            await OwnerOutreachRecipient.insertMany(docs, { ordered: true });
+            })), { ordered: true });
         } catch (error) {
             await OwnerOutreachCampaign.deleteOne({ _id: campaign._id });
             throw error;
         }
-        return { campaign: campaign.toObject(), audience: { uniquePeople: audience.uniquePeople, uniqueEndpoints: audience.endpoints.length } };
+        return { campaign: campaign.toObject(), audience: { uniquePeople: audience.uniquePeople, uniqueEndpoints: selectedEndpoints.length } };
     }
 
     async listCampaigns(user, limit = 50) {

@@ -46,29 +46,28 @@ export function buildOwnerOutreachAudience(inventoryItems, options = {}) {
         const contactId = String(contact._id);
         people.add(contactId);
         const inventoryId = String(inventory._id);
-        const phones = Array.isArray(contact.phones) ? contact.phones : [];
-        const emails = Array.isArray(contact.emails) ? contact.emails : [];
         const candidates = [];
-
-        for (const item of phones) {
+        for (const item of (Array.isArray(contact.phones) ? contact.phones : [])) {
             const raw = item && typeof item === 'object' ? item.number : item;
             const normalized = normalizePhone(raw);
-            if (normalized && normalized !== '-') {
+            if (normalized && normalized !== '-' && normalized.length >= 10 && !normalized.includes('@')) {
                 candidates.push({ channel: 'whatsapp', endpoint: normalized, consented: Boolean(contact.whatsappOptInAt) && contact.whatsappOptOut !== true, optedOut: contact.whatsappOptOut === true });
                 candidates.push({ channel: 'sms', endpoint: normalized, consented: false, optedOut: false });
+                candidates.push({ channel: 'rcs', endpoint: normalized, consented: false, optedOut: false });
             }
         }
-        for (const item of emails) {
+        for (const item of (Array.isArray(contact.emails) ? contact.emails : [])) {
             const raw = item && typeof item === 'object' ? item.address : item;
             const normalized = normalizeEmail(raw);
             if (normalized) candidates.push({ channel: 'email', endpoint: normalized, consented: false, optedOut: false });
         }
 
         for (const candidate of candidates) {
-            const key = `${candidate.channel}:${hashEndpoint(candidate.channel, candidate.endpoint)}`;
+            const endpointHash = hashEndpoint(candidate.channel, candidate.endpoint);
+            const key = `${candidate.channel}:${endpointHash}`;
             const current = endpoints.get(key) || {
                 channel: candidate.channel,
-                endpointHash: hashEndpoint(candidate.channel, candidate.endpoint),
+                endpointHash,
                 maskedEndpoint: maskEndpoint(candidate.channel, candidate.endpoint),
                 contactIds: new Set(),
                 inventoryIds: new Set(),
@@ -91,8 +90,7 @@ export function buildOwnerOutreachAudience(inventoryItems, options = {}) {
         if (includeOwners) for (const owner of inventory.owners || []) addContact(owner, inventory, 'Owner', 'OWNER');
         if (includeAssociates) {
             for (const associate of inventory.associates || []) {
-                const contact = associate?.contact;
-                if (contact) addContact(contact, inventory, valueOf(associate.relationship) || 'Associate', 'ASSOCIATE');
+                if (associate?.contact) addContact(associate.contact, inventory, valueOf(associate.relationship) || 'Associate', 'ASSOCIATE');
             }
         }
     }
