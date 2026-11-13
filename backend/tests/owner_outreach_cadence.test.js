@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCadence } from '../services/OwnerOutreachService.js';
+import { addCadence, validateCampaignConfig } from '../services/OwnerOutreachService.js';
 
 test('daily and weekly cadence preserve dispatch clock time', () => {
     const start = new Date('2026-11-13T04:30:00.000Z');
@@ -24,4 +24,32 @@ test('end-date scheduling is inclusive and does not create later cadence batches
     const end = new Date('2026-11-14T04:29:59.999Z');
     const planned = [0, 1, 2].map((offset) => addCadence(start, 'DAILY', offset)).filter((date) => date <= end);
     assert.deepEqual(planned.map((date) => date.toISOString()), ['2026-11-13T04:30:00.000Z']);
+});
+
+
+test('Phase 1 rejects fallback and sequence until delivery orchestration is implemented', () => {
+    const base = {
+        name: 'Owner update',
+        frequency: 'DAILY',
+        batchSize: 100,
+        channels: ['whatsapp', 'sms'],
+        channelStrategy: 'PRIMARY_WITH_FALLBACK',
+        startAt: '2026-11-13T04:30:00.000Z'
+    };
+    assert.throws(() => validateCampaignConfig(base), /Only PRIMARY_ONLY is available in Phase 1/);
+    assert.throws(() => validateCampaignConfig({ ...base, channelStrategy: 'SEQUENCE' }), /Only PRIMARY_ONLY is available in Phase 1/);
+});
+
+test('Phase 1 validates the server-side dispatch window contract', () => {
+    const base = {
+        name: 'Owner update',
+        frequency: 'DAILY',
+        batchSize: 100,
+        channels: ['whatsapp'],
+        channelStrategy: 'PRIMARY_ONLY',
+        startAt: '2026-11-13T04:30:00.000Z'
+    };
+    assert.doesNotThrow(() => validateCampaignConfig({ ...base, dispatchWindow: { start: '10:00', end: '18:00' } }));
+    assert.throws(() => validateCampaignConfig({ ...base, dispatchWindow: { start: '18:00', end: '10:00' } }), /Dispatch window must be valid/);
+    assert.throws(() => validateCampaignConfig({ ...base, dispatchWindow: { start: '9am', end: '18:00' } }), /Dispatch window must be valid/);
 });
