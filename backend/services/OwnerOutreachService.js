@@ -63,7 +63,7 @@ export default class OwnerOutreachService {
 
         const filters = input.filters || {};
         if (filters.project && filters.project !== 'all') {
-            const escaped = String(filters.project).replace(/[.*+?^${}()|[\]\\]/g, '\\            const escaped = String(filters.project).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');');
+            const escaped = String(filters.project).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             query.$and.push({ $or: [{ projectName: new RegExp(escaped, 'i') }, { sector: new RegExp(escaped, 'i') }] });
         }
         if (filters.category && mongoose.Types.ObjectId.isValid(filters.category)) {
