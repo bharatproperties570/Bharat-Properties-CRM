@@ -41,12 +41,12 @@ test('planner marks a valid consented ledger batch PLANNED without dispatch', as
             { _id: 'r2', eligibility: 'ELIGIBLE', consentState: 'CONSENTED', dispatchState: 'PENDING' }
         ] })
     });
-    OwnerOutreachBatch.findOneAndUpdate = (filter, update) => ({ select: () => ({ lean: async () => {
+    OwnerOutreachBatch.findOneAndUpdate = (filter, update, options) => ({ select: () => ({ lean: async () => {
         assert.equal(filter.status, 'CLAIMED');
         assert.equal(filter['claim.token'], 'fenced-token');
         assert.equal(update.$set.status, 'PLANNED');
         assert.equal(update.$set.counts.selected, 2);
-        assert.equal(arguments.length, 0);
+        assert.equal(options.session, fakeSession);
         return { _id: 'batch-1', status: 'PLANNED', counts: { selected: 2 } };
     } }) });
     const scheduler = {
