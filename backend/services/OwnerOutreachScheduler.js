@@ -5,6 +5,28 @@ import OwnerOutreachBatch from '../models/OwnerOutreachBatch.js';
 export const OWNER_OUTREACH_BATCH_LEASE_MS = 60_000;
 export const OWNER_OUTREACH_MAX_CLAIM_SCAN = 25;
 
+export function isWithinDispatchWindow(now, dispatchWindow = {}, timezone = 'Asia/Kolkata') {
+    const start = dispatchWindow?.start || '10:00';
+    const end = dispatchWindow?.end || '18:00';
+    const validClock = (value) => typeof value === 'string' && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    if (!validClock(start) || !validClock(end) || start >= end) return false;
+
+    let parts;
+    try {
+        parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: timezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23'
+        }).formatToParts(now);
+    } catch {
+        return false;
+    }
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const current = `${values.hour}:${values.minute}`;
+    return current >= start && current < end;
+}
+
 /**
  * Claims due planning batches using MongoDB compare-and-set semantics.
  * This scheduler layer does not dispatch messages or enqueue provider jobs.
@@ -26,9 +48,12 @@ export default class OwnerOutreachScheduler {
                 { nextRunAt: { $lte: now } },
                 { _id: { $in: expiredClaimCampaignIds } }
             ]
-        }).select('_id status').sort({ nextRunAt: 1, _id: 1 }).limit(OWNER_OUTREACH_MAX_CLAIM_SCAN).lean();
+        }).select('_id status timezone dispatchWindow').sort({ nextRunAt: 1, _id: 1 }).limit(OWNER_OUTREACH_MAX_CLAIM_SCAN).lean();
 
         for (const campaign of campaigns) {
+            // Enforce the persisted campaign-local window before claiming either
+            // a new or expired lease. Out-of-window ticks leave batches scheduled.
+            if (!isWithinDispatchWindow(now, campaign.dispatchWindow, campaign.timezone || 'Asia/Kolkata')) continue;
             const token = randomUUID();
             const leaseExpiresAt = new Date(now.getTime() + leaseMs);
             const batch = await OwnerOutreachBatch.findOneAndUpdate(
