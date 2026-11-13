@@ -158,53 +158,72 @@ export default class OwnerOutreachService {
 
     async approveCampaign(user, campaignId) {
         if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
-        const campaign = await OwnerOutreachCampaign.findOne({ _id: campaignId, createdBy: user._id, status: 'DRAFT' });
-        if (!campaign) throw new Error('Only an existing draft owned by you can be approved');
-        if (!campaign.audience?.frozenAt || !campaign.channels?.length) throw new Error('Campaign audience snapshot is incomplete');
-
-        // Only recipients with explicit channel consent enter the planned schedule.
-        // Provider/account readiness and actual dispatch are intentionally not enabled here.
-        const eligible = await OwnerOutreachRecipient.find({
-            campaignId: campaign._id,
-            eligibility: 'ELIGIBLE',
-            consentState: 'CONSENTED',
-            dispatchState: 'PENDING'
-        }).select('_id').sort({ _id: 1 }).lean();
-        if (!eligible.length) throw new Error('No explicitly consented recipients are eligible for scheduling');
-
-        const batches = [];
-        for (let offset = 0, sequence = 1; offset < eligible.length; offset += campaign.batchSize, sequence += 1) {
-            const scheduledAt = addCadence(campaign.startAt, campaign.frequency, sequence - 1);
-            // endAt is an inclusive instant: never create a batch scheduled after it.
-            if (campaign.endAt && scheduledAt > campaign.endAt) break;
-            batches.push({
-                campaignId: campaign._id,
-                sequence,
-                status: 'SCHEDULED',
-                scheduledAt,
-                recipientIds: eligible.slice(offset, offset + campaign.batchSize).map((item) => item._id),
-                counts: { selected: Math.min(campaign.batchSize, eligible.length - offset) }
-            });
-        }
-        if (!batches.length) throw new Error('Campaign end date does not include the first scheduled batch');
-
-        const claimed = await OwnerOutreachCampaign.findOneAndUpdate(
-            { _id: campaign._id, createdBy: user._id, status: 'DRAFT' },
-            { $set: { status: 'APPROVED', approvedAt: new Date(), nextRunAt: batches[0].scheduledAt } },
-            { new: true }
-        );
-        if (!claimed) throw new Error('Campaign state changed; refresh and try again');
+        const session = await mongoose.startSession();
+        let result;
         try {
-            await OwnerOutreachBatch.insertMany(batches, { ordered: true });
-        } catch (error) {
-            await OwnerOutreachBatch.deleteMany({ campaignId: campaign._id });
-            await OwnerOutreachCampaign.updateOne(
-                { _id: campaign._id, status: 'APPROVED' },
-                { $set: { status: 'DRAFT', approvedAt: null, nextRunAt: null } }
-            );
-            throw error;
+            await session.withTransaction(async () => {
+                const campaign = await OwnerOutreachCampaign.findOne({
+                    _id: campaignId, createdBy: user._id, status: { $in: ['DRAFT', 'APPROVED'] }
+                }).session(session);
+                if (!campaign) throw new Error('Only an existing draft owned by you can be approved');
+
+                // Idempotent retry: an already-approved campaign returns its existing ledger.
+                if (campaign.status === 'APPROVED') {
+                    const existing = await OwnerOutreachBatch.find({ campaignId: campaign._id }).session(session).lean();
+                    result = {
+                        campaign: campaign.toObject(),
+                        plannedBatches: existing.length,
+                        scheduledRecipients: existing.reduce((sum, batch) => sum + (batch.counts?.selected || 0), 0),
+                        dispatchEnabled: false,
+                        idempotent: true
+                    };
+                    return;
+                }
+                if (!campaign.audience?.frozenAt || !campaign.channels?.length) throw new Error('Campaign audience snapshot is incomplete');
+
+                const eligible = await OwnerOutreachRecipient.find({
+                    campaignId: campaign._id,
+                    eligibility: 'ELIGIBLE',
+                    consentState: 'CONSENTED',
+                    dispatchState: 'PENDING'
+                }).select('_id').sort({ _id: 1 }).session(session).lean();
+                if (!eligible.length) throw new Error('No explicitly consented recipients are eligible for scheduling');
+
+                const batches = [];
+                let scheduledRecipients = 0;
+                for (let offset = 0, sequence = 1; offset < eligible.length; offset += campaign.batchSize, sequence += 1) {
+                    const scheduledAt = addCadence(campaign.startAt, campaign.frequency, sequence - 1);
+                    if (campaign.endAt && scheduledAt > campaign.endAt) break;
+                    const recipientIds = eligible.slice(offset, offset + campaign.batchSize).map((item) => item._id);
+                    batches.push({
+                        campaignId: campaign._id,
+                        sequence,
+                        status: 'SCHEDULED',
+                        scheduledAt,
+                        recipientIds,
+                        counts: { selected: recipientIds.length }
+                    });
+                    scheduledRecipients += recipientIds.length;
+                }
+                if (!batches.length) throw new Error('Campaign end date does not include the first scheduled batch');
+
+                campaign.status = 'APPROVED';
+                campaign.approvedAt = new Date();
+                campaign.nextRunAt = batches[0].scheduledAt;
+                await campaign.save({ session });
+                await OwnerOutreachBatch.insertMany(batches, { ordered: true, session });
+                result = {
+                    campaign: campaign.toObject(),
+                    plannedBatches: batches.length,
+                    scheduledRecipients,
+                    dispatchEnabled: false,
+                    idempotent: false
+                };
+            }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });
+            return result;
+        } finally {
+            await session.endSession();
         }
-        return { campaign: claimed.toObject(), plannedBatches: batches.length, scheduledRecipients: eligible.length, dispatchEnabled: false };
     }
 
     async pauseCampaign(user, campaignId) {
