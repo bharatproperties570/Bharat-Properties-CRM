@@ -16,9 +16,9 @@ const LINE_COLORS = ['#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f4
 const normalizeAreaUnit = (rawUnit) => {
   if (!rawUnit) return 'Sq.Yd';
   const u = String(rawUnit).toLowerCase().trim();
+  if (u.includes('marla')) return 'Marla';
   if (u.includes('yd') || u.includes('yard') || u.includes('gaj')) return 'Sq.Yd';
   if (u.includes('ft') || u.includes('feet')) return 'Sq.Ft.';
-  if (u.includes('marla')) return 'Marla';
   if (u.includes('mt') || u.includes('meter') || u.includes('sqm')) return 'Sq.Mt.';
   if (u.includes('acre')) return 'Acre';
   return 'Sq.Yd';
@@ -352,10 +352,12 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
         const marlaMatch = s.match(/([0-9,.]+)\s*marla/i);
         if (marlaMatch) return { area: parseFloat(marlaMatch[1].replace(/,/g, '')) * 25, unit: 'Sq.Yd' };
 
-        // Clean numeric string (e.g. "263.12") paired with deal.sizeUnit
-        const cleanNum = parseFloat(s.replace(/,/g, ''));
-        if (!isNaN(cleanNum) && cleanNum > 0) {
-          return { area: cleanNum, unit: deal.sizeUnit || 'Sq.Yd' };
+        // Clean numeric string (e.g. "263.12") paired with deal.sizeUnit (skip raw 24-char ObjectId strings)
+        if (!/^[0-9a-fA-F]{24}$/.test(s)) {
+          const cleanNum = parseFloat(s.replace(/,/g, ''));
+          if (!isNaN(cleanNum) && cleanNum > 0) {
+            return { area: cleanNum, unit: deal.sizeUnit || 'Sq.Yd' };
+          }
         }
       }
 
@@ -411,10 +413,22 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
       // 8. Fallback to linked inventory (supporting both deal.inventory and populated deal.inventoryId)
       const inv = (deal.inventory && typeof deal.inventory === 'object') ? deal.inventory : (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null);
       if (inv) {
+        if (typeof inv.sizeLabel === 'string') {
+          const sqYdMatch = inv.sizeLabel.match(/([0-9,.]+)\s*(?:sq\.?\s*yd|sqyd|yards|yd)/i);
+          if (sqYdMatch) return { area: parseFloat(sqYdMatch[1].replace(/,/g, '')), unit: 'Sq.Yd' };
+          const marlaMatch = inv.sizeLabel.match(/([0-9,.]+)\s*marla/i);
+          if (marlaMatch) return { area: parseFloat(marlaMatch[1].replace(/,/g, '')) * 25, unit: 'Sq.Yd' };
+        }
+        if (typeof inv.sizeConfig === 'string') {
+          const sqYdMatch = inv.sizeConfig.match(/([0-9,.]+)\s*(?:sq\.?\s*yd|sqyd|yards|yd)/i);
+          if (sqYdMatch) return { area: parseFloat(sqYdMatch[1].replace(/,/g, '')), unit: 'Sq.Yd' };
+          const marlaMatch = inv.sizeConfig.match(/([0-9,.]+)\s*marla/i);
+          if (marlaMatch) return { area: parseFloat(marlaMatch[1].replace(/,/g, '')) * 25, unit: 'Sq.Yd' };
+        }
         if (typeof inv.area === 'number' && inv.area > 0) return { area: inv.area, unit: inv.sizeUnit || 'Sq.Yd' };
         if (typeof inv.size === 'number' && inv.size > 0) return { area: inv.size, unit: inv.sizeUnit || 'Sq.Yd' };
         if (typeof inv.size === 'object' && inv.size?.value > 0) return { area: inv.size.value, unit: inv.size.unit || inv.sizeUnit || 'Sq.Yd' };
-        if (typeof inv.size === 'string') {
+        if (typeof inv.size === 'string' && !/^[0-9a-fA-F]{24}$/.test(inv.size.trim())) {
           const sqYd = inv.size.match(/([0-9,.]+)\s*(?:sq\.?\s*yd|sqyd|yards|yd)/i);
           if (sqYd) return { area: parseFloat(sqYd[1].replace(/,/g, '')), unit: 'Sq.Yd' };
           const sqFt = inv.size.match(/([0-9,.]+)\s*(?:sq\.?\s*ft|sqft|feet|ft)/i);
@@ -523,8 +537,8 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
 
         const rawPricePerSqYd = effectiveLandPrice / areaInSqYd;
 
-        // Market Outlier Filter: ₹5,000 to ₹10,000,000 / Sq.Yd
-        if (rawPricePerSqYd < 5000 || rawPricePerSqYd > 10000000) return;
+        // Market Outlier Filter: ₹5,000 to ₹1,000,000 / Sq.Yd
+        if (rawPricePerSqYd < 5000 || rawPricePerSqYd > 1000000) return;
 
         // Authoritative Orientation Normalization: Derive pure Base Price (Standard 9m Road)
         const basePricePerSqYd = calculateBasePriceFromRate(rawPricePerSqYd, {

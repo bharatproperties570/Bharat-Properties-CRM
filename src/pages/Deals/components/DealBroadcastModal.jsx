@@ -585,6 +585,45 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         const dealIntent = getSafeString(singleDeal?.intent || singleDeal?.primaryDealIntent || inv?.intent || spec?.intent || targetLead?.intent, 'Sell');
         const dealTransactionType = getSafeString(singleDeal?.transactionType || singleDeal?.transaction_type || singleDeal?.dealType || inv?.transactionType || spec?.transactionType, 'Full White');
 
+        let dealSize = '';
+        if (singleDeal?.size?.plotArea || inv?.size?.plotArea) {
+            const val = singleDeal?.size?.plotArea || inv?.size?.plotArea;
+            let unit = singleDeal?.size?.unit || inv?.size?.unit || 'Sq. Yd.';
+            unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+            dealSize = val ? `${val} ${unit}`.trim() : '';
+        } else if (singleDeal?.size || singleDeal?.plotArea || inv?.plotArea) {
+            const val = singleDeal?.size || singleDeal?.plotArea || inv?.plotArea;
+            let unit = singleDeal?.sizeUnit || singleDeal?.unit || inv?.sizeUnit || 'Sq. Yd.';
+            unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+            dealSize = val ? `${val} ${unit}`.trim() : '';
+        }
+        const dealSizeType = getSafeString(
+            singleDeal?.sizeType || 
+            inv?.sizeType || 
+            singleDeal?.unitSpecification?.sizeLabel || 
+            inv?.unitSpecification?.sizeLabel || 
+            singleDeal?.sizeLabel || 
+            inv?.sizeLabel, 
+            ''
+        ).trim();
+
+        let dealFullSpecs = '';
+        if (dealSizeType && dealSize) {
+            const cleanSizeBase = dealSize.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+            const cleanTypeBase = dealSizeType.toLowerCase();
+            const normSize = cleanSizeBase.replace(/[^a-z0-9]/g, '');
+            const normType = cleanTypeBase.replace(/[^a-z0-9]/g, '');
+            if (normType.includes(normSize)) {
+                dealFullSpecs = dealSizeType;
+            } else if (normSize.includes(normType)) {
+                dealFullSpecs = dealSize;
+            } else {
+                dealFullSpecs = `${dealSize} (${dealSizeType})`;
+            }
+        } else {
+            dealFullSpecs = dealSizeType || dealSize || getSafeString(meta?.features?.[0], '');
+        }
+
         const metaVarLookup = {
             employeename: employeeName,
             employeemobile: employeeMobile,
@@ -639,7 +678,16 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             transaction_type: dealTransactionType,
             transactionType: dealTransactionType,
             dealtype: dealTransactionType,
-            deal_type: dealTransactionType
+            deal_type: dealTransactionType,
+            sizetype: dealFullSpecs,
+            sizeType: dealFullSpecs,
+            size_type: dealFullSpecs,
+            size: dealFullSpecs,
+            specs: dealFullSpecs,
+            property_size: dealFullSpecs,
+            propertysize: dealFullSpecs,
+            size_label: dealFullSpecs,
+            sizelabel: dealFullSpecs
         };
 
         const resolveSource = (source, idx) => {
@@ -655,6 +703,14 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 case 'dealType':
                 case 'deal_type':
                     return dealTransactionType;
+                case 'sizeType':
+                case 'sizetype':
+                case 'size_type':
+                case 'size':
+                case 'specs':
+                case 'property_size':
+                case 'propertysize':
+                    return dealFullSpecs;
                 case 'customer_name': return recipientName;
                 case 'first_name': return recipientFirstName;
                 case 'property_list_default':
@@ -728,7 +784,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 case 'visibleto':
                 case 'visible_to':
                     return assignedVisibility;
-                default:
+                default: {
                     if (idx === '1') return recipientFirstName || recipientName;
                     if (idx === '2') return resolveSource('property_list_default', idx);
                     if (idx === '3') return getSafeString(meta.price, 'Price on Request');
@@ -741,6 +797,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         return getSafeString(metaVarLookup[cleanKey], '');
                     }
                     return source ? `[${getSafeString(source)}]` : '-';
+                }
             }
         };
 
