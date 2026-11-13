@@ -45,10 +45,25 @@ export default class OwnerOutreachReservationService {
             return { reserved: true, reservationId: reservation?._id };
         } catch (error) {
             if (error?.code === 11000) {
+                // MongoDB reports the violated unique index in keyPattern when
+                // available. Prefer that authoritative signal: a transaction
+                // duplicate-key abort can make a follow-up read race with the
+                // transaction's abort/visibility boundary.
+                const keyPattern = error?.keyPattern || {};
+                const duplicatePeriodKey =
+                    keyPattern.endpointHash === 1 &&
+                    keyPattern.channel === 1 &&
+                    keyPattern.periodKey === 1;
+                const duplicatePeriodIndex =
+                    String(error?.message || '').includes('uniq_owner_outreach_endpoint_period');
+                if (duplicatePeriodKey || duplicatePeriodIndex) {
+                    return { reserved: false, code: 'PERIOD_DUPLICATE_SUPPRESSED' };
+                }
+
+                // Budget upsert E11000 is a different uniqueness conflict. Do
+                // not misreport it as a recipient duplicate or bypass quota.
                 const duplicate = await OwnerOutreachPeriodReservation.exists({ endpointHash, channel, periodKey });
                 if (duplicate) return { reserved: false, code: 'PERIOD_DUPLICATE_SUPPRESSED' };
-                // A concurrent budget upsert can also surface E11000; do not
-                // misreport it as a recipient duplicate or silently bypass quota.
                 throw error;
             }
             if (['GLOBAL_DAILY_CAP_REACHED', 'CHANNEL_DAILY_CAP_REACHED'].includes(error.message)) {
