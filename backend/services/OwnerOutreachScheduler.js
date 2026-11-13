@@ -8,7 +8,7 @@ export const OWNER_OUTREACH_MAX_CLAIM_SCAN = 25;
 export function isWithinDispatchWindow(now, dispatchWindow = {}, timezone = 'Asia/Kolkata') {
     const start = dispatchWindow?.start || '10:00';
     const end = dispatchWindow?.end || '18:00';
-    const validClock = (value) => typeof value === 'string' && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    const validClock = (value) => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
     if (!validClock(start) || !validClock(end) || start >= end) return false;
 
     let parts;
