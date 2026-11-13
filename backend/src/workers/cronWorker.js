@@ -234,6 +234,19 @@ const workerOptions = { connection: redisConnection };
 export const cronWorker = new Worker('cronQueue', async (job) => {
     console.log(`[Cron Worker] Executing scheduled job: ${job.name}`);
 
+    if (job.name === 'processOwnerOutreachPlanning') {
+        // Planner-only: this job never sends messages or enqueues provider dispatch.
+        const { default: OwnerOutreachPlanningService } = await import('../../services/OwnerOutreachPlanningService.js');
+        const planner = new OwnerOutreachPlanningService();
+        const workerId = `owner-outreach-planner:${process.env.HOSTNAME || process.pid}`;
+        const result = await planner.processDue({ workerId, maxBatches: 10 });
+        console.log('[OwnerOutreach] Planning pass completed:', {
+            processed: result.processed,
+            dispatchEnabled: false
+        });
+        return result;
+    }
+
     if (job.name === 'dailyInactivityCheck') {
         // Fetch Ageing SLA config
         let agingRules = {
