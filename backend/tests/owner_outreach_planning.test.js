@@ -4,6 +4,7 @@ import OwnerOutreachCampaign from '../models/OwnerOutreachCampaign.js';
 import OwnerOutreachBatch from '../models/OwnerOutreachBatch.js';
 import OwnerOutreachRecipient from '../models/OwnerOutreachRecipient.js';
 import OwnerOutreachPlanningService from '../services/OwnerOutreachPlanningService.js';
+import mongoose from 'mongoose';
 
 function chain(value) {
     return { select: () => ({ lean: async () => value }), lean: async () => value };
@@ -13,12 +14,26 @@ test('planner marks a valid consented ledger batch PLANNED without dispatch', as
     const originals = {
         campaignFindOne: OwnerOutreachCampaign.findOne,
         campaignExists: OwnerOutreachCampaign.exists,
+        campaignUpdateOne: OwnerOutreachCampaign.updateOne,
+        startSession: mongoose.startSession,
         recipientFind: OwnerOutreachRecipient.find,
         batchFindOneAndUpdate: OwnerOutreachBatch.findOneAndUpdate
     };
     const released = [];
     const batch = { _id: 'batch-1', campaignId: 'campaign-1', recipientIds: ['r1', 'r2'] };
-    OwnerOutreachCampaign.findOne = () => ({ select: () => ({ lean: async () => ({ _id: 'campaign-1', status: 'APPROVED' }) }) });
+    const fakeSession = { withTransaction: async (callback) => callback(), endSession: async () => {} };
+    mongoose.startSession = async () => fakeSession;
+    OwnerOutreachCampaign.findOne = () => ({ select: () => ({
+        lean: async () => ({ _id: 'campaign-1', status: 'APPROVED' }),
+        session: () => ({ lean: async () => ({ _id: 'campaign-1', status: 'APPROVED' }) })
+    }) });
+    OwnerOutreachCampaign.updateOne = async (filter, update, options) => {
+        assert.equal(filter._id, 'campaign-1');
+        assert.deepEqual(filter.status, { $in: ['APPROVED', 'ACTIVE'] });
+        assert.equal(update.$inc.__v, 1);
+        assert.equal(options.session, fakeSession);
+        return { modifiedCount: 1 };
+    };
     OwnerOutreachCampaign.exists = async () => true;
     OwnerOutreachRecipient.find = () => ({
         select: () => ({ lean: async () => [
@@ -31,6 +46,7 @@ test('planner marks a valid consented ledger batch PLANNED without dispatch', as
         assert.equal(filter['claim.token'], 'fenced-token');
         assert.equal(update.$set.status, 'PLANNED');
         assert.equal(update.$set.counts.selected, 2);
+        assert.equal(arguments.length, 0);
         return { _id: 'batch-1', status: 'PLANNED', counts: { selected: 2 } };
     } }) });
     const scheduler = {
@@ -46,6 +62,8 @@ test('planner marks a valid consented ledger batch PLANNED without dispatch', as
     } finally {
         OwnerOutreachCampaign.findOne = originals.campaignFindOne;
         OwnerOutreachCampaign.exists = originals.campaignExists;
+        OwnerOutreachCampaign.updateOne = originals.campaignUpdateOne;
+        mongoose.startSession = originals.startSession;
         OwnerOutreachRecipient.find = originals.recipientFind;
         OwnerOutreachBatch.findOneAndUpdate = originals.batchFindOneAndUpdate;
     }
