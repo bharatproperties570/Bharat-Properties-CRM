@@ -45,7 +45,11 @@ export default class OwnerOutreachReservationService {
             return { reserved: true, reservationId: reservation?._id };
         } catch (error) {
             if (error?.code === 11000) {
-                return { reserved: false, code: 'PERIOD_DUPLICATE_SUPPRESSED' };
+                const duplicate = await OwnerOutreachPeriodReservation.exists({ endpointHash, channel, periodKey });
+                if (duplicate) return { reserved: false, code: 'PERIOD_DUPLICATE_SUPPRESSED' };
+                // A concurrent budget upsert can also surface E11000; do not
+                // misreport it as a recipient duplicate or silently bypass quota.
+                throw error;
             }
             if (['GLOBAL_DAILY_CAP_REACHED', 'CHANNEL_DAILY_CAP_REACHED'].includes(error.message)) {
                 return { reserved: false, code: error.message };
