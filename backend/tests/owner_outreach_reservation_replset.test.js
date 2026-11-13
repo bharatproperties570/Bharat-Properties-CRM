@@ -82,7 +82,7 @@ test('replica-set unique period reservation blocks the same endpoint across camp
     const a = await service.reserve(first);
     const b = await service.reserve(second);
     assert.equal([a, b].filter((item) => item.reserved).length, 1);
-    assert.equal([a, b].filter((item) => item.code === 'PERIOD_DUPLICATE_SUPPRESSED').length, 1);
+    assert.equal([a, b].filter((item) => item.code === 'PERIOD_DUPLICATE_SUPPRESSED').length, 1, `expected one duplicate suppression; results=${JSON.stringify({ a, b })}`);
     assert.equal(await OwnerOutreachPeriodReservation.countDocuments({ endpointHash: first.endpointHash, channel: first.channel, periodKey: first.periodKey }), 1);
 });
 
