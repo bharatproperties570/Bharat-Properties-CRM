@@ -30,6 +30,8 @@ test('end-date scheduling is inclusive and does not create later cadence batches
 test('Phase 1 rejects fallback and sequence until delivery orchestration is implemented', () => {
     const base = {
         name: 'Owner update',
+        messageBody: 'Namaste, property ke baare mein baat karni thi.',
+        providerAccountId: '507f1f77bcf86cd799439011',
         frequency: 'DAILY',
         batchSize: 100,
         channels: ['whatsapp'],
@@ -43,6 +45,8 @@ test('Phase 1 rejects fallback and sequence until delivery orchestration is impl
 test('Phase 1 validates the server-side dispatch window contract', () => {
     const base = {
         name: 'Owner update',
+        messageBody: 'Namaste, property ke baare mein baat karni thi.',
+        providerAccountId: '507f1f77bcf86cd799439011',
         frequency: 'DAILY',
         batchSize: 100,
         channels: ['whatsapp'],
@@ -58,6 +62,8 @@ test('Phase 1 validates the server-side dispatch window contract', () => {
 test('Phase 1 rejects SMS, RCS and Email until consent evidence and provider adapters exist', () => {
     const base = {
         name: 'Owner update',
+        messageBody: 'Namaste, property ke baare mein baat karni thi.',
+        providerAccountId: '507f1f77bcf86cd799439011',
         frequency: 'DAILY',
         batchSize: 100,
         channelStrategy: 'PRIMARY_ONLY',
@@ -70,4 +76,22 @@ test('Phase 1 rejects SMS, RCS and Email until consent evidence and provider ada
         );
     }
     assert.doesNotThrow(() => validateCampaignConfig({ ...base, channels: ['whatsapp'] }));
+});
+
+
+test('Phase 1 requires explicit message content and a connected account selection', () => {
+    const base = {
+        name: 'Owner update',
+        messageBody: 'Namaste, property ke baare mein baat karni thi.',
+        providerAccountId: '507f1f77bcf86cd799439011',
+        frequency: 'DAILY',
+        batchSize: 100,
+        channels: ['whatsapp'],
+        channelStrategy: 'PRIMARY_ONLY',
+        startAt: '2026-11-13T04:30:00.000Z'
+    };
+    assert.doesNotThrow(() => validateCampaignConfig(base));
+    assert.throws(() => validateCampaignConfig({ ...base, messageBody: '' }), /WhatsApp message text is required/);
+    assert.throws(() => validateCampaignConfig({ ...base, providerAccountId: '' }), /connected WhatsApp account must be selected/);
+    assert.throws(() => validateCampaignConfig({ ...base, messageBody: 'x'.repeat(4097) }), /1–4096 characters/);
 });
