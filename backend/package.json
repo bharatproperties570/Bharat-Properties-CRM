@@ -55,7 +55,8 @@
         "test:phase4-authority": "node --test --test-force-exit --test-concurrency=1 tests/phase4_authority_bulk_processor.test.js tests/phase4_authority_scheduler.test.js tests/phase4_authority_5k_load.test.js tests/phase4_1_reliability_remediation.test.js tests/phase4_2_apply_reliability_and_fencing.test.js tests/phase4_3_saga_crash_fencing.test.js tests/phase4_3_replica_set_transactions.test.js tests/phase4_4_forensic_remediation.test.js tests/phase4_4_1_post_audit_corrections.test.js tests/phase4_4_3_residual_reliability.test.js",
         "test:authority-portal": "node --test --test-force-exit --test-concurrency=1 tests/authority_portal_approval_gate.test.js tests/authority_portal_contract.test.js tests/authority_portal_egress_trap.test.js tests/authority_portal_golden_parsers.test.js tests/authority_portal_runtime.test.js tests/authority_portal_acceptance_pr42.test.js tests/authority_portal_residual_blockers_pr42.test.js",
         "test:authority-portal-acceptance": "node --test --test-force-exit --test-concurrency=1 tests/authority_portal_acceptance_pr42.test.js tests/authority_portal_residual_blockers_pr42.test.js",
-        "test:authority-portal-redis": "node --test --test-force-exit tests/authority_portal_redis_integration.test.js"
+        "test:authority-portal-redis": "node --test --test-force-exit tests/authority_portal_redis_integration.test.js",
+        "test:owner-outreach": "node --test --test-force-exit --test-concurrency=1 tests/owner_outreach_*.test.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1159.0",

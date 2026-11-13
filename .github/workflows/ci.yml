@@ -70,6 +70,11 @@ jobs:
           cd backend
           node -e "import('mongodb-memory-server').then(m => m.MongoMemoryServer.create().then(s => s.stop()))"
 
+      - name: Run Owner Outreach Safety & Scheduler Tests
+        run: |
+          cd backend
+          npm run test:owner-outreach
+
       - name: Run Phase 1 & 1.1 Discovery Engine Tests
         run: |
           cd backend

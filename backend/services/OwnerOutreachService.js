@@ -1,0 +1,259 @@
+import mongoose from 'mongoose';
+import Inventory from '../models/Inventory.js';
+import OwnerOutreachCampaign from '../models/OwnerOutreachCampaign.js';
+import OwnerOutreachRecipient from '../models/OwnerOutreachRecipient.js';
+import OwnerOutreachBatch from '../models/OwnerOutreachBatch.js';
+import { getVisibilityFilter } from '../utils/visibility.js';
+import { buildOwnerOutreachAudience, OWNER_OUTREACH_BATCH_SIZES, OWNER_OUTREACH_FREQUENCIES } from '../utils/ownerOutreachAudience.js';
+
+const MAX_INVENTORY_SNAPSHOT = 10000;
+const allowedChannels = new Set(['whatsapp', 'sms', 'rcs', 'email']);
+
+function validateCampaignConfig(input = {}) {
+    if (!input.name || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Campaign name is required');
+    if (!OWNER_OUTREACH_FREQUENCIES.includes(input.frequency)) throw new Error('Invalid campaign frequency');
+    if (!OWNER_OUTREACH_BATCH_SIZES.includes(Number(input.batchSize))) throw new Error('Invalid batch size');
+    if (!Array.isArray(input.channels) || input.channels.length === 0 || input.channels.some((c) => !allowedChannels.has(c))) throw new Error('Select at least one supported channel');
+    if (!['PRIMARY_ONLY', 'PRIMARY_WITH_FALLBACK', 'SEQUENCE'].includes(input.channelStrategy || 'PRIMARY_ONLY')) throw new Error('Invalid channel strategy');
+    if ((input.channelStrategy || 'PRIMARY_ONLY') === 'PRIMARY_ONLY' && input.channels.length !== 1) throw new Error('PRIMARY_ONLY requires exactly one selected channel');
+    const startAt = new Date(input.startAt);
+    if (!Number.isFinite(startAt.getTime())) throw new Error('A valid campaign start date/time is required');
+    const endAt = input.endAt ? new Date(input.endAt) : null;
+    if (endAt && (!Number.isFinite(endAt.getTime()) || endAt < startAt)) throw new Error('Campaign end date must be a valid date after start date');
+    return { startAt, endAt };
+}
+
+
+export function addCadence(startAt, frequency, offset) {
+    const date = new Date(startAt);
+    if (frequency === 'DAILY') date.setUTCDate(date.getUTCDate() + offset);
+    else if (frequency === 'WEEKLY') date.setUTCDate(date.getUTCDate() + (7 * offset));
+    else if (frequency === 'MONTHLY') {
+        const day = date.getUTCDate();
+        date.setUTCDate(1);
+        date.setUTCMonth(date.getUTCMonth() + offset);
+        const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+        date.setUTCDate(Math.min(day, lastDay));
+    } else if (frequency === 'YEARLY') {
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+        date.setUTCDate(1);
+        date.setUTCFullYear(date.getUTCFullYear() + offset);
+        date.setUTCMonth(month);
+        const lastDay = new Date(Date.UTC(date.getUTCFullYear(), month + 1, 0)).getUTCDate();
+        date.setUTCDate(Math.min(day, lastDay));
+    }
+    return date;
+}
+
+export default class OwnerOutreachService {
+    async resolveAudience(input = {}, user) {
+        const visibility = user ? await getVisibilityFilter(user) : {};
+        const query = { ...visibility, isDeleted: { $ne: true } };
+        const inventoryIds = Array.isArray(input.inventoryIds) ? input.inventoryIds : [];
+        if (inventoryIds.length) {
+            if (inventoryIds.length > MAX_INVENTORY_SNAPSHOT || inventoryIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) throw new Error('Invalid inventory selection');
+            query._id = { $in: inventoryIds.map((id) => new mongoose.Types.ObjectId(id)) };
+        }
+        const filters = input.filters || {};
+        if (filters.project && filters.project !== 'all') {
+            const escaped = String(filters.project).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            query.$or = [{ projectName: new RegExp(escaped, 'i') }, { sector: new RegExp(escaped, 'i') }];
+        }
+        if (filters.category && mongoose.Types.ObjectId.isValid(filters.category)) query.category = new mongoose.Types.ObjectId(filters.category);
+        if (filters.status && mongoose.Types.ObjectId.isValid(filters.status)) query.status = new mongoose.Types.ObjectId(filters.status);
+
+        const inventory = await Inventory.find(query)
+            .select('_id projectName unitNo unitNumber sector owners associates')
+            .populate({ path: 'owners', select: '_id name surname phones emails professionCategory professionSubCategory designation tags whatsappOptOut whatsappOptInAt' })
+            .populate({ path: 'associates.contact', select: '_id name surname phones emails professionCategory professionSubCategory designation tags whatsappOptOut whatsappOptInAt' })
+            .limit(MAX_INVENTORY_SNAPSHOT + 1)
+            .lean();
+        if (inventory.length > MAX_INVENTORY_SNAPSHOT) throw new Error('Audience exceeds the 10,000 inventory snapshot limit; narrow the inventory filters');
+        const audience = buildOwnerOutreachAudience(inventory, {
+            includeOwners: input.includeOwners !== false,
+            includeAssociates: input.includeAssociates === true,
+            excludeBrokers: input.excludeBrokers !== false
+        });
+        return { ...audience, inventoryCount: inventory.length, inventoryIds: inventory.map((item) => item._id) };
+    }
+
+    async preview(input, user) {
+        const audience = await this.resolveAudience(input, user);
+        const selected = input.channels?.length ? audience.endpoints.filter((item) => input.channels.includes(item.channel)) : audience.endpoints;
+        const counts = {
+            uniquePeople: new Set(selected.flatMap((item) => item.contactIds)).size,
+            uniqueEndpoints: selected.length,
+            byChannel: {},
+            consentRequired: selected.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
+            suppressed: selected.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
+        };
+        for (const endpoint of selected) counts.byChannel[endpoint.channel] = (counts.byChannel[endpoint.channel] || 0) + 1;
+        return {
+            inventoryCount: audience.inventoryCount,
+            counts,
+            endpoints: selected.map(({ channel, maskedEndpoint, eligibility, inventoryIds, relationships }) => ({ channel, maskedEndpoint, eligibility, inventoryCount: inventoryIds.length, relationships }))
+        };
+    }
+
+    async createDraft(input, user) {
+        const { startAt, endAt } = validateCampaignConfig(input);
+        const audienceInput = input.audience || input;
+        const audience = await this.resolveAudience(audienceInput, user);
+        const selectedEndpoints = audience.endpoints.filter((endpoint) => input.channels.includes(endpoint.channel));
+        if (!selectedEndpoints.length) throw new Error('No valid endpoints found for the selected channels');
+        const campaign = await OwnerOutreachCampaign.create({
+            name: input.name.trim(),
+            createdBy: user._id,
+            status: 'DRAFT',
+            audience: {
+                inventoryIds: audience.inventoryIds,
+                filters: audienceInput.filters || {},
+                includeOwners: audienceInput.includeOwners !== false,
+                includeAssociates: audienceInput.includeAssociates === true,
+                excludeBrokers: audienceInput.excludeBrokers !== false,
+                frozenAt: new Date()
+            },
+            channels: input.channels,
+            channelStrategy: input.channelStrategy || 'PRIMARY_ONLY',
+            frequency: input.frequency,
+            batchSize: Number(input.batchSize),
+            startAt,
+            endAt,
+            timezone: 'Asia/Kolkata',
+            dispatchWindow: input.dispatchWindow || { start: '10:00', end: '18:00' },
+            totals: {
+                uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size,
+                uniqueEndpoints: selectedEndpoints.length,
+                recipients: selectedEndpoints.length,
+                consentRequired: selectedEndpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
+                suppressed: selectedEndpoints.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
+            }
+        });
+
+        try {
+            await OwnerOutreachRecipient.insertMany(selectedEndpoints.map((endpoint) => ({
+                campaignId: campaign._id,
+                channel: endpoint.channel,
+                endpointHash: endpoint.endpointHash,
+                maskedEndpoint: endpoint.maskedEndpoint,
+                contactIds: endpoint.contactIds,
+                inventoryIds: endpoint.inventoryIds,
+                relationships: endpoint.relationships,
+                consentState: endpoint.consentState,
+                eligibility: endpoint.eligibility,
+                dispatchState: endpoint.eligibility === 'SUPPRESSED_OPTOUT' ? 'SUPPRESSED' : 'PENDING'
+            })), { ordered: true });
+        } catch (error) {
+            await OwnerOutreachCampaign.deleteOne({ _id: campaign._id });
+            throw error;
+        }
+        return { campaign: campaign.toObject(), audience: { uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size, uniqueEndpoints: selectedEndpoints.length } };
+    }
+
+    async listCampaigns(user, limit = 50) {
+        return OwnerOutreachCampaign.find({ createdBy: user._id }).sort({ createdAt: -1 }).limit(Math.min(Math.max(Number(limit) || 50, 1), 100)).lean();
+    }
+
+
+    async approveCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const campaign = await OwnerOutreachCampaign.findOne({ _id: campaignId, createdBy: user._id, status: 'DRAFT' });
+        if (!campaign) throw new Error('Only an existing draft owned by you can be approved');
+        if (!campaign.audience?.frozenAt || !campaign.channels?.length) throw new Error('Campaign audience snapshot is incomplete');
+
+        // Only recipients with explicit channel consent enter the planned schedule.
+        // Provider/account readiness and actual dispatch are intentionally not enabled here.
+        const eligible = await OwnerOutreachRecipient.find({
+            campaignId: campaign._id,
+            eligibility: 'ELIGIBLE',
+            consentState: 'CONSENTED',
+            dispatchState: 'PENDING'
+        }).select('_id').sort({ _id: 1 }).lean();
+        if (!eligible.length) throw new Error('No explicitly consented recipients are eligible for scheduling');
+
+        const batches = [];
+        for (let offset = 0, sequence = 1; offset < eligible.length; offset += campaign.batchSize, sequence += 1) {
+            const scheduledAt = addCadence(campaign.startAt, campaign.frequency, sequence - 1);
+            // endAt is an inclusive instant: never create a batch scheduled after it.
+            if (campaign.endAt && scheduledAt > campaign.endAt) break;
+            batches.push({
+                campaignId: campaign._id,
+                sequence,
+                status: 'SCHEDULED',
+                scheduledAt,
+                recipientIds: eligible.slice(offset, offset + campaign.batchSize).map((item) => item._id),
+                counts: { selected: Math.min(campaign.batchSize, eligible.length - offset) }
+            });
+        }
+        if (!batches.length) throw new Error('Campaign end date does not include the first scheduled batch');
+
+        const claimed = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaign._id, createdBy: user._id, status: 'DRAFT' },
+            { $set: { status: 'APPROVED', approvedAt: new Date(), nextRunAt: batches[0].scheduledAt } },
+            { new: true }
+        );
+        if (!claimed) throw new Error('Campaign state changed; refresh and try again');
+        try {
+            await OwnerOutreachBatch.insertMany(batches, { ordered: true });
+        } catch (error) {
+            await OwnerOutreachBatch.deleteMany({ campaignId: campaign._id });
+            await OwnerOutreachCampaign.updateOne(
+                { _id: campaign._id, status: 'APPROVED' },
+                { $set: { status: 'DRAFT', approvedAt: null, nextRunAt: null } }
+            );
+            throw error;
+        }
+        return { campaign: claimed.toObject(), plannedBatches: batches.length, scheduledRecipients: eligible.length, dispatchEnabled: false };
+    }
+
+    async pauseCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaignId, createdBy: user._id, status: { $in: ['APPROVED', 'ACTIVE'] } },
+            { $set: { status: 'PAUSED', nextRunAt: null } },
+            { new: true }
+        );
+        if (!campaign) throw new Error('Only an approved or active campaign can be paused');
+        return campaign;
+    }
+
+    async resumeCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const pending = await OwnerOutreachBatch.findOne({ campaignId, status: 'SCHEDULED' }).sort({ sequence: 1 }).lean();
+        if (!pending) throw new Error('No scheduled batches remain; campaign cannot be resumed');
+        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaignId, createdBy: user._id, status: 'PAUSED' },
+            { $set: { status: 'APPROVED', nextRunAt: pending.scheduledAt } },
+            { new: true }
+        );
+        if (!campaign) throw new Error('Only a paused campaign can be resumed');
+        return campaign;
+    }
+
+    async cancelCampaign(user, campaignId, reason = 'Cancelled by campaign owner') {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) throw new Error('Invalid campaign id');
+        const campaign = await OwnerOutreachCampaign.findOneAndUpdate(
+            { _id: campaignId, createdBy: user._id, status: { $in: ['DRAFT', 'APPROVED', 'ACTIVE', 'PAUSED'] } },
+            { $set: { status: 'CANCELLED', nextRunAt: null, cancellationReason: String(reason).slice(0, 500) } },
+            { new: true }
+        );
+        if (!campaign) throw new Error('Campaign is already terminal or unavailable');
+        await OwnerOutreachBatch.updateMany(
+            { campaignId: campaign._id, status: 'SCHEDULED' },
+            { $set: { status: 'CANCELLED' } }
+        );
+        return campaign;
+    }
+
+    async getCampaign(user, campaignId) {
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) return null;
+        const campaign = await OwnerOutreachCampaign.findOne({ _id: campaignId, createdBy: user._id }).lean();
+        if (!campaign) return null;
+        const [byState, recipients] = await Promise.all([
+            OwnerOutreachRecipient.aggregate([{ $match: { campaignId: campaign._id } }, { $group: { _id: { channel: '$channel', eligibility: '$eligibility', dispatchState: '$dispatchState' }, count: { $sum: 1 } } }]),
+            OwnerOutreachRecipient.find({ campaignId: campaign._id }).select('channel maskedEndpoint eligibility dispatchState').limit(200).lean()
+        ]);
+        return { campaign, byState, recipients };
+    }
+}
