@@ -86,7 +86,7 @@ test('replica-set concurrent first-use reservations initialize each quota budget
     }));
 
     const results = await Promise.all(requests.map((item) => service.reserve(item)));
-    assert.equal(results.filter((item) => item.reserved).length, 12);
+    assert.equal(results.filter((item) => item.reserved).length, 12, `expected all first-use reservations; results=${JSON.stringify(results)}`);
     assert.equal(results.filter((item) => !item.reserved).length, 0);
 
     const budgets = await OwnerOutreachDispatchBudget.find({ bucketKey }).lean();
