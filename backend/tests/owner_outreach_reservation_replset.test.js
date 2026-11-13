@@ -77,7 +77,7 @@ test('replica-set concurrent reservations never exceed the global or channel cap
 test('replica-set unique period reservation blocks the same endpoint across campaigns', async () => {
     const bucketKey = '2026-11-13-duplicate';
     await seedBudgets(bucketKey, 20, 20);
-    const first = request({ bucketKey });
+    const first = request({ bucketKey, globalDailyCap: 20, channelDailyCap: 20 });
     const second = request({ ...first, campaignId: campaignId(), recipientId: recipientId() });
     const a = await service.reserve(first);
     const b = await service.reserve(second);
