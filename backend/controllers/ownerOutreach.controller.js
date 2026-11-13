@@ -38,3 +38,39 @@ export const getOwnerOutreachCampaign = async (req, res) => {
         return res.status(500).json({ success: false, error: 'Unable to load owner outreach campaign' });
     }
 };
+
+export const approveOwnerOutreachCampaign = async (req, res) => {
+    try {
+        const data = await service.approveCampaign(req.user, req.params.id);
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+export const pauseOwnerOutreachCampaign = async (req, res) => {
+    try {
+        const data = await service.pauseCampaign(req.user, req.params.id);
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(409).json({ success: false, error: error.message });
+    }
+};
+
+export const resumeOwnerOutreachCampaign = async (req, res) => {
+    try {
+        const data = await service.resumeCampaign(req.user, req.params.id);
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(409).json({ success: false, error: error.message });
+    }
+};
+
+export const cancelOwnerOutreachCampaign = async (req, res) => {
+    try {
+        const data = await service.cancelCampaign(req.user, req.params.id, req.body?.reason);
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(409).json({ success: false, error: error.message });
+    }
+};
