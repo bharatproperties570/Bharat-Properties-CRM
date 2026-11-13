@@ -14,9 +14,18 @@ export default class OwnerOutreachScheduler {
         if (typeof workerId !== 'string' || !workerId.trim()) throw new Error('A stable scheduler worker id is required');
         if (!Number.isFinite(leaseMs) || leaseMs < 5_000 || leaseMs > 10 * 60_000) throw new Error('Lease duration must be between 5 seconds and 10 minutes');
 
+        // A claimed batch whose lease expired must remain recoverable even when
+        // the campaign cursor has already advanced to a later scheduled batch.
+        const expiredClaimCampaignIds = await OwnerOutreachBatch.distinct('campaignId', {
+            status: 'CLAIMED',
+            'claim.leaseExpiresAt': { $lte: now }
+        });
         const campaigns = await OwnerOutreachCampaign.find({
             status: { $in: ['APPROVED', 'ACTIVE'] },
-            nextRunAt: { $lte: now }
+            $or: [
+                { nextRunAt: { $lte: now } },
+                { _id: { $in: expiredClaimCampaignIds } }
+            ]
         }).select('_id status').sort({ nextRunAt: 1, _id: 1 }).limit(OWNER_OUTREACH_MAX_CLAIM_SCAN).lean();
 
         for (const campaign of campaigns) {
