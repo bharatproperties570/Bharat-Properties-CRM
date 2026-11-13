@@ -57,6 +57,18 @@ export default class OwnerOutreachScheduler {
                 continue;
             }
 
+            // Advance the campaign cursor to its next still-scheduled batch.
+            // This prevents a large campaign from monopolizing every bounded scan
+            // after its earliest batch has already been claimed.
+            const nextBatch = await OwnerOutreachBatch.findOne({
+                campaignId: campaign._id,
+                status: 'SCHEDULED'
+            }).sort({ scheduledAt: 1, sequence: 1 }).select('scheduledAt').lean();
+            await OwnerOutreachCampaign.updateOne(
+                { _id: campaign._id, status: { $in: ['APPROVED', 'ACTIVE'] } },
+                { $set: { nextRunAt: nextBatch?.scheduledAt || null, lastRunAt: now } }
+            );
+
             return { batch, claimToken: token };
         }
         return null;
