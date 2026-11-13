@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import OwnerOutreachDispatchAuthorizationService from '../services/OwnerOutreachDispatchAuthorizationService.js';
 import { hashEndpoint } from '../utils/ownerOutreachAudience.js';
+import { normalizePhone } from '../utils/normalization.js';
 
 const id = () => new mongoose.Types.ObjectId();
 const query = (value) => ({ select: () => ({ lean: async () => value }) });
@@ -17,7 +18,7 @@ function fixture({ optOut = false, optOutAt = null, optInAt = new Date('2026-11-
         _id: recipientId,
         campaignId,
         channel: 'whatsapp',
-        endpointHash: hashEndpoint('whatsapp', phone),
+        endpointHash: hashEndpoint('whatsapp', normalizePhone(phone)),
         contactIds: [contactId],
         dispatchState: 'PENDING'
     };
