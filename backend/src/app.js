@@ -10,6 +10,7 @@ import projectRoutes from "../routes/project.routes.js";
 import lookupRoutes from "../routes/lookup.routes.js";
 import activityRoutes from "../routes/activity.routes.js";
 import marketingRoutes from "../routes/marketing.routes.js";
+import ownerOutreachRoutes from "../routes/ownerOutreach.routes.js";
 
 // New settings module routes
 import myFieldRuleRoutes from "../routes/fieldRule.routes.js"; // My implementation
@@ -106,6 +107,7 @@ apiRouter.use("/lookup", lookupRoutes);
 apiRouter.use("/lookups", lookupRoutes); 
 apiRouter.use("/activities", activityRoutes);
 apiRouter.use("/marketing", marketingRoutes);
+apiRouter.use("/owner-outreach", ownerOutreachRoutes);
 apiRouter.use("/field-rules", myFieldRuleRoutes);
 apiRouter.use("/distribution-rules", myDistributionRuleRoutes);
 apiRouter.use("/companies", companyRoutes);
