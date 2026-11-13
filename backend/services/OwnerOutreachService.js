@@ -48,20 +48,30 @@ export function addCadence(startAt, frequency, offset) {
 
 export default class OwnerOutreachService {
     async resolveAudience(input = {}, user) {
-        const visibility = user ? await getVisibilityFilter(user) : {};
-        const query = { ...visibility, isDeleted: { $ne: true } };
+        const visibility = user ? await getVisibilityFilter(user) : { _id: null };
         const inventoryIds = Array.isArray(input.inventoryIds) ? input.inventoryIds : [];
-        if (inventoryIds.length) {
-            if (inventoryIds.length > MAX_INVENTORY_SNAPSHOT || inventoryIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) throw new Error('Invalid inventory selection');
-            query._id = { $in: inventoryIds.map((id) => new mongoose.Types.ObjectId(id)) };
+        if (inventoryIds.length > MAX_INVENTORY_SNAPSHOT || inventoryIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
+            throw new Error('Invalid inventory selection');
         }
+
+        // Authorization and user filters must always intersect. In particular,
+        // never overwrite visibility's own $or (private/team/everyone rules).
+        const query = { $and: [visibility, { isDeleted: { $ne: true } }] };
+        if (inventoryIds.length) {
+            query.$and.push({ _id: { $in: inventoryIds.map((id) => new mongoose.Types.ObjectId(id)) } });
+        }
+
         const filters = input.filters || {};
         if (filters.project && filters.project !== 'all') {
-            const escaped = String(filters.project).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            query.$or = [{ projectName: new RegExp(escaped, 'i') }, { sector: new RegExp(escaped, 'i') }];
+            const escaped = String(filters.project).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+            query.$and.push({ $or: [{ projectName: new RegExp(escaped, 'i') }, { sector: new RegExp(escaped, 'i') }] });
         }
-        if (filters.category && mongoose.Types.ObjectId.isValid(filters.category)) query.category = new mongoose.Types.ObjectId(filters.category);
-        if (filters.status && mongoose.Types.ObjectId.isValid(filters.status)) query.status = new mongoose.Types.ObjectId(filters.status);
+        if (filters.category && mongoose.Types.ObjectId.isValid(filters.category)) {
+            query.$and.push({ category: new mongoose.Types.ObjectId(filters.category) });
+        }
+        if (filters.status && mongoose.Types.ObjectId.isValid(filters.status)) {
+            query.$and.push({ status: new mongoose.Types.ObjectId(filters.status) });
+        }
 
         const inventory = await Inventory.find(query)
             .select('_id projectName unitNo unitNumber sector owners associates')
@@ -102,51 +112,55 @@ export default class OwnerOutreachService {
         const audience = await this.resolveAudience(audienceInput, user);
         const selectedEndpoints = audience.endpoints.filter((endpoint) => input.channels.includes(endpoint.channel));
         if (!selectedEndpoints.length) throw new Error('No valid endpoints found for the selected channels');
-        const campaign = await OwnerOutreachCampaign.create({
-            name: input.name.trim(),
-            createdBy: user._id,
-            status: 'DRAFT',
-            audience: {
-                inventoryIds: audience.inventoryIds,
-                filters: audienceInput.filters || {},
-                includeOwners: audienceInput.includeOwners !== false,
-                includeAssociates: audienceInput.includeAssociates === true,
-                excludeBrokers: audienceInput.excludeBrokers !== false,
-                frozenAt: new Date()
-            },
-            channels: input.channels,
-            channelStrategy: input.channelStrategy || 'PRIMARY_ONLY',
-            frequency: input.frequency,
-            batchSize: Number(input.batchSize),
-            startAt,
-            endAt,
-            timezone: 'Asia/Kolkata',
-            dispatchWindow: input.dispatchWindow || { start: '10:00', end: '18:00' },
-            totals: {
-                uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size,
-                uniqueEndpoints: selectedEndpoints.length,
-                recipients: selectedEndpoints.length,
-                consentRequired: selectedEndpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
-                suppressed: selectedEndpoints.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
-            }
-        });
-
+        const session = await mongoose.startSession();
+        let campaign;
         try {
-            await OwnerOutreachRecipient.insertMany(selectedEndpoints.map((endpoint) => ({
-                campaignId: campaign._id,
-                channel: endpoint.channel,
-                endpointHash: endpoint.endpointHash,
-                maskedEndpoint: endpoint.maskedEndpoint,
-                contactIds: endpoint.contactIds,
-                inventoryIds: endpoint.inventoryIds,
-                relationships: endpoint.relationships,
-                consentState: endpoint.consentState,
-                eligibility: endpoint.eligibility,
-                dispatchState: endpoint.eligibility === 'SUPPRESSED_OPTOUT' ? 'SUPPRESSED' : 'PENDING'
-            })), { ordered: true });
-        } catch (error) {
-            await OwnerOutreachCampaign.deleteOne({ _id: campaign._id });
-            throw error;
+            await session.withTransaction(async () => {
+                const [createdCampaign] = await OwnerOutreachCampaign.create([{
+                    name: input.name.trim(),
+                    createdBy: user._id,
+                    status: 'DRAFT',
+                    audience: {
+                        inventoryIds: audience.inventoryIds,
+                        filters: audienceInput.filters || {},
+                        includeOwners: audienceInput.includeOwners !== false,
+                        includeAssociates: audienceInput.includeAssociates === true,
+                        excludeBrokers: audienceInput.excludeBrokers !== false,
+                        frozenAt: new Date()
+                    },
+                    channels: input.channels,
+                    channelStrategy: input.channelStrategy || 'PRIMARY_ONLY',
+                    frequency: input.frequency,
+                    batchSize: Number(input.batchSize),
+                    startAt,
+                    endAt,
+                    timezone: 'Asia/Kolkata',
+                    dispatchWindow: input.dispatchWindow || { start: '10:00', end: '18:00' },
+                    totals: {
+                        uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size,
+                        uniqueEndpoints: selectedEndpoints.length,
+                        recipients: selectedEndpoints.length,
+                        consentRequired: selectedEndpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
+                        suppressed: selectedEndpoints.filter((x) => x.eligibility === 'SUPPRESSED_OPTOUT').length
+                    }
+                }], { session });
+                campaign = createdCampaign;
+
+                await OwnerOutreachRecipient.insertMany(selectedEndpoints.map((endpoint) => ({
+                    campaignId: campaign._id,
+                    channel: endpoint.channel,
+                    endpointHash: endpoint.endpointHash,
+                    maskedEndpoint: endpoint.maskedEndpoint,
+                    contactIds: endpoint.contactIds,
+                    inventoryIds: endpoint.inventoryIds,
+                    relationships: endpoint.relationships,
+                    consentState: endpoint.consentState,
+                    eligibility: endpoint.eligibility,
+                    dispatchState: endpoint.eligibility === 'SUPPRESSED_OPTOUT' ? 'SUPPRESSED' : 'PENDING'
+                })), { ordered: true, session });
+            }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });
+        } finally {
+            await session.endSession();
         }
         return { campaign: campaign.toObject(), audience: { uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size, uniqueEndpoints: selectedEndpoints.length } };
     }
