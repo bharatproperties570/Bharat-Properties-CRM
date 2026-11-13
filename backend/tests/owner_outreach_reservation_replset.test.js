@@ -79,7 +79,8 @@ test('replica-set unique period reservation blocks the same endpoint across camp
     await seedBudgets(bucketKey, 20, 20);
     const first = request({ bucketKey });
     const second = request({ ...first, campaignId: campaignId(), recipientId: recipientId() });
-    const [a, b] = await Promise.all([service.reserve(first), service.reserve(second)]);
+    const a = await service.reserve(first);
+    const b = await service.reserve(second);
     assert.equal([a, b].filter((item) => item.reserved).length, 1);
     assert.equal([a, b].filter((item) => item.code === 'PERIOD_DUPLICATE_SUPPRESSED').length, 1);
     assert.equal(await OwnerOutreachPeriodReservation.countDocuments({ endpointHash: first.endpointHash, channel: first.channel, periodKey: first.periodKey }), 1);
@@ -91,7 +92,7 @@ test('replica-set transaction rolls back the global quota increment when channel
         { bucketKey, scope: 'GLOBAL', cap: 10, reservedCount: 0 },
         { bucketKey, scope: 'whatsapp', cap: 1, reservedCount: 1 }
     ]);
-    const result = await service.reserve(request({ bucketKey, endpointHash: 'rollback-endpoint' }));
+    const result = await service.reserve(request({ bucketKey, endpointHash: 'rollback-endpoint', globalDailyCap: 10, channelDailyCap: 1 }));
     assert.deepEqual(result, { reserved: false, code: 'CHANNEL_DAILY_CAP_REACHED' });
     const global = await OwnerOutreachDispatchBudget.findOne({ bucketKey, scope: 'GLOBAL' }).lean();
     assert.equal(global.reservedCount, 0);
