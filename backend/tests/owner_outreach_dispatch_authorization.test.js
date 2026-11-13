@@ -8,7 +8,7 @@ import { normalizePhone } from '../utils/normalization.js';
 const id = () => new mongoose.Types.ObjectId();
 const query = (value) => ({ select: () => ({ lean: async () => value }) });
 
-function fixture({ optOut = false, optOutAt = null, optInAt = new Date('2026-11-01T00:00:00Z'), account = null } = {}) {
+function fixture({ optOut = false, optOutAt = null, optInAt = new Date('2026-11-01T00:00:00Z'), account = null, contactRows = null, accountAccess = { authorized: true } } = {}) {
     process.env.OWNER_OUTREACH_HASH_SECRET = 'owner-outreach-test-secret-which-is-long-enough';
     const campaignId = id();
     const recipientId = id();
@@ -28,7 +28,7 @@ function fixture({ optOut = false, optOutAt = null, optInAt = new Date('2026-11-
         campaignModel: { findOne: () => query(campaign) },
         recipientModel: { findOne: () => query(recipient) },
         contactModel: {
-            find: () => query([{
+            find: () => query(contactRows || [{
                 _id: contactId,
                 phones: [{ number: phone }],
                 whatsappOptInAt: optInAt,
@@ -40,7 +40,7 @@ function fixture({ optOut = false, optOutAt = null, optInAt = new Date('2026-11-
             _id: id(), provider: 'META', connectionType: 'NEW_API', status: 'ACTIVE',
             onboardingStatus: 'CONNECTED', subscriptionStatus: 'SUBSCRIBED', webhookStatus: 'VERIFIED'
         } }; } },
-        accountAuthorization: { assertCanSend: async () => ({ authorized: true }) },
+        accountAuthorization: { assertCanSend: async () => accountAccess },
         reservationService: { reserve: async () => { calls.reserve += 1; return { reserved: true, reservationId: id() }; } }
     });
     return { service, campaignId, recipientId, calls };
@@ -55,6 +55,54 @@ const common = (fixtureData) => ({
     periodKey: '2026-11',
     globalDailyCap: 100,
     channelDailyCap: 50
+});
+
+
+test('endpoint ownership mismatch blocks authorization before quota reservation', async () => {
+    const f = fixture({ contactRows: [{
+        _id: id(),
+        phones: [{ number: '+919999999999' }],
+        whatsappOptInAt: new Date('2026-11-01T00:00:00Z'),
+        whatsappOptOut: false
+    }] });
+    const result = await f.service.authorizeAndReserve(common(f));
+    assert.equal(result.code, 'CURRENT_WHATSAPP_CONSENT_NOT_FOUND');
+    assert.equal(f.calls.reserve, 0);
+});
+
+test('missing, deleted or merged Contact provenance blocks authorization', async () => {
+    const f = fixture({ contactRows: [] });
+    const result = await f.service.authorizeAndReserve(common(f));
+    assert.equal(result.code, 'CONTACT_PROVENANCE_STALE');
+    assert.equal(f.calls.account, 0);
+    assert.equal(f.calls.reserve, 0);
+});
+
+test('incomplete Meta webhook or subscription state blocks authorization', async () => {
+    const f = fixture({ account: {
+        _id: id(), provider: 'META', connectionType: 'NEW_API', status: 'ACTIVE',
+        onboardingStatus: 'CONNECTED', subscriptionStatus: 'SUBSCRIBED', webhookStatus: 'PENDING'
+    } });
+    const result = await f.service.authorizeAndReserve(common(f));
+    assert.equal(result.code, 'META_ACCOUNT_NOT_FULLY_CONNECTED');
+    assert.equal(f.calls.reserve, 0);
+});
+
+test('unlinked Baileys session blocks authorization', async () => {
+    const f = fixture({ account: {
+        _id: id(), provider: 'BAILEYS', connectionType: 'QR_SCANNER', status: 'ACTIVE',
+        onboardingStatus: 'QR_PENDING'
+    } });
+    const result = await f.service.authorizeAndReserve(common(f));
+    assert.equal(result.code, 'BAILEYS_SESSION_NOT_LINKED');
+    assert.equal(f.calls.reserve, 0);
+});
+
+test('provider account RBAC denial blocks quota reservation', async () => {
+    const f = fixture({ accountAccess: { authorized: false } });
+    const result = await f.service.authorizeAndReserve(common(f));
+    assert.equal(result.code, 'PROVIDER_ACCOUNT_ACCESS_DENIED');
+    assert.equal(f.calls.reserve, 0);
 });
 
 test('dispatch authorization rechecks current Contact consent and reserves atomically without sending', async () => {
