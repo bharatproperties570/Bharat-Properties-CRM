@@ -11,6 +11,8 @@ const phaseOneChannels = new Set(['whatsapp']);
 
 export function validateCampaignConfig(input = {}) {
     if (!input.name || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Campaign name is required');
+    if (typeof input.messageBody !== 'string' || !input.messageBody.trim() || input.messageBody.length > 4096) throw new Error('WhatsApp message text is required and must be 1–4096 characters');
+    if (!mongoose.Types.ObjectId.isValid(input.providerAccountId)) throw new Error('A connected WhatsApp account must be selected');
     if (!OWNER_OUTREACH_FREQUENCIES.includes(input.frequency)) throw new Error('Invalid campaign frequency');
     if (!OWNER_OUTREACH_BATCH_SIZES.includes(Number(input.batchSize))) throw new Error('Invalid batch size');
     if (!Array.isArray(input.channels) || input.channels.length === 0 || input.channels.some((c) => !['whatsapp', 'sms', 'rcs', 'email'].includes(c))) throw new Error('Select at least one supported channel');
@@ -146,6 +148,8 @@ export default class OwnerOutreachService {
                         frozenAt: new Date()
                     },
                     channels: input.channels,
+                    messageBody: input.messageBody.trim(),
+                    providerAccountId: input.providerAccountId,
                     channelStrategy: input.channelStrategy || 'PRIMARY_ONLY',
                     frequency: input.frequency,
                     batchSize: Number(input.batchSize),
