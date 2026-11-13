@@ -18,3 +18,10 @@ test('yearly cadence clamps leap day safely', () => {
     const start = new Date('2024-02-29T04:30:00.000Z');
     assert.equal(addCadence(start, 'YEARLY', 1).toISOString(), '2025-02-28T04:30:00.000Z');
 });
+
+test('end-date scheduling is inclusive and does not create later cadence batches', () => {
+    const start = new Date('2026-11-13T04:30:00.000Z');
+    const end = new Date('2026-11-14T04:29:59.999Z');
+    const planned = [0, 1, 2].map((offset) => addCadence(start, 'DAILY', offset)).filter((date) => date <= end);
+    assert.deepEqual(planned.map((date) => date.toISOString()), ['2026-11-13T04:30:00.000Z']);
+});
