@@ -30,7 +30,7 @@ export function validateCampaignConfig(input = {}) {
     if (endAt && (!Number.isFinite(endAt.getTime()) || endAt < startAt)) throw new Error('Campaign end date must be a valid date after start date');
 
     const window = input.dispatchWindow || { start: '10:00', end: '18:00' };
-    const validClock = (value) => typeof value === 'string' && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    const validClock = (value) => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
     if (!validClock(window.start) || !validClock(window.end) || window.start >= window.end) {
         throw new Error('Dispatch window must be valid 24-hour HH:mm values with end after start');
     }
