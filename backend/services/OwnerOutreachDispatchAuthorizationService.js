@@ -46,6 +46,7 @@ export default class OwnerOutreachDispatchAuthorizationService {
             status: { $in: ['APPROVED', 'ACTIVE'] }
         }).select('_id status channels channelStrategy').lean();
         if (!campaign) return deny('CAMPAIGN_NOT_RUNNABLE');
+        if (!campaign.channels?.includes('whatsapp')) return deny('CHANNEL_NOT_IN_CAMPAIGN');
 
         const recipient = await this.Recipient.findOne({
             _id: recipientId,
@@ -71,7 +72,9 @@ export default class OwnerOutreachDispatchAuthorizationService {
 
         let currentConsentedEndpointFound = false;
         for (const contact of contacts) {
-            if (contact.whatsappOptOut === true || contact.whatsappOptOutAt) {
+            const optOutIsCurrent = contact.whatsappOptOut === true ||
+                (contact.whatsappOptOutAt && (!contact.whatsappOptInAt || contact.whatsappOptOutAt >= contact.whatsappOptInAt));
+            if (optOutIsCurrent) {
                 return deny('RECIPIENT_OPTED_OUT');
             }
             const ownsEndpoint = (contact.phones || []).some((phone) => {
