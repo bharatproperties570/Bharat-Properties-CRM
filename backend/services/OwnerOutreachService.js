@@ -24,7 +24,7 @@ function validateCampaignConfig(input = {}) {
 }
 
 
-function addCadence(startAt, frequency, offset) {
+export function addCadence(startAt, frequency, offset) {
     const date = new Date(startAt);
     if (frequency === 'DAILY') date.setUTCDate(date.getUTCDate() + offset);
     else if (frequency === 'WEEKLY') date.setUTCDate(date.getUTCDate() + (7 * offset));
