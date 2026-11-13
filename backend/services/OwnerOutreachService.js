@@ -58,7 +58,7 @@ export default class OwnerOutreachService {
         const audience = await this.resolveAudience(input, user);
         const selected = input.channels?.length ? audience.endpoints.filter((item) => input.channels.includes(item.channel)) : audience.endpoints;
         const counts = {
-            uniquePeople: audience.uniquePeople,
+            uniquePeople: new Set(selected.flatMap((item) => item.contactIds)).size,
             uniqueEndpoints: selected.length,
             byChannel: {},
             consentRequired: selected.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
@@ -99,7 +99,7 @@ export default class OwnerOutreachService {
             timezone: 'Asia/Kolkata',
             dispatchWindow: input.dispatchWindow || { start: '10:00', end: '18:00' },
             totals: {
-                uniquePeople: audience.uniquePeople,
+                uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size,
                 uniqueEndpoints: selectedEndpoints.length,
                 recipients: selectedEndpoints.length,
                 consentRequired: selectedEndpoints.filter((x) => x.eligibility === 'CONSENT_REQUIRED').length,
@@ -124,7 +124,7 @@ export default class OwnerOutreachService {
             await OwnerOutreachCampaign.deleteOne({ _id: campaign._id });
             throw error;
         }
-        return { campaign: campaign.toObject(), audience: { uniquePeople: audience.uniquePeople, uniqueEndpoints: selectedEndpoints.length } };
+        return { campaign: campaign.toObject(), audience: { uniquePeople: new Set(selectedEndpoints.flatMap((item) => item.contactIds)).size, uniqueEndpoints: selectedEndpoints.length } };
     }
 
     async listCampaigns(user, limit = 50) {

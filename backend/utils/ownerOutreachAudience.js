@@ -23,7 +23,9 @@ export function normalizeEmail(value) {
 }
 
 export function hashEndpoint(channel, endpoint) {
-    return crypto.createHash('sha256').update(`${channel}:${endpoint}`).digest('hex');
+    const secret = process.env.OWNER_OUTREACH_HASH_SECRET || process.env.JWT_SECRET;
+    if (!secret || secret.length < 32) throw new Error('Owner outreach endpoint hashing secret is not configured');
+    return crypto.createHmac('sha256', secret).update(`${channel}:${endpoint}`).digest('hex');
 }
 
 export function maskEndpoint(channel, endpoint) {
