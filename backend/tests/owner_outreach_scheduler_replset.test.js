@@ -110,8 +110,16 @@ test('planner cannot transition a claimed batch to PLANNED after Pause commits',
     let continuePlanner;
     const resume = new Promise(resolve => { continuePlanner = resolve; });
     OwnerOutreachRecipient.find = (...args) => {
-        reachedGate();
-        return resume.then(() => originalFind(...args));
+        const query = originalFind(...args);
+        return {
+            select: (projection) => ({
+                lean: async () => {
+                    reachedGate();
+                    await resume;
+                    return query.select(projection).lean();
+                }
+            })
+        };
     };
     const planner = new OwnerOutreachPlanningService({ scheduler: { claimNextDueBatch: async () => claimed, releaseClaim: (...args) => scheduler.releaseClaim(...args) } });
     try {
@@ -148,8 +156,16 @@ test('planner cannot transition a claimed batch to PLANNED after Cancel commits'
     let continuePlanner;
     const resume = new Promise(resolve => { continuePlanner = resolve; });
     OwnerOutreachRecipient.find = (...args) => {
-        reachedGate();
-        return resume.then(() => originalFind(...args));
+        const query = originalFind(...args);
+        return {
+            select: (projection) => ({
+                lean: async () => {
+                    reachedGate();
+                    await resume;
+                    return query.select(projection).lean();
+                }
+            })
+        };
     };
     const planner = new (await import('../services/OwnerOutreachPlanningService.js')).default({
         scheduler: { claimNextDueBatch: async () => claimed, releaseClaim: (...args) => scheduler.releaseClaim(...args) }
