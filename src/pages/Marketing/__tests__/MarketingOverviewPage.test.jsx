@@ -111,4 +111,31 @@ describe('MarketingOverviewPage Tabs Stability', () => {
       expect(container).toBeTruthy();
     }
   });
+
+  it('renders and switches to Owner Outreach campaign tab within Campaign Engine', async () => {
+    const { container } = render(
+      <BrowserRouter>
+        <MarketingOverviewPage onNavigate={() => {}} />
+      </BrowserRouter>
+    );
+
+    // Switch to campaign engine nav item
+    const campaignNavItem = Array.from(container.querySelectorAll('.nav-item')).find(el => el.textContent.includes('Campaign Engine'));
+    if (campaignNavItem) {
+      await act(async () => {
+        fireEvent.click(campaignNavItem);
+      });
+    }
+
+    // Locate Owner Outreach subtab button
+    const outreachTabBtn = screen.getByRole('button', { name: /Owner Outreach/i });
+    expect(outreachTabBtn).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(outreachTabBtn);
+    });
+
+    expect(screen.getByText('Owner Outreach Campaign Ledger & Monitoring')).toBeInTheDocument();
+    expect(screen.getByText(/Safe Planning Mode Active:/i)).toBeInTheDocument();
+  });
 });

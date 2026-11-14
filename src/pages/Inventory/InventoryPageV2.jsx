@@ -41,6 +41,7 @@ import AddDealModal from '../../components/AddDealModal';
 import SocialPostModal from '../../components/SocialPostModal';
 import BulkUpdateInventoryModal from '../../components/modals/BulkUpdateInventoryModal';
 import BulkAuthorityVerificationModal from './components/BulkAuthorityVerificationModal';
+import OwnerOutreachModal from './components/OwnerOutreachModal';
 
 const getCategoryColor = (catName) => {
     const norm = String(catName || '').toLowerCase().trim();
@@ -178,6 +179,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
     const [isBulkUpdateModalOpen, setIsBulkUpdateModalOpen] = useState(false);
     const [isBulkVerifyModalOpen, setIsBulkVerifyModalOpen] = useState(false);
+    const [isOwnerOutreachOpen, setIsOwnerOutreachOpen] = useState(false);
     const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
     const [visibleMapItemIds, setVisibleMapItemIds] = useState(null);
@@ -411,6 +413,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                         inactiveCount={stats.inactive}
                         setCurrentPage={setCurrentPage}
                         onNavigate={onNavigate}
+                        onOpenOwnerOutreach={() => setIsOwnerOutreachOpen(true)}
                     />
                 )}
 
@@ -900,6 +903,11 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                     setSelectedIds([]);
                     refresh();
                 }}
+            />
+
+            <OwnerOutreachModal
+                isOpen={isOwnerOutreachOpen}
+                onClose={() => setIsOwnerOutreachOpen(false)}
             />
         </section>
     );
