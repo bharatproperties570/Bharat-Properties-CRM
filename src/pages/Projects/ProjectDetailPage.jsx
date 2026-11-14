@@ -1257,6 +1257,7 @@ const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNav
                 onClose={() => setIsSocialModalOpen(false)}
                 initialData={project ? {
                     id: project._id,
+                    entityType: 'Project',
                     name: project.name,
                     title: project.name,
                     location: getReadableLocation(project),
