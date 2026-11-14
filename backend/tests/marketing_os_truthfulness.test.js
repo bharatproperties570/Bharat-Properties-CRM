@@ -25,6 +25,7 @@ test('Marketing OS truthfulness helpers', async (t) => {
         assert.equal(hasVerifiedMetricsResponse({ success: true, pendingQuota: true, metrics: { reach: 0 } }), false);
         assert.equal(hasVerifiedMetricsResponse({ success: false, metrics: { reach: 10 } }), false);
         assert.equal(hasVerifiedMetricsResponse({ success: true, metrics: null }), false);
+        assert.equal(hasVerifiedMetricsResponse({ success: true, metrics: {} }), false);
     });
 
     await t.test('queued content is never represented as published', () => {
