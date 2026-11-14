@@ -163,7 +163,8 @@ class SocialAnalyticsSyncService {
                     pillar: t.pillar,
                     metrics,
                     syncStatus: 'synced',
-                    syncError: fetchResult?.error || null,
+                    remotePostIdVerified: true,
+                    syncError: null,
                     lastSyncedAt: new Date(),
                     $push: {
                         history: {
@@ -207,6 +208,8 @@ class SocialAnalyticsSyncService {
     async getTelemetryDigest(lookbackDays = 30) {
         const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
         const metricsList = await SocialPostMetric.find({
+            remotePostIdVerified: true,
+            syncStatus: 'synced',
             publishedAt: { $gte: since }
         }).sort({ publishedAt: -1 }).lean();
 
