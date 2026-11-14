@@ -249,31 +249,33 @@ const SocialPostModal = ({
     }
   }, [initialData, initialContent, explicitImageUrl, isActuallyOpen, verificationFacts]);
 
-  // 🖼️ Extract All High-Res Property Gallery Images from Deal / Project
+  // 🖼️ Resolve image-only CRM media across Deal, Project and Inventory records.
   const galleryImages = useMemo(() => {
     if (!initialData) return [];
     const list = [];
-    if (initialData.imageUrl) list.push(initialData.imageUrl);
-    if (initialData.primaryImage) list.push(initialData.primaryImage);
-    if (Array.isArray(initialData.images)) {
-      initialData.images.forEach(img => {
-        if (typeof img === 'string' && img) list.push(img);
-        else if (img?.url) list.push(img.url);
-      });
-    }
-    if (Array.isArray(initialData.media)) {
-      initialData.media.forEach(m => {
-        if (typeof m === 'string' && m) list.push(m);
-        else if (m?.url) list.push(m.url);
-      });
-    }
-    if (Array.isArray(initialData.photos)) {
-      initialData.photos.forEach(p => {
-        if (typeof p === 'string' && p) list.push(p);
-        else if (p?.url) list.push(p.url);
-      });
-    }
-    return Array.from(new Set(list.filter(Boolean)));
+    const addImage = (item) => {
+      const candidate = typeof item === 'string'
+        ? item
+        : (item?.url || item?.path || item?.imageUrl || item?.secureUrl);
+      if (typeof candidate !== 'string' || !candidate.trim()) return;
+      const normalized = candidate.trim();
+      const mediaType = String(item?.mimeType || item?.type || item?.category || '').toLowerCase();
+      if (mediaType.includes('video') || mediaType.includes('pdf') || /\\.(pdf|mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(normalized)) return;
+      list.push(normalized);
+    };
+
+    addImage(initialData.imageUrl);
+    addImage(initialData.primaryImage);
+    addImage(initialData.featuredImage);
+    addImage(initialData.websiteMetadata?.featuredImage);
+    (initialData.broadcastMetadata?.images || []).forEach(addImage);
+    (initialData.images || []).forEach(addImage);
+    (initialData.media || []).forEach(addImage);
+    (initialData.photos || []).forEach(addImage);
+    (initialData.projectImages || []).forEach(addImage);
+    (initialData.inventoryImages || []).forEach(addImage);
+    (initialData.builtupDetails || []).forEach(item => addImage(item?.imageUrl));
+    return Array.from(new Set(list));
   }, [initialData]);
 
   if (!isActuallyOpen) return null;
