@@ -348,7 +348,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                     revenueWon: null,
                     wonDealsCount,
                     closureRate: totalDealsCount > 0 ? parseFloat(((wonDealsCount / totalDealsCount) * 100).toFixed(1)) : 0,
-                    funnelEfficiency: totalLeadsCount > 0 ? parseFloat((((wonDealsCount || convertedLeadsCount) / totalLeadsCount) * 100).toFixed(1)) : 0,
+                    funnelEfficiency: totalLeadsCount > 0 ? parseFloat(((wonDealsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
                     leadVelocityDays: avgVelocityDays
                 },
                 sourceAttribution: {
@@ -372,7 +372,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                         blendedCPL: null,
                         roiIndex: null,
                         dataAvailability: {
-                            intentConversionRate: totalLeadsCount > 0 ? 'available' : 'no_data',
+                            intentConversionRate: 'not_measured',
                             matchRate: 'not_measured',
                             blendedCPL: 'not_measured',
                             roiIndex: 'not_measured'
