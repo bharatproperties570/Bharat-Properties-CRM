@@ -219,20 +219,31 @@ const SocialPostModal = ({
         applyCompliantContent(defaultText);
       }
 
+      const crmVideoUrl =
+        initialData.videoUrl ||
+        initialData.builtupVideoUrl ||
+        initialData.projectVideos?.find(item => item?.url)?.url ||
+        initialData.inventoryVideos?.find(item => item?.url)?.url ||
+        initialData.builtupDetails?.find(item => item?.videoUrl)?.videoUrl ||
+        initialData.media?.find(item => {
+          const value = typeof item === 'string' ? item : item?.url;
+          return value && /\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(value);
+        })?.url;
+
       if (initialData.mediaUrl) {
-        if (initialData.mediaUrl.endsWith('.mp4') || initialData.format === 'reel') {
+        if (/\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(initialData.mediaUrl) || initialData.format === 'reel') {
           setVideoUrl(initialData.mediaUrl);
           setImageUrl('');
           setFormat('reel');
         } else {
           setImageUrl(initialData.mediaUrl);
         }
-      } else if (initialData.videoUrl) {
-        setVideoUrl(initialData.videoUrl);
+      } else if (crmVideoUrl) {
+        setVideoUrl(crmVideoUrl);
         setImageUrl('');
         setFormat('reel');
       } else {
-        setImageUrl(initialData.imageUrl || initialData.primaryImage || initialData.images?.[0] || '');
+        setImageUrl(initialData.imageUrl || initialData.primaryImage || initialData.featuredImage || initialData.images?.[0] || '');
       }
 
       if (initialData.platform) {
