@@ -3965,48 +3965,48 @@
   }
 }
 
-/* ══════════════════════════════════════════
-   LIGHT MODE ORCHESTRATION (v3.0 High Contrast)
-   ══════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   ENTERPRISE SAAS LIGHT MODE ORCHESTRATION (v4.0 High Definition)
+   ══════════════════════════════════════════════════════════════ */
 .marketing-os-container.light-mode {
   --navy: #FFFFFF;
-  --navy2: #F0F4F8;
-  --navy3: #E2E8F0;
-  --navy-mid: #CBD5E0;
+  --navy2: #F8FAFC;
+  --navy3: #F1F5F9;
+  --navy-mid: #F8FAFC;
   --text: #07162B;
   --text1: #07162B;
-  --text2: #334155;
-  --text3: #64748B;
-  --text-dim: #64748B;
-  --gold: #A26804;
-  --gold2: #B47D14;
-  --gold-l: #9A6A0B;
-  --gold-faint: rgba(162, 104, 4, 0.08);
-  --border: rgba(0, 0, 0, 0.1);
-  --border2: rgba(162, 104, 4, 0.35);
-  --surface: rgba(0, 0, 0, 0.02);
-  --surface2: rgba(0, 0, 0, 0.04);
-  --white: #000000; /* Reversing for light theme labels on light backgrounds */
+  --text2: #1E293B;
+  --text3: #334155;
+  --text-dim: #475569;
+  --gold: #854D0E;
+  --gold2: #A16207;
+  --gold-l: #713F12;
+  --gold-faint: rgba(133, 77, 14, 0.08);
+  --border: #E2E8F0;
+  --border2: #CBD5E1;
+  --surface: #FFFFFF;
+  --surface2: #F8FAFC;
+  --white: #07162B;
   background: #F8F9FC;
   color: #07162B;
 }
 
 /* Base structural surfaces in light mode */
 .marketing-os-container.light-mode .glass-bg {
-  background: rgba(255, 255, 255, 0.95);
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.98);
+  border-right: 1px solid #E2E8F0;
 }
 
 .marketing-os-container.light-mode .topbar {
-  background: rgba(255, 255, 255, 0.95);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: #FFFFFF;
+  border-bottom: 1px solid #E2E8F0;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 .marketing-os-container.light-mode .sidebar {
   background: #FFFFFF;
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 6px 0 24px rgba(15, 23, 42, 0.04);
+  border-right: 1px solid #E2E8F0;
+  box-shadow: 4px 0 20px rgba(15, 23, 42, 0.03);
 }
 
 .marketing-os-container.light-mode .logo-name {
@@ -4014,8 +4014,9 @@
 }
 
 .marketing-os-container.light-mode .logo-sub {
-  color: #A26804 !important;
+  color: #854D0E !important;
   opacity: 1 !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .logo-mark {
@@ -4023,11 +4024,14 @@
 }
 
 .marketing-os-container.light-mode .sidebar-section-label {
-  color: #64748B !important;
+  color: #475569 !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
 }
 
 .marketing-os-container.light-mode .nav-item {
-  color: #334155 !important;
+  color: #1E293B !important;
+  font-weight: 600 !important;
 }
 
 .marketing-os-container.light-mode .nav-item:hover {
@@ -4037,9 +4041,10 @@
 
 .marketing-os-container.light-mode .nav-item.active {
   background: #FEF3C7 !important;
-  color: #92400E !important;
+  color: #854D0E !important;
   border-left: 3px solid #D97706 !important;
   box-shadow: inset 4px 0 10px rgba(217, 119, 6, 0.1) !important;
+  font-weight: 800 !important;
 }
 
 /* Cards & containers in light mode */
@@ -4053,11 +4058,11 @@
   background: #FFFFFF !important;
   border: 1px solid #E2E8F0 !important;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04) !important;
-  color: #07162B;
+  color: #07162B !important;
 }
 
 .marketing-os-container.light-mode .briefing-card {
-  border-left: 4px solid #A26804 !important;
+  border-left: 4px solid #854D0E !important;
 }
 
 .marketing-os-container.light-mode .page-title,
@@ -4084,18 +4089,25 @@
 .marketing-os-container.light-mode .an-title,
 .marketing-os-container.light-mode .stat-value {
   color: #07162B !important;
+  font-weight: 800 !important;
 }
 
 /* Secondary & helper typography in light mode */
+.marketing-os-container.light-mode p,
 .marketing-os-container.light-mode .briefing-text,
 .marketing-os-container.light-mode .an-text,
 .marketing-os-container.light-mode .tech-desc,
-.marketing-os-container.light-mode .act-desc {
-  color: #334155 !important;
+.marketing-os-container.light-mode .act-desc,
+.marketing-os-container.light-mode .sec-desc,
+.marketing-os-container.light-mode .sub-title,
+.marketing-os-container.light-mode .header-sub {
+  color: #1E293B !important;
 }
 
 .marketing-os-container.light-mode .briefing-text b,
-.marketing-os-container.light-mode .an-text strong {
+.marketing-os-container.light-mode .an-text strong,
+.marketing-os-container.light-mode strong,
+.marketing-os-container.light-mode b {
   color: #07162B !important;
 }
 
@@ -4105,18 +4117,29 @@
 .marketing-os-container.light-mode .mix-legend,
 .marketing-os-container.light-mode .cl-item-v2,
 .marketing-os-container.light-mode .cal-date-label,
-.marketing-os-container.light-mode .cal-day-head-v2 {
-  color: #64748B !important;
+.marketing-os-container.light-mode .cal-day-head-v2,
+.marketing-os-container.light-mode .kpi-label,
+.marketing-os-container.light-mode .kpi-label-v3,
+.marketing-os-container.light-mode .ac-label,
+.marketing-os-container.light-mode .v-bar-label,
+.marketing-os-container.light-mode .yield-lbl,
+.marketing-os-container.light-mode .q-meta {
+  color: #334155 !important;
+  font-weight: 700 !important;
 }
 
 /* Tables in light mode */
+.marketing-os-container.light-mode table th,
 .marketing-os-container.light-mode .analytics-table th,
 .marketing-os-container.light-mode .bp-table th {
-  background: #F8FAFC !important;
-  color: #475569 !important;
-  border-bottom: 1px solid #E2E8F0 !important;
+  background: #F1F5F9 !important;
+  color: #1E293B !important;
+  font-weight: 800 !important;
+  border-bottom: 2px solid #CBD5E1 !important;
+  letter-spacing: 0.06em !important;
 }
 
+.marketing-os-container.light-mode table td,
 .marketing-os-container.light-mode .analytics-table td,
 .marketing-os-container.light-mode .bp-table td {
   color: #07162B !important;
@@ -4129,6 +4152,15 @@
 }
 
 /* Forms, Inputs, Selects, Textareas in light mode */
+.marketing-os-container.light-mode label,
+.marketing-os-container.light-mode .form-label,
+.marketing-os-container.light-mode .form-group-v2 label,
+.marketing-os-container.light-mode .ds-input-group label,
+.marketing-os-container.light-mode .lab-field label {
+  color: #334155 !important;
+  font-weight: 700 !important;
+}
+
 .marketing-os-container.light-mode input:not([type="checkbox"]):not([type="radio"]),
 .marketing-os-container.light-mode select,
 .marketing-os-container.light-mode textarea,
@@ -4137,13 +4169,14 @@
 .marketing-os-container.light-mode .search-wrap input {
   background: #FFFFFF !important;
   color: #07162B !important;
-  border: 1px solid #CBD5E0 !important;
+  border: 1.5px solid #CBD5E1 !important;
+  font-weight: 600 !important;
 }
 
 .marketing-os-container.light-mode input::placeholder,
 .marketing-os-container.light-mode textarea::placeholder,
 .marketing-os-container.light-mode .search-wrap input::placeholder {
-  color: #94A3B8 !important;
+  color: #64748B !important;
 }
 
 .marketing-os-container.light-mode select option {
@@ -4152,20 +4185,22 @@
 }
 
 .marketing-os-container.light-mode .search-wrap {
-  background: #F1F5F9 !important;
-  border: 1px solid #E2E8F0 !important;
+  background: #FFFFFF !important;
+  border: 1.5px solid #CBD5E1 !important;
 }
 
 /* Buttons in light mode */
 .marketing-os-container.light-mode .tact-btn:not(.primary):not(.primary-gold) {
-  background: #FFFFFF;
-  color: #334155;
-  border: 1px solid #CBD5E0;
+  background: #F8FAFC !important;
+  color: #07162B !important;
+  border: 1.5px solid #CBD5E1 !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .tact-btn:not(.primary):not(.primary-gold):hover {
-  background: #F8FAFC;
-  color: #07162B;
+  background: #F1F5F9 !important;
+  color: #07162B !important;
+  border-color: #94A3B8 !important;
 }
 
 /* High-Contrast Gold and Action Buttons */
@@ -4178,7 +4213,7 @@
 .marketing-os-container.light-mode .nav-badge:not(.live) {
   background: #C9921A !important;
   color: #07162B !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
 }
 
 /* Green, WhatsApp, and Badges */
@@ -4186,34 +4221,6 @@
 .marketing-os-container.light-mode .badge-wa,
 .marketing-os-container.light-mode .orch-node-fid.done .on-fid-num {
   color: #FFFFFF !important;
-}
-
-/* NEURAL FUNNEL TIERS: Keep crisp white text on gradient background tiers */
-.marketing-os-container.light-mode .funnel-container {
-  background: #F1F5F9;
-  border-color: #E2E8F0;
-}
-
-.marketing-os-container.light-mode .funnel-tier {
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.marketing-os-container.light-mode .funnel-tier .tier-label,
-.marketing-os-container.light-mode .funnel-tier .tier-val {
-  color: #FFFFFF !important;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6) !important;
-}
-
-.marketing-os-container.light-mode .funnel-tier .tier-sub {
-  color: rgba(255, 255, 255, 0.9) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
-}
-
-.marketing-os-container.light-mode .conv-v-badge {
-  background: #FFFFFF;
-  color: #07162B;
-  border-color: #C9921A;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 /* Content Calendar Post Items in Light Mode */
@@ -4230,24 +4237,28 @@
   background: #EBF8FF !important;
   border-left: 3px solid #2B6CB0 !important;
   color: #1A365D !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .cal-post-item.ct-edu {
   background: #F0FDF4 !important;
   border-left: 3px solid #16A34A !important;
   color: #14532D !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .cal-post-item.ct-trust {
   background: #FEFCE8 !important;
   border-left: 3px solid #CA8A04 !important;
   color: #713F12 !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .cal-post-item.ct-festival {
   background: #FEF2F2 !important;
   border-left: 3px solid #DC2626 !important;
   color: #7F1D1D !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .cal-footer-v2 {
@@ -4260,24 +4271,28 @@
   background: #EBF8FF !important;
   color: #1A365D !important;
   border-left-color: #2B6CB0 !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .ct-edu {
   background: #F0FDF4 !important;
   color: #14532D !important;
   border-left-color: #16A34A !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .ct-trust {
   background: #FEFCE8 !important;
   color: #713F12 !important;
   border-left-color: #CA8A04 !important;
+  font-weight: 700 !important;
 }
 
 .marketing-os-container.light-mode .ct-festival {
   background: #FEF2F2 !important;
   color: #7F1D1D !important;
   border-left-color: #DC2626 !important;
+  font-weight: 700 !important;
 }
 
 /* Modals in light mode */
@@ -4287,7 +4302,7 @@
   background: #FFFFFF !important;
   border: 1px solid #E2E8F0 !important;
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.15) !important;
-  color: #07162B;
+  color: #07162B !important;
 }
 
 .marketing-os-container.light-mode .modal-header,
@@ -4304,7 +4319,7 @@
 
 .marketing-os-container.light-mode .modal-close,
 .marketing-os-container.light-mode .modal-close-v2 {
-  color: #64748B !important;
+  color: #334155 !important;
 }
 
 .marketing-os-container.light-mode .modal-close:hover,
@@ -4325,9 +4340,38 @@
 .marketing-os-container.light-mode .util-icon-btn,
 .marketing-os-container.light-mode .system-date-pill {
   background: #F1F5F9 !important;
-  color: #475569 !important;
-  border: 1px solid #E2E8F0 !important;
+  color: #334155 !important;
+  border: 1px solid #CBD5E1 !important;
+  font-weight: 700 !important;
 }
+
+/* Override any stray pure white text inside cards and modals in light mode */
+.marketing-os-container.light-mode .card [style*="color: #fff"],
+.marketing-os-container.light-mode .card [style*="color:#fff"],
+.marketing-os-container.light-mode .card [style*="color: rgb(255, 255, 255)"],
+.marketing-os-container.light-mode .card [style*="color: white"],
+.marketing-os-container.light-mode .modal [style*="color: #fff"],
+.marketing-os-container.light-mode .modal [style*="color:#fff"],
+.marketing-os-container.light-mode .modal [style*="color: rgb(255, 255, 255)"],
+.marketing-os-container.light-mode .modal [style*="color: white"] {
+  color: #07162B !important;
+}
+
+/* Keep white text where background is dark colored */
+.marketing-os-container.light-mode .badge-wa,
+.marketing-os-container.light-mode .nav-badge.live,
+.marketing-os-container.light-mode .funnel-tier .tier-label,
+.marketing-os-container.light-mode .funnel-tier .tier-val,
+.marketing-os-container.light-mode .tact-btn[style*="background: rgb(225"],
+.marketing-os-container.light-mode .tact-btn[style*="background: #E1306C"],
+.marketing-os-container.light-mode .tact-btn[style*="background: #25D366"],
+.marketing-os-container.light-mode button[style*="#25d366"],
+.marketing-os-container.light-mode button[style*="#1877F2"],
+.marketing-os-container.light-mode button[style*="#0A66C2"],
+.marketing-os-container.light-mode button[style*="#FF0000"] {
+  color: #FFFFFF !important;
+}
+
 /* ── NEURAL FUNNEL VISUALIZATION ── */
 .funnel-container {
   display: flex;

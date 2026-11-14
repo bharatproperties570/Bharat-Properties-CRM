@@ -2901,8 +2901,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {/* ── HEADER & TELEMETRY CONTROL BAR ── */}
               <div className="card" style={{ 
-                background: 'linear-gradient(135deg, rgba(7,22,43,0.95) 0%, rgba(13,32,64,0.95) 100%)',
-                border: '1px solid var(--border)'
+                background: isDark ? 'linear-gradient(135deg, rgba(7,22,43,0.95) 0%, rgba(13,32,64,0.95) 100%)' : '#FFFFFF',
+                border: isDark ? '1px solid var(--border)' : '1px solid #E2E8F0'
               }}>
                 <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -2997,7 +2997,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         style={{
                           background: isActive ? `linear-gradient(135deg, ${tab.color}25 0%, ${tab.color}10 100%)` : 'rgba(255,255,255,0.03)',
                           border: isActive ? `1.5px solid ${tab.color}` : '1px solid rgba(255,255,255,0.08)',
-                          color: isActive ? '#fff' : 'var(--text2)',
+                          color: isActive ? (isDark ? '#fff' : tab.color) : (isDark ? 'var(--text2)' : '#334155'),
                           padding: '6px 14px',
                           borderRadius: '8px',
                           fontSize: '11.5px',
@@ -3012,8 +3012,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         <span>{tab.icon}</span>
                         <span>{tab.label}</span>
                         <span style={{
-                          background: isActive ? tab.color : 'rgba(255,255,255,0.1)',
-                          color: isActive ? '#fff' : 'var(--text3)',
+                          background: isActive ? tab.color : (isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0'),
+                          color: isActive ? '#fff' : (isDark ? 'var(--text3)' : '#475569'),
                           padding: '1px 6px',
                           borderRadius: '10px',
                           fontSize: '10px',
@@ -3342,7 +3342,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                     {cnt}
                                   </div>
                                 </div>
-                                <div style={{ fontSize: '10px', color: isPeak ? '#fff' : 'var(--text3)', fontWeight: isPeak ? 800 : 600 }}>
+                                <div style={{ fontSize: '10px', color: isPeak ? (isDark ? '#fff' : 'var(--gold)') : 'var(--text3)', fontWeight: isPeak ? 800 : 600 }}>
                                   {labels[i]}
                                 </div>
                               </div>
@@ -3602,7 +3602,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                     <div style={{ overflowX: 'auto' }}>
                       <table className="analytics-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
-                          <tr style={{ background: 'rgba(0,0,0,0.2)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                          <tr style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#F8FAFC', borderBottom: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #E2E8F0' }}>
                             <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Rank</th>
                             <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Content Piece & Flyer</th>
                             <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase' }}>Channel</th>
@@ -3685,8 +3685,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   {/* Platform Header Profile Banner */}
                   <div className="card" style={{ 
-                    background: 'linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(7,22,43,0.95) 100%)',
-                    border: '1px solid rgba(16,185,129,0.35)',
+                    background: isDark ? 'linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(7,22,43,0.95) 100%)' : '#FFFFFF',
+                    border: isDark ? '1px solid rgba(16,185,129,0.35)' : '1px solid #E2E8F0',
                     padding: '16px 20px'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
@@ -3895,8 +3895,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     {/* Platform Header Profile Banner */}
                     <div className="card" style={{ 
-                      background: `linear-gradient(135deg, ${pConfig.color}15 0%, rgba(7,22,43,0.95) 100%)`,
-                      border: `1px solid ${pConfig.color}40`,
+                      background: isDark ? `linear-gradient(135deg, ${pConfig.color}15 0%, rgba(7,22,43,0.95) 100%)` : '#FFFFFF',
+                      border: isDark ? `1px solid ${pConfig.color}40` : '1px solid #E2E8F0',
                       padding: '16px 20px'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
@@ -4146,10 +4146,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                   <span style={{ color: 'var(--text3)' }}>
                                     📅 {post.publishedAt ? new Date(post.publishedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently'}
                                   </span>
-                                  <span style={{ background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: '4px', color: '#fff' }}>
+                                  <span style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#F1F5F9', padding: '2px 8px', borderRadius: '4px', color: isDark ? '#fff' : '#07162B' }}>
                                     👁️ {Number(post.metrics?.impressions || 0).toLocaleString('en-IN')} Views
                                   </span>
-                                  <span style={{ background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: '4px', color: '#fff' }}>
+                                  <span style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#F1F5F9', padding: '2px 8px', borderRadius: '4px', color: isDark ? '#fff' : '#07162B' }}>
                                     👥 {Number(post.metrics?.reach || 0).toLocaleString('en-IN')} Reach
                                   </span>
                                   <span style={{ background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: '4px', color: 'var(--gold-l)' }}>
@@ -4261,8 +4261,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
               {/* ════ 🧠 AI STRATEGIC OPTIMIZATION & GROWTH ENGINE (STEP 2 MERGE) ════ */}
               <div className="card" style={{ 
                 marginTop: '1.5rem',
-                background: 'linear-gradient(135deg, rgba(13,32,64,0.7) 0%, rgba(7,22,43,0.95) 100%)',
-                border: '1px solid rgba(201, 146, 26, 0.35)',
+                background: isDark ? 'linear-gradient(135deg, rgba(13,32,64,0.7) 0%, rgba(7,22,43,0.95) 100%)' : '#FFFFFF',
+                border: isDark ? '1px solid rgba(201, 146, 26, 0.35)' : '1px solid #E2E8F0',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
                 borderRadius: '12px',
                 overflow: 'hidden'
@@ -4411,8 +4411,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: '1.5' }}>
                         Live telemetry indicates that <strong style={{ color: isDark ? '#fff' : '#07162B' }}>Pillar 3 (Educational & Legal Guidance)</strong> generates 2.3x higher save & share rates than raw property listings. The AI engine recommends shifting 10% of promotional bandwidth into Kurukshetra registry, CLU verification, and circle rate breakdown posts.
                       </div>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Recommended Pillar Allocation:</div>
+                      <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#F8FAFC', padding: '10px 12px', borderRadius: '8px', border: isDark ? '1px solid rgba(255,255,255,0.04)' : '1px solid #E2E8F0' }}>
+                        <div style={{ fontSize: '10px', color: isDark ? 'var(--text3)' : '#475569', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Recommended Pillar Allocation:</div>
                         <div style={{ fontSize: '11px', color: 'var(--gold)', fontWeight: 600 }}>
                           • 70% Sector 4, 32 & Pipli Deal Mandates · 15% Registry & Circle Rate Guides · 10% Festive Brand Greetings · 5% Client Testimonials
                         </div>
@@ -4458,10 +4458,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         </span>
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: '1.5' }}>
-                        Currently <strong style={{ color: '#fff' }}>{topProspects.filter(p => (p.score?.total != null ? p.score.total : (p.leadScore != null ? p.leadScore : (getDisplayScore(p)?.total || 0))) >= 50).length} hot prospects</strong> are waiting in pipeline with &gt;50% intent scores. Deploying a hyper-personalized WhatsApp broadcast highlighting upcoming Sector 4 & Ring Road registry openings will accelerate site visit bookings.
+                        Currently <strong style={{ color: isDark ? '#fff' : '#07162B' }}>{topProspects.filter(p => (p.score?.total != null ? p.score.total : (p.leadScore != null ? p.leadScore : (getDisplayScore(p)?.total || 0))) >= 50).length} hot prospects</strong> are waiting in pipeline with &gt;50% intent scores. Deploying a hyper-personalized WhatsApp broadcast highlighting upcoming Sector 4 & Ring Road registry openings will accelerate site visit bookings.
                       </div>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Recommended Dispatch Route:</div>
+                      <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#F8FAFC', padding: '10px 12px', borderRadius: '8px', border: isDark ? '1px solid rgba(255,255,255,0.04)' : '1px solid #E2E8F0' }}>
+                        <div style={{ fontSize: '10px', color: isDark ? 'var(--text3)' : '#475569', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Recommended Dispatch Route:</div>
                         <div style={{ fontSize: '11px', color: '#60a5fa', fontWeight: 600 }}>
                           • WhatsApp Direct + SMS Fallback at 11:30 AM (Peak Real Estate Buyer Decision Window)
                         </div>
@@ -4545,7 +4545,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                               navigator.clipboard.writeText("Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026: While FDs yield 6.5%, verified plots near Kurukshetra Ring Road have appreciated at 14-18% CAGR. 100% Registry & CLU approved titles. Contact Bharat Properties.");
                               toast.success('Copied ROI Angle copy to clipboard!');
                             }}
-                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', color: isDark ? 'var(--text)' : '#07162B', border: isDark ? '1px solid var(--border)' : '1px solid #CBD5E1', cursor: 'pointer' }}
                             title="Copy Copywriting Hook"
                           >
                             📋
@@ -4596,7 +4596,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                               navigator.clipboard.writeText("Registry & CLU Checklist for Kurukshetra Land: 1. Jamabandi & Intkaal, 2. CLU / Approved status, 3. On-ground demarcation, 4. Non-encumbrance certificate, 5. Tehsil token readiness. Verified by Bharat Properties.");
                               toast.success('Copied Trust Angle copy to clipboard!');
                             }}
-                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', color: isDark ? 'var(--text)' : '#07162B', border: isDark ? '1px solid var(--border)' : '1px solid #CBD5E1', cursor: 'pointer' }}
                             title="Copy Copywriting Hook"
                           >
                             📋
@@ -4647,7 +4647,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                               navigator.clipboard.writeText("Sector 32 Commercial Plots: Pre-Registry Price Freeze. High footfall commercial belt near GT Road, flexible SCO configurations, immediate registry. First 5 investors only. Contact Bharat Properties.");
                               toast.success('Copied Urgency Angle copy to clipboard!');
                             }}
-                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            style={{ padding: '5px 8px', fontSize: '10px', fontWeight: 700, borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', color: isDark ? 'var(--text)' : '#07162B', border: isDark ? '1px solid var(--border)' : '1px solid #CBD5E1', cursor: 'pointer' }}
                             title="Copy Copywriting Hook"
                           >
                             📋
@@ -5956,7 +5956,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
               </div>
 
               {/* ── MODULE 2: TRAI DLT & META WHATSAPP COMPLIANCE TELEMETRY GUARD ── */}
-              <div className="card" style={{ marginTop: '1.25rem', border: '1px solid rgba(201,146,26,0.3)', background: 'linear-gradient(135deg, rgba(7,22,43,0.85) 0%, rgba(13,31,56,0.85) 100%)' }}>
+              <div className="card" style={{ marginTop: '1.25rem', border: '1px solid rgba(201,146,26,0.3)', background: isDark ? 'linear-gradient(135deg, rgba(7,22,43,0.85) 0%, rgba(13,31,56,0.85) 100%)' : '#FFFFFF' }}>
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(53,185,122,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--green)', fontSize: '15px' }}>
@@ -8228,7 +8228,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
             <div className="modal glass-bg" style={{ width: '96%', maxWidth: '940px', padding: 0, overflow: 'hidden', border: '1px solid rgba(201,146,26,0.35)', boxShadow: '0 24px 60px rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', maxHeight: '92vh' }}>
 
               {/* ══ HEADER ══ */}
-              <div style={{ padding: '18px 24px 0', background: 'linear-gradient(90deg, rgba(7,22,43,0.98) 0%, rgba(13,31,56,0.98) 100%)', flexShrink: 0 }}>
+              <div style={{ padding: '18px 24px 0', background: isDark ? 'linear-gradient(90deg, rgba(7,22,43,0.98) 0%, rgba(13,31,56,0.98) 100%)' : '#FFFFFF', borderBottom: isDark ? 'none' : '1px solid #E2E8F0', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                     <div style={{ width: '44px', height: '44px', background: 'rgba(201,146,26,0.14)', border: '1px solid rgba(201,146,26,0.35)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(201,146,26,0.2)', flexShrink: 0 }}>
@@ -8317,7 +8317,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
                       <div style={{ padding: '16px 18px' }}>
                         {/* Source pill tabs */}
-                        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '5px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '16px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: '8px', background: isDark ? 'rgba(0,0,0,0.2)' : '#F1F5F9', padding: '5px', borderRadius: '12px', border: isDark ? '1px solid var(--border)' : '1px solid #E2E8F0', marginBottom: '16px', flexWrap: 'wrap' }}>
                           {[
                             { id: 'Lead',      n: 'Leads',     icon: 'fas fa-crosshairs',  desc: 'Active Inquiries' },
                             { id: 'Contact',   n: 'Contacts',  icon: 'fas fa-address-book', desc: 'CRM Database' },
@@ -8568,8 +8568,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
 
                     {/* Channel tab strip */}
-                    <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '14px', border: '1px solid var(--border)', overflow: 'hidden' }}>
-                      <div style={{ display: 'flex', padding: '6px', gap: '5px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.01)' }}>
+                    <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#F8FAFC', borderRadius: '14px', border: isDark ? '1px solid var(--border)' : '1px solid #E2E8F0', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', padding: '6px', gap: '5px', borderBottom: isDark ? '1px solid var(--border)' : '1px solid #E2E8F0', background: isDark ? 'rgba(255,255,255,0.01)' : '#FFFFFF' }}>
                         {Object.entries(CHANNEL_META).map(([id, meta]) => {
                           const isActive = campFormTab === id;
                           return (
@@ -8706,7 +8706,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                 <div style={{ background: '#075e54', borderRadius: '10px 10px 0 0', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 900, color: '#07162B' }}>BP</div>
                                   <div>
-                                    <div style={{ fontSize: '11px', fontWeight: 800, color: isDark ? '#fff' : '#07162B' }}>Bharat Properties</div>
+                                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#FFFFFF' }}>Bharat Properties</div>
                                     <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.6)' }}>Business Account • Verified</div>
                                   </div>
                                 </div>
@@ -8825,7 +8825,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
                     {/* Summary card */}
-                    <div style={{ background: 'linear-gradient(135deg, rgba(201,146,26,0.08) 0%, rgba(13,31,56,0.9) 100%)', borderRadius: '18px', border: '1px solid rgba(201,146,26,0.3)', padding: '24px', boxShadow: '0 0 30px rgba(201,146,26,0.1)' }}>
+                    <div style={{ background: isDark ? 'linear-gradient(135deg, rgba(201,146,26,0.08) 0%, rgba(13,31,56,0.9) 100%)' : '#FFFFFF', borderRadius: '18px', border: isDark ? '1px solid rgba(201,146,26,0.3)' : '1px solid #E2E8F0', padding: '24px', boxShadow: isDark ? '0 0 30px rgba(201,146,26,0.1)' : '0 4px 16px rgba(15,23,42,0.06)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                         <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#07162B', boxShadow: '0 0 20px rgba(201,146,26,0.4)' }}>
                           <i className="fas fa-clipboard-check" style={{ fontSize: '18px' }}></i>
@@ -8891,7 +8891,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
               </div>
 
               {/* ══ FOOTER NAV ══ */}
-              <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ padding: '14px 24px', borderTop: isDark ? '1px solid var(--border)' : '1px solid #E2E8F0', background: isDark ? 'rgba(7,22,43,0.95)' : '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                 {/* Left: Cancel / Back */}
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button
