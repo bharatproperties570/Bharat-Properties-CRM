@@ -110,6 +110,14 @@ const AGENT_RESULTS = {
 
 const SAMPLE_CAPTION = "";
 
+const formatRs = (val) => {
+  if (!val || isNaN(val)) return '₹ 0';
+  const num = Number(val);
+  if (num >= 10000000) return `₹ ${(num / 10000000).toFixed(2)} Cr`;
+  if (num >= 100000) return `₹ ${(num / 100000).toFixed(2)} L`;
+  return `₹ ${num.toLocaleString('en-IN')}`;
+};
+
 const FLOW_STEPS = [
   { id: 1, n: 'Identity' },
   { id: 2, n: 'Audience' },
@@ -2320,12 +2328,6 @@ export default function MarketingOverviewPage({ onNavigate }) {
       }
     };
   }, [campaignsList, realLeads, realDeals, scheduledQueue, analyticsOverview]);
-
-  const formatRs = (val) => {
-    if (val >= 10000000) return `₹ ${(val/10000000).toFixed(2)} Cr`;
-    if (val >= 100000) return `₹ ${(val/100000).toFixed(2)} L`;
-    return `₹ ${val.toLocaleString()}`;
-  };
 
   // ── UI COMPONENTS ──
   const SidebarItem = ({ id, label, icon: Icon, badge, isLive }) => (
