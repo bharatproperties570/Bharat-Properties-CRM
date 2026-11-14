@@ -3444,7 +3444,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                   <span style={{ fontSize: '18px' }}>{plat.icon}</span>
-                                  <span style={{ fontWeight: 800, fontSize: '13px', color: '#fff' }}>{plat.name}</span>
+                                  <span style={{ fontWeight: 800, fontSize: '13px', color: isDark ? '#fff' : '#07162B' }}>{plat.name}</span>
                                 </div>
                                 <span style={{ 
                                   fontSize: '10px', 
@@ -3461,7 +3461,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '12px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
                                 <div>
                                   <div style={{ fontSize: '9.5px', color: 'var(--text3)', textTransform: 'uppercase' }}>{plat.stat1.label}</div>
-                                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#fff', marginTop: '2px' }}>
+                                  <div style={{ fontSize: '14px', fontWeight: 800, color: isDark ? '#fff' : '#07162B', marginTop: '2px' }}>
                                     {Number(plat.stat1.val).toLocaleString('en-IN')}
                                   </div>
                                 </div>
@@ -3572,13 +3572,13 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                 {pil.target}
                               </span>
                             </div>
-                            <div style={{ fontWeight: 800, fontSize: '13px', color: '#fff', marginTop: '6px' }}>{pil.title}</div>
+                            <div style={{ fontWeight: 800, fontSize: '13px', color: isDark ? '#fff' : '#07162B', marginTop: '6px' }}>{pil.title}</div>
                             <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>{pil.desc}</div>
                             
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                               <div>
                                 <span style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase' }}>Assets Synced: </span>
-                                <span style={{ fontWeight: 800, color: '#fff', fontSize: '12px' }}>{pil.data.count || 0}</span>
+                                <span style={{ fontWeight: 800, color: isDark ? '#fff' : '#07162B', fontSize: '12px' }}>{pil.data.count || 0}</span>
                               </div>
                               <div>
                                 <span style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase' }}>Avg Rate: </span>
@@ -3633,7 +3633,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                     </div>
                                   )}
                                   <div>
-                                    <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff', maxWidth: '320px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '12px', color: isDark ? '#fff' : '#07162B', maxWidth: '320px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                       {post.title || 'Verified Property Spotlight'}
                                     </div>
                                     <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
@@ -3660,7 +3660,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                   {post.pillar === 'ct-project' ? '🏷️ Deal' : post.pillar === 'ct-edu' ? '📚 Edu' : post.pillar === 'ct-trust' ? '🛡️ Trust' : post.pillar === 'ct-festival' ? '🎉 Festive' : 'General'}
                                 </span>
                               </td>
-                              <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#fff', fontSize: '12px' }}>
+                              <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: isDark ? '#fff' : '#07162B', fontSize: '12px' }}>
                                 {Number(post.metrics?.reach || post.reach || 0).toLocaleString('en-IN')}
                               </td>
                               <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--gold-l)', fontSize: '12px' }}>
@@ -3702,7 +3702,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         </div>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '18px', fontWeight: 800, color: '#fff' }}>CRM Automated Drip Sequences</span>
+                            <span style={{ fontSize: '18px', fontWeight: 800, color: isDark ? '#fff' : '#07162B' }}>CRM Automated Drip Sequences</span>
                             <span style={{ fontSize: '10px', background: 'rgba(53,185,122,0.15)', color: 'var(--green)', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
                               ● Background Engine Active (BullMQ + Leases)
                             </span>
@@ -3912,7 +3912,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           </div>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '18px', fontWeight: 800, color: '#fff' }}>{pConfig.name}</span>
+                              <span style={{ fontSize: '18px', fontWeight: 800, color: isDark ? '#fff' : '#07162B' }}>{pConfig.name}</span>
                               <span style={{ fontSize: '10px', background: 'rgba(53,185,122,0.15)', color: 'var(--green)', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
                                 ● Connected
                               </span>
@@ -4279,7 +4279,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       🧠
                     </div>
                     <div>
-                      <div className="card-title text-serif" style={{ fontSize: '16px', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <div className="card-title text-serif" style={{ fontSize: '16px', fontWeight: 800, color: isDark ? '#fff' : '#07162B', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                         AI Strategic Optimization & Growth Engine
                         <span style={{ fontSize: '10px', background: 'rgba(53,185,122,0.15)', color: 'var(--green)', border: '1px solid rgba(53,185,122,0.3)', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
                           Live MongoDB Telemetry
@@ -4402,14 +4402,14 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '18px' }}>⚖️</span>
-                          <span style={{ fontWeight: 800, fontSize: '13px', color: '#fff' }}>4-Pillar Content Rebalancing (80-10-7-3)</span>
+                          <span style={{ fontWeight: 800, fontSize: '13px', color: isDark ? '#fff' : '#07162B' }}>4-Pillar Content Rebalancing (80-10-7-3)</span>
                         </div>
                         <span style={{ fontSize: '9.5px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
                           High Priority
                         </span>
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: '1.5' }}>
-                        Live telemetry indicates that <strong style={{ color: '#fff' }}>Pillar 3 (Educational & Legal Guidance)</strong> generates 2.3x higher save & share rates than raw property listings. The AI engine recommends shifting 10% of promotional bandwidth into Kurukshetra registry, CLU verification, and circle rate breakdown posts.
+                        Live telemetry indicates that <strong style={{ color: isDark ? '#fff' : '#07162B' }}>Pillar 3 (Educational & Legal Guidance)</strong> generates 2.3x higher save & share rates than raw property listings. The AI engine recommends shifting 10% of promotional bandwidth into Kurukshetra registry, CLU verification, and circle rate breakdown posts.
                       </div>
                       <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
                         <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Recommended Pillar Allocation:</div>
@@ -4451,7 +4451,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '18px' }}>🔥</span>
-                          <span style={{ fontWeight: 800, fontSize: '13px', color: '#fff' }}>High-Intent Lead Nurturing & Retargeting</span>
+                          <span style={{ fontWeight: 800, fontSize: '13px', color: isDark ? '#fff' : '#07162B' }}>High-Intent Lead Nurturing & Retargeting</span>
                         </div>
                         <span style={{ fontSize: '9.5px', background: 'rgba(239,68,68,0.15)', color: '#f87171', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
                           Immediate Action
@@ -4498,7 +4498,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
                   {/* 3 High-Yield Untried Content Angles (Market Tested for Kurukshetra) */}
                   <div>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: isDark ? '#fff' : '#07162B', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>💡</span> 3 High-Converting Content Angles for Kurukshetra Real Estate (1-Click Actionable)
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '14px' }}>
@@ -4508,7 +4508,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           <span style={{ fontSize: '14px' }}>📈</span>
                           <span style={{ fontSize: '9px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>ROI Angle</span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: isDark ? '#fff' : '#07162B' }}>
                           "Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026"
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--text3)', lineHeight: '1.4' }}>
@@ -4559,7 +4559,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           <span style={{ fontSize: '14px' }}>🛡️</span>
                           <span style={{ fontSize: '9px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Trust Angle</span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: isDark ? '#fff' : '#07162B' }}>
                           "Registry & CLU Checklist: 5 Pitfalls Before Buying Colony Plots"
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--text3)', lineHeight: '1.4' }}>
@@ -4610,7 +4610,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           <span style={{ fontSize: '14px' }}>⏱️</span>
                           <span style={{ fontSize: '9px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Urgency Angle</span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#fff' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: isDark ? '#fff' : '#07162B' }}>
                           "Sector 32 Commercial Plots: Pre-Registry Price Freeze"
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--text3)', lineHeight: '1.4' }}>
@@ -5485,7 +5485,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                       </div>
                                     </div>
                                   </td>
-                                  <td style={{ padding: '10px 14px', fontWeight: 700, color: '#fff' }}>
+                                  <td style={{ padding: '10px 14px', fontWeight: 700, color: isDark ? '#fff' : '#07162B' }}>
                                     {g.participantCount || 0} <span style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 500 }}>members</span>
                                   </td>
                                   <td style={{ padding: '10px 14px' }}>
@@ -5544,14 +5544,14 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '18px' }}>{ch.id.includes('wa') ? '💬' : ch.id.includes('sms') ? '📱' : ch.id.includes('meta') ? '📸' : ch.id.includes('linkedin') ? '💼' : '📍'}</span>
-                          <span style={{ fontWeight: 800, color: '#fff', fontSize: '13px' }}>{ch.name}</span>
+                          <span style={{ fontWeight: 800, color: isDark ? '#fff' : '#07162B', fontSize: '13px' }}>{ch.name}</span>
                         </div>
                         <span style={{ fontSize: '9.5px', background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
                           {ch.status}
                         </span>
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text2)' }}>
-                        Type: <strong style={{ color: '#fff' }}>{ch.type}</strong>
+                        Type: <strong style={{ color: isDark ? '#fff' : '#07162B' }}>{ch.type}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                         <div>
@@ -5574,7 +5574,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                     <div>
                       <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>🎯 Active Group Intelligence Scanning Radar</div>
                       <div style={{ fontSize: '11px', color: 'var(--text2)', marginTop: '2px' }}>
-                        Connected to <strong style={{ color: '#fff' }}>175 Intake Group Cursors</strong> continuously scanning Kurukshetra dealer inquiries, plots wanted & seller mandates.
+                        Connected to <strong style={{ color: isDark ? '#fff' : '#07162B' }}>175 Intake Group Cursors</strong> continuously scanning Kurukshetra dealer inquiries, plots wanted & seller mandates.
                       </div>
                     </div>
                     <span style={{ fontSize: '11px', background: 'var(--gold)', color: '#000', padding: '4px 10px', borderRadius: '6px', fontWeight: 800 }}>
@@ -5714,7 +5714,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '20px' }}>🚀</span>
                         <div>
-                          <div style={{ fontWeight: 800, fontSize: '14px', color: '#fff' }}>Launch Omnichannel Broadcast Blast</div>
+                          <div style={{ fontWeight: 800, fontSize: '14px', color: isDark ? '#fff' : '#07162B' }}>Launch Omnichannel Broadcast Blast</div>
                           <div style={{ fontSize: '11px', color: 'var(--text2)' }}>
                             Targeting <strong style={{ color: 'var(--gold)' }}>{selectedGroupsForBlast.length} WhatsApp Communities</strong> with safe rate-limiting
                           </div>
@@ -8706,7 +8706,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                 <div style={{ background: '#075e54', borderRadius: '10px 10px 0 0', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 900, color: '#07162B' }}>BP</div>
                                   <div>
-                                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#fff' }}>Bharat Properties</div>
+                                    <div style={{ fontSize: '11px', fontWeight: 800, color: isDark ? '#fff' : '#07162B' }}>Bharat Properties</div>
                                     <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.6)' }}>Business Account • Verified</div>
                                   </div>
                                 </div>

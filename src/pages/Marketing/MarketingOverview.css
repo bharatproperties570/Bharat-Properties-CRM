@@ -20,8 +20,10 @@
   
   --white: #FFFFFF;
   --text: #EEE8D8;
+  --text1: #EEE8D8;
   --text2: #A89E88;
   --text3: #6A6255;
+  --text-dim: #A89E88;
   
   --border: rgba(201, 146, 26, 0.15);
   --border2: rgba(201, 146, 26, 0.28);
@@ -3826,6 +3828,51 @@
 .api-get { color: var(--green); font-weight: 700; }
 .api-post { color: var(--blue); font-weight: 700; }
 
+/* CRM Neural Alignment Nodes */
+.alignment-node {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.an-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.an-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--white);
+}
+.an-status {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+}
+.an-status.green { background: rgba(53,185,122,0.15); color: var(--green); }
+.an-status.red { background: rgba(224,82,82,0.15); color: var(--red); }
+.an-status.gold { background: rgba(201,146,26,0.15); color: var(--gold); }
+.an-text {
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.4;
+}
+.an-text strong {
+  color: var(--white);
+}
+.an-footer {
+  font-size: 9.5px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+  margin-top: auto;
+}
+
 /* CAMPAIGN & OPTIMIZATION */
 .perf-kpi-grid {
   display: grid;
@@ -3919,7 +3966,7 @@
 }
 
 /* ══════════════════════════════════════════
-   LIGHT MODE ORCHESTRATION (v3.0)
+   LIGHT MODE ORCHESTRATION (v3.0 High Contrast)
    ══════════════════════════════════════════ */
 .marketing-os-container.light-mode {
   --navy: #FFFFFF;
@@ -3927,118 +3974,359 @@
   --navy3: #E2E8F0;
   --navy-mid: #CBD5E0;
   --text: #07162B;
-  --text2: #4A5568;
-  --text3: #718096;
-  --border: rgba(0, 0, 0, 0.08);
-  --border2: rgba(201, 146, 26, 0.3);
+  --text1: #07162B;
+  --text2: #334155;
+  --text3: #64748B;
+  --text-dim: #64748B;
+  --gold: #A26804;
+  --gold2: #B47D14;
+  --gold-l: #9A6A0B;
+  --gold-faint: rgba(162, 104, 4, 0.08);
+  --border: rgba(0, 0, 0, 0.1);
+  --border2: rgba(162, 104, 4, 0.35);
   --surface: rgba(0, 0, 0, 0.02);
   --surface2: rgba(0, 0, 0, 0.04);
-  --white: #000000; /* Reversing for light theme labels */
-}
-
-.marketing-os-container.light-mode {
+  --white: #000000; /* Reversing for light theme labels on light backgrounds */
   background: #F8F9FC;
+  color: #07162B;
 }
 
+/* Base structural surfaces in light mode */
 .marketing-os-container.light-mode .glass-bg {
-  background: rgba(255, 255, 255, 0.8);
-  border-right: 1px solid rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.95);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .marketing-os-container.light-mode .topbar {
-  background: rgba(255, 255, 255, 0.9);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
-.marketing-os-container.light-mode .glass-card {
+.marketing-os-container.light-mode .sidebar {
   background: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 8px 24px rgba(149, 157, 165, 0.1);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 6px 0 24px rgba(15, 23, 42, 0.04);
+}
+
+.marketing-os-container.light-mode .logo-name {
+  color: #07162B !important;
+}
+
+.marketing-os-container.light-mode .logo-sub {
+  color: #A26804 !important;
+  opacity: 1 !important;
+}
+
+.marketing-os-container.light-mode .logo-mark {
+  color: #07162B !important;
+}
+
+.marketing-os-container.light-mode .sidebar-section-label {
+  color: #64748B !important;
+}
+
+.marketing-os-container.light-mode .nav-item {
+  color: #334155 !important;
+}
+
+.marketing-os-container.light-mode .nav-item:hover {
+  background: #F1F5F9 !important;
+  color: #07162B !important;
+}
+
+.marketing-os-container.light-mode .nav-item.active {
+  background: #FEF3C7 !important;
+  color: #92400E !important;
+  border-left: 3px solid #D97706 !important;
+  box-shadow: inset 4px 0 10px rgba(217, 119, 6, 0.1) !important;
+}
+
+/* Cards & containers in light mode */
+.marketing-os-container.light-mode .glass-card,
+.marketing-os-container.light-mode .card,
+.marketing-os-container.light-mode .stat-card,
+.marketing-os-container.light-mode .tech-card,
+.marketing-os-container.light-mode .sc-card,
+.marketing-os-container.light-mode .yield-stat-card,
+.marketing-os-container.light-mode .briefing-card {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04) !important;
+  color: #07162B;
 }
 
 .marketing-os-container.light-mode .briefing-card {
-  border-left: 4px solid var(--gold);
+  border-left: 4px solid #A26804 !important;
 }
 
-.marketing-os-container.light-mode .page-title {
-  color: #07162B;
+.marketing-os-container.light-mode .page-title,
+.marketing-os-container.light-mode .card-title,
+.marketing-os-container.light-mode .briefing-title,
+.marketing-os-container.light-mode .section-title,
+.marketing-os-container.light-mode .kpi-val,
+.marketing-os-container.light-mode .kpi-value-v3,
+.marketing-os-container.light-mode .agent-name-big,
+.marketing-os-container.light-mode .modal-title,
+.marketing-os-container.light-mode .modal-title-v2,
+.marketing-os-container.light-mode .lab-title,
+.marketing-os-container.light-mode .assets-title,
+.marketing-os-container.light-mode .tech-card-head,
+.marketing-os-container.light-mode .sw-name,
+.marketing-os-container.light-mode .seg-name,
+.marketing-os-container.light-mode .camp-seg-name,
+.marketing-os-container.light-mode .angle-name,
+.marketing-os-container.light-mode .time-val,
+.marketing-os-container.light-mode .comp-name,
+.marketing-os-container.light-mode .asi-name,
+.marketing-os-container.light-mode .lac-title-v2,
+.marketing-os-container.light-mode .sc-name,
+.marketing-os-container.light-mode .an-title,
+.marketing-os-container.light-mode .stat-value {
+  color: #07162B !important;
+}
+
+/* Secondary & helper typography in light mode */
+.marketing-os-container.light-mode .briefing-text,
+.marketing-os-container.light-mode .an-text,
+.marketing-os-container.light-mode .tech-desc,
+.marketing-os-container.light-mode .act-desc {
+  color: #334155 !important;
+}
+
+.marketing-os-container.light-mode .briefing-text b,
+.marketing-os-container.light-mode .an-text strong {
+  color: #07162B !important;
+}
+
+.marketing-os-container.light-mode .stat-label,
+.marketing-os-container.light-mode .act-ts,
+.marketing-os-container.light-mode .an-footer,
+.marketing-os-container.light-mode .mix-legend,
+.marketing-os-container.light-mode .cl-item-v2,
+.marketing-os-container.light-mode .cal-date-label,
+.marketing-os-container.light-mode .cal-day-head-v2 {
+  color: #64748B !important;
+}
+
+/* Tables in light mode */
+.marketing-os-container.light-mode .analytics-table th,
+.marketing-os-container.light-mode .bp-table th {
+  background: #F8FAFC !important;
+  color: #475569 !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+}
+
+.marketing-os-container.light-mode .analytics-table td,
+.marketing-os-container.light-mode .bp-table td {
+  color: #07162B !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+}
+
+.marketing-os-container.light-mode .analytics-table tr:hover td,
+.marketing-os-container.light-mode .bp-table tr:hover td {
+  background: #F8FAFC !important;
+}
+
+/* Forms, Inputs, Selects, Textareas in light mode */
+.marketing-os-container.light-mode input:not([type="checkbox"]):not([type="radio"]),
+.marketing-os-container.light-mode select,
+.marketing-os-container.light-mode textarea,
+.marketing-os-container.light-mode .fi-v2,
+.marketing-os-container.light-mode .fi-v2-area,
+.marketing-os-container.light-mode .search-wrap input {
+  background: #FFFFFF !important;
+  color: #07162B !important;
+  border: 1px solid #CBD5E0 !important;
+}
+
+.marketing-os-container.light-mode input::placeholder,
+.marketing-os-container.light-mode textarea::placeholder,
+.marketing-os-container.light-mode .search-wrap input::placeholder {
+  color: #94A3B8 !important;
+}
+
+.marketing-os-container.light-mode select option {
+  background: #FFFFFF !important;
+  color: #07162B !important;
 }
 
 .marketing-os-container.light-mode .search-wrap {
-  background: #F0F4F8;
-  border-color: transparent;
+  background: #F1F5F9 !important;
+  border: 1px solid #E2E8F0 !important;
 }
 
-.marketing-os-container.light-mode .search-wrap input {
-  color: #07162B;
+/* Buttons in light mode */
+.marketing-os-container.light-mode .tact-btn:not(.primary):not(.primary-gold) {
+  background: #FFFFFF;
+  color: #334155;
+  border: 1px solid #CBD5E0;
 }
 
-.marketing-os-container.light-mode .search-wrap input::placeholder {
-  color: #A0AEC0;
-}
-
-.marketing-os-container.light-mode .sc-card {
+.marketing-os-container.light-mode .tact-btn:not(.primary):not(.primary-gold):hover {
   background: #F8FAFC;
-}
-
-.marketing-os-container.light-mode .sc-name {
   color: #07162B;
 }
 
-.marketing-os-container.light-mode .tech-card {
-  background: #FFFFFF;
+/* High-Contrast Gold and Action Buttons */
+.marketing-os-container.light-mode .tact-btn.primary,
+.marketing-os-container.light-mode .tact-btn-fid.primary,
+.marketing-os-container.light-mode .primary-gold,
+.marketing-os-container.light-mode .campaign-tab-btn.active,
+.marketing-os-container.light-mode .status-tab-v2.active,
+.marketing-os-container.light-mode .filter-btn.active,
+.marketing-os-container.light-mode .nav-badge:not(.live) {
+  background: #C9921A !important;
+  color: #07162B !important;
+  font-weight: 700 !important;
 }
 
-.marketing-os-container.light-mode .api-block {
-  background: #F1F5F9;
+/* Green, WhatsApp, and Badges */
+.marketing-os-container.light-mode .nav-badge.live,
+.marketing-os-container.light-mode .badge-wa,
+.marketing-os-container.light-mode .orch-node-fid.done .on-fid-num {
+  color: #FFFFFF !important;
 }
 
-.marketing-os-container.light-mode .briefing-text b {
-  color: var(--gold);
-}
-
-.marketing-os-container.light-mode .tact-btn:not(.primary) {
-  background: #FFFFFF;
-  color: #4A5568;
-}
-
-.marketing-os-container.light-mode .notif-btn-fid {
-  background: #F0F4F8 !important;
-}
-
-.marketing-os-container.light-mode .util-icon-btn {
-  background: #F1F5F9;
-  color: #718096;
-}
-
-.marketing-os-container.light-mode .system-date-pill {
-  background: #EDF2F7;
-  color: #4A5568;
-}
-
+/* NEURAL FUNNEL TIERS: Keep crisp white text on gradient background tiers */
 .marketing-os-container.light-mode .funnel-container {
   background: #F1F5F9;
   border-color: #E2E8F0;
 }
 
 .marketing-os-container.light-mode .funnel-tier {
-  border-color: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
-.marketing-os-container.light-mode .yield-stat-card {
-  background: #FFFFFF;
-  border-color: #E2E8F0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+.marketing-os-container.light-mode .funnel-tier .tier-label,
+.marketing-os-container.light-mode .funnel-tier .tier-val {
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6) !important;
+}
+
+.marketing-os-container.light-mode .funnel-tier .tier-sub {
+  color: rgba(255, 255, 255, 0.9) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
 }
 
 .marketing-os-container.light-mode .conv-v-badge {
   background: #FFFFFF;
+  color: #07162B;
+  border-color: #C9921A;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
-.marketing-os-container.light-mode .sidebar {
-  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.05);
+/* Content Calendar Post Items in Light Mode */
+.marketing-os-container.light-mode .cal-day-v2 {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+.marketing-os-container.light-mode .cal-day-v2:hover {
+  background: #F8FAFC !important;
+}
+
+.marketing-os-container.light-mode .cal-post-item.ct-project {
+  background: #EBF8FF !important;
+  border-left: 3px solid #2B6CB0 !important;
+  color: #1A365D !important;
+}
+
+.marketing-os-container.light-mode .cal-post-item.ct-edu {
+  background: #F0FDF4 !important;
+  border-left: 3px solid #16A34A !important;
+  color: #14532D !important;
+}
+
+.marketing-os-container.light-mode .cal-post-item.ct-trust {
+  background: #FEFCE8 !important;
+  border-left: 3px solid #CA8A04 !important;
+  color: #713F12 !important;
+}
+
+.marketing-os-container.light-mode .cal-post-item.ct-festival {
+  background: #FEF2F2 !important;
+  border-left: 3px solid #DC2626 !important;
+  color: #7F1D1D !important;
+}
+
+.marketing-os-container.light-mode .cal-footer-v2 {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* Content types outside calendar */
+.marketing-os-container.light-mode .ct-project {
+  background: #EBF8FF !important;
+  color: #1A365D !important;
+  border-left-color: #2B6CB0 !important;
+}
+
+.marketing-os-container.light-mode .ct-edu {
+  background: #F0FDF4 !important;
+  color: #14532D !important;
+  border-left-color: #16A34A !important;
+}
+
+.marketing-os-container.light-mode .ct-trust {
+  background: #FEFCE8 !important;
+  color: #713F12 !important;
+  border-left-color: #CA8A04 !important;
+}
+
+.marketing-os-container.light-mode .ct-festival {
+  background: #FEF2F2 !important;
+  color: #7F1D1D !important;
+  border-left-color: #DC2626 !important;
+}
+
+/* Modals in light mode */
+.marketing-os-container.light-mode .modal,
+.marketing-os-container.light-mode .modal-v2,
+.marketing-os-container.light-mode .post-modal-v2 {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.15) !important;
+  color: #07162B;
+}
+
+.marketing-os-container.light-mode .modal-header,
+.marketing-os-container.light-mode .modal-header-v2 {
+  border-bottom: 1px solid #E2E8F0 !important;
+  background: #FFFFFF !important;
+}
+
+.marketing-os-container.light-mode .modal-footer,
+.marketing-os-container.light-mode .modal-footer-v2 {
+  background: #F8FAFC !important;
+  border-top: 1px solid #E2E8F0 !important;
+}
+
+.marketing-os-container.light-mode .modal-close,
+.marketing-os-container.light-mode .modal-close-v2 {
+  color: #64748B !important;
+}
+
+.marketing-os-container.light-mode .modal-close:hover,
+.marketing-os-container.light-mode .modal-close-v2:hover {
+  color: #07162B !important;
+}
+
+.marketing-os-container.light-mode .alignment-node {
+  background: #F8FAFC !important;
+  border: 1px solid #E2E8F0 !important;
+}
+
+.marketing-os-container.light-mode .api-block {
+  background: #F1F5F9 !important;
+}
+
+.marketing-os-container.light-mode .notif-btn-fid,
+.marketing-os-container.light-mode .util-icon-btn,
+.marketing-os-container.light-mode .system-date-pill {
+  background: #F1F5F9 !important;
+  color: #475569 !important;
+  border: 1px solid #E2E8F0 !important;
 }
 /* ── NEURAL FUNNEL VISUALIZATION ── */
 .funnel-container {
