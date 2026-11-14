@@ -168,7 +168,7 @@ export class MarketingDocumentContextService {
         }
 
         // Close the revoke/version race: approval and current-version binding must still hold after parsing.
-        const [latestDocument, latestApproval] = await Promise.all([
+        const [latestDocument, latestApproval, latestCategory] = await Promise.all([
             Document.findOne({ _id: document._id, documentId, currentVersionId: version._id }).lean(),
             MarketingDocumentApproval.findOne({
                 _id: approval._id,
@@ -176,10 +176,26 @@ export class MarketingDocumentContextService {
                 versionRef: version._id,
                 status: 'APPROVED',
                 policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
+            }).lean(),
+            Lookup.findOne({
+                _id: approval.categoryLookupId,
+                lookup_type: { $in: ['Document-Category', 'DocumentCategory'] },
+                isActive: true
             }).lean()
         ]);
         if (!latestDocument || !isMarketingEligibleDocument(latestDocument) || !latestApproval) {
             throw new MarketingDocumentContextError('MARKETING_DOCUMENT_APPROVAL_REVOKED_OR_STALE', 409);
+        }
+        if (!latestCategory || !isMarketingSafeDocumentCategory(latestCategory.lookup_value) ||
+            latestCategory.lookup_value !== approval.categoryValue) {
+            throw new MarketingDocumentContextError('DOCUMENT_CATEGORY_NOT_ELIGIBLE', 409);
+        }
+        const latestParent = await ParentModel.exists({
+            _id: latestDocument.entityId,
+            ...visibilityFilter
+        });
+        if (!latestParent) {
+            throw new MarketingDocumentContextError('DOCUMENT_NOT_VISIBLE', 404);
         }
 
         return Object.freeze({
