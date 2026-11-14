@@ -1062,6 +1062,9 @@ export const generateVisualAsset = async (req, res) => {
             if (!targetEntity) {
                 targetEntity = await Project.findOne({ _id: dealId, ...visibilityFilter }).lean();
             }
+            if (!targetEntity) {
+                targetEntity = await Inventory.findOne({ _id: dealId, ...visibilityFilter }).lean();
+            }
         }
 
         const result = await marketingService.generateVisualAsset({
