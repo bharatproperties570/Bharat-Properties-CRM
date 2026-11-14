@@ -94,8 +94,8 @@ export default class OwnerOutreachService {
 
         const inventory = await Inventory.find(query)
             .select('_id projectName unitNo unitNumber sector owners associates')
-            .populate({ path: 'owners', select: '_id name surname phones emails professionCategory professionSubCategory designation tags whatsappOptOut whatsappOptInAt' })
-            .populate({ path: 'associates.contact', select: '_id name surname phones emails professionCategory professionSubCategory designation tags whatsappOptOut whatsappOptInAt' })
+            .populate({ path: 'owners', select: '_id name surname phones emails professionCategory professionSubCategory designation tags whatsappOptOut whatsappOptInAt whatsappOptOutAt' })
+            .populate({ path: 'associates.contact', select: '_id name surname phones emails professionCategory professionSubCategory designation tags whatsappOptOut whatsappOptInAt whatsappOptOutAt' })
             .limit(MAX_INVENTORY_SNAPSHOT + 1)
             .lean();
         if (inventory.length > MAX_INVENTORY_SNAPSHOT) throw new Error('Audience exceeds the 10,000 inventory snapshot limit; narrow the inventory filters');
