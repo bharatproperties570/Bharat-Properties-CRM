@@ -477,7 +477,7 @@ const SocialPostModal = ({
             : 'Minimalist clean aesthetic, architectural precision, soft diffused daylight';
 
       const approvedReference = approvedDocumentContext?.contextText
-        ? `\n\n[APPROVED CRM PDF REFERENCE — ${approvedDocumentContext.category}]\\n${approvedDocumentContext.contextText.slice(0, 5000)}\nUse this only as source-reference guidance. Do not invent specifications, approvals, prices, amenities or legal claims. Prefer structured CRM Deal/Project fields for all publishable facts.`
+        ? `\n\n[APPROVED CRM PDF REFERENCE — ${approvedDocumentContext.category}]\n${approvedDocumentContext.contextText.slice(0, 5000)}\nUse this only as source-reference guidance. Do not invent specifications, approvals, prices, amenities or legal claims. Prefer structured CRM Deal/Project fields for all publishable facts.`
         : '';
       const promptStr = `A stunning ${angleDesc} of ${title} in ${cleanLoc}. ${moodDesc}. Architecture emphasizes clear lines with Bharat Properties brand aesthetic: Deep Navy accents with subtle Gold lighting. [BRAND IDENTITY]: Include Bharat Properties emblem. [CONTACT STRIP]: Display Website: www.bharatproperties.co, Contact: ${phone}. Photorealistic, 8k resolution, Unreal Engine 5 render style, perfectly composed for ${aspect}.${approvedReference}`;
 
