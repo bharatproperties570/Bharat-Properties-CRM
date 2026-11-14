@@ -1922,8 +1922,19 @@ export default function MarketingOverviewPage({ onNavigate }) {
   };
 
   // ── CALENDAR STATE ──
+  const [calView, setCalView] = useState('month'); // 'month' | 'week' | 'year'
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
+
+  const getMondayOfWeek = (d) => {
+    const date = new Date(d);
+    const day = date.getDay();
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(date.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  };
+  const [calWeekStart, setCalWeekStart] = useState(() => getMondayOfWeek(new Date()));
 
   // ── AUTO-PILOT STATE ──
   const [isAutoPilotActive, setIsAutoPilotActive] = useState(true);
@@ -2204,6 +2215,126 @@ export default function MarketingOverviewPage({ onNavigate }) {
       return d.getFullYear() === calYear && d.getMonth() === calMonth;
     });
   }, [posts, calYear, calMonth]);
+
+  // Week View calculation (7 days: Monday to Sunday)
+  const weekDays = useMemo(() => {
+    const days = [];
+    const dayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const today = new Date();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(calWeekStart);
+      d.setDate(d.getDate() + i);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const date = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${date}`;
+      const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+      days.push({
+        dateObj: d,
+        dateStr,
+        dayName: dayLabels[i],
+        dayNum: d.getDate(),
+        monthShort: d.toLocaleString('en-US', { month: 'short' }),
+        isToday,
+      });
+    }
+    return days;
+  }, [calWeekStart]);
+
+  const weekRangeLabel = useMemo(() => {
+    if (!weekDays.length) return '';
+    const start = weekDays[0];
+    const end = weekDays[6];
+    if (start.dateObj.getFullYear() === end.dateObj.getFullYear()) {
+      if (start.dateObj.getMonth() === end.dateObj.getMonth()) {
+        return `${start.dayNum} – ${end.dayNum} ${start.monthShort}, ${start.dateObj.getFullYear()}`;
+      }
+      return `${start.dayNum} ${start.monthShort} – ${end.dayNum} ${end.monthShort}, ${end.dateObj.getFullYear()}`;
+    }
+    return `${start.dayNum} ${start.monthShort} ${start.dateObj.getFullYear()} – ${end.dayNum} ${end.monthShort} ${end.dateObj.getFullYear()}`;
+  }, [weekDays]);
+
+  const handleCalPrev = () => {
+    if (calView === 'month') {
+      setCalMonth(m => {
+        if (m === 0) {
+          setCalYear(y => y - 1);
+          return 11;
+        }
+        return m - 1;
+      });
+    } else if (calView === 'week') {
+      setCalWeekStart(prev => {
+        const next = new Date(prev);
+        next.setDate(next.getDate() - 7);
+        return next;
+      });
+    } else if (calView === 'year') {
+      setCalYear(y => y - 1);
+    }
+  };
+
+  const handleCalNext = () => {
+    if (calView === 'month') {
+      setCalMonth(m => {
+        if (m === 11) {
+          setCalYear(y => y + 1);
+          return 0;
+        }
+        return m + 1;
+      });
+    } else if (calView === 'week') {
+      setCalWeekStart(prev => {
+        const next = new Date(prev);
+        next.setDate(next.getDate() + 7);
+        return next;
+      });
+    } else if (calView === 'year') {
+      setCalYear(y => y + 1);
+    }
+  };
+
+  const handleCalToday = () => {
+    const now = new Date();
+    setCalYear(now.getFullYear());
+    setCalMonth(now.getMonth());
+    setCalWeekStart(getMondayOfWeek(now));
+  };
+
+  // Year View aggregated metrics for calYear
+  const yearPosts = useMemo(() => {
+    return posts.filter(p => {
+      const d = new Date(p.date);
+      return d.getFullYear() === calYear;
+    });
+  }, [posts, calYear]);
+
+  const yearStats = useMemo(() => {
+    const project = yearPosts.filter(p => p.type === 'ct-project').length;
+    const edu = yearPosts.filter(p => p.type === 'ct-edu').length;
+    const trust = yearPosts.filter(p => p.type === 'ct-trust').length;
+    const festival = yearPosts.filter(p => p.type === 'ct-festival').length;
+    return { total: yearPosts.length, project, edu, trust, festival };
+  }, [yearPosts]);
+
+  const getChannelIcon = (platform) => {
+    const p = (platform || '').toLowerCase();
+    if (p.includes('insta')) return '📸';
+    if (p.includes('face') || p.includes('fb')) return '📘';
+    if (p.includes('link')) return '💼';
+    if (p.includes('you') || p.includes('yt')) return '▶️';
+    if (p.includes('what') || p.includes('wa')) return '💬';
+    if (p.includes('twit') || p.includes('x')) return '🐦';
+    return '🌐';
+  };
+
+  const getPillarLabel = (type) => {
+    if (type === 'ct-project') return 'Project / Deal';
+    if (type === 'ct-edu') return 'Educational';
+    if (type === 'ct-trust') return 'Trust & Proof';
+    if (type === 'ct-festival') return 'Festival / Event';
+    return 'General';
+  };
 
   // ── LOOP MARKETING: REAL ROI AGGREGATION (Grounded in Database Campaigns & Deals) ──
   const loopAnalytics = useMemo(() => {
@@ -2833,67 +2964,407 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
           {activePage === 'calendar' && (
             <div className="calendar-v2-container">
+              {/* ── TOOLBAR: NAVIGATION, VIEW SELECTOR & ACTIONS ── */}
               <div className="calendar-toolbar-v2">
-                <div className="cal-month-nav-v2">
-                  <button className="cal-nav-btn-v2" onClick={() => setCalMonth(m => m === 0 ? 11 : m - 1)}>‹</button>
-                  <div className="cal-month-name-v2">{monthNames[calMonth]} {calYear}</div>
-                  <button className="cal-nav-btn-v2" onClick={() => setCalMonth(m => m === 11 ? 0 : m + 1)}>›</button>
+                <div className="cal-nav-group-v2">
+                  <div className="cal-month-nav-v2">
+                    <button className="cal-nav-btn-v2" onClick={handleCalPrev} title="Previous">‹</button>
+                    <div className="cal-period-name-v2">
+                      {calView === 'month' && `${monthNames[calMonth]} ${calYear}`}
+                      {calView === 'week' && weekRangeLabel}
+                      {calView === 'year' && `${calYear}`}
+                    </div>
+                    <button className="cal-nav-btn-v2" onClick={handleCalNext} title="Next">›</button>
+                  </div>
+                  <button className="cal-today-btn" onClick={handleCalToday} title="Jump to today">
+                    Today
+                  </button>
                 </div>
+
+                <div className="cal-view-selector-v2">
+                  <button 
+                    className={`cal-view-btn-v2 ${calView === 'month' ? 'active' : ''}`}
+                    onClick={() => setCalView('month')}
+                    type="button"
+                  >
+                    <span className="cal-view-icon">📅</span> Month
+                  </button>
+                  <button 
+                    className={`cal-view-btn-v2 ${calView === 'week' ? 'active' : ''}`}
+                    onClick={() => setCalView('week')}
+                    type="button"
+                  >
+                    <span className="cal-view-icon">🗓️</span> Week
+                  </button>
+                  <button 
+                    className={`cal-view-btn-v2 ${calView === 'year' ? 'active' : ''}`}
+                    onClick={() => setCalView('year')}
+                    type="button"
+                  >
+                    <span className="cal-view-icon">📆</span> Year
+                  </button>
+                </div>
+
                 <div className="cal-actions-v2">
+                  <div className="cal-count-badge">
+                    {calView === 'month' && `${currentMonthPosts.length} posts this month`}
+                    {calView === 'week' && `${posts.filter(p => weekDays.some(w => w.dateStr === p.date)).length} posts this week`}
+                    {calView === 'year' && `${yearPosts.length} posts in ${calYear}`}
+                  </div>
                   <button className="tact-btn gold-ghost sm" onClick={() => toast('Syncing with CRM...')}>Import CRM</button>
-                  <button className="tact-btn primary sm" onClick={() => { setActiveCalDate(new Date().toISOString().split('T')[0]); setEditingPost(null); setShowPostModal(true); }}>+ Add Post</button>
+                  <button className="tact-btn primary sm" onClick={() => { 
+                    setActiveCalDate(new Date().toISOString().split('T')[0]); 
+                    setEditingPost(null); 
+                    setShowPostModal(true); 
+                  }}>+ Add Post</button>
                 </div>
               </div>
 
-              <div className="card calendar-card-v2">
-                <div className="card-body" style={{ padding: '0' }}>
-                  <div className="cal-grid-v2">
-                    {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(d => <div key={d} className="cal-day-head-v2">{d}</div>)}
-                    
-                    {[...Array(startOffset)].map((_, i) => <div key={`empty-${i}`} className="cal-cell-v2 empty" />)}
-                    
-                    {[...Array(daysInMonth)].map((_, i) => {
-                      const d = i + 1;
-                      const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                      const dayPosts = posts.filter(p => p.date === dateStr);
+              {/* ════ VIEW 1: MONTH VIEW ════ */}
+              {calView === 'month' && (
+                <div className="card calendar-card-v2 animate-fade-in">
+                  <div className="card-body" style={{ padding: '0' }}>
+                    <div className="cal-grid-scroll-wrapper">
+                      <div className="cal-grid-v2">
+                        {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(d => (
+                          <div key={d} className="cal-day-head-v2">{d}</div>
+                        ))}
+                        
+                        {[...Array(startOffset)].map((_, i) => (
+                          <div key={`empty-${i}`} className="cal-cell-v2 empty" />
+                        ))}
+                        
+                        {[...Array(daysInMonth)].map((_, i) => {
+                          const d = i + 1;
+                          const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                          const dayPosts = posts.filter(p => p.date === dateStr);
+                          const today = new Date();
+                          const isToday = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear(); 
+
+                          return (
+                            <div key={d} className={`cal-day-v2 ${isToday ? 'today' : ''}`} onClick={() => { 
+                              if (dayPosts.length > 1) {
+                                setMultiPostDate(dateStr);
+                                setShowMultiPostPicker(true);
+                              } else {
+                                setActiveCalDate(dateStr); 
+                                setEditingPost(dayPosts[0] || null); 
+                                setShowPostModal(true); 
+                              }
+                            }}>
+                              <div className="cal-day-header-cell">
+                                <span className={`cal-date-label ${isToday ? 'today-badge' : ''}`}>{d}</span>
+                                <button 
+                                  className="cal-day-quick-add" 
+                                  title="Schedule post on this day"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveCalDate(dateStr);
+                                    setEditingPost(null);
+                                    setShowPostModal(true);
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              <div className="cal-posts-list">
+                                {dayPosts.slice(0, 3).map(p => (
+                                  <div 
+                                    key={p._id || p.id} 
+                                    className={`cal-post-item ${p.type}`} 
+                                    onClick={(e) => { 
+                                      e.stopPropagation(); 
+                                      setEditingPost(p); 
+                                      setActiveCalDate(p.date); 
+                                      setShowPostModal(true); 
+                                    }}
+                                    title={`${p.title} (${p.platform} - ${p.time})`}
+                                  >
+                                    <span className="cal-item-time">{p.time ? p.time.slice(0,5) : ''}</span>
+                                    <span className="cal-item-title">{p?.title || 'Untitled Post'}</span>
+                                  </div>
+                                ))}
+                                {dayPosts.length > 3 && (
+                                  <div 
+                                    className="cal-more-posts-pill"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setMultiPostDate(dateStr);
+                                      setShowMultiPostPicker(true);
+                                    }}
+                                  >
+                                    +{dayPosts.length - 3} more
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="cal-footer-v2">
+                      <div className="cal-legend-v2">
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-blue"></div>Project / Deal</div>
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-green"></div>Educational</div>
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-gold"></div>Trust & Proof</div>
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-red"></div>Festival</div>
+                      </div>
+                      <div className="cal-hint-v2">Gold ring = Today · Hover cell to quick-add · Click cell for post details</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ════ VIEW 2: WEEK VIEW ════ */}
+              {calView === 'week' && (
+                <div className="card calendar-card-v2 animate-fade-in">
+                  <div className="card-body" style={{ padding: '0' }}>
+                    <div className="cal-grid-scroll-wrapper">
+                      <div className="cal-week-grid-v2">
+                        {weekDays.map(day => {
+                          const dayPosts = posts.filter(p => p.date === day.dateStr);
+                          return (
+                            <div key={day.dateStr} className={`cal-week-col ${day.isToday ? 'today' : ''}`}>
+                              {/* Column Header */}
+                              <div className="cal-week-col-head">
+                                <div className="cal-week-day-name">{day.dayName}</div>
+                                <div className={`cal-week-day-badge ${day.isToday ? 'active-today' : ''}`}>
+                                  <span className="cal-week-num">{day.dayNum}</span>
+                                  <span className="cal-week-mon">{day.monthShort}</span>
+                                </div>
+                                <div className="cal-week-meta-row">
+                                  <span className="cal-week-count-tag">
+                                    {dayPosts.length === 1 ? '1 Post' : `${dayPosts.length} Posts`}
+                                  </span>
+                                  <button 
+                                    className="cal-week-add-btn" 
+                                    title={`Add post on ${day.dayNum} ${day.monthShort}`}
+                                    onClick={() => {
+                                      setActiveCalDate(day.dateStr);
+                                      setEditingPost(null);
+                                      setShowPostModal(true);
+                                    }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Column Body / Posts feed */}
+                              <div className="cal-week-posts-area">
+                                {dayPosts.length === 0 ? (
+                                  <div 
+                                    className="cal-week-empty-slot"
+                                    onClick={() => {
+                                      setActiveCalDate(day.dateStr);
+                                      setEditingPost(null);
+                                      setShowPostModal(true);
+                                    }}
+                                  >
+                                    <span className="cal-empty-icon">📅</span>
+                                    <span className="cal-empty-text">No Posts</span>
+                                    <span className="cal-empty-action">+ Schedule</span>
+                                  </div>
+                                ) : (
+                                  dayPosts.map(p => (
+                                    <div 
+                                      key={p._id || p.id} 
+                                      className={`cal-week-post-card ${p.type}`}
+                                      onClick={() => {
+                                        setEditingPost(p);
+                                        setActiveCalDate(p.date);
+                                        setShowPostModal(true);
+                                      }}
+                                    >
+                                      <div className="cwp-header">
+                                        <div className="cwp-time">⏰ {p.time || '10:00'}</div>
+                                        <div className="cwp-channel">
+                                          <span className="cwp-ch-icon">{getChannelIcon(p.platform)}</span>
+                                          <span className="cwp-ch-name">{p.platform || 'Meta'}</span>
+                                        </div>
+                                      </div>
+
+                                      <div className="cwp-title">{p.title || 'Untitled Post'}</div>
+
+                                      <div className="cwp-meta-footer">
+                                        <span className={`cwp-pillar-badge ${p.type}`}>
+                                          {getPillarLabel(p.type)}
+                                        </span>
+                                        <span className={`cwp-status-chip ${p.status || 'scheduled'}`}>
+                                          {p.status === 'published' ? '● Published' : '○ Scheduled'}
+                                        </span>
+                                      </div>
+
+                                      {p.dealId && (
+                                        <div className="cwp-deal-pill">
+                                          🏷️ Deal Attached
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="cal-footer-v2">
+                      <div className="cal-legend-v2">
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-blue"></div>Project / Deal</div>
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-green"></div>Educational</div>
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-gold"></div>Trust & Proof</div>
+                        <div className="cl-item-v2"><div className="cl-dot-v2 cp-red"></div>Festival</div>
+                      </div>
+                      <div className="cal-hint-v2">Click any card to modify, reschedule, or launch to social channels</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ════ VIEW 3: YEAR VIEW ════ */}
+              {calView === 'year' && (
+                <div className="cal-year-container-v2 animate-fade-in">
+                  {/* Top KPI Header for Year */}
+                  <div className="cal-year-kpis-strip">
+                    <div className="cal-year-kpi-card">
+                      <div className="cyk-val">{yearStats.total}</div>
+                      <div className="cyk-lbl">Total Posts in {calYear}</div>
+                    </div>
+                    <div className="cal-year-kpi-card blue">
+                      <div className="cyk-val">{yearStats.project}</div>
+                      <div className="cyk-lbl">Deal & Project Posts</div>
+                    </div>
+                    <div className="cal-year-kpi-card green">
+                      <div className="cyk-val">{yearStats.edu}</div>
+                      <div className="cyk-lbl">Educational Content</div>
+                    </div>
+                    <div className="cal-year-kpi-card gold">
+                      <div className="cyk-val">{yearStats.trust}</div>
+                      <div className="cyk-lbl">Trust & Social Proof</div>
+                    </div>
+                    <div className="cal-year-kpi-card red">
+                      <div className="cyk-val">{yearStats.festival}</div>
+                      <div className="cyk-lbl">Festivals & Celebrations</div>
+                    </div>
+                  </div>
+
+                  {/* 12 Months Grid */}
+                  <div className="cal-year-months-grid">
+                    {monthNames.map((mName, mIndex) => {
+                      const mPosts = posts.filter(p => {
+                        const d = new Date(p.date);
+                        return d.getFullYear() === calYear && d.getMonth() === mIndex;
+                      });
+                      const daysInM = new Date(calYear, mIndex + 1, 0).getDate();
+                      const firstDayM = new Date(calYear, mIndex, 1).getDay();
+                      const mOffset = firstDayM === 0 ? 6 : firstDayM - 1;
                       const today = new Date();
-                      const isToday = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear(); 
+                      const isCurrentMonth = today.getFullYear() === calYear && today.getMonth() === mIndex;
+
+                      const mProject = mPosts.filter(p => p.type === 'ct-project').length;
+                      const mEdu = mPosts.filter(p => p.type === 'ct-edu').length;
+                      const mTrust = mPosts.filter(p => p.type === 'ct-trust').length;
+                      const mFestival = mPosts.filter(p => p.type === 'ct-festival').length;
 
                       return (
-                        <div key={d} className={`cal-day-v2 ${isToday ? 'today' : ''}`} onClick={() => { 
-                          if (dayPosts.length > 1) {
-                            setMultiPostDate(dateStr);
-                            setShowMultiPostPicker(true);
-                          } else {
-                            setActiveCalDate(dateStr); 
-                            setEditingPost(dayPosts[0] || null); 
-                            setShowPostModal(true); 
-                          }
-                        }}>
-                          <div className="cal-date-label">{d}</div>
-                          <div className="cal-posts-list">
-                            {dayPosts.map(p => (
-                              <div key={p.id} className={`cal-post-item ${p.type}`} onClick={(e) => { e.stopPropagation(); setEditingPost(p); setActiveCalDate(p.date); setShowPostModal(true); }}>
-                                {p?.title || 'Untitled Post'}
+                        <div 
+                          key={mName} 
+                          className={`cal-year-month-card ${isCurrentMonth ? 'current-month' : ''}`}
+                          onClick={() => {
+                            setCalMonth(mIndex);
+                            setCalView('month');
+                          }}
+                        >
+                          <div className="cym-header">
+                            <div>
+                              <div className="cym-name">
+                                {mName} {isCurrentMonth && <span className="cym-now-badge">NOW</span>}
                               </div>
-                            ))}
+                              <div className="cym-sub">
+                                {mPosts.length === 1 ? '1 post scheduled' : `${mPosts.length} posts scheduled`}
+                              </div>
+                            </div>
+                            <button 
+                              className="cym-add-btn" 
+                              title={`Schedule post in ${mName}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveCalDate(`${calYear}-${String(mIndex + 1).padStart(2, '0')}-01`);
+                                setEditingPost(null);
+                                setShowPostModal(true);
+                              }}
+                            >
+                              + Plan
+                            </button>
+                          </div>
+
+                          {/* Mini Calendar Dot Matrix */}
+                          <div className="cym-mini-matrix">
+                            <div className="cym-matrix-head">
+                              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((wd, i) => (
+                                <span key={i} className="cym-matrix-day-lbl">{wd}</span>
+                              ))}
+                            </div>
+                            <div className="cym-matrix-days">
+                              {[...Array(mOffset)].map((_, i) => (
+                                <div key={`mo-${i}`} className="cym-matrix-cell empty" />
+                              ))}
+                              {[...Array(daysInM)].map((_, i) => {
+                                const dayNum = i + 1;
+                                const dateStr = `${calYear}-${String(mIndex + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                                const dayPost = mPosts.find(p => p.date === dateStr);
+                                const isDayToday = isCurrentMonth && today.getDate() === dayNum;
+
+                                return (
+                                  <div 
+                                    key={dayNum} 
+                                    className={`cym-matrix-cell ${dayPost ? 'has-post ' + (dayPost.type || 'ct-project') : ''} ${isDayToday ? 'today-dot' : ''}`}
+                                    title={dayPost ? `${dayNum} ${mName}: ${dayPost.title}` : `${dayNum} ${mName}`}
+                                  >
+                                    <span className="cym-day-num">{dayNum}</span>
+                                    {dayPost && <span className="cym-post-dot" />}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Pillar Breakdown Bar */}
+                          <div className="cym-pillar-meter">
+                            <div className="cym-bar-track">
+                              {mPosts.length > 0 ? (
+                                <>
+                                  <div className="cym-bar-seg cp-blue" style={{ width: `${(mProject / mPosts.length) * 100}%` }} title={`Deals: ${mProject}`} />
+                                  <div className="cym-bar-seg cp-green" style={{ width: `${(mEdu / mPosts.length) * 100}%` }} title={`Educational: ${mEdu}`} />
+                                  <div className="cym-bar-seg cp-gold" style={{ width: `${(mTrust / mPosts.length) * 100}%` }} title={`Trust: ${mTrust}`} />
+                                  <div className="cym-bar-seg cp-red" style={{ width: `${(mFestival / mPosts.length) * 100}%` }} title={`Festival: ${mFestival}`} />
+                                </>
+                              ) : (
+                                <div className="cym-bar-seg empty" style={{ width: '100%' }} />
+                              )}
+                            </div>
+                            <div className="cym-meter-labels">
+                              <span className="cym-ml-item"><span className="dot cp-blue"></span>{mProject}</span>
+                              <span className="cym-ml-item"><span className="dot cp-green"></span>{mEdu}</span>
+                              <span className="cym-ml-item"><span className="dot cp-gold"></span>{mTrust}</span>
+                              <span className="cym-ml-item"><span className="dot cp-red"></span>{mFestival}</span>
+                            </div>
+                          </div>
+
+                          <div className="cym-action-link">
+                            <span>Open Month View</span>
+                            <span className="cym-arr">→</span>
                           </div>
                         </div>
                       );
                     })}
                   </div>
-
-                  <div className="cal-footer-v2">
-                    <div className="cal-legend-v2">
-                      <div className="cl-item-v2"><div className="cl-dot-v2 cp-blue"></div>Project/Deal</div>
-                      <div className="cl-item-v2"><div className="cl-dot-v2 cp-green"></div>Educational</div>
-                      <div className="cl-item-v2"><div className="cl-dot-v2 cp-gold"></div>Trust</div>
-                      <div className="cl-item-v2"><div className="cl-dot-v2 cp-red"></div>Festival</div>
-                    </div>
-                    <div className="cal-hint-v2">Gold border = Today · Click any cell</div>
-                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
