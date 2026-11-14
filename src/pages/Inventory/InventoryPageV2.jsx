@@ -848,6 +848,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                     onClose={() => setIsSocialModalOpen(false)}
                     initialData={{
                         id: socialMediaData?.id,
+                        entityType: 'Inventory',
                         type: 'Inventory',
                         text: `✨ Exclusive Inventory Spotlight ✨\n\nProperty: ${socialMediaData?.unitNo || 'Prime Unit'} at ${socialMediaData?.projectName || 'Prime Project'}\n📍 Location: ${socialMediaData?.location}\n💎 Status: Ready for Viewing\n\nDirect deal with verified property. DM for more details or to schedule a site visit! #BharatProperties #PremiumHomes #RealEstateIndia`,
                         imageUrl: socialMediaData?.imageUrl || 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&q=80&w=1000'
