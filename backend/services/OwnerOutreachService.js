@@ -66,6 +66,41 @@ export function addCadence(startAt, frequency, offset) {
 }
 
 export default class OwnerOutreachService {
+    async searchInventory(input = {}, user) {
+        const term = typeof input.q === 'string' ? input.q.trim().slice(0, 100) : '';
+        if (term.length < 2) return { items: [], minimumQueryLength: 2 };
+        const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 50);
+        const visibility = user ? await getVisibilityFilter(user) : { _id: null };
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, (character) => '\\' + character);
+        const matcher = new RegExp(escaped, 'i');
+        const query = {
+            $and: [
+                visibility,
+                { isDeleted: { $ne: true } },
+                { $or: [
+                    { projectName: matcher }, { project: matcher }, { sector: matcher },
+                    { unitNo: matcher }, { unitNumber: matcher },
+                    { sizeLabel: matcher }, { description: matcher }
+                ] }
+            ]
+        };
+        const rows = await Inventory.find(query)
+            .select('_id projectName project unitNo unitNumber sector sizeLabel')
+            .sort({ updatedAt: -1, _id: -1 })
+            .limit(limit)
+            .lean();
+        return {
+            items: rows.map((item) => ({
+                id: String(item._id),
+                project: item.projectName || item.project || item.sector || 'Unassigned project',
+                unit: item.unitNo || item.unitNumber || 'Unit not specified',
+                size: item.sizeLabel || '',
+                label: [item.projectName || item.project || item.sector, item.unitNo || item.unitNumber].filter(Boolean).join(' · ') || String(item._id)
+            })),
+            limit
+        };
+    }
+
     async resolveAudience(input = {}, user) {
         const visibility = user ? await getVisibilityFilter(user) : { _id: null };
         const inventoryIds = Array.isArray(input.inventoryIds) ? input.inventoryIds : [];
@@ -329,10 +364,33 @@ export default class OwnerOutreachService {
         if (!mongoose.Types.ObjectId.isValid(campaignId)) return null;
         const campaign = await OwnerOutreachCampaign.findOne({ _id: campaignId, createdBy: user._id }).lean();
         if (!campaign) return null;
-        const [byState, recipients] = await Promise.all([
+        const [byState, recipients, batchGroups, batches] = await Promise.all([
             OwnerOutreachRecipient.aggregate([{ $match: { campaignId: campaign._id } }, { $group: { _id: { channel: '$channel', eligibility: '$eligibility', dispatchState: '$dispatchState' }, count: { $sum: 1 } } }]),
-            OwnerOutreachRecipient.find({ campaignId: campaign._id }).select('channel maskedEndpoint eligibility dispatchState').limit(200).lean()
+            OwnerOutreachRecipient.find({ campaignId: campaign._id }).select('channel maskedEndpoint eligibility dispatchState').sort({ _id: 1 }).limit(200).lean(),
+            OwnerOutreachBatch.aggregate([
+                { $match: { campaignId: campaign._id } },
+                { $group: { _id: '$status', count: { $sum: 1 } } },
+                { $sort: { _id: 1 } }
+            ]),
+            OwnerOutreachBatch.find({ campaignId: campaign._id })
+                .select('sequence status scheduledAt counts startedAt completedAt lastErrorCode createdAt updatedAt')
+                .sort({ sequence: 1 }).limit(500).lean()
         ]);
-        return { campaign, byState, recipients };
+        // Summary counts cover the complete ledger; the detailed table is a bounded sample.
+        const batchSummary = batchGroups.reduce((summary, group) => {
+            summary.total += group.count;
+            summary.byStatus[group._id] = group.count;
+            return summary;
+        }, { total: 0, byStatus: {} });
+        return {
+            campaign,
+            byState,
+            recipients,
+            batches,
+            batchSummary,
+            batchesTruncated: batchSummary.total > batches.length,
+            dispatchEnabled: false,
+            monitoringMode: 'SCHEDULE_LEDGER_ONLY'
+        };
     }
 }

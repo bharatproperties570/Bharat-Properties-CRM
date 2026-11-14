@@ -9,12 +9,14 @@ import {
     pauseOwnerOutreachCampaign,
     resumeOwnerOutreachCampaign,
     cancelOwnerOutreachCampaign,
-    listOwnerOutreachWhatsAppAccounts
+    listOwnerOutreachWhatsAppAccounts,
+    searchOwnerOutreachInventory
 } from '../controllers/ownerOutreach.controller.js';
 
 const router = express.Router();
 router.use(authenticate);
 router.get('/accounts', listOwnerOutreachWhatsAppAccounts);
+router.get('/inventory-search', searchOwnerOutreachInventory);
 router.post('/audience-preview', previewOwnerOutreachAudience);
 router.post('/campaigns', createOwnerOutreachDraft);
 router.get('/campaigns', listOwnerOutreachCampaigns);
