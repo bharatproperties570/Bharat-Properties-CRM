@@ -41,6 +41,7 @@
         "test:upload-mime": "node --test --test-force-exit --test-concurrency=1 tests/test_upload_video_mime.test.js",
         "test:facebook-oauth": "node --test --test-force-exit --test-concurrency=1 tests/test_facebook_service_oauth.test.js",
         "test:marketing-studio": "node --test --test-force-exit --test-concurrency=1 tests/test_marketing_service_promotestudio.test.js",
+        "test:marketing-os": "node --test --test-force-exit --test-concurrency=1 tests/marketing_os_truthfulness.test.js",
         "test:social-compliance": "node --test --test-force-exit --test-concurrency=1 tests/test_backend_social_compliance_enforcement.test.js",
         "test:phase12": "node --test --test-force-exit --test-concurrency=1 tests/phase12_bulk_deal_import_safety.test.js",
         "test:phase14": "node --test --test-force-exit --test-concurrency=1 tests/phase14_automation_audit_logs.test.js",
