@@ -13,7 +13,7 @@
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
-import axios from 'axios';
+import { fetchApprovedMarketingImage } from './marketing/SafeMarketingMediaFetcher.js';
 
 /**
  * Collect only CRM fields that are explicitly image-bearing.
@@ -190,32 +190,17 @@ class BrandBannerComposer {
                     }
                 }
 
-                // Only HTTPS remote assets are eligible; reject arbitrary protocols.
-                let parsedUrl;
+                // Remote CRM media is fetched only through the allowlisted, DNS-pinned SSRF boundary.
                 try {
-                    parsedUrl = new URL(source);
-                } catch {
-                    continue;
-                }
-                if (parsedUrl.protocol !== 'https:') continue;
-
-                try {
-                    const resp = await axios.get(parsedUrl.toString(), {
-                        responseType: 'arraybuffer',
-                        timeout: 5000,
-                        maxContentLength: 15 * 1024 * 1024,
-                        maxBodyLength: 15 * 1024 * 1024,
-                        headers: { 'User-Agent': 'BharatProperties-CRM/1.0' }
-                    });
-                    const mimeType = String(resp.headers['content-type'] || '').toLowerCase();
-                    if (!mimeType.startsWith('image/')) continue;
-                    const buf = await sharp(Buffer.from(resp.data))
+                    const remoteBuffer = await fetchApprovedMarketingImage(source);
+                    const buf = await sharp(remoteBuffer)
                         .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
                         .jpeg({ quality: 90 })
                         .toBuffer();
                     return `data:image/jpeg;base64,${buf.toString('base64')}`;
                 } catch (netErr) {
-                    console.warn('[BrandBannerComposer] Failed to fetch CRM hero image:', netErr.message);
+                    // Fail closed and continue to the next CRM-native candidate.
+                    console.warn('[BrandBannerComposer] CRM hero media fetch rejected:', netErr.message);
                 }
             }
 
