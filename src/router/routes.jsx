@@ -33,6 +33,7 @@ const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPageV2'));
 const InventoryDetailPage = lazy(() => import('../pages/Inventory/InventoryDetailPage'));
 const InventoryMatchingPage = lazy(() => import('../pages/Inventory/views/InventoryMatchingPage'));
 const InventoryAnalyticsPage = lazy(() => import('../pages/Inventory/InventoryAnalyticsPage'));
+const OwnerOutreachPage = lazy(() => import('../pages/Inventory/OwnerOutreachPage'));
 const MarketingOverviewPage = lazy(() => import('../pages/Marketing/MarketingOverviewPage'));
 const ProfilePage = lazy(() => import('../pages/Profile/ProfilePage'));
 const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPageV2'));
@@ -207,6 +208,7 @@ export const router = createBrowserRouter([
                             { path: '/companies/:id', element: <Navigate to="/company/:id" replace /> },
                             
                             { path: '/inventory', element: <WithNav Component={InventoryPage} /> },
+                            { path: '/inventory/owner-outreach', element: <WithNav Component={OwnerOutreachPage} /> },
                             { path: '/inventory-analytics', element: <WithNav Component={InventoryAnalyticsPage} /> },
                             { path: '/inventory-matching/:id', element: <WithNav Component={InventoryMatchingPage} /> },
                             { path: '/inventory/:id', element: <WithNav Component={InventoryDetailPage} /> },
