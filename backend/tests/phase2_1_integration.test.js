@@ -476,7 +476,7 @@ describe('Phase 2.1 — Database-Backed Integration Tests', () => {
             const mmsModule = await import('mongodb-memory-server');
             MongoMemoryServer = mmsModule.MongoMemoryServer;
         } catch (err) {
-            console.log('⚠️  mongodb-memory-server not available — skipping DB tests');
+            console.log('[WARN] mongodb-memory-server not available — skipping DB tests');
             return;
         }
 

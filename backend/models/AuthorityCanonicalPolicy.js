@@ -114,6 +114,14 @@ const AuthorityCanonicalPolicySchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    lastSyncWorkerLease: {
+        type: String,
+        default: null
+    },
+    lastSyncOperationId: {
+        type: String,
+        default: null
+    },
     isAudited: {
         type: Boolean,
         default: false,

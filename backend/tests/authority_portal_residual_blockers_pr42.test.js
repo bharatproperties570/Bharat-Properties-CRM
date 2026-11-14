@@ -4476,6 +4476,1131 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
                 } finally {
                     AuthorityCanonicalPolicy.updateOne = origPolicyUpdate;
                 }
+
+                // Case 4q: Worker A loses lease; Worker B reclaims; Worker A's delayed Redis failure must not overwrite Worker B's state
+                let delayedFailCalls = 0;
+                const delayedFailProvider = {
+                    async setCanonicalPolicy() {
+                        delayedFailCalls++;
+                        // Worker B reclaims the lease in MongoDB while Worker A is blocked in Redis
+                        await AuditLog.updateOne(
+                            { correlationId: `canonical_sync:${currentPolicy._id.toString()}:delayed-fail-lease-op-77` },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'worker-b-active-lease-token',
+                                    'metadata.leaseExpiresAt': new Date(Date.now() + 10000),
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        // Also simulate Worker B updating the canonical policy to SYNCED
+                        await AuthorityCanonicalPolicy.updateOne(
+                            { _id: currentPolicy._id },
+                            {
+                                $set: {
+                                    redisSyncStatus: 'SYNCED',
+                                    redisSyncError: null,
+                                    lastSyncedAt: new Date()
+                                }
+                            }
+                        );
+                        // Now Worker A's Redis sync fails
+                        const err = new Error('SIMULATED_DELAYED_REDIS_FAILURE');
+                        err.code = 'REDIS_SYNC_FAILED';
+                        throw err;
+                    },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(delayedFailProvider);
+
+                const delayedFailOpId = 'delayed-fail-lease-op-77';
+                const delayedFailReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: delayedFailOpId }
+                };
+                let dfCode = null, dfBody = null;
+                await syncCanonicalPolicy(delayedFailReq, {
+                    status(c) { dfCode = c; return this; },
+                    json(b) { dfBody = b; return this; }
+                });
+                assert.equal(dfCode, 409, 'Delayed Redis failure by stale worker whose lease was lost must fail closed with HTTP 409');
+                assert.equal(dfBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(delayedFailCalls, 1, 'Exactly one Redis publication attempted');
+
+                // Verify Worker A did NOT overwrite Worker B's audit lease or Worker B's policy status
+                const auditAfterDelayedFail = await AuditLog.findOne({
+                    correlationId: `canonical_sync:${currentPolicy._id.toString()}:${delayedFailOpId}`
+                });
+                assert.equal(auditAfterDelayedFail.metadata.leaseOwner, 'worker-b-active-lease-token', 'Worker B leaseOwner must be preserved');
+                assert.notEqual(auditAfterDelayedFail.status, 'failed', 'Audit must not be marked failed by stale Worker A');
+
+                const policyAfterDelayedFail = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(policyAfterDelayedFail.redisSyncStatus, 'SYNCED', 'Worker B SYNCED status must not be overwritten to FAILED by stale Worker A');
+
+                // Case 4r: Redis succeeds but MongoDB policy update throws; retry same operationId and verify actual reconciliation, not early success
+                let r4rRedisPublishes = 0;
+                let r4rRedisState = null;
+                const reconRetryProvider = {
+                    async setCanonicalPolicy(payload) {
+                        r4rRedisPublishes++;
+                        r4rRedisState = {
+                            version: payload.policyVersion,
+                            contentHash: payload.policy.contentHash
+                        };
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return r4rRedisState;
+                    }
+                };
+                setTestQuotaProvider(reconRetryProvider);
+
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'PENDING', redisSyncError: null } }
+                );
+
+                const origUpdateOne4r = AuthorityCanonicalPolicy.updateOne;
+                let updateOne4rAttempts = 0;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        updateOne4rAttempts++;
+                        if (updateOne4rAttempts === 1) {
+                            throw new Error('SIMULATED_DB_DISCONNECTION_DURING_POLICY_SYNC');
+                        }
+                    }
+                    return origUpdateOne4r.call(this, filter, update, options);
+                };
+
+                try {
+                    const retryOpId = 'retry-after-policy-throw-op-88';
+                    const retryReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: retryOpId }
+                    };
+
+                    // First call: Redis succeeds, but MongoDB policy update throws -> 500
+                    let r1Code = null, r1Body = null;
+                    await syncCanonicalPolicy(retryReq, {
+                        status(c) { r1Code = c; return this; },
+                        json(b) { r1Body = b; return this; }
+                    });
+                    assert.equal(r1Code, 500, 'First attempt must fail with 500 when policy update throws');
+                    assert.equal(r1Body.code, 'POLICY_UPDATE_FAILED');
+                    assert.equal(r4rRedisPublishes, 1, 'Redis publication succeeded on first attempt');
+
+                    // Verify DB states: policy is PENDING_RECONCILIATION, audit is PENDING_RECONCILIATION
+                    const polAfterThrow = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polAfterThrow.redisSyncStatus, 'PENDING_RECONCILIATION');
+
+                    const auditAfterThrow = await AuditLog.findOne({
+                        correlationId: `canonical_sync:${currentPolicy._id.toString()}:${retryOpId}`
+                    });
+                    assert.notEqual(auditAfterThrow.metadata.syncPhase, 'COMPLETED', 'Audit must NOT be marked COMPLETED when policy update threw');
+                    assert.equal(auditAfterThrow.metadata.syncPhase, 'PENDING_RECONCILIATION');
+
+                    // Second call: caller retries with the exact same operationId
+                    let r2Code = null, r2Body = null;
+                    await syncCanonicalPolicy(retryReq, {
+                        status(c) { r2Code = c; return this; },
+                        json(b) { r2Body = b; return this; }
+                    });
+                    assert.equal(r2Code, 200, 'Retry must reconcile from Redis and return HTTP 200');
+                    assert.equal(r2Body.success, true);
+                    assert.equal(r2Body.status, 'COMPLETED');
+                    assert.equal(r2Body.reconciled, true, 'Response must confirm reconciliation, not early naive success');
+                    assert.equal(r4rRedisPublishes, 1, 'Exactly one Redis publication must have occurred; reconciliation must not republish');
+
+                    // Verify DB states after reconciliation
+                    const polAfterRecon = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polAfterRecon.redisSyncStatus, 'SYNCED', 'Policy in MongoDB must now be durably SYNCED');
+
+                    const auditAfterRecon = await AuditLog.findOne({
+                        correlationId: `canonical_sync:${currentPolicy._id.toString()}:${retryOpId}`
+                    });
+                    assert.equal(auditAfterRecon.metadata.syncPhase, 'COMPLETED');
+                    assert.equal(auditAfterRecon.metadata.redisSyncStatus, 'SYNCED');
+
+                    // Case 4t: Duplicate retries remain idempotent
+                    let r3Code = null, r3Body = null;
+                    await syncCanonicalPolicy(retryReq, {
+                        status(c) { r3Code = c; return this; },
+                        json(b) { r3Body = b; return this; }
+                    });
+                    assert.equal(r3Code, 200, 'Duplicate retry of completed sync must return 200');
+                    assert.equal(r3Body.idempotent, true, 'Must indicate idempotent response');
+                    assert.equal(r3Body.status, 'COMPLETED');
+                    assert.equal(r4rRedisPublishes, 1, 'Zero additional Redis publications on idempotent retry');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4r;
+                }
+
+                // Case 4s: Zero matched writes on policy update
+                const zeroMatchProvider = {
+                    async setCanonicalPolicy() { return { success: true }; },
+                    async getCanonicalPolicy() { return null; }
+                };
+                setTestQuotaProvider(zeroMatchProvider);
+
+                const origUpdateOne4s = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
+                    }
+                    return origUpdateOne4s.call(this, filter, update, options);
+                };
+
+                try {
+                    const zmOpId = 'zero-matched-policy-op-99';
+                    const zmReq = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: zmOpId }
+                    };
+                    let zmCode = null, zmBody = null;
+                    await syncCanonicalPolicy(zmReq, {
+                        status(c) { zmCode = c; return this; },
+                        json(b) { zmBody = b; return this; }
+                    });
+                    assert.equal(zmCode, 500, 'Zero matched write must fail closed with HTTP 500');
+                    assert.equal(zmBody.code, 'POLICY_NOT_MATCHED');
+
+                    const auditZm = await AuditLog.findOne({
+                        correlationId: `canonical_sync:${currentPolicy._id.toString()}:${zmOpId}`
+                    });
+                    assert.equal(auditZm.metadata.syncPhase, 'PENDING_RECONCILIATION');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4s;
+                }
+
+                // Case 4u: Authoritative Redis record with malformed/missing version or contentHash fails closed
+                let malformedPublishes = 0;
+                const malformedProvider = {
+                    async setCanonicalPolicy() {
+                        malformedPublishes++;
+                        return { success: true };
+                    },
+                    // Return malformed authoritative record (missing version and empty contentHash)
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return { version: null, contentHash: '' };
+                    }
+                };
+                setTestQuotaProvider(malformedProvider);
+
+                // Create an existing audit intent in PENDING_RECONCILIATION state
+                const malformedOpId = 'malformed-redis-record-op-102';
+                const malformedCorrId = `canonical_sync:${currentPolicy._id.toString()}:${malformedOpId}`;
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: malformedCorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    description: 'Simulated pending reconciliation before malformed Redis check',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'PENDING_RECONCILIATION',
+                        syncPhase: 'PENDING_RECONCILIATION',
+                        operationId: malformedOpId
+                    },
+                    status: 'warning'
+                });
+
+                const malformedReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: malformedOpId }
+                };
+                let mfCode = null, mfBody = null;
+                await syncCanonicalPolicy(malformedReq, {
+                    status(c) { mfCode = c; return this; },
+                    json(b) { mfBody = b; return this; }
+                });
+                assert.equal(mfCode, 502, 'Malformed authoritative Redis record must fail closed with HTTP 502');
+                assert.equal(mfBody.code, 'MALFORMED_REDIS_POLICY');
+                assert.equal(mfBody.status, 'PENDING_RECONCILIATION');
+                assert.equal(malformedPublishes, 0, 'Must NEVER publish or republish when authoritative Redis record is malformed');
+
+                const polAfterMalformed = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(polAfterMalformed.redisSyncStatus, 'PENDING_RECONCILIATION', 'Policy must remain PENDING_RECONCILIATION');
+
+                // Case 4v: Lease lost immediately before policy write (atomic FINALIZING CAS rejects stale worker)
+                let race4vPublishes = 0;
+                const race4vOpId = 'race-4v-lease-lost-before-policy';
+                const race4vCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4vOpId}`;
+
+                const race4vProvider = {
+                    async setCanonicalPolicy() {
+                        race4vPublishes++;
+                        // Preempt lease in MongoDB while Worker 1 is publishing to Redis
+                        await AuditLog.updateOne(
+                            { correlationId: race4vCorrId },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'competing-preempted-worker-4v',
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(race4vProvider);
+
+                // Ensure policy is in known non-synced state
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'PENDING', redisSyncError: null } }
+                );
+
+                const race4vReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4vOpId }
+                };
+                let r4vCode = null, r4vBody = null;
+                await syncCanonicalPolicy(race4vReq, {
+                    status(c) { r4vCode = c; return this; },
+                    json(b) { r4vBody = b; return this; }
+                });
+
+                assert.equal(r4vCode, 409, 'Worker that lost lease before policy write must fail with 409');
+                assert.equal(r4vBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(race4vPublishes, 1, 'Redis publication was called before CAS rejection');
+
+                // Verify policy in MongoDB was NOT marked SYNCED
+                const pol4v = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.notEqual(pol4v.redisSyncStatus, 'SYNCED', 'Policy must not be marked SYNCED by stale worker');
+
+                // Verify audit log was not finalized to COMPLETED by stale worker
+                const audit4v = await AuditLog.findOne({ correlationId: race4vCorrId });
+                assert.notEqual(audit4v.metadata?.syncPhase, 'COMPLETED');
+                assert.notEqual(audit4v.status, 'success');
+
+                // Case 4w: Lease lost during failure-marker write (stale failure CAS rejects overwriting active worker)
+                let race4wPublishes = 0;
+                const race4wOpId = 'race-4w-lease-lost-during-failure';
+                const race4wCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4wOpId}`;
+
+                const race4wProvider = {
+                    async setCanonicalPolicy() {
+                        race4wPublishes++;
+                        // Preempt lease in MongoDB during Redis publication
+                        await AuditLog.updateOne(
+                            { correlationId: race4wCorrId },
+                            {
+                                $set: {
+                                    'metadata.leaseOwner': 'new-active-worker-4w',
+                                    'metadata.recoveryClaimedAt': new Date()
+                                }
+                            }
+                        );
+                        // Throw Redis error so worker enters failure path
+                        const err = new Error('REDIS_FAILURE_4W');
+                        err.code = 'REDIS_SYNC_FAILED';
+                        throw err;
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(race4wProvider);
+
+                // Set policy to SYNCED to verify stale worker failure does NOT overwrite SYNCED
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    { $set: { redisSyncStatus: 'SYNCED', redisSyncError: null } }
+                );
+
+                const race4wReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4wOpId }
+                };
+                let r4wCode = null, r4wBody = null;
+                await syncCanonicalPolicy(race4wReq, {
+                    status(c) { r4wCode = c; return this; },
+                    json(b) { r4wBody = b; return this; }
+                });
+
+                assert.equal(r4wCode, 409, 'Stale worker on failure path must fail with 409');
+                assert.equal(r4wBody.code, 'STALE_WORKER_LEASE_LOST');
+                assert.equal(race4wPublishes, 1);
+
+                // Verify policy in MongoDB was NOT overwritten to FAILED
+                const pol4w = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(pol4w.redisSyncStatus, 'SYNCED', 'Active worker SYNCED state must not be overwritten to FAILED by stale worker');
+
+                // Case 4x: Policy version changes during sync (optimistic version fencing aborts write)
+                let race4xPublishes = 0;
+                const race4xOpId = 'race-4x-version-changed-during-sync';
+                const race4xCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4xOpId}`;
+
+                const race4xProvider = {
+                    async setCanonicalPolicy() {
+                        race4xPublishes++;
+                        // Concurrently advance policy version in MongoDB while sync is in flight
+                        await AuthorityCanonicalPolicy.updateOne(
+                            { _id: currentPolicy._id },
+                            {
+                                $set: {
+                                    version: Number(currentPolicy.version) + 1,
+                                    contentHash: 'concurrently-modified-content-hash-v' + (Number(currentPolicy.version) + 1),
+                                    redisSyncStatus: 'PENDING'
+                                }
+                            }
+                        );
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return null;
+                    }
+                };
+                setTestQuotaProvider(race4xProvider);
+
+                const race4xReq = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4xOpId }
+                };
+                let r4xCode = null, r4xBody = null;
+                await syncCanonicalPolicy(race4xReq, {
+                    status(c) { r4xCode = c; return this; },
+                    json(b) { r4xBody = b; return this; }
+                });
+
+                assert.equal(r4xCode, 409, 'Concurrent policy version modification must fail with HTTP 409');
+                assert.equal(r4xBody.code, 'STALE_POLICY_VERSION');
+                assert.equal(race4xPublishes, 1);
+
+                // Verify MongoDB policy version remains the incremented version and was NOT downgraded
+                const pol4x = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(pol4x.version, Number(currentPolicy.version) + 1, 'Policy version must remain the new incremented version');
+
+                // Restore original policy version in MongoDB for subsequent tests
+                await AuthorityCanonicalPolicy.updateOne(
+                    { _id: currentPolicy._id },
+                    {
+                        $set: {
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            redisSyncStatus: 'PENDING'
+                        }
+                    }
+                );
+
+                // Case 4y: Recovery worker succeeds while old worker is still returning
+                let race4yWorker1Entered = false;
+                let race4yWorker2Finished = false;
+                const race4yOpId = 'race-4y-recovery-succeeds-while-old-returns';
+                const race4yCorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4yOpId}`;
+
+                const race4yProvider = {
+                    async setCanonicalPolicy() {
+                        race4yWorker1Entered = true;
+                        // Worker 1 simulates long processing until Worker 2 has recovered and finished
+                        while (!race4yWorker2Finished) {
+                            await new Promise(r => setTimeout(r, 50));
+                        }
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        assert.equal(authoritative, true);
+                        return {
+                            authorityCode,
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            policyReference: currentPolicy.policyReference
+                        };
+                    }
+                };
+                setTestQuotaProvider(race4yProvider);
+
+                const race4yReq1 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4yOpId }
+                };
+                let r4y1Code = null, r4y1Body = null;
+                const worker1Promise = syncCanonicalPolicy(race4yReq1, {
+                    status(c) { r4y1Code = c; return this; },
+                    json(b) { r4y1Body = b; return this; }
+                });
+
+                // Wait until Worker 1 enters setCanonicalPolicy
+                while (!race4yWorker1Entered) {
+                    await new Promise(r => setTimeout(r, 20));
+                }
+
+                // Expire Worker 1's lease in MongoDB to simulate abandonment / lease timeout
+                await AuditLog.updateOne(
+                    { correlationId: race4yCorrId },
+                    {
+                        $set: {
+                            'metadata.leaseExpiresAt': new Date(Date.now() - 2000)
+                        }
+                    }
+                );
+
+                // Worker 2 runs recovery (reconcileExistingIntent -> Case A: Redis already has policy)
+                const race4yReq2 = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4yOpId }
+                };
+                let r4y2Code = null, r4y2Body = null;
+                await syncCanonicalPolicy(race4yReq2, {
+                    status(c) { r4y2Code = c; return this; },
+                    json(b) { r4y2Body = b; return this; }
+                });
+
+                assert.equal(r4y2Code, 200, 'Recovery Worker 2 must succeed with HTTP 200');
+                assert.equal(r4y2Body.status, 'COMPLETED');
+                assert.equal(r4y2Body.reconciled, true);
+
+                // Signal Worker 1 that Worker 2 is done, allowing Worker 1 to wake up and attempt finalization
+                race4yWorker2Finished = true;
+                await worker1Promise;
+
+                assert.equal(r4y1Code, 409, 'Delayed Worker 1 must fail with HTTP 409 STALE_WORKER_LEASE_LOST');
+                assert.equal(r4y1Body.code, 'STALE_WORKER_LEASE_LOST');
+
+                // Verify Worker 2's COMPLETED state was preserved
+                const audit4y = await AuditLog.findOne({ correlationId: race4yCorrId });
+                assert.equal(audit4y.metadata?.syncPhase, 'COMPLETED');
+                assert.equal(audit4y.status, 'success');
+                assert.equal(audit4y.metadata?.reconciled, true);
+
+                const pol4y = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                assert.equal(pol4y.redisSyncStatus, 'SYNCED');
+
+                // Case 4z1: Expire FINALIZING lease during blocked MongoDB policy update
+                const race4z1OpId = 'race-4z1-expire-finalizing-lease-blocked-policy-update';
+                const race4z1CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z1OpId}`;
+
+                let worker1InFinalizingBlock = false;
+                let worker2Finished = false;
+
+                const originalUpdateOne4z1 = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (filter?._id?.toString() === currentPolicy._id.toString() && update?.$set?.redisSyncStatus === 'SYNCED') {
+                        const callerStack = new Error().stack;
+                        if (callerStack.includes('executeRedisSyncAndFinalize') && !worker1InFinalizingBlock) {
+                            worker1InFinalizingBlock = true;
+                            while (!worker2Finished) {
+                                await new Promise(r => setTimeout(r, 20));
+                            }
+                        }
+                    }
+                    return originalUpdateOne4z1.apply(this, arguments);
+                };
+
+                try {
+                    const race4z1Provider = {
+                        async setCanonicalPolicy() {
+                            return { success: true };
+                        },
+                        async getCanonicalPolicy({ authoritative } = {}) {
+                            assert.equal(authoritative, true);
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                    };
+                    setTestQuotaProvider(race4z1Provider);
+
+                    const race4z1Req1 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z1OpId }
+                    };
+                    let r4z1Code = null, r4z1Body = null;
+                    const worker1Promise = syncCanonicalPolicy(race4z1Req1, {
+                        status(c) { r4z1Code = c; return this; },
+                        json(b) { r4z1Body = b; return this; }
+                    });
+
+                    while (!worker1InFinalizingBlock) {
+                        await new Promise(r => setTimeout(r, 20));
+                    }
+
+                    const auditBeforeExpire = await AuditLog.findOne({ correlationId: race4z1CorrId });
+                    assert.equal(auditBeforeExpire.metadata?.syncPhase, 'FINALIZING', 'Worker 1 must have entered FINALIZING phase');
+                    const worker1LeaseToken = auditBeforeExpire.metadata?.leaseOwner;
+
+                    // Expire Worker 1 lease
+                    await AuditLog.updateOne(
+                        { correlationId: race4z1CorrId },
+                        {
+                            $set: {
+                                'metadata.leaseExpiresAt': new Date(Date.now() - 2000)
+                            }
+                        }
+                    );
+
+                    // Worker 2 calls syncCanonicalPolicy (reconciliation Case A)
+                    const race4z1Req2 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z1OpId }
+                    };
+                    let r4z2Code = null, r4z2Body = null;
+                    await syncCanonicalPolicy(race4z1Req2, {
+                        status(c) { r4z2Code = c; return this; },
+                        json(b) { r4z2Body = b; return this; }
+                    });
+
+                    assert.equal(r4z2Code, 200, 'Recovery Worker 2 must succeed with HTTP 200');
+                    assert.equal(r4z2Body.status, 'COMPLETED');
+                    assert.equal(r4z2Body.reconciled, true);
+
+                    const auditAfterWorker2 = await AuditLog.findOne({ correlationId: race4z1CorrId });
+                    assert.equal(auditAfterWorker2.metadata?.syncPhase, 'COMPLETED');
+                    const worker2LeaseToken = auditAfterWorker2.metadata?.leaseOwner;
+                    assert.notEqual(worker1LeaseToken, worker2LeaseToken);
+
+                    const polAfterWorker2 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polAfterWorker2.lastSyncWorkerLease, worker2LeaseToken);
+
+                    // Unblock Worker 1
+                    worker2Finished = true;
+                    await worker1Promise;
+
+                    assert.equal(r4z1Code, 409, 'Delayed Worker 1 must fail with HTTP 409 STALE_WORKER_LEASE_LOST');
+                    assert.equal(r4z1Body.code, 'STALE_WORKER_LEASE_LOST');
+
+                    // Prove Worker 1 could not modify Worker 2 result
+                    const polFinal = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal.lastSyncWorkerLease, worker2LeaseToken);
+                    assert.equal(polFinal.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal = await AuditLog.findOne({ correlationId: race4z1CorrId });
+                    assert.equal(auditFinal.metadata?.leaseOwner, worker2LeaseToken);
+                    assert.equal(auditFinal.metadata?.syncPhase, 'COMPLETED');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = originalUpdateOne4z1;
+                }
+
+                // Case 4z2: Redis malformed and unavailable races with competing recovery workers
+                const race4z2OpId = 'race-4z2-redis-malformed-unavailable';
+                const race4z2CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z2OpId}`;
+
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: race4z2CorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    userName: 'Admin',
+                    description: 'Initial failed sync',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'FAILED',
+                        syncPhase: 'FAILED',
+                        leaseOwner: 'old-stale-worker',
+                        leaseExpiresAt: new Date(Date.now() - 5000),
+                        operationId: race4z2OpId
+                    },
+                    status: 'failure'
+                });
+
+                let workerAEnteredRedis = false;
+                let workerBDone = false;
+                const race4z2Provider = {
+                    async setCanonicalPolicy() {
+                        return { success: true };
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        assert.equal(authoritative, true);
+                        workerAEnteredRedis = true;
+                        while (!workerBDone) {
+                            await new Promise(r => setTimeout(r, 20));
+                        }
+                        return { version: 'NOT_A_NUMBER', contentHash: '' };
+                    }
+                };
+                setTestQuotaProvider(race4z2Provider);
+
+                const race4z2ReqA = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4z2OpId }
+                };
+                let r4z2ACode = null, r4z2ABody = null;
+                const workerAPromise = syncCanonicalPolicy(race4z2ReqA, {
+                    status(c) { r4z2ACode = c; return this; },
+                    json(b) { r4z2ABody = b; return this; }
+                });
+
+                while (!workerAEnteredRedis) {
+                    await new Promise(r => setTimeout(r, 20));
+                }
+
+                // Worker B attempts recovery while Worker A holds lease
+                const race4z2ReqB = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: race4z2OpId }
+                };
+                let r4z2BCode = null, r4z2BBody = null;
+                await syncCanonicalPolicy(race4z2ReqB, {
+                    status(c) { r4z2BCode = c; return this; },
+                    json(b) { r4z2BBody = b; return this; }
+                });
+
+                assert.equal(r4z2BCode, 202, 'Competing Worker B must receive 202 OPERATION_IN_PROGRESS while Worker A is recovering');
+                assert.equal(r4z2BBody.code, 'OPERATION_IN_PROGRESS');
+
+                workerBDone = true;
+                await workerAPromise;
+
+                assert.equal(r4z2ACode, 502, 'Worker A must fail closed with 502 MALFORMED_REDIS_POLICY');
+                assert.equal(r4z2ABody.code, 'MALFORMED_REDIS_POLICY');
+                assert.equal(r4z2ABody.status, 'PENDING_RECONCILIATION');
+
+                const audit4z2 = await AuditLog.findOne({ correlationId: race4z2CorrId });
+                assert.equal(audit4z2.metadata?.syncPhase, 'PENDING_RECONCILIATION');
+                assert.equal(audit4z2.metadata?.redisSyncStatus, 'MALFORMED_REDIS_POLICY');
+
+                // Case 4z3: Transaction rollback and idempotent retry
+                const race4z3OpId = 'race-4z3-transaction-rollback-and-retry';
+                const race4z3CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z3OpId}`;
+
+                let attemptNumber = 0;
+                const origUpdate4z3 = AuthorityCanonicalPolicy.updateOne;
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (filter?._id?.toString() === currentPolicy._id.toString() && update?.$set?.redisSyncStatus === 'SYNCED') {
+                        attemptNumber++;
+                        if (attemptNumber === 1) {
+                            const err = new Error('TRANSACTION_MOCK_FAILURE');
+                            err.code = 'POLICY_UPDATE_FAILED';
+                            throw err;
+                        }
+                    }
+                    return origUpdate4z3.apply(this, arguments);
+                };
+
+                try {
+                    const race4z3Provider = {
+                        async setCanonicalPolicy() {
+                            return { success: true };
+                        },
+                        async getCanonicalPolicy({ authoritative } = {}) {
+                            return {
+                                authorityCode,
+                                version: currentPolicy.version,
+                                contentHash: currentPolicy.contentHash,
+                                policyReference: currentPolicy.policyReference
+                            };
+                        }
+                    };
+                    setTestQuotaProvider(race4z3Provider);
+
+                    const race4z3Req1 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z3OpId }
+                    };
+                    let r4z3Code1 = null, r4z3Body1 = null;
+                    await syncCanonicalPolicy(race4z3Req1, {
+                        status(c) { r4z3Code1 = c; return this; },
+                        json(b) { r4z3Body1 = b; return this; }
+                    });
+
+                    assert.equal(r4z3Code1, 500, 'First attempt must fail with 500 POLICY_UPDATE_FAILED');
+                    assert.equal(r4z3Body1.code, 'POLICY_UPDATE_FAILED');
+
+                    const polAfterFail = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.notEqual(polAfterFail.redisSyncStatus, 'SYNCED');
+
+                    // Retry with the exact same operationId
+                    const race4z3Req2 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z3OpId }
+                    };
+                    let r4z3Code2 = null, r4z3Body2 = null;
+                    await syncCanonicalPolicy(race4z3Req2, {
+                        status(c) { r4z3Code2 = c; return this; },
+                        json(b) { r4z3Body2 = b; return this; }
+                    });
+
+                    assert.equal(r4z3Code2, 200, 'Retry must recover and succeed with HTTP 200');
+                    assert.equal(r4z3Body2.status, 'COMPLETED');
+                    assert.equal(r4z3Body2.reconciled, true);
+
+                    const polFinal3 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal3.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal3 = await AuditLog.findOne({ correlationId: race4z3CorrId });
+                    assert.equal(auditFinal3.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal3.status, 'success');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdate4z3;
+                }
+
+                // Case 4z4: Force transaction to remain active for longer than 1.5s (heartbeat does not create false STALE_WORKER_LEASE_LOST)
+                const race4z4OpId = 'race-4z4-transaction-longer-than-heartbeat';
+                const race4z4CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z4OpId}`;
+
+                const origStartSession4z4 = mongoose.startSession;
+                process.env.TEST_FORCE_MONGO_TRANSACTIONS = 'true';
+
+                let heartbeatFiredDuringTx = false;
+                const origFindOneAndUpdate4z4 = AuditLog.findOneAndUpdate;
+
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        heartbeatFiredDuringTx = true;
+                    }
+                    return origFindOneAndUpdate4z4.apply(this, arguments);
+                };
+
+                mongoose.startSession = async function () {
+                    const realSession = await origStartSession4z4.call(mongoose);
+                    realSession.withTransaction = async function (fn) {
+                        // Delay transaction for 1650ms (exceeding HEARTBEAT_INTERVAL_MS = 1500ms)
+                        await new Promise(r => setTimeout(r, 1650));
+                        return fn();
+                    };
+                    return realSession;
+                };
+
+                try {
+                    const race4z4Provider = {
+                        async setCanonicalPolicy() { return { success: true }; },
+                        async getCanonicalPolicy() { return null; }
+                    };
+                    setTestQuotaProvider(race4z4Provider);
+
+                    const race4z4Req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z4OpId }
+                    };
+                    let r4z4Code = null, r4z4Body = null;
+                    await syncCanonicalPolicy(race4z4Req, {
+                        status(c) { r4z4Code = c; return this; },
+                        json(b) { r4z4Body = b; return this; }
+                    });
+
+                    assert.equal(r4z4Code, 200, 'Transaction taking >1.5s must succeed with HTTP 200 without false STALE_WORKER_LEASE_LOST');
+                    assert.equal(r4z4Body.status, 'COMPLETED');
+
+                    const polFinal4 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal4.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal4 = await AuditLog.findOne({ correlationId: race4z4CorrId });
+                    assert.equal(auditFinal4.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal4.status, 'success');
+                } finally {
+                    delete process.env.TEST_FORCE_MONGO_TRANSACTIONS;
+                    mongoose.startSession = origStartSession4z4;
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate4z4;
+                }
+
+                // Case 4z5: WriteConflict (code 112) during heartbeat does NOT cause false STALE_WORKER_LEASE_LOST
+                const race4z5OpId = 'race-4z5-heartbeat-write-conflict';
+                const race4z5CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z5OpId}`;
+
+                let hbWriteConflictThrown = false;
+                const origFindOneAndUpdate4z5 = AuditLog.findOneAndUpdate;
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        hbWriteConflictThrown = true;
+                        const err = new Error('WriteConflict error: parallel transaction in progress');
+                        err.code = 112;
+                        err.codeName = 'WriteConflict';
+                        throw err;
+                    }
+                    return origFindOneAndUpdate4z5.apply(this, arguments);
+                };
+
+                try {
+                    const race4z5Provider = {
+                        async setCanonicalPolicy() {
+                            // Delay in publication so heartbeat interval triggers and throws WriteConflict (112)
+                            await new Promise(r => setTimeout(r, 1600));
+                            return { success: true };
+                        },
+                        async getCanonicalPolicy() { return null; }
+                    };
+                    setTestQuotaProvider(race4z5Provider);
+
+                    const race4z5Req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z5OpId }
+                    };
+                    let r4z5Code = null, r4z5Body = null;
+                    await syncCanonicalPolicy(race4z5Req, {
+                        status(c) { r4z5Code = c; return this; },
+                        json(b) { r4z5Body = b; return this; }
+                    });
+
+                    assert.equal(hbWriteConflictThrown, true, 'Heartbeat renewal must have triggered and thrown WriteConflict');
+                    assert.equal(r4z5Code, 200, 'WriteConflict in heartbeat must NOT cause false STALE_WORKER_LEASE_LOST; worker must complete with 200');
+                    assert.equal(r4z5Body.status, 'COMPLETED');
+
+                    const polFinal5 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal5.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal5 = await AuditLog.findOne({ correlationId: race4z5CorrId });
+                    assert.equal(auditFinal5.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal5.status, 'success');
+                } finally {
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate4z5;
+                }
+
+                // Case 4z6: Case A recovery with slow MongoDB writes (lease renewal maintains validity)
+                const race4z6OpId = 'race-4z6-case-a-slow-write-recovery';
+                const race4z6CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z6OpId}`;
+
+                // Create initial audit in failed/abandoned state
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: race4z6CorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    userName: 'Admin',
+                    description: 'Abandoned sync intent',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'FAILED',
+                        syncPhase: 'FAILED',
+                        leaseOwner: 'prior-worker-token',
+                        leaseExpiresAt: new Date(Date.now() - 5000),
+                        operationId: race4z6OpId
+                    },
+                    status: 'failure'
+                });
+
+                // Redis already holds current policy (Case A)
+                const race4z6Provider = {
+                    async setCanonicalPolicy() {
+                        throw new Error('Should not publish to Redis in Case A');
+                    },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        assert.equal(authoritative, true);
+                        return {
+                            authorityCode,
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            policyReference: currentPolicy.policyReference
+                        };
+                    }
+                };
+                setTestQuotaProvider(race4z6Provider);
+
+                let reconHeartbeatFired = false;
+                const origFindOneAndUpdate4z6 = AuditLog.findOneAndUpdate;
+                const origUpdateOne4z6 = AuthorityCanonicalPolicy.updateOne;
+
+                AuditLog.findOneAndUpdate = function (filter, update, options) {
+                    if (update?.$set && update.$set['metadata.lastHeartbeatAt']) {
+                        reconHeartbeatFired = true;
+                    }
+                    return origFindOneAndUpdate4z6.apply(this, arguments);
+                };
+
+                // Slow down policy update during Case A reconciliation by 1600ms (> 1500ms heartbeat interval)
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (update?.$set?.redisSyncStatus === 'SYNCED') {
+                        await new Promise(r => setTimeout(r, 1600));
+                    }
+                    return origUpdateOne4z6.apply(this, arguments);
+                };
+
+                try {
+                    const race4z6Req = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z6OpId }
+                    };
+                    let r4z6Code = null, r4z6Body = null;
+                    await syncCanonicalPolicy(race4z6Req, {
+                        status(c) { r4z6Code = c; return this; },
+                        json(b) { r4z6Body = b; return this; }
+                    });
+
+                    assert.equal(r4z6Code, 200, 'Case A recovery with slow MongoDB write must succeed with HTTP 200');
+                    assert.equal(r4z6Body.status, 'COMPLETED');
+                    assert.equal(r4z6Body.reconciled, true);
+                    assert.equal(reconHeartbeatFired, true, 'Reconciliation heartbeat must have fired during slow write to renew lease');
+
+                    const polFinal6 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(polFinal6.redisSyncStatus, 'SYNCED');
+
+                    const auditFinal6 = await AuditLog.findOne({ correlationId: race4z6CorrId });
+                    assert.equal(auditFinal6.metadata?.syncPhase, 'COMPLETED');
+                    assert.equal(auditFinal6.status, 'success');
+                } finally {
+                    AuditLog.findOneAndUpdate = origFindOneAndUpdate4z6;
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4z6;
+                }
+
+                // Case 4z7: Stale recovery worker cannot overwrite another worker's policy or audit state
+                const race4z7OpId = 'race-4z7-stale-worker-cannot-overwrite';
+                const race4z7CorrId = `canonical_sync:${currentPolicy._id.toString()}:${race4z7OpId}`;
+
+                await AuditLog.create({
+                    eventType: 'canonical_policy_synced',
+                    correlationId: race4z7CorrId,
+                    targetType: 'authority_canonical_policy',
+                    targetId: currentPolicy._id,
+                    userId: approverUser._id,
+                    userName: 'Admin',
+                    description: 'Initial intent for preemption test',
+                    metadata: {
+                        authorityCode,
+                        version: currentPolicy.version,
+                        contentHash: currentPolicy.contentHash,
+                        redisSyncStatus: 'FAILED',
+                        syncPhase: 'FAILED',
+                        leaseOwner: 'stale-worker-init',
+                        leaseExpiresAt: new Date(Date.now() - 5000),
+                        operationId: race4z7OpId
+                    },
+                    status: 'failure'
+                });
+
+                const race4z7Provider = {
+                    async setCanonicalPolicy() { return { success: true }; },
+                    async getCanonicalPolicy({ authoritative } = {}) {
+                        return {
+                            authorityCode,
+                            version: currentPolicy.version,
+                            contentHash: currentPolicy.contentHash,
+                            policyReference: currentPolicy.policyReference
+                        };
+                    }
+                };
+                setTestQuotaProvider(race4z7Provider);
+
+                let worker1InReconFinalize = false;
+                let worker2FinishedRecon = false;
+                const origUpdateOne4z7 = AuthorityCanonicalPolicy.updateOne;
+
+                AuthorityCanonicalPolicy.updateOne = async function (filter, update, options) {
+                    if (!worker1InReconFinalize && update?.$set?.redisSyncStatus === 'SYNCED') {
+                        worker1InReconFinalize = true;
+                        while (!worker2FinishedRecon) {
+                            await new Promise(r => setTimeout(r, 20));
+                        }
+                    }
+                    return origUpdateOne4z7.apply(this, arguments);
+                };
+
+                try {
+                    // Worker 1 begins Case A reconciliation
+                    const race4z7Req1 = {
+                        params: { authorityCode },
+                        user: approverUser,
+                        ip: '127.0.0.1',
+                        get: () => 'test-agent',
+                        body: { operationId: race4z7OpId }
+                    };
+                    let r4z7Code1 = null, r4z7Body1 = null;
+                    const worker1Promise = syncCanonicalPolicy(race4z7Req1, {
+                        status(c) { r4z7Code1 = c; return this; },
+                        json(b) { r4z7Body1 = b; return this; }
+                    });
+
+                    while (!worker1InReconFinalize) {
+                        await new Promise(r => setTimeout(r, 20));
+                    }
+
+                    // Preempt Worker 1: expire lease and simulate Worker 2 taking over
+                    const worker2Token = 'worker-2-preempting-token-4z7';
+                    await AuditLog.updateOne(
+                        { correlationId: race4z7CorrId },
+                        {
+                            $set: {
+                                'metadata.leaseOwner': worker2Token,
+                                'metadata.syncPhase': 'COMPLETED',
+                                'metadata.redisSyncStatus': 'SYNCED',
+                                status: 'success'
+                            }
+                        }
+                    );
+                    await AuthorityCanonicalPolicy.updateOne(
+                        { _id: currentPolicy._id },
+                        {
+                            $set: {
+                                lastSyncWorkerLease: worker2Token,
+                                redisSyncStatus: 'SYNCED'
+                            }
+                        }
+                    );
+
+                    // Unblock Worker 1
+                    worker2FinishedRecon = true;
+                    await worker1Promise;
+
+                    // Worker 1 must fail closed with 409 STALE_WORKER_LEASE_LOST
+                    assert.equal(r4z7Code1, 409, 'Delayed Worker 1 must fail with 409 STALE_WORKER_LEASE_LOST');
+                    assert.equal(r4z7Body1.code, 'STALE_WORKER_LEASE_LOST');
+
+                    // Prove Worker 1 did not overwrite Worker 2's lease or policy state
+                    const finalPol7 = await AuthorityCanonicalPolicy.findById(currentPolicy._id);
+                    assert.equal(finalPol7.lastSyncWorkerLease, worker2Token, 'Policy lease must remain owned by Worker 2');
+
+                    const finalAudit7 = await AuditLog.findOne({ correlationId: race4z7CorrId });
+                    assert.equal(finalAudit7.metadata?.leaseOwner, worker2Token, 'Audit lease must remain owned by Worker 2');
+                } finally {
+                    AuthorityCanonicalPolicy.updateOne = origUpdateOne4z7;
+                }
             } finally {
                 setTestQuotaProvider(null);
             }
@@ -5237,5 +6362,821 @@ test('--- PHASE 4.4.4 PR #42 RESIDUAL PRODUCTION BLOCKERS SUITE ---', async (t) 
             const committedWm = await AuthorityGlobalFenceWatermark.findOne({ authorityCode });
             assert.equal(committedWm.lastCommittedFenceToken, 15);
         }
+    });
+
+    await t.test('36. Request-Time MongoDB DDL Removal & Idempotency Index Verification (Finding 1)', async (t36) => {
+        const authorityCode = 'HSVP';
+        const approverRole = await Role.create({
+            name: `Approver Role DDL Test ${Date.now()}`,
+            department: 'inventory',
+            approvalRights: { manageAuthoritySettings: true },
+            moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+        });
+        const approverUser = await User.create({
+            fullName: 'DDL Safety Tester',
+            email: `ddl-safety-${Date.now()}@test.internal`,
+            password: 'hashed-password-123',
+            role: approverRole._id,
+            department: 'inventory',
+            isActive: true
+        });
+
+        await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+        const auditLogDoc = await AuditLog.create({
+            eventType: 'canonical_policy_rotated',
+            targetType: 'authority_canonical_policy',
+            userId: approverUser._id,
+            userName: 'Safety Admin',
+            description: 'Initial Canonical Policy Rotation',
+            status: 'success'
+        });
+
+        const policyDoc = await AuthorityCanonicalPolicy.create({
+            authorityCode,
+            policyReference: 'HSVP/RATE/01',
+            version: 1,
+            contentHash: 'hash-v1-initial',
+            minIntervalMs: 15000,
+            maxRequestsPerMinute: 10,
+            maxRequestsPerHour: 100,
+            maxRequestsPerDay: 500,
+            redisSyncStatus: 'PENDING_RECONCILIATION',
+            effectiveFrom: new Date(Date.now() - 3600000),
+            expiresAt: new Date(Date.now() + 86400000),
+            reviewedBy: new mongoose.Types.ObjectId(),
+            approvedBy: approverUser._id,
+            isActive: true,
+            isAudited: true,
+            auditStatus: 'AUDITED',
+            auditLogId: auditLogDoc._id
+        });
+        await AuditLog.updateOne({ _id: auditLogDoc._id }, { $set: { targetId: policyDoc._id } });
+
+        await t36.test('36.1: syncCanonicalPolicy fails closed with 500 IDEMPOTENCY_INDEX_UNAVAILABLE if unique index is missing, and never executes DDL', async () => {
+            let ensureCalled = 0;
+            let createIndexCalled = 0;
+            let createCollectionCalled = 0;
+
+            const origEnsure = AuditLog.ensureIdempotencyIndex;
+            const origIndexes = AuditLog.collection.indexes;
+            const origCreateIndex = AuditLog.collection.createIndex;
+            const origCreateCollection = mongoose.connection.db ? mongoose.connection.db.createCollection : null;
+
+            AuditLog.ensureIdempotencyIndex = async () => { ensureCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            AuditLog.collection.createIndex = async () => { createIndexCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            if (mongoose.connection.db) {
+                mongoose.connection.db.createCollection = async () => { createCollectionCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            }
+
+            // Return indexes without unique_audit_event_correlation
+            AuditLog.collection.indexes = async () => [
+                { v: 2, key: { _id: 1 }, name: '_id_' },
+                { v: 2, key: { correlationId: 1 }, name: 'correlationId_1' }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `ddl-missing-idx-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 500, 'Must return HTTP 500 when unique idempotency index is missing');
+                assert.equal(responseBody.code, 'IDEMPOTENCY_INDEX_UNAVAILABLE', 'Code must be IDEMPOTENCY_INDEX_UNAVAILABLE');
+                assert.equal(ensureCalled, 0, 'ensureIdempotencyIndex must NEVER be called from HTTP request path');
+                assert.equal(createIndexCalled, 0, 'createIndex must NEVER be called from HTTP request path');
+                assert.equal(createCollectionCalled, 0, 'createCollection must NEVER be called from HTTP request path');
+            } finally {
+                AuditLog.ensureIdempotencyIndex = origEnsure;
+                AuditLog.collection.indexes = origIndexes;
+                AuditLog.collection.createIndex = origCreateIndex;
+                if (mongoose.connection.db && origCreateCollection) {
+                    mongoose.connection.db.createCollection = origCreateCollection;
+                }
+            }
+        });
+
+        await t36.test('36.2: syncCanonicalPolicy fails closed with 500 IDEMPOTENCY_INDEX_UNAVAILABLE if index spec is invalid', async () => {
+            let ensureCalled = 0;
+            let createIndexCalled = 0;
+
+            const origEnsure = AuditLog.ensureIdempotencyIndex;
+            const origIndexes = AuditLog.collection.indexes;
+            const origCreateIndex = AuditLog.collection.createIndex;
+
+            AuditLog.ensureIdempotencyIndex = async () => { ensureCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            AuditLog.collection.createIndex = async () => { createIndexCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+
+            // Index exists by name, but unique is false
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: false
+                }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `ddl-invalid-spec-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 500, 'Must return HTTP 500 when index spec is invalid');
+                assert.equal(responseBody.code, 'IDEMPOTENCY_INDEX_UNAVAILABLE');
+                assert.match(responseBody.message, /specification invalid/i);
+                assert.equal(ensureCalled, 0, 'ensureIdempotencyIndex must NEVER be called on invalid spec');
+                assert.equal(createIndexCalled, 0, 'createIndex must NEVER be called on invalid spec');
+            } finally {
+                AuditLog.ensureIdempotencyIndex = origEnsure;
+                AuditLog.collection.indexes = origIndexes;
+                AuditLog.collection.createIndex = origCreateIndex;
+            }
+        });
+
+        await t36.test('36.3: Valid index passes verification and executes sync without running any DDL', async () => {
+            let ensureCalled = 0;
+            let createIndexCalled = 0;
+
+            const origEnsure = AuditLog.ensureIdempotencyIndex;
+            const origIndexes = AuditLog.collection.indexes;
+            const origCreateIndex = AuditLog.collection.createIndex;
+
+            AuditLog.ensureIdempotencyIndex = async () => { ensureCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+            AuditLog.collection.createIndex = async () => { createIndexCalled++; throw new Error('FORBIDDEN_DDL_CALL'); };
+
+            // Return fully valid index specification
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } }
+                }
+            ];
+
+            const mockQuota = {
+                async setCanonicalPolicy() { return { success: true }; },
+                async getCanonicalPolicy({ authoritative } = {}) {
+                    return {
+                        authorityCode,
+                        version: policyDoc.version,
+                        contentHash: policyDoc.contentHash
+                    };
+                }
+            };
+            setTestQuotaProvider(mockQuota);
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `valid-index-test-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 200, 'Must succeed with HTTP 200 when index is valid');
+                assert.equal(ensureCalled, 0, 'ensureIdempotencyIndex must NEVER be called');
+                assert.equal(createIndexCalled, 0, 'createIndex must NEVER be called');
+            } finally {
+                setTestQuotaProvider(null);
+                AuditLog.ensureIdempotencyIndex = origEnsure;
+                AuditLog.collection.indexes = origIndexes;
+                AuditLog.collection.createIndex = origCreateIndex;
+            }
+        });
+
+        await t36.test('36.4: Zero alteration or deletion of existing audit records during preflight and execution', async () => {
+            const existingAudit = await AuditLog.create({
+                eventType: 'canonical_policy_synced',
+                correlationId: `existing-preserve-${Date.now()}`,
+                targetType: 'authority_canonical_policy',
+                targetId: policyDoc._id,
+                userId: approverUser._id,
+                userName: 'Safety Admin',
+                description: 'Pre-existing audit record',
+                metadata: { authorityCode, testKey: 'originalValue' },
+                status: 'success'
+            });
+
+            const mockQuota = {
+                async setCanonicalPolicy() { return { success: true }; },
+                async getCanonicalPolicy({ authoritative } = {}) {
+                    return {
+                        authorityCode,
+                        version: policyDoc.version,
+                        contentHash: policyDoc.contentHash
+                    };
+                }
+            };
+            setTestQuotaProvider(mockQuota);
+
+            const origIndexes = AuditLog.collection.indexes;
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } }
+                }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: `preserve-test-${Date.now()}` }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+                assert.equal(statusCode, 200);
+
+                const fetched = await AuditLog.findById(existingAudit._id);
+                assert.ok(fetched, 'Existing audit record must still exist');
+                assert.equal(fetched.metadata?.testKey, 'originalValue', 'Existing audit metadata must not be altered');
+                assert.equal(fetched.status, 'success');
+            } finally {
+                setTestQuotaProvider(null);
+                AuditLog.collection.indexes = origIndexes;
+            }
+        });
+    });
+
+    await t.test('37. Strict Malformed Redis Policy Handling & Readiness Integration (Finding 2 & 3)', async (t37) => {
+        const authorityCode = 'HSVP';
+
+        // 37.1: Redis key absent (null returned by HGETALL) returns null in getCanonicalPolicy({ authoritative: true })
+        await t37.test('37.1: Redis key absent returns null in authoritative getCanonicalPolicy', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return null; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            const policy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            assert.equal(policy, null, 'Authoritative read of absent key must return null');
+        });
+
+        // 37.2: Empty hash ({} returned by HGETALL) returns null in getCanonicalPolicy({ authoritative: true })
+        await t37.test('37.2: Empty hash returns null in authoritative getCanonicalPolicy', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return {}; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            const policy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            assert.equal(policy, null, 'Authoritative read of empty hash must return null');
+        });
+
+        // 37.3: Non-empty hash missing version throws MALFORMED_REDIS_POLICY
+        await t37.test('37.3: Non-empty hash missing version throws MALFORMED_REDIS_POLICY', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return { contentHash: 'abc12345', ref: 'HSVP/RATE/01' }; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => {
+                    assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                    assert.match(err.message, /missing or invalid version/i);
+                    return true;
+                }
+            );
+        });
+
+        // 37.4: Non-empty hash with empty string version throws MALFORMED_REDIS_POLICY
+        await t37.test('37.4: Non-empty hash with empty string version throws MALFORMED_REDIS_POLICY', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return { version: '', contentHash: 'abc12345' }; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => {
+                    assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                    assert.match(err.message, /missing or invalid version/i);
+                    return true;
+                }
+            );
+        });
+
+        // 37.5: Non-empty hash with invalid version throws MALFORMED_REDIS_POLICY
+        await t37.test('37.5: Non-empty hash with invalid version (non-numeric, <= 0, float) throws MALFORMED_REDIS_POLICY', async () => {
+            const invalidVersions = ['not-a-number', '-2', '0', '1.5', 'true'];
+            for (const invVer of invalidVersions) {
+                const mockClient = {
+                    status: 'ready',
+                    async ping() { return 'PONG'; },
+                    async hgetall(key) { return { version: invVer, contentHash: 'abc12345' }; }
+                };
+                const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+                await assert.rejects(
+                    async () => {
+                        await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                    },
+                    (err) => {
+                        assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                        return true;
+                    },
+                    `Version '${invVer}' must throw MALFORMED_REDIS_POLICY`
+                );
+            }
+        });
+
+        // 37.6: Non-empty hash missing contentHash throws MALFORMED_REDIS_POLICY
+        await t37.test('37.6: Non-empty hash missing contentHash throws MALFORMED_REDIS_POLICY', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) { return { version: '1' }; }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => {
+                    assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                    assert.match(err.message, /missing or invalid.*contentHash/i);
+                    return true;
+                }
+            );
+        });
+
+        // 37.7: Non-empty hash with whitespace or empty contentHash throws MALFORMED_REDIS_POLICY
+        await t37.test('37.7: Non-empty hash with empty string or whitespace contentHash throws MALFORMED_REDIS_POLICY', async () => {
+            const invalidHashes = ['', '   ', '\t\n'];
+            for (const invHash of invalidHashes) {
+                const mockClient = {
+                    status: 'ready',
+                    async ping() { return 'PONG'; },
+                    async hgetall(key) { return { version: '1', contentHash: invHash }; }
+                };
+                const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+                await assert.rejects(
+                    async () => {
+                        await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                    },
+                    (err) => {
+                        assert.equal(err.code, 'MALFORMED_REDIS_POLICY');
+                        return true;
+                    },
+                    `contentHash '${invHash}' must throw MALFORMED_REDIS_POLICY`
+                );
+            }
+        });
+
+        // 37.8: Valid canonical policy parses correctly
+        await t37.test('37.8: Valid canonical policy returns parsed typed object', async () => {
+            const mockClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; },
+                async hgetall(key) {
+                    return {
+                        version: '3',
+                        contentHash: 'valid-hash-67890',
+                        ref: 'HSVP/RATE/01',
+                        minIntervalMs: '12000',
+                        maxPerMin: '8',
+                        maxPerHour: '80',
+                        maxPerDay: '800',
+                        approvedBy: '507f1f77bcf86cd799439011',
+                        updatedAt: '1700000000'
+                    };
+                }
+            };
+            const provider = new RedisPortalQuotaProvider(mockClient, { allowInMemoryFallback: false, testMode: false });
+            const policy = await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+            assert.ok(policy, 'Must return parsed policy');
+            assert.equal(policy.authorityCode, authorityCode);
+            assert.equal(policy.version, 3);
+            assert.equal(policy.contentHash, 'valid-hash-67890');
+            assert.equal(policy.policyReference, 'HSVP/RATE/01');
+            assert.equal(policy.minIntervalMs, 12000);
+            assert.equal(policy.maxRequestsPerMinute, 8);
+            assert.equal(policy.maxRequestsPerHour, 80);
+            assert.equal(policy.maxRequestsPerDay, 800);
+            assert.equal(policy.approvedBy, '507f1f77bcf86cd799439011');
+            assert.equal(policy.updatedAt, 1700000000);
+        });
+
+        // 37.9: RedisPortalQuotaProvider.isRedisReady contracts: PONG, unexpected string, empty string, rejection, timeout, disconnected
+        await t37.test('37.9: RedisPortalQuotaProvider.isRedisReady strictly validates PONG and rejects unexpected string, empty, error, timeout, disconnected', async () => {
+            // PONG => ready
+            const readyClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; }
+            };
+            const pReady = new RedisPortalQuotaProvider(readyClient);
+            assert.equal(await pReady.isRedisReady(100), true, 'PONG must report ready=true');
+
+            // Unexpected string => not ready
+            const unexpectedClient = {
+                status: 'ready',
+                async ping() { return 'UNEXPECTED_STRING_RESPONSE'; }
+            };
+            const pUnexpected = new RedisPortalQuotaProvider(unexpectedClient);
+            assert.equal(await pUnexpected.isRedisReady(100), false, 'Unexpected string must report ready=false');
+
+            // Empty string => not ready
+            const emptyStrClient = {
+                status: 'ready',
+                async ping() { return ''; }
+            };
+            const pEmpty = new RedisPortalQuotaProvider(emptyStrClient);
+            assert.equal(await pEmpty.isRedisReady(100), false, 'Empty string must report ready=false');
+
+            // PING rejection => not ready
+            const rejectingClient = {
+                status: 'ready',
+                async ping() { throw new Error('CONNECTION_RESET_BY_PEER'); }
+            };
+            const pReject = new RedisPortalQuotaProvider(rejectingClient);
+            assert.equal(await pReject.isRedisReady(100), false, 'PING rejection must report ready=false');
+
+            // PING timeout => not ready
+            const timeoutClient = {
+                status: 'ready',
+                async ping() {
+                    await new Promise(r => setTimeout(r, 300));
+                    return 'PONG';
+                }
+            };
+            const pTimeout = new RedisPortalQuotaProvider(timeoutClient);
+            assert.equal(await pTimeout.isRedisReady(50), false, 'PING timeout must report ready=false');
+
+            // Disconnected status / flags => not ready
+            const disconnectedStatusClient = {
+                status: 'close',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(disconnectedStatusClient).isRedisReady(100), false, 'status=close must report ready=false');
+
+            const reconnectingStatusClient = {
+                status: 'reconnecting',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(reconnectingStatusClient).isRedisReady(100), false, 'status=reconnecting must report ready=false');
+
+            const notReadyFlagClient = {
+                isReady: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(notReadyFlagClient).isRedisReady(100), false, 'isReady=false must report ready=false');
+
+            const notOpenFlagClient = {
+                isOpen: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalQuotaProvider(notOpenFlagClient).isRedisReady(100), false, 'isOpen=false must report ready=false');
+
+            const missingPingClient = {
+                status: 'ready'
+            };
+            assert.equal(await new RedisPortalQuotaProvider(missingPingClient).isRedisReady(100), false, 'missing ping method must report ready=false');
+
+            assert.equal(await new RedisPortalQuotaProvider(null).isRedisReady(100), false, 'null client must report ready=false');
+        });
+
+        // 37.10: RedisPortalQuotaProvider fails closed when Redis is unavailable
+        await t37.test('37.10: RedisPortalQuotaProvider fails closed across all operations when Redis is unavailable', async () => {
+            const unavailableClient = {
+                status: 'close',
+                isReady: false,
+                isOpen: false,
+                async ping() { throw new Error('Connection closed'); }
+            };
+            const provider = new RedisPortalQuotaProvider(unavailableClient, { allowInMemoryFallback: false, testMode: false });
+
+            // getCanonicalPolicy fails closed
+            await assert.rejects(
+                async () => {
+                    await provider.getCanonicalPolicy({ authorityCode, authoritative: true });
+                },
+                (err) => err.code === 'REDIS_UNAVAILABLE'
+            );
+
+            // setCanonicalPolicy fails closed
+            await assert.rejects(
+                async () => {
+                    await provider.setCanonicalPolicy({
+                        authorityCode,
+                        policy: {
+                            policyReference: 'HSVP/RATE/01',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerHour: 100,
+                            maxRequestsPerDay: 500
+                        }
+                    });
+                },
+                (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
+            );
+
+            // reserve fails closed
+            await assert.rejects(
+                async () => {
+                    await provider.reserve({
+                        authorityCode,
+                        policy: {
+                            policyReference: 'HSVP/RATE/01',
+                            minIntervalMs: 15000,
+                            maxRequestsPerMinute: 10,
+                            maxRequestsPerHour: 100,
+                            maxRequestsPerDay: 500
+                        }
+                    });
+                },
+                (err) => err.code === 'PORTAL_QUOTA_REDIS_UNAVAILABLE'
+            );
+        });
+
+        // 37.11: Directly test RedisPortalDistributedLock.isRedisReady() contracts
+        await t37.test('37.11: RedisPortalDistributedLock.isRedisReady strictly validates PONG and rejects unexpected string, empty, error, timeout, disconnected', async () => {
+            // PONG => ready
+            const readyClient = {
+                status: 'ready',
+                async ping() { return 'PONG'; }
+            };
+            const lockReady = new RedisPortalDistributedLock(readyClient);
+            assert.equal(await lockReady.isRedisReady(100), true, 'Lock PONG must report ready=true');
+
+            // Unexpected string => not ready
+            const unexpectedClient = {
+                status: 'ready',
+                async ping() { return 'UNEXPECTED_LOCK_RESPONSE'; }
+            };
+            const lockUnexpected = new RedisPortalDistributedLock(unexpectedClient);
+            assert.equal(await lockUnexpected.isRedisReady(100), false, 'Lock unexpected string must report ready=false');
+
+            // Empty string => not ready
+            const emptyStrClient = {
+                status: 'ready',
+                async ping() { return ''; }
+            };
+            const lockEmpty = new RedisPortalDistributedLock(emptyStrClient);
+            assert.equal(await lockEmpty.isRedisReady(100), false, 'Lock empty string must report ready=false');
+
+            // PING rejection => not ready
+            const rejectingClient = {
+                status: 'ready',
+                async ping() { throw new Error('LOCK_REDIS_CONNECTION_RESET'); }
+            };
+            const lockReject = new RedisPortalDistributedLock(rejectingClient);
+            assert.equal(await lockReject.isRedisReady(100), false, 'Lock PING rejection must report ready=false');
+
+            // PING timeout => not ready
+            const timeoutClient = {
+                status: 'ready',
+                async ping() {
+                    await new Promise(r => setTimeout(r, 300));
+                    return 'PONG';
+                }
+            };
+            const lockTimeout = new RedisPortalDistributedLock(timeoutClient);
+            assert.equal(await lockTimeout.isRedisReady(50), false, 'Lock PING timeout must report ready=false');
+
+            // Disconnected status / flags => not ready
+            const disconnectedClient = {
+                status: 'close',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(disconnectedClient).isRedisReady(100), false, 'Lock status=close must report ready=false');
+
+            const reconnectingClient = {
+                status: 'reconnecting',
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(reconnectingClient).isRedisReady(100), false, 'Lock status=reconnecting must report ready=false');
+
+            const notReadyClient = {
+                isReady: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(notReadyClient).isRedisReady(100), false, 'Lock isReady=false must report ready=false');
+
+            const notOpenClient = {
+                isOpen: false,
+                async ping() { return 'PONG'; }
+            };
+            assert.equal(await new RedisPortalDistributedLock(notOpenClient).isRedisReady(100), false, 'Lock isOpen=false must report ready=false');
+
+            const missingPingClient = {
+                status: 'ready'
+            };
+            assert.equal(await new RedisPortalDistributedLock(missingPingClient).isRedisReady(100), false, 'Lock missing ping must report ready=false');
+
+            assert.equal(await new RedisPortalDistributedLock(null).isRedisReady(100), false, 'Lock null client must report ready=false');
+        });
+
+        // 37.12: RedisPortalDistributedLock fails closed when Redis is unavailable
+        await t37.test('37.12: RedisPortalDistributedLock fails closed across acquire and isCurrentFenceToken when Redis is unavailable', async () => {
+            const unavailableClient = {
+                status: 'close',
+                isReady: false,
+                isOpen: false,
+                async ping() { throw new Error('Connection closed'); }
+            };
+            const lock = new RedisPortalDistributedLock(unavailableClient, { allowInMemoryFallback: false, testMode: false });
+
+            // acquire fails closed
+            await assert.rejects(
+                async () => {
+                    await lock.acquire({ authorityCode });
+                },
+                (err) => err.code === 'PORTAL_LOCK_REDIS_UNAVAILABLE'
+            );
+
+            // isCurrentFenceToken fails closed
+            await assert.rejects(
+                async () => {
+                    await lock.isCurrentFenceToken(authorityCode, 1);
+                },
+                (err) => err.code === 'PORTAL_LOCK_REDIS_UNAVAILABLE'
+            );
+        });
+
+        // 37.13: Controller syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy
+        await t37.test('37.13: syncCanonicalPolicy fails closed with 502 MALFORMED_REDIS_POLICY on malformed Redis hash and NEVER invokes setCanonicalPolicy', async () => {
+            const approverRole = await Role.create({
+                name: `Approver Role Malformed Redis Test ${Date.now()}`,
+                department: 'inventory',
+                approvalRights: { manageAuthoritySettings: true },
+                moduleAccess: { authorityVerification: { view: true, create: true, edit: true, delete: true } }
+            });
+            const approverUser = await User.create({
+                fullName: 'Malformed Redis Tester',
+                email: `malformed-tester-${Date.now()}@test.internal`,
+                password: 'hashed-password-123',
+                role: approverRole._id,
+                department: 'inventory',
+                isActive: true
+            });
+
+            await AuthorityCanonicalPolicy.deleteMany({ authorityCode });
+            const polAuditDoc = await AuditLog.create({
+                eventType: 'canonical_policy_rotated',
+                targetType: 'authority_canonical_policy',
+                userId: approverUser._id,
+                userName: 'Admin',
+                description: 'Initial V2 Rotation',
+                status: 'success'
+            });
+
+            const polDoc = await AuthorityCanonicalPolicy.create({
+                authorityCode,
+                policyReference: 'HSVP/RATE/01',
+                version: 2,
+                contentHash: 'hash-v2-expected',
+                minIntervalMs: 15000,
+                maxRequestsPerMinute: 10,
+                maxRequestsPerHour: 100,
+                maxRequestsPerDay: 500,
+                redisSyncStatus: 'PENDING_RECONCILIATION',
+                effectiveFrom: new Date(Date.now() - 3600000),
+                expiresAt: new Date(Date.now() + 86400000),
+                reviewedBy: new mongoose.Types.ObjectId(),
+                approvedBy: approverUser._id,
+                isActive: true,
+                isAudited: true,
+                auditStatus: 'AUDITED',
+                auditLogId: polAuditDoc._id
+            });
+            await AuditLog.updateOne({ _id: polAuditDoc._id }, { $set: { targetId: polDoc._id } });
+
+            const opId = `malformed-hash-race-${Date.now()}`;
+            const corrId = `canonical_sync:${polDoc._id.toString()}:${opId}`;
+
+            await AuditLog.create({
+                eventType: 'canonical_policy_synced',
+                correlationId: corrId,
+                targetType: 'authority_canonical_policy',
+                targetId: polDoc._id,
+                userId: approverUser._id,
+                userName: 'Admin',
+                description: 'Prior publishing state',
+                metadata: {
+                    authorityCode,
+                    version: polDoc.version,
+                    contentHash: polDoc.contentHash,
+                    redisSyncStatus: 'FAILED',
+                    syncPhase: 'PUBLISHING',
+                    leaseOwner: 'worker-stale-malformed',
+                    leaseExpiresAt: new Date(Date.now() - 5000),
+                    operationId: opId
+                },
+                status: 'failure'
+            });
+
+            let setCanonicalPolicyCalled = 0;
+            const malformedProvider = {
+                async setCanonicalPolicy() {
+                    setCanonicalPolicyCalled++;
+                    return { success: true };
+                },
+                async getCanonicalPolicy({ authoritative } = {}) {
+                    const err = new Error('MALFORMED_REDIS_POLICY: Authoritative Redis record is malformed: missing or invalid version');
+                    err.code = 'MALFORMED_REDIS_POLICY';
+                    throw err;
+                }
+            };
+            setTestQuotaProvider(malformedProvider);
+
+            const origIndexes = AuditLog.collection.indexes;
+            AuditLog.collection.indexes = async () => [
+                {
+                    v: 2,
+                    key: { eventType: 1, correlationId: 1 },
+                    name: 'unique_audit_event_correlation',
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } }
+                }
+            ];
+
+            try {
+                let statusCode = null;
+                let responseBody = null;
+                const req = {
+                    params: { authorityCode },
+                    user: approverUser,
+                    ip: '127.0.0.1',
+                    get: () => 'test-agent',
+                    body: { operationId: opId }
+                };
+                const res = {
+                    status(code) { statusCode = code; return this; },
+                    json(body) { responseBody = body; return this; }
+                };
+
+                await syncCanonicalPolicy(req, res);
+
+                assert.equal(statusCode, 502, 'Must return HTTP 502 when Redis hash is malformed');
+                assert.equal(responseBody.code, 'MALFORMED_REDIS_POLICY');
+                assert.equal(responseBody.status, 'PENDING_RECONCILIATION');
+                assert.equal(setCanonicalPolicyCalled, 0, 'setCanonicalPolicy must NEVER be invoked after malformed Redis record detected');
+
+                const updatedPol = await AuthorityCanonicalPolicy.findById(polDoc._id);
+                assert.equal(updatedPol.redisSyncStatus, 'PENDING_RECONCILIATION');
+                assert.match(updatedPol.redisSyncError, /malformed/i);
+
+                const updatedAudit = await AuditLog.findOne({ correlationId: corrId });
+                assert.equal(updatedAudit.status, 'failed');
+                assert.equal(updatedAudit.metadata?.syncPhase, 'PENDING_RECONCILIATION');
+                assert.equal(updatedAudit.metadata?.redisSyncStatus, 'MALFORMED_REDIS_POLICY');
+            } finally {
+                setTestQuotaProvider(null);
+                AuditLog.collection.indexes = origIndexes;
+            }
+        });
     });
 });

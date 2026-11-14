@@ -22,6 +22,50 @@ export class RedisPortalDistributedLock {
         this._localSequences = new Map();
     }
 
+    /**
+     * Verifies actual Redis readiness with a bounded operation (PING).
+     * Replaces ineffective ping-method existence check.
+     * Rejects disconnected, connecting, reconnecting, closing, or timed-out Redis clients.
+     * Accepts only the documented successful PING response ('PONG').
+     *
+     * @param {number} [timeoutMs=1000]
+     * @returns {Promise<boolean>}
+     */
+    async isRedisReady(timeoutMs = 1000) {
+        if (!this.redisClient) return false;
+
+        // Check ioredis status
+        if (typeof this.redisClient.status === 'string' && this.redisClient.status !== 'ready') {
+            return false;
+        }
+
+        // Check node-redis isReady / isOpen
+        if (typeof this.redisClient.isReady === 'boolean' && !this.redisClient.isReady) {
+            return false;
+        }
+        if (typeof this.redisClient.isOpen === 'boolean' && !this.redisClient.isOpen) {
+            return false;
+        }
+
+        if (typeof this.redisClient.ping !== 'function') {
+            return false;
+        }
+
+        let timer = null;
+        try {
+            const pingPromise = this.redisClient.ping();
+            const timeoutPromise = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('REDIS_PING_TIMEOUT')), timeoutMs);
+            });
+            const res = await Promise.race([pingPromise, timeoutPromise]);
+            return res === 'PONG';
+        } catch {
+            return false;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
     _nextSequence(seqKey) {
         const nextVal = (this._localSequences.get(seqKey) || 0) + 1;
         this._localSequences.set(seqKey, nextVal);
@@ -40,7 +84,7 @@ export class RedisPortalDistributedLock {
         let currentSeq = null;
 
         if (this.redisClient) {
-            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            const isReady = await this.isRedisReady(1000);
             if (isReady) {
                 try {
                     const val = await this.redisClient.get(seqKey);
@@ -110,7 +154,7 @@ export class RedisPortalDistributedLock {
 
         // Production path: Redis distributed lock with atomic monotonic sequence fencing
         if (this.redisClient) {
-            const isReady = this.redisClient.status === 'ready' || (typeof this.redisClient.ping === 'function');
+            const isReady = await this.isRedisReady(1000);
             if (isReady) {
                 try {
                     // Mutex path: Atomic acquire and sequence increment
