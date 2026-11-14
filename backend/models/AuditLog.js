@@ -37,7 +37,6 @@ export const EMAIL_STANDALONE_PATTERN = /^[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.*-]+\.[a
 export function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
     if (isHexObjectId(text) || isIsoDate(text) || isUuid(text) || isHexDigest(text)) return text;
-    if (text.startsWith('authorityVerification.') || (typeof CANONICAL_AUTHORITY_VERIFICATION_FIELDS !== 'undefined' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(text))) return text;
 
     const trimmed = text.trim();
     if (EMAIL_STANDALONE_PATTERN.test(trimmed)) {
@@ -63,8 +62,8 @@ export function maskScalarPII(text) {
         return match;
     });
 
-    // Mask street/residential address indicators
-    masked = masked.replace(/\b(?:house|flat|plot|kothi|villa|apartment|apt|bungalow|building|premises)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, '[ADDRESS_MINIMIZED]');
+    // Mask street/residential address indicators (requires space or separator so CamelCase identifiers like plotNumber are not mangled)
+    masked = masked.replace(/\b(?:house|flat|plot|kothi|villa|apartment|apt|bungalow|building|premises)(?:\s+(?:no\.?|number)?\s*[:#.-]?|\s*[:#.-])\s*[\w\d/-]+/gi, '[ADDRESS_MINIMIZED]');
     masked = masked.replace(/\b(?:sector\s*\d+[a-zA-Z]?|road|street|gali|lane)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, (match) => {
         // Preserve clean canonical sector mentions if not personal address
         if (/^sector\s*\d+[a-zA-Z]?$/i.test(match.trim())) return match;
@@ -168,13 +167,120 @@ export const CONTROLLED_TARGET_NAMES = new Set([
 
 const CONTROLLED_REASONS = CONTROLLED_AUDIT_REASONS;
 
+export const CANONICAL_AUTHORITY_VERIFICATION_FIELDS = new Set([
+    'propertyId',
+    'fileNumber',
+    'formNumber',
+    'sectorNumber',
+    'phaseCode',
+    'blockCode',
+    'schemeName',
+    'urbanEstate',
+    'estateOffice',
+    'propertyCategory',
+    'propertyType',
+    'propertySize',
+    'propertyAreaValue',
+    'propertyAreaUnit',
+    'allotmentDate',
+    'transferDate',
+    'possessionDate',
+    'allotmentMode',
+    'possessionStatus',
+    'buildingPlanApproved',
+    'occupancyCertificate',
+    'litigationStatus',
+    'mortgageStatus',
+    'authorityStatus',
+    'duesStatus',
+    'leaseRentStatus',
+    'lastVerifiedAt',
+    'authorityCode',
+    'verificationRunId',
+    'verificationSnapshotId',
+    'snapshotContentHash',
+    'rawSnapshotHash',
+    'applyClaimId'
+]);
+
+export function getCanonicalAuthorityFieldName(fieldPath) {
+    if (!fieldPath || typeof fieldPath !== 'string') return null;
+    const clean = fieldPath.trim();
+
+    // Must be exactly 'authorityVerification.<canonicalField>' with no extra segments
+    const parts = clean.split('.');
+    if (parts.length === 2 && parts[0] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[1])) {
+        return parts[1];
+    }
+
+    return null;
+}
+
+export const COMMON_PERSONAL_NAMES = new Set([
+    'rajesh', 'suresh', 'amit', 'kumar', 'ramesh', 'dinesh', 'mahesh', 'naresh',
+    'rakesh', 'mukesh', 'anil', 'sunil', 'deepak', 'rahul', 'rohit', 'vikram',
+    'vijay', 'ajay', 'sanjay', 'manoj', 'ashok', 'alok', 'vinod', 'pramod',
+    'santosh', 'priya', 'devi', 'sharma', 'singh', 'verma', 'gupta', 'neha',
+    'pooja', 'sunita', 'anita', 'kavita', 'meena', 'rekha', 'seema', 'rita',
+    'john', 'kaur', 'patel', 'yadav'
+]);
+
+export function isContextuallyValidatedStructuralPath(key, value, parentObj) {
+    if (!value || typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || trimmed.length > 100) return false;
+
+    // Key must be a structural field/path key
+    if (key !== 'field' && key !== 'canonicalField' && key !== 'path') return false;
+
+    // Parent object context: must be a change or applied/rejected field record
+    const isChangeOrFieldRecord = parentObj && typeof parentObj === 'object' && (
+        'before' in parentObj || 'after' in parentObj ||
+        'from' in parentObj || 'to' in parentObj ||
+        'reason' in parentObj || 'reasonCode' in parentObj ||
+        'claimId' in parentObj || 'canonicalField' in parentObj
+    );
+    if (!isChangeOrFieldRecord) return false;
+
+    // Structural path must strictly be a valid dot-separated identifier without whitespace, control chars or punctuation
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(trimmed)) {
+        return false;
+    }
+
+    // Must not be a personal name or surname token
+    if (COMMON_PERSONAL_NAMES.has(trimmed.toLowerCase())) {
+        return false;
+    }
+
+    // If key is 'canonicalField', it must be an approved canonical field
+    if (key === 'canonicalField') {
+        return CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(trimmed);
+    }
+
+    // For 'field' or 'path': must be an approved canonical authority verification path
+    if (trimmed.startsWith('authorityVerification.')) {
+        return getCanonicalAuthorityFieldName(trimmed) !== null;
+    }
+
+    // Or a bare canonical field
+    if (CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(trimmed)) {
+        return true;
+    }
+
+    // Or an approved top-level inventory/property schema field in change records
+    const APPROVED_SCHEMA_FIELDS = new Set([
+        'status', 'title', 'price', 'description', 'propertyType', 'location',
+        'sector', 'features', 'images', 'documents', 'metadata', 'notes'
+    ]);
+    return APPROVED_SCHEMA_FIELDS.has(trimmed);
+}
+
 const OPERATIONAL_SYSTEM_KEYS = new Set([
     'leaseOwner', 'workerLease', 'workerLeaseToken', 'lastSyncWorkerLease',
     'operationId', 'normalizedOpId', 'correlationId',
     'contentHash', 'targetId', 'auditLogId', 'policyId',
     'authorityCode', 'syncPhase', 'redisSyncStatus', 'version',
-    'leaseExpiresAt', 'lastHeartbeatAt', 'lastSyncedAt',
-    'field', 'canonicalField', 'path'
+    'leaseExpiresAt', 'lastHeartbeatAt', 'lastSyncedAt'
 ]);
 
 export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
@@ -207,6 +313,8 @@ export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
     for (const key of Object.keys(obj)) {
         if (OPERATIONAL_SYSTEM_KEYS.has(key)) {
             redactedObj[key] = obj[key];
+        } else if (isContextuallyValidatedStructuralPath(key, obj[key], obj)) {
+            redactedObj[key] = obj[key].trim();
         } else if (sensitiveKeys.test(key)) {
             redactedObj[key] = '[REDACTED]';
         } else if (piiKeys.test(key)) {
@@ -801,55 +909,6 @@ const ALLOWED_UPPERCASE_TOKENS = new Set([
     'FREE_TEXT_AUDIT_PROHIBITED', 'METADATA_VALUE_INVALID', 'AUDIT_LOG_IMMUTABLE', 'ACTOR_IMPERSONATION_PROHIBITED', 'ACTOR_UNAUTHORIZED', 'INVALID_REPRESENTATIVE_EVIDENCE', 'UNAUTHORIZED_STATUS_OVERRIDE', 'EVIDENCE_VERSION_REQUIRED'
 ]);
 
-export const CANONICAL_AUTHORITY_VERIFICATION_FIELDS = new Set([
-    'propertyId',
-    'fileNumber',
-    'formNumber',
-    'sectorNumber',
-    'phaseCode',
-    'blockCode',
-    'schemeName',
-    'urbanEstate',
-    'estateOffice',
-    'propertyCategory',
-    'propertyType',
-    'propertySize',
-    'propertyAreaValue',
-    'propertyAreaUnit',
-    'allotmentDate',
-    'transferDate',
-    'possessionDate',
-    'allotmentMode',
-    'possessionStatus',
-    'buildingPlanApproved',
-    'occupancyCertificate',
-    'litigationStatus',
-    'mortgageStatus',
-    'authorityStatus',
-    'duesStatus',
-    'leaseRentStatus',
-    'lastVerifiedAt',
-    'authorityCode',
-    'verificationRunId',
-    'verificationSnapshotId',
-    'snapshotContentHash',
-    'rawSnapshotHash',
-    'applyClaimId'
-]);
-
-export function getCanonicalAuthorityFieldName(fieldPath) {
-    if (!fieldPath || typeof fieldPath !== 'string') return null;
-    const clean = fieldPath.trim();
-
-    // Must be exactly 'authorityVerification.<canonicalField>' with no extra segments
-    const parts = clean.split('.');
-    if (parts.length === 2 && parts[0] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[1])) {
-        return parts[1];
-    }
-
-    return null;
-}
-
 export const APPROVED_PROPERTY_SIZE_UNITS = '(?:sq(?:uare)?\\.?\\s*(?:yards?|yd|feet|ft|meters?|m)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|sq\\s*ft|sq\\s*yd|sq\\s*m|sq\\s*yards)';
 export const APPROVED_PROPERTY_SIZE_MODES = '(?:Auction|Allotted|Residential|Commercial|Industrial|Institutional|General|Reserved|Private|Government)';
 export const PROPERTY_SIZE_PATTERN = new RegExp(`^[0-9]+(?:\\.[0-9]+)?\\s+${APPROVED_PROPERTY_SIZE_UNITS}(?:\\s*\\(${APPROVED_PROPERTY_SIZE_MODES}\\))?$`, 'i');
@@ -858,7 +917,8 @@ export const SECTOR_NUMBER_PATTERN = /^(?:(?:Urban\s+Estate\s+)?Sector\s+[0-9]{1
 
 export const PHASE_CODE_PATTERN = /^(?:Phase\s+(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6})|(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6}))$/i;
 
-export const BLOCK_CODE_PATTERN = /^(?:(?:Block|Pocket)\s+[A-Za-z0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?|[A-Za-z0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?)$/i;
+export const BLOCK_CODE_GRAMMAR = '(?:[A-Za-z]{1,2}(?:-[0-9]{1,3}|[0-9]{1,3})?|[0-9]{1,3}(?:-[A-Za-z]{1,2}|[A-Za-z]{1,2})?|[IVXLCDM]{1,4})';
+export const BLOCK_CODE_PATTERN = new RegExp(`^(?:(?:Block|Pocket)\\s+${BLOCK_CODE_GRAMMAR}|${BLOCK_CODE_GRAMMAR})$`, 'i');
 
 export const APPROVED_LITIGATION_PHRASES = new Set([
     'Litigation pending in High Court',
@@ -980,14 +1040,6 @@ export const URBAN_ESTATE_PATTERN = new RegExp(
 export const SCHEME_NAME_PATTERN = /^(?:(?:Scheme|Sector)\s+(?:No\.?\s*)?[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|Scheme\s+[0-9]{4}(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|Urban\s+(?:Estate|Scheme)(?:\s+(?:Phase\s*(?:-| )?[0-9]{1,3}[A-Za-z]?|Faridabad|Mohali|Panchkula|Gurugram|Gurgaon|[0-9]{1,4}))?|Estate\s+[0-9]{1,4}|(?:Residential|Commercial|Industrial|Institutional)\s+Scheme(?:\s+(?:No\.?\s*)?[0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|(?:HSVP|GMADA|PUDA|CHANDIGARH)\s+Scheme(?:\s+[0-9]{4})?|SCHEME_[0-9]{4}(?:_PHASE_[0-9]{1,3})?|SCHEME_NO_[0-9]{1,4})$/i;
 
 export const PROPERTY_AREA_UNIT_PATTERN = /^(?:sq(?:uare)?\.?\s*(?:yards?|yd|feet|ft|foot|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|foot|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards|SQ_(?:YARDS?|YD|FEET|FOOT|FT|METERS?|M|KMS?|KM|INCHES?|IN)|KANAL|MARLA|ACRES?|GAJ|BIGHA|BISWA|HECTARES?)$/i;
-
-export const COMMON_PERSONAL_NAMES = new Set([
-    'rajesh', 'suresh', 'amit', 'kumar', 'ramesh', 'dinesh', 'mahesh', 'naresh',
-    'rakesh', 'mukesh', 'anil', 'sunil', 'deepak', 'rahul', 'rohit', 'vikram',
-    'vijay', 'ajay', 'sanjay', 'manoj', 'ashok', 'alok', 'vinod', 'pramod',
-    'santosh', 'priya', 'devi', 'sharma', 'singh', 'verma', 'gupta', 'neha',
-    'pooja', 'sunita', 'anita', 'kavita', 'meena', 'rekha', 'seema', 'rita'
-]);
 
 export const CONTROLLED_FIELD_SENTINELS = new Set([
     '[ADDRESS_MINIMIZED]',

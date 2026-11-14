@@ -28,7 +28,10 @@ import AuditLog, {
     EMAIL_STANDALONE_PATTERN,
     CONTROLLED_ROLE_CODES,
     CONTROLLED_AUDIT_REASONS,
-    ALLOWED_CONTROLLED_PHRASES
+    ALLOWED_CONTROLLED_PHRASES,
+    BLOCK_CODE_PATTERN,
+    isContextuallyValidatedStructuralPath,
+    redactSensitive
 } from '../models/AuditLog.js';
 
 import AuthoritySourceSettings, {
@@ -1990,6 +1993,7 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
 
         test('7.14: Single-token personal names and arbitrary tokens are strictly rejected across all canonical fields in appliedFields and changes', async () => {
             const canonicalFieldsToTest = [
+                'blockCode',
                 'propertyCategory',
                 'propertyType',
                 'possessionStatus',
@@ -2000,14 +2004,22 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
                 'estateOffice',
                 'urbanEstate',
                 'schemeName',
-                'propertyAreaUnit'
+                'propertyAreaUnit',
+                'sectorNumber',
+                'phaseCode',
+                'propertySize',
+                'litigationStatus',
+                'mortgageStatus'
             ];
 
             const nameTokens = [
                 'Rajesh', 'rajesh', 'RAJESH',
                 'Suresh', 'suresh', 'SURESH',
                 'Amit', 'amit', 'AMIT',
-                'Kumar', 'kumar', 'KUMAR'
+                'Kumar', 'kumar', 'KUMAR',
+                'John', 'john', 'JOHN',
+                'Kaur', 'kaur', 'KAUR',
+                'ABCD', 'abcd', 'ABCD'
             ];
 
             for (const field of canonicalFieldsToTest) {
@@ -2104,6 +2116,203 @@ describe('PHASE 4.5-D (PR #69) FINAL SECURITY CLOSURE TEST SUITE', () => {
                         `Single-token name '${token}' on '${fullFieldPath}' in changes.after (nested) must reject with FREE_TEXT_AUDIT_PROHIBITED`
                     );
                 }
+            }
+        });
+
+        test('7.15: Final P1 closure — blockCode grammar hardening, structural path preservation, and removal of authorityVerification prefix bypass', async () => {
+            // P1 #1: Verify maskScalarPII() has NO authorityVerification. prefix bypass
+            const maskedPrefixEmail = maskScalarPII('authorityVerification.citizen.official@example.com');
+            assert.strictEqual(maskedPrefixEmail, '[EMAIL_MINIMIZED]');
+
+            const maskedEmbeddedEmail = maskScalarPII('Field authorityVerification.citizen.official@example.com checked');
+            assert.strictEqual(maskedEmbeddedEmail, 'Field [EMAIL_MINIMIZED] checked');
+
+            const maskedPrefixNamePhone = maskScalarPII('authorityVerification.Rajesh Kumar 9876543210');
+            assert.ok(!maskedPrefixNamePhone.includes('Rajesh'), 'Must not leak Rajesh');
+            assert.ok(!maskedPrefixNamePhone.includes('9876543210'), 'Must not leak phone');
+            assert.ok(maskedPrefixNamePhone.includes('[PII_MINIMIZED]'));
+            assert.ok(maskedPrefixNamePhone.includes('[PHONE_MINIMIZED]'));
+
+            // P1 #2: Verify OPERATIONAL_SYSTEM_KEYS does not globally exempt field, canonicalField, path
+            // and isContextuallyValidatedStructuralPath only preserves authentic structural paths
+            assert.strictEqual(isContextuallyValidatedStructuralPath('field', 'authorityVerification.blockCode', { before: null, after: 'Block B' }), true);
+            assert.strictEqual(isContextuallyValidatedStructuralPath('path', 'authorityVerification.propertySize', { before: null, after: '10 Marla' }), true);
+            assert.strictEqual(isContextuallyValidatedStructuralPath('canonicalField', 'blockCode', { reason: 'STATUS_QUO' }), true);
+
+            // Arbitrary objects with field/path are NOT exempt
+            assert.strictEqual(isContextuallyValidatedStructuralPath('field', 'secret_password_123', { other: 1 }), false);
+            assert.strictEqual(isContextuallyValidatedStructuralPath('path', 'user/private/secrets', { other: 1 }), false);
+            assert.strictEqual(isContextuallyValidatedStructuralPath('field', 'Kumar', { after: 'Plot' }), false);
+            assert.strictEqual(isContextuallyValidatedStructuralPath('field', 'John', { after: 'Plot' }), false);
+            assert.strictEqual(isContextuallyValidatedStructuralPath('field', 'custom.authorityVerification.litigationStatus', { after: 'CLEAR' }), false);
+
+            const redactedRecord = redactSensitive({
+                field: 'authorityVerification.blockCode',
+                before: null,
+                after: 'Block B'
+            });
+            assert.strictEqual(redactedRecord.field, 'authorityVerification.blockCode');
+
+            // P1 #3: Verify BLOCK_CODE_PATTERN accepts legitimate block formats and strictly rejects names/arbitrary tokens
+            const validBlockFormats = [
+                'Block A', 'Block B', 'Block C', 'Block AA', 'Block 1', 'Block 2', 'Block 12',
+                'Block A-1', 'Block B-2', 'Block A1', 'Block B2',
+                'Pocket A', 'Pocket B', 'Pocket 1', 'Pocket A-1', 'Pocket B-2',
+                'A', 'B', 'AA', 'BB', '1', '2', '12', 'A-1', 'B-2', 'A1', 'B2', 'I', 'II', 'III', 'IV'
+            ];
+
+            for (const validBlock of validBlockFormats) {
+                assert.ok(BLOCK_CODE_PATTERN.test(validBlock), `BLOCK_CODE_PATTERN must accept '${validBlock}'`);
+
+                // Must succeed in metadata.appliedFields
+                const doc = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    metadata: {
+                        authorityCode: 'HSVP',
+                        appliedFields: [
+                            { field: 'authorityVerification.blockCode', before: null, after: validBlock }
+                        ]
+                    }
+                });
+                assert.ok(doc._id);
+
+                // Must succeed in changes.after (flat)
+                const docFlat = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    changes: {
+                        before: { 'authorityVerification.blockCode': null },
+                        after: { 'authorityVerification.blockCode': validBlock }
+                    },
+                    metadata: { authorityCode: 'HSVP' }
+                });
+                assert.ok(docFlat._id);
+
+                // Must succeed in changes.after (nested)
+                const docNested = await AuditLog.create({
+                    eventType: 'authority_changes_applied',
+                    targetType: 'inventory',
+                    targetId: testTargetInventory._id,
+                    tenantId: CANONICAL_ORG_ID,
+                    actorId: testAdminUser._id,
+                    actorEmail: 'admin@bharatproperties.com',
+                    actorRole: 'SYSTEM_ADMIN',
+                    claimId: new mongoose.Types.ObjectId().toString(),
+                    description: 'Authority verification changes applied from HSVP',
+                    changes: {
+                        before: { authorityVerification: { blockCode: null } },
+                        after: { authorityVerification: { blockCode: validBlock } }
+                    },
+                    metadata: { authorityCode: 'HSVP' }
+                });
+                assert.ok(docNested._id);
+            }
+
+            const invalidBlockFormats = [
+                'John', 'Kaur', 'ABCD', 'Kumar', 'Dave', 'Alex', 'Mary',
+                'Block John', 'Block Kaur', 'Block ABCD', 'Block Kumar',
+                'Pocket John', 'Pocket Kaur', 'Pocket ABCD', 'Pocket Kumar'
+            ];
+
+            for (const invalidBlock of invalidBlockFormats) {
+                assert.ok(!BLOCK_CODE_PATTERN.test(invalidBlock), `BLOCK_CODE_PATTERN must reject '${invalidBlock}'`);
+
+                // Must reject in metadata.appliedFields
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            metadata: {
+                                authorityCode: 'HSVP',
+                                appliedFields: [
+                                    { field: 'authorityVerification.blockCode', before: null, after: invalidBlock }
+                                ]
+                            }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    },
+                    `Invalid blockCode '${invalidBlock}' in appliedFields must reject`
+                );
+
+                // Must reject in changes.after (flat)
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                before: { 'authorityVerification.blockCode': null },
+                                after: { 'authorityVerification.blockCode': invalidBlock }
+                            },
+                            metadata: { authorityCode: 'HSVP' }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    },
+                    `Invalid blockCode '${invalidBlock}' in changes.after (flat) must reject`
+                );
+
+                // Must reject in changes.after (nested)
+                await assert.rejects(
+                    async () => {
+                        await AuditLog.create({
+                            eventType: 'authority_changes_applied',
+                            targetType: 'inventory',
+                            targetId: testTargetInventory._id,
+                            tenantId: CANONICAL_ORG_ID,
+                            actorId: testAdminUser._id,
+                            actorEmail: 'admin@bharatproperties.com',
+                            actorRole: 'SYSTEM_ADMIN',
+                            claimId: new mongoose.Types.ObjectId().toString(),
+                            description: 'Authority verification changes applied from HSVP',
+                            changes: {
+                                before: { authorityVerification: { blockCode: null } },
+                                after: { authorityVerification: { blockCode: invalidBlock } }
+                            },
+                            metadata: { authorityCode: 'HSVP' }
+                        });
+                    },
+                    err => {
+                        assert.strictEqual(err.code, 'FREE_TEXT_AUDIT_PROHIBITED');
+                        return true;
+                    },
+                    `Invalid blockCode '${invalidBlock}' in changes.after (nested) must reject`
+                );
             }
         });
     });
