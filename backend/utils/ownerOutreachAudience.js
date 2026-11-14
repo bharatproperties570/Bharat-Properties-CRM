@@ -81,9 +81,15 @@ export function buildOwnerOutreachAudience(inventoryItems, options = {}) {
             current.contactIds.add(contactId);
             current.inventoryIds.add(inventoryId);
             current.relationships.add(`${relationType}:${relationship || relationType}`);
+            // A single endpoint may belong to several contacts. Preserve an
+            // opt-out from any linked contact, but allow a later positive
+            // consent record to upgrade an endpoint that was only unknown.
             if (candidate.optedOut) {
                 current.consentState = 'OPTED_OUT';
                 current.eligibility = 'SUPPRESSED_OPTOUT';
+            } else if (candidate.consented && current.consentState !== 'OPTED_OUT') {
+                current.consentState = 'CONSENTED';
+                current.eligibility = 'ELIGIBLE';
             }
             endpoints.set(key, current);
         }
