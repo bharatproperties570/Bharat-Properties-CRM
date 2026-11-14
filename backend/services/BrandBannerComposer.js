@@ -582,21 +582,21 @@ class BrandBannerComposer {
                 <!-- 3 Pillars -->
                 <g transform="translate(-320, 78)">
                     <circle cx="0" cy="0" r="16" fill="#059669" />
-                    <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
+                    <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
                     <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Document review</text>
                     <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Check current official records</text>
                 </g>
 
                 <g transform="translate(0, 78)">
                     <circle cx="0" cy="0" r="16" fill="#2563EB" />
-                    <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
+                    <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
                     <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Planning status</text>
                     <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Verify with competent authority</text>
                 </g>
 
                 <g transform="translate(320, 78)">
                     <circle cx="0" cy="0" r="16" fill="#D97706" />
-                    <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
+                    <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
                     <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Financing options</text>
                     <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Subject to lender eligibility</text>
                 </g>
@@ -824,7 +824,7 @@ class BrandBannerComposer {
                 <g transform="translate(245, 0)">
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#2563EB" />
-                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
+                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
                     <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">${safePill2Title}</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">${safePill2Sub}</text>
                     <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">${safePill2Desc}</text>
@@ -834,7 +834,7 @@ class BrandBannerComposer {
                 <g transform="translate(490, 0)">
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#D97706" />
-                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
+                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
                     <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Financing</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Check with lender</text>
                     <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Subject to lender approval</text>
@@ -844,7 +844,7 @@ class BrandBannerComposer {
                 <g transform="translate(735, 0)">
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#7C3AED" />
-                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
+                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
                     <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Seller Coordination</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Face-to-Face</text>
                     <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Subject to seller availability</text>
@@ -1033,17 +1033,17 @@ class BrandBannerComposer {
                         <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#94A3B8">General buyer education • Consult a qualified legal professional</text>
                     </g>
 
-                    <!-- Right Check Pill -->
+                    <!-- Right Information Pill -->
                     <g transform="translate(865, 55)">
                         <circle cx="20" cy="20" r="18" fill="${st.color}" />
-                        <text x="20" y="27" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#FFFFFF" text-anchor="middle">✓</text>
+                        <text x="20" y="27" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#FFFFFF" text-anchor="middle">i</text>
                     </g>
                 </g>
                     `;
                 }).join('')}
             </g>
 
-            <!-- Bottom Advisory Guarantee Ribbon -->
+            <!-- Bottom Advisory Disclaimer Ribbon -->
             <g transform="translate(540, 875)">
                 <rect x="-380" y="-18" width="760" height="34" rx="17" fill="rgba(11, 37, 69, 0.85)" stroke="url(#goldGradientEdu)" stroke-width="1.2" />
                 <text x="0" y="5" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="1">
