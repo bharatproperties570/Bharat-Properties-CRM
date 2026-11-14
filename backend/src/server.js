@@ -150,6 +150,9 @@ async function startServer() {
             cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
             cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
             cronQueue.add('recoverSiteVisitDispatches', {}, { repeat: { pattern: '* * * * *' } }).catch(() => {});
+            // Durable planner-only Owner Outreach tick; it never dispatches provider messages.
+            cronQueue.add('processOwnerOutreachPlanning', {}, { repeat: { pattern: '* * * * *' } })
+                .catch((error) => console.error('[OwnerOutreach] Failed to register planning tick:', error.message));
             cronQueue.add('autonomousMarketingCycle', {}, { repeat: { pattern: '0 8 * * *' } }).catch(() => {});
             cronQueue.add('socialAnalyticsSync', {}, { repeat: { pattern: '0 */6 * * *' } }).catch(() => {});
             googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
