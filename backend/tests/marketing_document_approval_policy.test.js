@@ -6,7 +6,8 @@ import {
     isMarketingSafeDocumentCategory,
     isMarketingEligibleEntityType,
     isMarketingEligiblePdfVersion,
-    isMarketingEligibleDocument
+    isMarketingEligibleDocument,
+    isValidMarketingDocumentReviewAttestation
 } from '../services/marketing/MarketingDocumentApprovalPolicy.js';
 
 test('marketing document category policy accepts only exact public marketing categories', () => {
@@ -42,4 +43,19 @@ test('marketing approval policy enforces PDF MIME and bounded file size', () => 
     assert.equal(isMarketingEligiblePdfVersion({ mimeType: 'image/png', sizeBytes: 1024 }), false);
     assert.equal(isMarketingEligiblePdfVersion({ mimeType: 'application/pdf', sizeBytes: MAX_MARKETING_PDF_BYTES + 1 }), false);
     assert.equal(isMarketingEligiblePdfVersion({ mimeType: 'application/pdf', sizeBytes: 0 }), false);
+});
+
+test('manual approval requires all explicit reviewer attestations', () => {
+    assert.equal(isValidMarketingDocumentReviewAttestation({
+        publicMarketingAsset: true,
+        noSensitivePersonalData: true,
+        rightsCleared: true
+    }), true);
+    assert.equal(isValidMarketingDocumentReviewAttestation({
+        publicMarketingAsset: true,
+        noSensitivePersonalData: false,
+        rightsCleared: true
+    }), false);
+    assert.equal(isValidMarketingDocumentReviewAttestation({}), false);
+    assert.equal(isValidMarketingDocumentReviewAttestation(null), false);
 });
