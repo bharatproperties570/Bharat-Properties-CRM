@@ -865,7 +865,7 @@ export const generateSocialContent = async (req, res) => {
             type: 'ct-project',
             date: new Date().toISOString().split('T')[0],
             status: 'draft',
-            dealId: targetEntity._id,
+            ...(entityType === 'project' ? { metadata: { projectId: targetEntity._id } } : { dealId: targetEntity._id }),
             author: req.user?.id
         });
 
