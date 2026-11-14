@@ -59,6 +59,27 @@ test('WhatsApp audience snapshot respects timestamped opt-out and later opt-in',
 });
 
 
+test('shared WhatsApp endpoint upgrades unknown consent when another linked contact opted in', () => {
+    const items = [
+        { _id: 'inv-unknown', owners: [{ _id: 'contact-unknown', phones: [{ number: '9876543220' }] }] },
+        { _id: 'inv-consented', owners: [{ _id: 'contact-consented', phones: [{ number: '9876543220' }], whatsappOptInAt: new Date('2026-11-10T10:00:00.000Z') }] }
+    ];
+    const endpoint = buildOwnerOutreachAudience(items).endpoints.find((x) => x.channel === 'whatsapp');
+    assert.equal(endpoint.consentState, 'CONSENTED');
+    assert.equal(endpoint.eligibility, 'ELIGIBLE');
+    assert.equal(endpoint.contactIds.length, 2);
+});
+
+test('shared WhatsApp endpoint remains opted out if any linked contact has an active opt-out', () => {
+    const items = [
+        { _id: 'inv-consented', owners: [{ _id: 'contact-consented', phones: [{ number: '9876543221' }], whatsappOptInAt: new Date('2026-11-10T10:00:00.000Z') }] },
+        { _id: 'inv-opted-out', owners: [{ _id: 'contact-opted-out', phones: [{ number: '9876543221' }], whatsappOptOut: true }] }
+    ];
+    const endpoint = buildOwnerOutreachAudience(items).endpoints.find((x) => x.channel === 'whatsapp');
+    assert.equal(endpoint.consentState, 'OPTED_OUT');
+    assert.equal(endpoint.eligibility, 'SUPPRESSED_OPTOUT');
+});
+
 test('inventory picker enforces minimum query length without touching the database', async () => {
     const result = await new OwnerOutreachService().searchInventory({ q: 'x' }, null);
     assert.deepEqual(result, { items: [], minimumQueryLength: 2 });
