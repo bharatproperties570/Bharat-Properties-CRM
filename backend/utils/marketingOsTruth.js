@@ -14,7 +14,8 @@ export const hasVerifiedMetricsResponse = (result) => Boolean(
     !result?.pendingQuota &&
     result.metrics &&
     typeof result.metrics === 'object' &&
-    !Array.isArray(result.metrics)
+    !Array.isArray(result.metrics) &&
+    Object.keys(result.metrics).length > 0
 );
 
 export const getQueuedContentStatus = (jobs = []) => (
