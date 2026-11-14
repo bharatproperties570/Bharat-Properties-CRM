@@ -1132,6 +1132,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 onClose={() => setIsSocialModalOpen(false)}
                 initialData={deal ? {
                     id: deal._id,
+                    type: 'Deal',
                     name: `${deal.projectName?.name || deal.projectName || 'Premium Property'} - ${deal.unitNo}`,
                     title: `${deal.unitNo} | ${deal.projectName?.name || deal.projectName || 'Exclusive Listing'}`,
                     location: deal.location || deal.address?.location || inventory?.address?.location || 'Prime Location',
