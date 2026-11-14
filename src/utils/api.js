@@ -206,6 +206,8 @@ export const marketingAPI = {
     broadcastToHub: (data) => api.post('/marketing/broadcast', data).then(res => res.data),
     generateSocial: (dealId, platform, tone = 'urgent', format = 'post') => api.post('/marketing/generate-social', { dealId, platform, tone, format }, { _silentError: true }).then(res => res.data),
     generateVisual: (payload) => api.post('/marketing/generate-visual', payload).then(res => res.data),
+    getApprovedMarketingDocuments: (entityType, entityId) => api.get('/marketing/documents/approved-marketing-assets', { params: { entityType, entityId } }).then(res => res.data),
+    getApprovedMarketingDocumentContext: (documentId, versionId) => api.post(`/marketing/documents/${encodeURIComponent(documentId)}/approved-context`, { versionId }).then(res => res.data),
     generateEmail: (dealId, audience) => api.post('/marketing/generate-email', { dealId, audience }, { _silentError: true }).then(res => res.data),
     runAgent: () => api.post('/marketing/run-agent').then(res => res.data),
 

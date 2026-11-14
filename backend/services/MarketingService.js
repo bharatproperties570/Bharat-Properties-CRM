@@ -17,6 +17,7 @@ import {
     validateAndSanitizeCopy
 } from '../utils/propertyComplianceValidator.js';
 import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
+import { getQueuedContentStatus } from '../utils/marketingOsTruth.js';
 
 /**
  * MarketingService.js
@@ -243,16 +244,13 @@ class MarketingService {
         const phone = isMohali ? '9991000570' : '9416035570';
 
         if (type === 'video') {
-            // High-resolution real estate drone video reel assets (hosted on public CRM domain)
-            const sampleVideos = [
-                'https://api.bharatproperties.co/uploads/file-1794103158366-51719174-gemini_generated_video_10961d17.mp4',
-                'https://api.bharatproperties.co/uploads/file-1794018634894-814394752-3fae3d57-5797-4a0d-88c9-2d524ea239ae.MP4'
-            ];
             return {
-                success: true,
+                success: false,
                 assetType: 'video',
-                url: sampleVideos[0],
-                prompt: `Cinematic 4K overhead drone flyover of ${projectName} in ${location}, golden hour sunset lighting, 8k resolution, smooth cinematic reel`
+                status: 'provider_unavailable',
+                url: null,
+                error: 'No configured video-generation provider is available in this execution path.',
+                prompt: customPrompt || `Cinematic real-estate video concept for ${projectName} in ${location}; use only verified source media for the actual property.`
             };
         }
 
@@ -288,12 +286,13 @@ class MarketingService {
             return bannerResult;
         } catch (err) {
             console.error('[MarketingService] Error in BrandBannerComposer:', err);
-            // Resilient fallback: fallback to Trust & Authority Banner (never default to festive)
-            return await brandBannerComposer.composeTrustBanner({
-                phone: '+91 94160-35570 | 99913-33570',
-                address: '#166, Sector 3, Huda Market, Kurukshetra, Haryana',
-                website: 'www.bharatproperties.co'
-            });
+            return {
+                success: false,
+                assetType: 'image',
+                status: 'render_failed',
+                url: null,
+                error: err.message || 'Visual asset rendering failed.'
+            };
         }
     }
 
@@ -1313,7 +1312,7 @@ class MarketingService {
             type: pillar,
             date: scheduledDateStr,
             time: targetSlotTime,
-            status: delayMs > 60000 ? 'scheduled' : 'published',
+            status: getQueuedContentStatus(enqueuedJobs),
             dealId: chosenDeal?._id || null,
             mediaUrls: visualAsset?.url ? [visualAsset.url] : [],
             metadata: {
@@ -1360,9 +1359,9 @@ class MarketingService {
             contentId: scheduledContentRecord._id,
             captions: channelCaptions,
             agentOutputs: {
-                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Telemetry Ingested: 30-day reach & cross-platform engagement aggregated\n• Selected Pillar: ${pillar.toUpperCase()} (Cadence: 80% Deals / 10% Edu / 7% Trust / 3% Festival)\n• Audience Window: Multi-channel staggered peak analysis complete\n• High-Demand Corridor: Kurukshetra Growth Sectors prioritized\n• Handoff: Transferred audience telemetry and demand mandate to Social Media Manager`,
-                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Privacy Shield: ${allowRevealUnitNo ? '⚠️ MANUAL OVERRIDE (Unit No Disclosed: ' + (chosenDeal?.unitNo || 'N/A') + ')' : '🛡️ ACTIVE (Unit No & GPS Coordinates Masked: Promoted as "' + displayUnit + '")'}\n• Strategic Decision: Evaluated active CRM inventory against 14-day anti-cannibalization rule\n• Canonical 3-Way Join Resolved (Deal ➔ Inventory ➔ Project):\n  - Public Headline: ${displayUnit} ${allowRevealUnitNo ? `[Unit ${chosenDeal?.unitNo || 'N/A'}]` : '[Unit Number Protected]'}\n  - Project: ${chosenDeal?.projectName || 'Kurukshetra Corridor'}\n  - Location: ${loc || 'Kurukshetra, Haryana'} [Zero GPS Coordinates]\n  - Size: ${chosenDeal?.sizeLabel || (chosenDeal?.size ? `${chosenDeal.size} sq.yd` : 'Prime Area')}\n  - Physical Specs: ${specsSummary || 'Verified Physical Specs'}\n  - RERA Registration: ${chosenDeal?.reraNumber || 'HRERA Compliant'}\n• Multi-Channel Copywriting: Generated tailored hooks for Facebook, Instagram, LinkedIn, YouTube & Google Business Profile`,
-                designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Deal Identity & Physical Specs Ingested: Retrieved ${chosenDeal?.sizeLabel || 'Size'}, ${chosenDeal?.facing || 'Facing'}, ${chosenDeal?.roadWidth || 'Road Access'}\n• Designer Studio (Visual Prompt Lab): Composed 1080x1080 high-conversion flyer\n• Brand Kit Enforced: Official Navy & Gold palette, RERA Badge, Gold Price Pill, Contact Strip\n• Asset URL: ${visualAsset?.url || 'Generated'}\n• Regional Contact Strip: ${regionalPhone} | ${website}`,
+                metrics: `📊 METRICS MANAGER (Google AI — Gemini 3.5 Flash)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Telemetry: Not independently fetched in this cycle; performance claims require verified metrics\n• Selected Pillar: ${pillar.toUpperCase()} (Cadence: 80% Deals / 10% Edu / 7% Trust / 3% Festival)\n• Audience Window: Configured platform delay rules applied; no learned peak-time claim\n• Location Priority: Based on the selected CRM record; no independent demand inference\n• Handoff: Transferred audience telemetry and demand mandate to Social Media Manager`,
+                social: `📅 SOCIAL MEDIA MANAGER (ChatGPT — GPT-4o)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Privacy Shield: ${allowRevealUnitNo ? '⚠️ MANUAL OVERRIDE (Unit No Disclosed: ' + (chosenDeal?.unitNo || 'N/A') + ')' : '🛡️ ACTIVE (Unit No & GPS Coordinates Masked: Promoted as "' + displayUnit + '")'}\n• Strategic Decision: Evaluated active CRM inventory against 14-day anti-cannibalization rule\n• Canonical 3-Way Join Resolved (Deal ➔ Inventory ➔ Project):\n  - Public Headline: ${displayUnit} ${allowRevealUnitNo ? `[Unit ${chosenDeal?.unitNo || 'N/A'}]` : '[Unit Number Protected]'}\n  - Project: ${chosenDeal?.projectName || 'Kurukshetra Corridor'}\n  - Location: ${loc || 'Kurukshetra, Haryana'} [Zero GPS Coordinates]\n  - Size: ${chosenDeal?.sizeLabel || (chosenDeal?.size ? `${chosenDeal.size} sq.yd` : 'Prime Area')}\n  - Physical Specs: ${specsSummary || 'Not supplied in the CRM record'}\n  - RERA Registration: ${chosenDeal?.reraNumber ? `Number recorded: ${chosenDeal.reraNumber}; approval status not inferred` : 'Not supplied; approval not claimed'}\n• Multi-Channel Copywriting: Generated tailored hooks for Facebook, Instagram, LinkedIn, YouTube & Google Business Profile`,
+                designer: `🎨 DESIGNER (Visual AI & Studio Sharp Engine)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Deal Identity & Physical Specs Ingested: Retrieved ${chosenDeal?.sizeLabel || 'Size'}, ${chosenDeal?.facing || 'Facing'}, ${chosenDeal?.roadWidth || 'Road Access'}\n• Designer Studio (Visual Prompt Lab): Composed 1080x1080 high-conversion flyer\n• Brand Kit Enforced: Official Navy & Gold palette; compliance labels only when evidence supports them\n• Asset URL: ${visualAsset?.url || 'No visual asset generated'}\n• Regional Contact Strip: ${regionalPhone} | ${website}`,
                 scheduler: `⏱ SCHEDULING MANAGER (BullMQ Queue)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n• Staggered Scheduling Delay Matrix Applied:\n${enqueuedJobs.map(j => `  - ${j.platform.toUpperCase()}: ${j.delayMs === 0 ? '⚡ INSTANT DISPATCH' : `+${Math.round(j.delayMs / 60000)} min delay (Peak Slot)`}`).join('\n') || '  - Instant dispatch requested'}\n• Active Syndication Channels: [${targetChannels.join(', ')}]\n• Queue Dispatch: ${enqueuedJobs.length} BullMQ jobs enqueued with automatic backoff\n• CRM Attribution: Deal ID bound to MarketingContent and Deal Activity timeline`
             }
         };

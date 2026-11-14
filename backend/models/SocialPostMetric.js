@@ -36,6 +36,13 @@ const socialPostMetricSchema = new mongoose.Schema({
         required: [true, 'Remote Post ID / URN is required'],
         trim: true
     },
+    // Only true after a successful metrics fetch using a provider-issued post ID.
+    // Legacy rows remain excluded until they are revalidated by the provider.
+    remotePostIdVerified: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
     title: {
         type: String,
         trim: true
@@ -103,5 +110,6 @@ const socialPostMetricSchema = new mongoose.Schema({
 // Compound unique index ensuring idempotent ingestion per post per platform
 socialPostMetricSchema.index({ platform: 1, remotePostId: 1 }, { unique: true });
 socialPostMetricSchema.index({ publishedAt: -1, pillar: 1 });
+socialPostMetricSchema.index({ remotePostIdVerified: 1, publishedAt: -1 });
 
 export default mongoose.model('SocialPostMetric', socialPostMetricSchema);

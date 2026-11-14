@@ -179,9 +179,9 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             ])
         ]);
 
-        const avgVelocityDays = velocityAggregation?.[0]?.avgDays 
-            ? parseFloat(velocityAggregation[0].avgDays.toFixed(1)) 
-            : 3.4;
+        const avgVelocityDays = velocityAggregation?.[0]?.avgDays
+            ? parseFloat(velocityAggregation[0].avgDays.toFixed(1))
+            : null;
 
         // 3. Automated Drip Sequences & Enrollments Aggregation (Real MongoDB Atlas)
         let dripMetrics = {
@@ -338,7 +338,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             success: true,
             overview: {
                 funnel: {
-                    totalReach: digest.totalImpressions || (digest.totalReach || 0),
+                    totalReach: digest.totalReach || 0,
                     totalClicks: digest.totalClicks || 0,
                     ctr: digest.totalImpressions > 0 ? parseFloat(((digest.totalClicks / digest.totalImpressions) * 100).toFixed(1)) : 0,
                     totalLeads: totalLeadsCount,
@@ -346,9 +346,10 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                     nurtureRate: totalLeadsCount > 0 ? parseFloat(((nurturedLeadsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
                     totalOpportunities: totalDealsCount,
                     dealConversionRate: totalLeadsCount > 0 ? parseFloat(((totalDealsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
-                    revenueWon: wonDealsCount || convertedLeadsCount,
+                    revenueWon: null,
+                    wonDealsCount,
                     closureRate: totalDealsCount > 0 ? parseFloat(((wonDealsCount / totalDealsCount) * 100).toFixed(1)) : 0,
-                    funnelEfficiency: totalLeadsCount > 0 ? parseFloat((((wonDealsCount || convertedLeadsCount) / totalLeadsCount) * 100).toFixed(1)) : 0,
+                    funnelEfficiency: totalLeadsCount > 0 ? parseFloat(((wonDealsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
                     leadVelocityDays: avgVelocityDays
                 },
                 sourceAttribution: {
@@ -367,17 +368,23 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                 topProspects: formattedProspects,
                 optimization: {
                     kpis: {
-                        intentConversionRate: totalLeadsCount > 0 ? parseFloat(((nurturedLeadsCount / totalLeadsCount) * 100).toFixed(1)) : 84.0,
-                        matchRate: 78.4,
-                        blendedCPL: totalLeadsCount > 0 ? Math.round(18000 / Math.max(1, totalLeadsCount)) : 380,
-                        roiIndex: wonDealsCount > 0 ? parseFloat(((wonDealsCount * 45000) / 18000).toFixed(1)) : 4.6
+                        intentConversionRate: null,
+                        matchRate: null,
+                        blendedCPL: null,
+                        roiIndex: null,
+                        dataAvailability: {
+                            intentConversionRate: 'not_measured',
+                            matchRate: 'not_measured',
+                            blendedCPL: 'not_measured',
+                            roiIndex: 'not_measured'
+                        }
                     },
                     recommendations: [
                         {
                             id: 'rec_pillar_rebalance',
                             priority: 'High Priority',
                             title: '4-Pillar Content Rebalancing (80-10-7-3)',
-                            rationale: 'Live telemetry indicates Pillar 3 (Educational & Legal Guidance) drives 2.3x higher save & share rates in Kurukshetra than raw deal listings.',
+                            rationale: 'Compare verified saves and shares by content pillar when sufficient post-level telemetry is available; no performance advantage is assumed.',
                             action: 'Shift 10% promotional bandwidth into CLU, Registry, and circle rate guidance.',
                             targetTab: 'designer'
                         },
@@ -385,8 +392,8 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                             id: 'rec_lead_warmup',
                             priority: 'Immediate Action',
                             title: 'High-Intent Lead Nurturing & Retargeting',
-                            rationale: `Currently ${formattedProspects.filter(p => (p.score || 0) >= 50).length} high-intent prospects are waiting in pipeline with >50% intent scores.`,
-                            action: 'Deploy hyper-personalized WhatsApp broadcast highlighting upcoming Sector 4 & Ring Road registry openings at 11:30 AM.',
+                            rationale: `${formattedProspects.filter(p => (p.leadScore || 0) >= 50).length} prospects currently have a stored lead score of 50 or higher. This is a CRM lead-score cohort, not proof of social attribution.`,
+                            action: 'Review the qualifying leads in CRM and select an approved, fact-checked follow-up action.',
                             targetTab: 'campaign'
                         }
                     ],
@@ -394,20 +401,20 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                         {
                             tag: 'ROI Angle',
                             color: '#f59e0b',
-                            title: 'Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026',
-                            description: 'Targeted at conservative local business owners & doctors looking for safe 14-18% CAGR land appreciation near GT Road.'
+                            title: 'Location connectivity: factors property buyers can verify',
+                            description: 'Use only when a verified project asset and substantiated location facts are available. Do not imply returns or guaranteed appreciation.'
                         },
                         {
                             tag: 'Trust Angle',
                             color: '#10b981',
                             title: 'Registry & CLU Checklist: 5 Pitfalls Before Buying Colony Plots',
-                            description: 'Addresses the #1 buyer fear in Kurukshetra. Positions Bharat Properties as the verified, legally audited authority.'
+                            description: 'Educational content should explain due-diligence steps without implying legal certification or authority status.'
                         },
                         {
                             tag: 'Urgency Angle',
                             color: '#3b82f6',
-                            title: 'Sector 32 Commercial Plots: Pre-Registry Price Freeze',
-                            description: 'Designed for quick booking conversions with high-intent retail investors seeking rental yield near commercial hubs.'
+                            title: 'Commercial property due-diligence checklist',
+                            description: 'Use only when commercial inventory details and any rental-yield claims are independently substantiated.'
                         }
                     ]
                 }
@@ -856,14 +863,11 @@ export const generateSocialContent = async (req, res) => {
             title: `${targetEntity.unitNo || targetEntity.projectName || 'Property'} ${platform} Post`,
             content: content,
             platform: platform.charAt(0).toUpperCase() + platform.slice(1),
-            type: entityType === 'project' ? 'ct-project' : 'ct-deal',
+            type: 'ct-project',
             date: new Date().toISOString().split('T')[0],
             status: 'draft',
-            dealId: targetEntity._id,
+            ...(entityType === 'project' ? { metadata: { projectId: targetEntity._id } } : { dealId: targetEntity._id }),
             author: req.user?.id
-        }).catch(err => {
-            console.warn('[generateSocialContent] Non-blocking MarketingContent save error:', err.message);
-            return { _id: new mongoose.Types.ObjectId() };
         });
 
         res.json({ success: true, platform, content, dealTitle: targetEntity.unitNo || targetEntity.projectName, postId: post?._id });
@@ -921,35 +925,31 @@ export const generateWithModel = async (req, res) => {
                     console.warn('[MarketingController] Telemetry digest warning:', tErr.message);
                 }
 
-                const topPostsStr = liveTelemetry?.topPerformingPosts?.length > 0
-                    ? liveTelemetry.topPerformingPosts.map(p => `  * [${p.platform.toUpperCase()}] ${p.title} — Reach: ${p.reach}, Eng Rate: ${p.engagementRate}`).join('\n')
-                    : '  * Sector 7 Drone Reel (Instagram) — High engagement\n  * Dhanteras Festive Greeting (Facebook) — Strong saves rate\n  * Verified Registry Guide (Educational) — High saves';
+                const telemetryEvidence = liveTelemetry || {
+                    dataStatus: 'UNAVAILABLE',
+                    reason: 'Telemetry digest could not be retrieved. No verified social metrics are available for this run.'
+                };
 
-                resolvedPrompt = `You are the Google Metrics AI (Metrics Manager) for Bharat Properties, Kurukshetra.
-Analyze the following LIVE social media performance and CRM conversion data:
+                resolvedPrompt = `You are the Metrics Manager for Bharat Properties, Kurukshetra.
+Analyze only the verified evidence supplied below. Never invent, estimate, backfill or substitute metrics, sample posts, peak-time windows, leads, ROI, CPL or performance results.
 
-━━━━━━━━ LIVE TELEMETRY DIGEST (Meta, LinkedIn, YouTube) ━━━━━━━━
-• Total Social Reach: ${liveTelemetry?.totalReach || 1240} verified viewers
-• Total Impressions: ${liveTelemetry?.totalImpressions || 2860} impressions
-• Total Engagement (Likes, Comments, Shares, Saves): ${liveTelemetry?.totalEngagement || 184}
-• Average Engagement Rate: ${liveTelemetry?.averageEngagementRate || 6.4}%
-• Performance by Content Pillar:
-  - 80% Real Estate Deals: ${liveTelemetry?.pillarBreakdown?.['ct-project']?.count || 4} posts | Reach: ${liveTelemetry?.pillarBreakdown?.['ct-project']?.reach || 840} | Avg Rate: ${liveTelemetry?.pillarBreakdown?.['ct-project']?.avgRate || 7.2}%
-  - Festivals & Cultural: ${liveTelemetry?.pillarBreakdown?.['ct-festival']?.count || 1} posts | Reach: ${liveTelemetry?.pillarBreakdown?.['ct-festival']?.reach || 280} | Avg Rate: ${liveTelemetry?.pillarBreakdown?.['ct-festival']?.avgRate || 8.1}%
-  - Educational/Legal Advisory: ${liveTelemetry?.pillarBreakdown?.['ct-edu']?.count || 1} posts | Reach: ${liveTelemetry?.pillarBreakdown?.['ct-edu']?.reach || 120} | Avg Rate: ${liveTelemetry?.pillarBreakdown?.['ct-edu']?.avgRate || 5.5}%
-  - Trust & Reputation: ${liveTelemetry?.pillarBreakdown?.['ct-trust']?.count || 0} posts | Reach: ${liveTelemetry?.pillarBreakdown?.['ct-trust']?.reach || 0} | Avg Rate: 0%
+VERIFIED TELEMETRY EVIDENCE (JSON):
+${JSON.stringify(telemetryEvidence, null, 2)}
 
-• Top Performing Posts:
-${topPostsStr}
+RULES:
+- Treat missing, null, stale, partial and zero values as distinct states. Zero is not a substitute for missing data.
+- State the reporting window, platforms represented, post count and data completeness.
+- Do not claim a platform was synced unless its provider sync succeeded.
+- Do not claim a lead or deal conversion came from a social post unless an attribution record supports it.
+- Do not forecast lead lift or ROI without a statistically defensible baseline; state that evidence is insufficient when it is.
+- Evaluate the 80% Projects / 10% Educational / 7% Trust / 3% Festivals content mix only when the sample size is available.
+- Give recommendations tied to the evidence and label hypotheses clearly.
 
-• Best Performing Time Window: ${liveTelemetry?.peakEngagementTimeSlot || '19:00 - 20:30 IST (Peak evening)'}
-
-TASKS REQUIRED:
-1. Executive Performance Audit (Analyze 7-30 day real estate reach, saves, shares, and leads).
-2. Content Pillar Evaluation (Verify adherence to 80% Projects / 10% Educational / 7% Trust / 3% Festival rule).
-3. Identify Top Performing Format (e.g. Drone Reels vs Verified Plot Carousel vs Festive Flyer).
-4. 5 Actionable Strategic Growth Recommendations for the Social Media Manager's upcoming weekly calendar.
-5. Provide expected lead lift projection for next week.`;
+TASKS:
+1. Report verified reach, impressions, engagement and post-level performance.
+2. Evaluate content pillar mix where evidence exists.
+3. Identify top-performing formats only from actual records.
+4. Recommend measurable next actions and state what additional tracking is needed.`;
             } else if (targetId.includes('social') || targetId.includes('content')) {
                 const metricsContext = context?.metricsReport ? `\n\n━━━━━━━━ PREVIOUS METRICS REPORT ━━━━━━━━\n${context.metricsReport}\n` : '';
                 resolvedPrompt = `You are the Social Media Manager (ChatGPT GPT-4o) for Bharat Properties, Kurukshetra.${metricsContext}
@@ -1026,7 +1026,7 @@ export const getSocialTelemetry = async (req, res) => {
 
         const digest = await socialAnalyticsSyncService.getTelemetryDigest(lookbackDays);
         const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-        const posts = await SocialPostMetric.find({ publishedAt: { $gte: since } }).sort({ publishedAt: -1 }).limit(200).lean();
+        const posts = await SocialPostMetric.find({ remotePostIdVerified: true, syncStatus: 'synced', publishedAt: { $gte: since } }).sort({ publishedAt: -1 }).limit(200).lean();
         const payload = { success: true, digest, posts };
         socialTelemetryCache.set(cacheKey, { timestamp: Date.now(), payload });
         res.json(payload);
@@ -1062,6 +1062,9 @@ export const generateVisualAsset = async (req, res) => {
             targetEntity = await Deal.findOne({ _id: dealId, ...visibilityFilter }).lean();
             if (!targetEntity) {
                 targetEntity = await Project.findOne({ _id: dealId, ...visibilityFilter }).lean();
+            }
+            if (!targetEntity) {
+                targetEntity = await Inventory.findOne({ _id: dealId, ...visibilityFilter }).lean();
             }
         }
 
@@ -1504,8 +1507,15 @@ export const publishMarketingContent = async (req, res) => {
         const { contentId, phoneNumber } = req.body;
         const content = await MarketingContent.findById(contentId);
         if (!content) return res.status(404).json({ success: false, error: 'Content not found' });
-        let result = content.platform?.toLowerCase() === 'whatsapp' ? await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber) : await marketingPublishingService.publishToSocial(contentId);
-        res.json({ success: true, message: result.message });
+        const result = content.platform?.toLowerCase() === 'whatsapp'
+            ? await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber)
+            : await marketingPublishingService.publishToSocial(contentId);
+        res.json({
+            success: Boolean(result?.success && result?.published),
+            published: Boolean(result?.published),
+            mode: result?.mode || 'live',
+            message: result?.message || 'Publishing was not confirmed by the platform.'
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

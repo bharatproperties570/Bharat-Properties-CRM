@@ -89,7 +89,7 @@ class FacebookService {
      */
     _normalizeMediaUrl(rawUrl) {
         if (!rawUrl || typeof rawUrl !== 'string') {
-            return 'https://api.bharatproperties.co/uploads/file-1794238056779-festival-61624.jpg';
+            throw new Error('A verified media URL is required; no generic fallback image will be published.');
         }
         let clean = rawUrl.trim();
         if (clean.startsWith('/uploads/')) {
@@ -98,7 +98,7 @@ class FacebookService {
             clean = `https://api.bharatproperties.co/${clean}`;
         }
         if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-            return 'https://api.bharatproperties.co/uploads/file-1794238056779-festival-61624.jpg';
+            throw new Error('Media URL must be an absolute HTTP(S) URL or a CRM uploads path.');
         }
         return clean;
     }

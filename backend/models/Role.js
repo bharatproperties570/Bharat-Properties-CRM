@@ -151,6 +151,7 @@ const RoleSchema = new mongoose.Schema({
         approveDiscount: { type: Boolean, default: false },
         approveStageChange: { type: Boolean, default: false },
         approveListingPublish: { type: Boolean, default: false },
+        marketingDocumentUse: { type: Boolean, default: false },
         allowHardDelete: { type: Boolean, default: false }, // Enterprise Hard Delete Auth
         reassignLeads: { type: Boolean, default: false },
         manageAuthoritySettings: { type: Boolean, default: false },

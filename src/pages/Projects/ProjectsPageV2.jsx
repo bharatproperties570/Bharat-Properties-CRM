@@ -900,6 +900,7 @@ function ProjectsPage({ onNavigate }) {
                     if (!p) return null;
                     return {
                         id: p._id,
+                        entityType: 'Project',
                         name: p.name,
                         title: p.name,
                         location: getReadableLocation(p),

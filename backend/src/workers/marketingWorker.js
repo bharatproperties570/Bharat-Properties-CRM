@@ -21,6 +21,7 @@ import mongoose from 'mongoose';
 import redisConnection from '../config/redis.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 import { buildUniversalContext, interpolateUniversalTemplate } from '../../utils/universalVariableInterpolator.js';
+import { extractProviderPostId } from '../../utils/marketingOsTruth.js';
 
 // Lazily imported services (avoids circular deps at module load)
 let whatsAppService, emailService, smsService, marketingService, nurtureBot;
@@ -1267,7 +1268,36 @@ const processMarketingJob = async (job) => {
                 result = { success: false, reason: 'Unsupported platform' };
             }
 
-            // Log as Activity for Timeline visibility
+            if (!result?.success) {
+                await Activity.create({
+                    type: 'Social Dispatch',
+                    subject: `Deferred Share to ${platform}`,
+                    entityType: entityType || 'System',
+                    entityId: entityId || null,
+                    description: sanitizedText,
+                    status: 'Deferred',
+                    performedBy: 'CRM Scheduler',
+                    details: {
+                        platform: targetPlatform,
+                        format,
+                        imageUrl,
+                        dispatchStatus: 'deferred',
+                        reason: result?.reason || 'Provider did not confirm publication.',
+                        jobId: job.id
+                    },
+                    dueDate: new Date()
+                });
+                await job.updateProgress(100);
+                await job.log(`Publication not confirmed for ${platform}; content remains unpublished.`);
+                return { ...result, published: false, completedAt: new Date().toISOString() };
+            }
+
+            const providerPostId = extractProviderPostId(result);
+            if (!providerPostId) {
+                throw new Error(`Provider returned success without a durable remote post ID for ${platform}; publication receipt cannot be confirmed.`);
+            }
+
+            // Log only provider-confirmed publications as Social Post activity.
             await Activity.create({
                 type: 'Social Post',
                 subject: `Scheduled Share to ${platform}`,
@@ -1278,17 +1308,18 @@ const processMarketingJob = async (job) => {
                 performedBy: 'CRM Scheduler',
                 details: {
                     platform: targetPlatform,
-                    format: format,
-                    imageUrl: imageUrl,
+                    format,
+                    imageUrl,
                     dispatchedAt: new Date(),
-                    jobId: job.id
+                    jobId: job.id,
+                    resultData: { postId: String(providerPostId) }
                 },
                 dueDate: new Date()
             });
 
             await job.updateProgress(100);
-            await job.log(`✅ ${platform} Post Successful! ID: ${result.postId || result.id}`);
-            return { ...result, completedAt: new Date().toISOString() };
+            await job.log(`✅ ${platform} Post Successful! Provider ID: ${providerPostId}`);
+            return { ...result, published: true, remotePostId: String(providerPostId), completedAt: new Date().toISOString() };
         } catch (err) {
             await job.log(`❌ ${platform} Post Failed: ${err.message}`);
             throw err; // Rethrow to let BullMQ handle retries

@@ -106,6 +106,19 @@ const SocialPostModal = ({
   const [generatedPrompt, setGeneratedPrompt] = useState('');
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingVisual, setIsGeneratingVisual] = useState(false);
+  const [approvedDocuments, setApprovedDocuments] = useState([]);
+  const [selectedApprovedDocument, setSelectedApprovedDocument] = useState('');
+  const [approvedDocumentContext, setApprovedDocumentContext] = useState(null);
+  const [isLoadingApprovedDocuments, setIsLoadingApprovedDocuments] = useState(false);
+  const [isLoadingDocumentContext, setIsLoadingDocumentContext] = useState(false);
+
+  useEffect(() => {
+    setApprovedDocuments([]);
+    setSelectedApprovedDocument('');
+    setApprovedDocumentContext(null);
+    setIsLoadingApprovedDocuments(false);
+    setIsLoadingDocumentContext(false);
+  }, [initialData?._id, initialData?.id, isOpen, show]);
   const [previewBrandedMode, setPreviewBrandedMode] = useState(true); // Toggle on phone mirror
 
   // --- TAB 2: PORTALS & SYNDICATION STATE ---
@@ -219,20 +232,34 @@ const SocialPostModal = ({
         applyCompliantContent(defaultText);
       }
 
+      const crmVideoUrl =
+        initialData.videoUrl ||
+        initialData.builtupVideoUrl ||
+        initialData.projectVideos?.find(item => item?.url)?.url ||
+        initialData.inventoryVideos?.find(item => item?.url)?.url ||
+        initialData.builtupDetails?.find(item => item?.videoUrl)?.videoUrl ||
+        (() => {
+          const item = initialData.media?.find(entry => {
+            const value = typeof entry === 'string' ? entry : entry?.url;
+            return value && /\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(value);
+          });
+          return typeof item === 'string' ? item : item?.url;
+        })();
+
       if (initialData.mediaUrl) {
-        if (initialData.mediaUrl.endsWith('.mp4') || initialData.format === 'reel') {
+        if (/\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(initialData.mediaUrl) || initialData.format === 'reel') {
           setVideoUrl(initialData.mediaUrl);
           setImageUrl('');
           setFormat('reel');
         } else {
           setImageUrl(initialData.mediaUrl);
         }
-      } else if (initialData.videoUrl) {
-        setVideoUrl(initialData.videoUrl);
+      } else if (crmVideoUrl) {
+        setVideoUrl(crmVideoUrl);
         setImageUrl('');
         setFormat('reel');
       } else {
-        setImageUrl(initialData.imageUrl || initialData.primaryImage || initialData.images?.[0] || '');
+        setImageUrl(initialData.imageUrl || initialData.primaryImage || initialData.featuredImage || initialData.images?.[0] || '');
       }
 
       if (initialData.platform) {
@@ -249,31 +276,33 @@ const SocialPostModal = ({
     }
   }, [initialData, initialContent, explicitImageUrl, isActuallyOpen, verificationFacts]);
 
-  // 🖼️ Extract All High-Res Property Gallery Images from Deal / Project
+  // 🖼️ Resolve image-only CRM media across Deal, Project and Inventory records.
   const galleryImages = useMemo(() => {
     if (!initialData) return [];
     const list = [];
-    if (initialData.imageUrl) list.push(initialData.imageUrl);
-    if (initialData.primaryImage) list.push(initialData.primaryImage);
-    if (Array.isArray(initialData.images)) {
-      initialData.images.forEach(img => {
-        if (typeof img === 'string' && img) list.push(img);
-        else if (img?.url) list.push(img.url);
-      });
-    }
-    if (Array.isArray(initialData.media)) {
-      initialData.media.forEach(m => {
-        if (typeof m === 'string' && m) list.push(m);
-        else if (m?.url) list.push(m.url);
-      });
-    }
-    if (Array.isArray(initialData.photos)) {
-      initialData.photos.forEach(p => {
-        if (typeof p === 'string' && p) list.push(p);
-        else if (p?.url) list.push(p.url);
-      });
-    }
-    return Array.from(new Set(list.filter(Boolean)));
+    const addImage = (item) => {
+      const candidate = typeof item === 'string'
+        ? item
+        : (item?.url || item?.path || item?.imageUrl || item?.secureUrl);
+      if (typeof candidate !== 'string' || !candidate.trim()) return;
+      const normalized = candidate.trim();
+      const mediaType = String(item?.mimeType || item?.type || item?.category || '').toLowerCase();
+      if (mediaType.includes('video') || mediaType.includes('pdf') || /\\.(pdf|mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(normalized)) return;
+      list.push(normalized);
+    };
+
+    addImage(initialData.imageUrl);
+    addImage(initialData.primaryImage);
+    addImage(initialData.featuredImage);
+    addImage(initialData.websiteMetadata?.featuredImage);
+    (initialData.broadcastMetadata?.images || []).forEach(addImage);
+    (initialData.images || []).forEach(addImage);
+    (initialData.media || []).forEach(addImage);
+    (initialData.photos || []).forEach(addImage);
+    (initialData.projectImages || []).forEach(addImage);
+    (initialData.inventoryImages || []).forEach(addImage);
+    (initialData.builtupDetails || []).forEach(item => addImage(item?.imageUrl));
+    return Array.from(new Set(list));
   }, [initialData]);
 
   if (!isActuallyOpen) return null;
@@ -367,6 +396,58 @@ const SocialPostModal = ({
     }
   };
 
+  const resolveMarketingEntityType = () => {
+    const candidate = String(initialData?.entityType || initialData?.type || '').toLowerCase();
+    if (candidate.includes('inventory')) return 'Inventory';
+    if (candidate.includes('project')) return 'Project';
+    if (candidate.includes('deal') || initialData?.unitNo || initialData?.dealId) return 'Deal';
+    return null;
+  };
+
+  const handleLoadApprovedDocuments = async () => {
+    const entityId = initialData?.id || initialData?._id;
+    const entityType = resolveMarketingEntityType();
+    if (!entityId || !entityType) {
+      toast.error('Selected CRM record type could not be identified. Open Designer from a Deal, Project or Inventory record.');
+      return;
+    }
+    setIsLoadingApprovedDocuments(true);
+    setApprovedDocuments([]);
+    setSelectedApprovedDocument('');
+    setApprovedDocumentContext(null);
+    try {
+      const response = await marketingAPI.getApprovedMarketingDocuments(entityType, entityId);
+      const documents = Array.isArray(response?.documents) ? response.documents : [];
+      setApprovedDocuments(documents);
+      if (!documents.length) toast('No currently approved marketing PDFs are available for this CRM record.');
+    } catch (error) {
+      toast.error(error?.response?.data?.error || error?.message || 'Could not load approved CRM PDFs.');
+    } finally {
+      setIsLoadingApprovedDocuments(false);
+    }
+  };
+
+  const handleApprovedDocumentChange = async (documentId) => {
+    setSelectedApprovedDocument(documentId);
+    setApprovedDocumentContext(null);
+    const selected = approvedDocuments.find((item) => item.documentId === documentId);
+    if (!selected) return;
+    setIsLoadingDocumentContext(true);
+    try {
+      const response = await marketingAPI.getApprovedMarketingDocumentContext(selected.documentId, selected.versionId);
+      if (!response?.success || !response?.context?.contextText) {
+        throw new Error(response?.error || 'Approved PDF contains no usable text context.');
+      }
+      setApprovedDocumentContext(response.context);
+      toast.success('Approved CRM PDF context loaded for Designer prompt guidance.');
+    } catch (error) {
+      setSelectedApprovedDocument('');
+      toast.error(error?.response?.data?.error || error?.message || 'Approved PDF context could not be loaded.');
+    } finally {
+      setIsLoadingDocumentContext(false);
+    }
+  };
+
   // 🛸 ── Generate Visual Prompts for DALL-E 3 & Runway v3 ──
   const handleGenerateVisualPrompt = () => {
     setIsGeneratingPrompt(true);
@@ -395,7 +476,10 @@ const SocialPostModal = ({
             ? 'Aspirational crisp daylight, crystal clear sky, vibrant royal ambiance'
             : 'Minimalist clean aesthetic, architectural precision, soft diffused daylight';
 
-      const promptStr = `A stunning ${angleDesc} of ${title} in ${cleanLoc}. ${moodDesc}. Architecture emphasizes clear lines with Bharat Properties brand aesthetic: Deep Navy accents with subtle Gold lighting. [BRAND IDENTITY]: Include Bharat Properties emblem. [CONTACT STRIP]: Display Website: www.bharatproperties.co, Contact: ${phone}. Photorealistic, 8k resolution, Unreal Engine 5 render style, perfectly composed for ${aspect}.`;
+      const approvedReference = approvedDocumentContext?.contextText
+        ? `\n\n[APPROVED CRM PDF REFERENCE — ${approvedDocumentContext.category}]\n${approvedDocumentContext.contextText.slice(0, 5000)}\nUse this only as source-reference guidance. Do not invent specifications, approvals, prices, amenities or legal claims. Prefer structured CRM Deal/Project fields for all publishable facts.`
+        : '';
+      const promptStr = `A stunning ${angleDesc} of ${title} in ${cleanLoc}. ${moodDesc}. Architecture emphasizes clear lines with Bharat Properties brand aesthetic: Deep Navy accents with subtle Gold lighting. [BRAND IDENTITY]: Include Bharat Properties emblem. [CONTACT STRIP]: Display Website: www.bharatproperties.co, Contact: ${phone}. Photorealistic, 8k resolution, Unreal Engine 5 render style, perfectly composed for ${aspect}.${approvedReference}`;
 
       setGeneratedPrompt(promptStr);
       setIsGeneratingPrompt(false);
@@ -440,19 +524,13 @@ const SocialPostModal = ({
         throw new Error(res?.error || 'Visual generation failed');
       }
     } catch (err) {
-      console.warn('[SocialPostModal] Visual generation fallback:', err);
-      if (assetType === 'video') {
-        const fallbackVid = 'https://api.bharatproperties.co/uploads/file-1794103158366-51719174-gemini_generated_video_10961d17.mp4';
-        setVideoUrl(fallbackVid);
-        setImageUrl('');
-        setFormat('reel');
-        toast.success('🎬 AI Drone Reel Attached!', { id: toastId });
-      } else {
-        const fallbackImg = 'https://api.bharatproperties.co/uploads/file-1794179346959-ai_visual_test.jpg';
-        setImageUrl(fallbackImg);
-        setVideoUrl('');
-        toast.success('✨ AI Property Image Generated!', { id: toastId });
-      }
+      console.warn('[SocialPostModal] Visual generation unavailable:', err);
+      // Never attach a stale sample asset or present a failed generation as success.
+      setImageUrl('');
+      setVideoUrl('');
+      setIsBrandified(false);
+      setBrandedImageUrl('');
+      toast.error(err?.message || 'Visual generation failed. Attach an approved CRM asset or retry.', { id: toastId });
     } finally {
       setIsGeneratingVisual(false);
     }
@@ -2039,11 +2117,27 @@ const SocialPostModal = ({
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                 <Layers size={13} className="text-indigo-400" />
-                                                <span>DALL-E 3 & Runway v3 Drone Studio Prompt Generator</span>
+                                                <span>Designer Prompt Studio</span>
                                             </div>
                                             <span style={{ fontSize: '0.62rem', color: isDark ? '#94a3b8' : '#64748b' }}>
                                                 Engineered for Photorealistic Real Estate Renders
                                             </span>
+                                        </div>
+
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', padding: '9px', borderRadius: '8px', background: isDark ? 'rgba(15,23,42,0.8)' : '#f8fafc', border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                                <div style={{ fontSize: '0.66rem', fontWeight: 800, color: isDark ? '#e2e8f0' : '#334155' }}>APPROVED CRM PDF REFERENCE</div>
+                                                <button type="button" onClick={handleLoadApprovedDocuments} disabled={isLoadingApprovedDocuments} style={{ border: 'none', borderRadius: '6px', padding: '5px 9px', background: '#1a2744', color: '#fff', fontSize: '0.62rem', fontWeight: 800, cursor: isLoadingApprovedDocuments ? 'wait' : 'pointer' }}>
+                                                    {isLoadingApprovedDocuments ? 'Loading…' : 'Load approved PDFs'}
+                                                </button>
+                                            </div>
+                                            <select value={selectedApprovedDocument} onChange={(event) => handleApprovedDocumentChange(event.target.value)} disabled={isLoadingDocumentContext || approvedDocuments.length === 0} style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '0.68rem' }}>
+                                                <option value="">No approved PDF selected</option>
+                                                {approvedDocuments.map((doc) => <option key={doc.documentId} value={doc.documentId}>{doc.category} · v{doc.versionNumber}</option>)}
+                                            </select>
+                                            {isLoadingDocumentContext && <span style={{ fontSize: '0.62rem', color: '#d97706' }}>Checking approval and reading PDF securely…</span>}
+                                            {approvedDocumentContext && <span style={{ fontSize: '0.62rem', color: '#059669' }}>Approved {approvedDocumentContext.category} reference loaded · {approvedDocumentContext.pageCount} pages · text is screened and redacted</span>}
+                                            <span style={{ fontSize: '0.58rem', color: isDark ? '#94a3b8' : '#64748b' }}>Only current, human-approved PDFs with active permissions appear. The PDF text guides the prompt; it does not replace verified CRM fields.</span>
                                         </div>
 
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>

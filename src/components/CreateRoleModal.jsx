@@ -19,7 +19,8 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: false
+            approveListingPublish: false,
+            marketingDocumentUse: false
         }
     });
 
@@ -45,11 +46,13 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
                     approvePayment: false,
                     approvePayout: false
                 },
-                approvalRights: roleData.approvalRights || {
+                approvalRights: {
                     approveDeal: false,
                     approveDiscount: false,
                     approveStageChange: false,
-                    approveListingPublish: false
+                    approveListingPublish: false,
+                    marketingDocumentUse: false,
+                    ...(roleData.approvalRights || {})
                 }
             });
         } else if (!isEdit && isOpen) {
@@ -71,7 +74,8 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
                     approveDeal: false,
                     approveDiscount: false,
                     approveStageChange: false,
-                    approveListingPublish: false
+                    approveListingPublish: false,
+                    marketingDocumentUse: false
                 }
             });
         }
@@ -219,7 +223,8 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
                         approveDeal: false,
                         approveDiscount: false,
                         approveStageChange: false,
-                        approveListingPublish: false
+                        approveListingPublish: false,
+            marketingDocumentUse: false
                     }
                 });
                 setSelectedTemplate('');

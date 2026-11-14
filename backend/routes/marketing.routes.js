@@ -73,6 +73,8 @@ import {
     disconnectLinkedIn
 } from '../controllers/linkedIn.controller.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
+import { approveMarketingDocument, revokeMarketingDocumentApproval } from '../controllers/marketingDocumentApproval.controller.js';
+import { listApprovedMarketingDocuments, getApprovedMarketingDocumentContext } from '../controllers/marketingDocumentContext.controller.js';
 
 const router = express.Router();
 
@@ -82,6 +84,12 @@ router.get('/linkedin/callback', handleLinkedInCallback);
 
 // Apply authentication to all following protected routes
 router.use(authenticate);
+
+// ── Manual CRM document approval gate (authenticated + role approval right) ──
+router.post('/documents/:documentId/marketing-approval', approveMarketingDocument);
+router.delete('/documents/:documentId/marketing-approval', revokeMarketingDocumentApproval);
+router.get('/documents/approved-marketing-assets', listApprovedMarketingDocuments);
+router.post('/documents/:documentId/approved-context', getApprovedMarketingDocumentContext);
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
 router.get('/stats',              getMarketingStats);

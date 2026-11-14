@@ -7,7 +7,10 @@ import { marketingAPI, socialAPI } from '../../utils/api';
 vi.mock('../../utils/api', () => ({
   marketingAPI: {
     generateSocial: vi.fn(),
+    generateVisual: vi.fn(),
     broadcastToHub: vi.fn().mockResolvedValue({ success: true, results: { success: ['99acres', 'Magicbricks'] } }),
+    getApprovedMarketingDocuments: vi.fn().mockResolvedValue({ success: true, documents: [] }),
+    getApprovedMarketingDocumentContext: vi.fn().mockResolvedValue({ success: true, context: {} }),
     getPortalStatuses: vi.fn().mockResolvedValue({
       success: true,
       statuses: {
@@ -23,6 +26,7 @@ vi.mock('../../utils/api', () => ({
 
 vi.mock('react-hot-toast', () => ({
   default: {
+    loading: vi.fn(() => 'toast-id'),
     success: vi.fn(),
     error: vi.fn()
   }
@@ -261,6 +265,53 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
     });
   });
 
+  it('does not attach stale sample media when visual generation fails', async () => {
+    const toast = (await import('react-hot-toast')).default;
+    marketingAPI.generateVisual.mockRejectedValueOnce(new Error('No configured visual provider'));
+
+    render(
+      <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
+    );
+
+    fireEvent.click(screen.getByText(/Generate AI Image/i));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        'No configured visual provider',
+        expect.any(Object)
+      );
+    });
+    expect(marketingAPI.generateVisual).toHaveBeenCalledWith(expect.objectContaining({
+      dealId: 'proj-12345',
+      type: 'image'
+    }));
+    expect(toast.success).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AI Property Image Generated|AI Drone Reel Attached/i),
+      expect.anything()
+    );
+  });
+
+  it.each([
+    ['Project', 'project-record-1'],
+    ['Deal', 'deal-record-1'],
+    ['Inventory', 'inventory-record-1']
+  ])('loads approved marketing PDFs against the canonical %s record type', async (entityType, entityId) => {
+    render(
+      <SocialPostModal
+        isOpen={true}
+        onClose={() => {}}
+        initialData={{ id: entityId, entityType, type: entityType.toLowerCase() }}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/Visual Prompt Lab/i));
+    fireEvent.click(screen.getByRole('button', { name: /Load approved PDFs/i }));
+
+    await waitFor(() => {
+      expect(marketingAPI.getApprovedMarketingDocuments).toHaveBeenCalledWith(entityType, entityId);
+    });
+  });
+
   it('renders Visual AI & Brand Studio with Brand Kit and Visual Prompt Lab', async () => {
     render(
       <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
@@ -274,6 +325,8 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
 
     // Open Visual Prompt Lab
     fireEvent.click(screen.getByText(/Visual Prompt Lab/i));
-    expect(screen.getByText(/DALL-E 3 & Runway v3 Drone Studio Prompt Generator/i)).toBeTruthy();
+    expect(screen.getByText(/Designer Prompt Studio/i)).toBeTruthy();
+    expect(screen.getByText(/APPROVED CRM PDF REFERENCE/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Load approved PDFs/i })).toBeTruthy();
   });
 });

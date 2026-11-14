@@ -39,7 +39,8 @@ const ROLE_TEMPLATES = {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: false
+            approveListingPublish: false,
+            marketingDocumentUse: false
         }
     },
 
@@ -77,7 +78,8 @@ const ROLE_TEMPLATES = {
             approveDeal: true,
             approveDiscount: true,
             approveStageChange: true,
-            approveListingPublish: false
+            approveListingPublish: false,
+            marketingDocumentUse: false
         }
     },
 
@@ -116,7 +118,8 @@ const ROLE_TEMPLATES = {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: false
+            approveListingPublish: false,
+            marketingDocumentUse: false
         }
     },
 
@@ -154,7 +157,8 @@ const ROLE_TEMPLATES = {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: true
+            approveListingPublish: true,
+            marketingDocumentUse: false
         }
     },
 
@@ -195,7 +199,8 @@ const ROLE_TEMPLATES = {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: true
+            approveListingPublish: true,
+            marketingDocumentUse: false
         }
     },
 
@@ -235,7 +240,8 @@ const ROLE_TEMPLATES = {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: true
+            approveListingPublish: true,
+            marketingDocumentUse: false
         }
     },
 
@@ -276,7 +282,8 @@ const ROLE_TEMPLATES = {
             approveDeal: false,
             approveDiscount: false,
             approveStageChange: false,
-            approveListingPublish: false
+            approveListingPublish: false,
+            marketingDocumentUse: false
         }
     },
 
@@ -316,7 +323,8 @@ const ROLE_TEMPLATES = {
             approveDeal: true,
             approveDiscount: true,
             approveStageChange: false,
-            approveListingPublish: false
+            approveListingPublish: false,
+            marketingDocumentUse: false
         }
     }
 };

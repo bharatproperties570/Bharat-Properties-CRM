@@ -1569,6 +1569,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                         onClose={() => setIsSocialModalOpen(false)}
                         initialData={{
                             id: selectedSocialData?.id,
+                            entityType: 'Deal',
                             name: selectedSocialData?.projectName ? `${selectedSocialData.projectName} - ${selectedSocialData?.unitNo}` : 'Prime Property',
                             title: selectedSocialData?.unitNo ? `Unit ${selectedSocialData.unitNo} | ${selectedSocialData.projectName || 'Exclusive Listing'}` : 'Exclusive Property',
                             location: (selectedSocialData?.location && selectedSocialData.location !== 'null' && selectedSocialData.location !== 'undefined') ? selectedSocialData.location : (selectedSocialData?.city || 'Kurukshetra, Haryana'),
