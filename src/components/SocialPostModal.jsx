@@ -225,10 +225,13 @@ const SocialPostModal = ({
         initialData.projectVideos?.find(item => item?.url)?.url ||
         initialData.inventoryVideos?.find(item => item?.url)?.url ||
         initialData.builtupDetails?.find(item => item?.videoUrl)?.videoUrl ||
-        initialData.media?.find(item => {
-          const value = typeof item === 'string' ? item : item?.url;
-          return value && /\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(value);
-        })?.url;
+        (() => {
+          const item = initialData.media?.find(entry => {
+            const value = typeof entry === 'string' ? entry : entry?.url;
+            return value && /\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(value);
+          });
+          return typeof item === 'string' ? item : item?.url;
+        })();
 
       if (initialData.mediaUrl) {
         if (/\\.(mp4|mov|webm|m4v)(?:[?#].*)?$/i.test(initialData.mediaUrl) || initialData.format === 'reel') {
