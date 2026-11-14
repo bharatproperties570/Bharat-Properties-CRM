@@ -15,6 +15,26 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 
+/**
+ * Collect only CRM fields that are explicitly image-bearing.
+ * Video/document collections are intentionally excluded from image composition.
+ */
+export const collectCrmHeroMediaCandidates = (entity = {}, customImageUrl = null) => {
+    const asArray = (value) => Array.isArray(value) ? value : (value ? [value] : []);
+    return [
+        customImageUrl,
+        entity.featuredImage,
+        entity.websiteMetadata?.featuredImage,
+        ...asArray(entity.broadcastMetadata?.images),
+        ...asArray(entity.images),
+        ...asArray(entity.media),
+        ...asArray(entity.photos),
+        ...asArray(entity.projectImages),
+        ...asArray(entity.inventoryImages),
+        ...asArray(entity.builtupDetails).map(item => item?.imageUrl)
+    ].filter(Boolean);
+};
+
 class BrandBannerComposer {
     constructor() {
         this.width = 1080;
@@ -139,19 +159,7 @@ class BrandBannerComposer {
 
             // 2. CRM-native media fields. Keep source ordering deterministic and
             // never treat documents/PDFs or video records as photographic hero assets.
-            const asArray = (value) => Array.isArray(value) ? value : (value ? [value] : []);
-            const candidateUrls = [
-                customImageUrl,
-                deal.featuredImage,
-                deal.websiteMetadata?.featuredImage,
-                ...asArray(deal.broadcastMetadata?.images),
-                ...asArray(deal.images),
-                ...asArray(deal.media),
-                ...asArray(deal.photos),
-                ...asArray(deal.projectImages),
-                ...asArray(deal.inventoryImages),
-                ...asArray(deal.builtupDetails).map(item => item?.imageUrl)
-            ].filter(Boolean);
+            const candidateUrls = collectCrmHeroMediaCandidates(deal, customImageUrl);
 
             for (const item of candidateUrls) {
                 const urlOrPath = typeof item === 'string'
