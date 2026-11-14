@@ -97,6 +97,77 @@ export class MarketingDocumentContextService {
         this.storageService = storageService;
     }
 
+    async listApprovedPdfDocuments({ user, entityType, entityId }) {
+        if (!user?._id || !mongoose.Types.ObjectId.isValid(String(user._id))) {
+            throw new MarketingDocumentContextError('AUTHENTICATION_REQUIRED', 401);
+        }
+        const normalizedType = String(entityType || '');
+        if (!['Deal', 'Inventory', 'Project'].includes(normalizedType) ||
+            !mongoose.Types.ObjectId.isValid(String(entityId || ''))) {
+            throw new MarketingDocumentContextError('INVALID_PARENT_REFERENCE', 400);
+        }
+
+        const ParentModel = mongoose.models[normalizedType];
+        if (!ParentModel) throw new MarketingDocumentContextError('DOCUMENT_PARENT_UNAVAILABLE', 409);
+        const visibilityFilter = await getVisibilityFilter(user);
+        const parent = await ParentModel.exists({ _id: entityId, ...visibilityFilter });
+        if (!parent) throw new MarketingDocumentContextError('DOCUMENT_NOT_VISIBLE', 404);
+
+        const documents = await Document.find({
+            entityType: normalizedType,
+            entityId,
+            state: 'ACTIVE',
+            isRevoked: { $ne: true },
+            legalHold: { $ne: true },
+            currentVersionId: { $exists: true, $ne: null }
+        }).lean();
+        if (!documents.length) return [];
+
+        const versions = await DocumentVersion.find({
+            _id: { $in: documents.map((item) => item.currentVersionId) },
+            documentId: { $in: documents.map((item) => item.documentId) }
+        }).lean();
+        const versionById = new Map(versions.map((item) => [String(item._id), item]));
+        const approvals = await MarketingDocumentApproval.find({
+            documentRef: { $in: documents.map((item) => item._id) },
+            versionRef: { $in: versions.map((item) => item._id) },
+            status: 'APPROVED',
+            policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
+        }).lean();
+        const approvalByVersion = new Map(approvals.map((item) => [String(item.versionRef), item]));
+        const categoryIds = approvals.map((item) => item.categoryLookupId).filter(Boolean);
+        const categories = await Lookup.find({
+            _id: { $in: categoryIds },
+            lookup_type: { $in: ['Document-Category', 'DocumentCategory'] },
+            isActive: true
+        }).lean();
+        const categoryById = new Map(categories.map((item) => [String(item._id), item]));
+
+        return documents.flatMap((document) => {
+            const version = versionById.get(String(document.currentVersionId));
+            if (!version || !isMarketingEligibleDocument(document) ||
+                !isMarketingEligiblePdfVersion(version) ||
+                Number(version.sizeBytes) > MAX_MARKETING_PDF_BYTES) return [];
+            const approval = approvalByVersion.get(String(version._id));
+            if (!approval || String(approval.documentRef) !== String(document._id) ||
+                String(approval.documentId) !== String(document.documentId) ||
+                String(approval.versionId) !== String(version.versionId) ||
+                !approval.reviewAttestation?.publicMarketingAsset ||
+                !approval.reviewAttestation?.noSensitivePersonalData ||
+                !approval.reviewAttestation?.rightsCleared) return [];
+            const category = categoryById.get(String(approval.categoryLookupId));
+            if (!category || !isMarketingSafeDocumentCategory(category.lookup_value) ||
+                category.lookup_value !== approval.categoryValue) return [];
+            return [{
+                documentId: document.documentId,
+                versionId: version.versionId,
+                category: category.lookup_value,
+                versionNumber: version.versionNumber,
+                sizeBytes: version.sizeBytes
+            }];
+        });
+    }
+
     async getApprovedPdfContext({ user, documentId, versionId }) {
         if (!user?._id || !mongoose.Types.ObjectId.isValid(String(user._id))) {
             throw new MarketingDocumentContextError('AUTHENTICATION_REQUIRED', 401);
