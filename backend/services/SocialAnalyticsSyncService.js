@@ -5,6 +5,7 @@ import facebookService from './FacebookService.js';
 import linkedInService from './LinkedInService.js';
 import youTubeService from './YouTubeService.js';
 import googleBusinessService from './GoogleBusinessService.js';
+import { extractActivityPostId, hasVerifiedMetricsResponse } from '../utils/marketingOsTruth.js';
 
 /**
  * SocialAnalyticsSyncService.js
@@ -57,7 +58,7 @@ class SocialAnalyticsSyncService {
         for (const act of activities) {
             const platform = (act.details?.platform || '').toLowerCase();
             const resultData = act.details?.resultData || {};
-            const remotePostId = resultData.postId || resultData.id || resultData.videoId || resultData.xRestliId || resultData.data?.name || act.details?.jobId;
+            const remotePostId = extractActivityPostId(resultData);
             
             if (platform && remotePostId) {
                 const key = `${platform}:${remotePostId}`;
@@ -81,17 +82,17 @@ class SocialAnalyticsSyncService {
 
         for (const cnt of contents) {
             const rawPlat = (cnt.platform || '').toLowerCase();
-            const enqueuedJobs = cnt.metadata?.enqueuedJobs || [];
-            
+            const platformPostIds = cnt.metadata?.platformPostIds || cnt.metadata?.remotePostIds || {};
+
             // If content targeted 'both' or specific channel
             const platformsToSync = rawPlat === 'both' ? ['facebook', 'instagram'] : [rawPlat];
 
             for (const p of platformsToSync) {
                 if (!['facebook', 'instagram', 'linkedin', 'youtube', 'google_business'].includes(p)) continue;
 
-                // Match job ID or content ID
-                const jobMatch = enqueuedJobs.find(j => j.platform === p);
-                const remoteId = jobMatch?.jobId || String(cnt._id);
+                // Queue job IDs and local content IDs are not provider post IDs.
+                const remoteId = platformPostIds[p] || null;
+                if (typeof remoteId !== 'string' || !remoteId.trim()) continue;
                 const key = `${p}:${remoteId}`;
 
                 if (!seenKeys.has(key)) {
@@ -137,20 +138,19 @@ class SocialAnalyticsSyncService {
                     stats.platforms.google_business++;
                 }
 
-                const metrics = fetchResult?.metrics || {
-                    impressions: 0,
-                    reach: 0,
-                    likes: 0,
-                    comments: 0,
-                    shares: 0,
-                    saves: 0,
-                    videoViews: 0,
-                    clicks: 0,
-                    engagement: 0,
-                    engagementRate: 0
-                };
+                if (!hasVerifiedMetricsResponse(fetchResult)) {
+                    const syncStatus = fetchResult?.pendingQuota ? 'pending' : 'partial';
+                    await SocialPostMetric.updateOne(
+                        { platform: t.platform, remotePostId: t.remotePostId },
+                        { $set: { syncStatus, syncError: fetchResult?.error || 'Provider did not return verified metrics.' } }
+                    );
+                    stats.failedCount++;
+                    continue;
+                }
 
-                // Upsert into SocialPostMetric
+                const metrics = fetchResult.metrics;
+
+                // Upsert only verified provider metrics; failed attempts never overwrite a prior snapshot.
                 const updatePayload = {
                     activityId: t.activityId || null,
                     contentId: t.contentId || null,
@@ -162,7 +162,7 @@ class SocialAnalyticsSyncService {
                     publishedAt: t.publishedAt,
                     pillar: t.pillar,
                     metrics,
-                    syncStatus: fetchResult?.success ? 'synced' : (fetchResult?.pendingQuota ? 'pending' : 'partial'),
+                    syncStatus: 'synced',
                     syncError: fetchResult?.error || null,
                     lastSyncedAt: new Date(),
                     $push: {

@@ -2,6 +2,8 @@ import axios from 'axios';
 import MarketingContent from '../models/MarketingContent.js';
 import * as driveService from './drive.service.js';
 import linkedInService from './LinkedInService.js';
+import facebookService from './FacebookService.js';
+import googleBusinessService from './GoogleBusinessService.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
 
@@ -36,7 +38,34 @@ class MarketingPublishingService {
         console.log(`[PUBLISHING] Deploying to ${content.platform}...`);
         const platform = content.platform?.toLowerCase();
 
-        // ── LinkedIn Activation (Phase 2) ───────────────────────────────────
+        // Dry-run is explicitly non-publishing: never mark a simulated post as published.
+        if (process.env.MARKETING_DRY_RUN === 'true') {
+            return { success: true, published: false, mode: 'dry_run', message: 'Dry run completed; no platform post was created.' };
+        }
+
+        if (platform === 'facebook' || platform === 'instagram') {
+            const mediaUrl = content.mediaUrls?.[0] || null;
+            const result = platform === 'facebook'
+                ? await facebookService.postToPage(sanitizedText, mediaUrl, content.metadata?.format || 'post')
+                : await facebookService.postToInstagram(sanitizedText, mediaUrl, content.metadata?.format || 'post');
+            if (!result?.success || !result?.postId) {
+                throw new Error(`${platform} provider did not confirm a remote post ID.`);
+            }
+            await this._markAsPublished(contentId, platform, String(result.postId));
+            return { success: true, published: true, remotePostId: String(result.postId), message: `Successfully published to ${platform}` };
+        }
+
+        if (platform === 'google_business') {
+            const result = await googleBusinessService.createPost(sanitizedText, null, content.mediaUrls?.[0] || null);
+            const remotePostId = result?.data?.name || result?.data?.id || null;
+            if (!result?.success || !remotePostId) {
+                throw new Error('Google Business Profile did not return a durable post ID.');
+            }
+            await this._markAsPublished(contentId, platform, String(remotePostId));
+            return { success: true, published: true, remotePostId: String(remotePostId), message: 'Successfully published to Google Business Profile' };
+        }
+
+        // ── LinkedIn Activation ──────────────────────────────────────────────
         if (platform === 'linkedin') {
             try {
                 const lnConfig = await SystemSetting.findOne({ key: 'linkedin_integration' });
@@ -77,30 +106,20 @@ class MarketingPublishingService {
                 }
 
                 // 5. Finalize Post with Server-Sanitized Text
-                await linkedInService.postToOrganization(sanitizedText, null, assetUrn);
-                await this._markAsPublished(contentId);
-                return { success: true, message: 'Successfully published to LinkedIn' };
+                const result = await linkedInService.postToOrganization(sanitizedText, null, assetUrn);
+                const remotePostId = result?.postId;
+                if (!result?.success || !remotePostId || remotePostId === 'linkedin_post_success') {
+                    throw new Error('LinkedIn did not return a verified remote post ID.');
+                }
+                await this._markAsPublished(contentId, platform, String(remotePostId));
+                return { success: true, published: true, remotePostId: String(remotePostId), message: 'Successfully published to LinkedIn' };
             } catch (err) {
                 console.error('[LINKEDIN PUBLISH ERROR]:', err.message);
                 throw new Error(`LinkedIn deployment failed: ${err.message}`);
             }
         }
 
-        // ── Standard Facebook/Instagram Logic ────────────────────────────────
-        const isDryRun = process.env.MARKETING_DRY_RUN === 'true';
-        if (isDryRun || !process.env.FACEBOOK_ACCESS_TOKEN) {
-            console.log('[PUBLISHING] DRY RUN: Simulation successful');
-            await this._markAsPublished(contentId);
-            return { success: true, mode: 'dry_run', message: 'Published via simulation' };
-        }
-
-        try {
-            await this._markAsPublished(contentId);
-            return { success: true, message: `Successfully deployed to ${content.platform}` };
-        } catch (error) {
-            console.error('[PUBLISHING ERROR]:', error.response?.data || error.message);
-            throw new Error(`Failed to publish to ${content.platform}`);
-        }
+        throw new Error(`Publishing adapter is not implemented for platform: ${content.platform}`);
     }
 
     /**
@@ -120,26 +139,23 @@ class MarketingPublishingService {
             'whatsapp'
         );
 
-        const isDryRun = process.env.MARKETING_DRY_RUN === 'true';
-        if (isDryRun || !process.env.WHATSAPP_TOKEN) {
-            console.log(`[WA_PUBLISH] DRY RUN to ${phoneNumber}: ${sanitizedText.substring(0, 30)}...`);
-            await this._markAsPublished(contentId);
-            return { success: true, mode: 'dry_run' };
+        if (process.env.MARKETING_DRY_RUN === 'true') {
+            return { success: true, published: false, mode: 'dry_run', message: 'Dry run completed; no WhatsApp message was sent.' };
         }
 
-        try {
-            await this._markAsPublished(contentId);
-            return { success: true, message: 'Message sent' };
-        } catch (error) {
-            console.error('[WA_PUBLISH ERROR]:', error.message);
-            throw new Error('WhatsApp service failure');
-        }
+        throw new Error('WhatsApp publishing is not implemented in MarketingPublishingService; use the approved WhatsApp dispatch workflow.');
     }
 
-    async _markAsPublished(id) {
-        await MarketingContent.findByIdAndUpdate(id, { 
-            status: 'published',
-            publishedAt: new Date()
+    async _markAsPublished(id, platform, remotePostId) {
+        if (!platform || !remotePostId) {
+            throw new Error('A confirmed platform and remote post ID are required before marking content as published.');
+        }
+        await MarketingContent.findByIdAndUpdate(id, {
+            $set: {
+                status: 'published',
+                publishedAt: new Date(),
+                [`metadata.platformPostIds.${platform}`]: String(remotePostId)
+            }
         });
     }
 }

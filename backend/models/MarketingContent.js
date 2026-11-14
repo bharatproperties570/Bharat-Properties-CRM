@@ -46,7 +46,11 @@ const marketingContentSchema = new mongoose.Schema({
         tokens: Number,
         provider: String,
         model: String,
-        aiAgentId: { type: mongoose.Schema.Types.ObjectId, ref: 'AiAgent' }
+        aiAgentId: { type: mongoose.Schema.Types.ObjectId, ref: 'AiAgent' },
+        platformPostIds: { type: Map, of: String }
+    },
+    publishedAt: {
+        type: Date
     },
     mediaUrls: [String],
     variableMapping: {

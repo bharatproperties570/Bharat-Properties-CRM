@@ -17,6 +17,7 @@ import {
     validateAndSanitizeCopy
 } from '../utils/propertyComplianceValidator.js';
 import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
+import { getQueuedContentStatus } from '../utils/marketingOsTruth.js';
 
 /**
  * MarketingService.js
@@ -243,16 +244,13 @@ class MarketingService {
         const phone = isMohali ? '9991000570' : '9416035570';
 
         if (type === 'video') {
-            // High-resolution real estate drone video reel assets (hosted on public CRM domain)
-            const sampleVideos = [
-                'https://api.bharatproperties.co/uploads/file-1794103158366-51719174-gemini_generated_video_10961d17.mp4',
-                'https://api.bharatproperties.co/uploads/file-1794018634894-814394752-3fae3d57-5797-4a0d-88c9-2d524ea239ae.MP4'
-            ];
             return {
-                success: true,
+                success: false,
                 assetType: 'video',
-                url: sampleVideos[0],
-                prompt: `Cinematic 4K overhead drone flyover of ${projectName} in ${location}, golden hour sunset lighting, 8k resolution, smooth cinematic reel`
+                status: 'provider_unavailable',
+                url: null,
+                error: 'No configured video-generation provider is available in this execution path.',
+                prompt: customPrompt || `Cinematic real-estate video concept for ${projectName} in ${location}; use only verified source media for the actual property.`
             };
         }
 
@@ -288,12 +286,13 @@ class MarketingService {
             return bannerResult;
         } catch (err) {
             console.error('[MarketingService] Error in BrandBannerComposer:', err);
-            // Resilient fallback: fallback to Trust & Authority Banner (never default to festive)
-            return await brandBannerComposer.composeTrustBanner({
-                phone: '+91 94160-35570 | 99913-33570',
-                address: '#166, Sector 3, Huda Market, Kurukshetra, Haryana',
-                website: 'www.bharatproperties.co'
-            });
+            return {
+                success: false,
+                assetType: 'image',
+                status: 'render_failed',
+                url: null,
+                error: err.message || 'Visual asset rendering failed.'
+            };
         }
     }
 
@@ -1313,7 +1312,7 @@ class MarketingService {
             type: pillar,
             date: scheduledDateStr,
             time: targetSlotTime,
-            status: delayMs > 60000 ? 'scheduled' : 'published',
+            status: getQueuedContentStatus(enqueuedJobs),
             dealId: chosenDeal?._id || null,
             mediaUrls: visualAsset?.url ? [visualAsset.url] : [],
             metadata: {
