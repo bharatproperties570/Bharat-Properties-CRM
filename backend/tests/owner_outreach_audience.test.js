@@ -148,11 +148,11 @@ test('inventory picker escapes search input, caps result size and returns no own
     try {
         const result = await new OwnerOutreachService().searchInventory({ q: 'Sector [3]', limit: 500 }, null);
         assert.equal(capturedLimit, 50);
-        assert.equal(capturedProjection, '_id projectName unitNo unitNumber sector sizeLabel');
+        assert.equal(capturedProjection, '_id projectName project unitNo unitNumber sector sizeLabel');
         assert.equal(capturedQuery.$and[0]._id, null);
-        const searchCondition = capturedQuery.$and[2].$or.find((condition) => condition.projectName);
-        assert.equal(searchCondition.projectName.test('Sector [3]'), true);
-        assert.equal(searchCondition.projectName.test('Sector 3'), false);
+        const searchCondition = capturedQuery.$and[2].$or.find((condition) => condition.project);
+        assert.equal(searchCondition.project.test('Sector [3]'), true);
+        assert.equal(searchCondition.project.test('Sector 3'), false);
         assert.deepEqual(result.items, [{
             id: 'inventory-1',
             project: 'Sector [3]',
