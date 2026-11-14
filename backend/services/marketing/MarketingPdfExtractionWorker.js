@@ -9,7 +9,7 @@ const hasSensitiveContent = (text) => {
         /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
         /\b[A-Z]{5}[0-9]{4}[A-Z]\b/i,
         /\b[2-9][0-9]{3}[\s-]?[0-9]{4}[\s-]?[0-9]{4}\b/,
-        /\b(?:bank\s+)?account\s*(?:no\.?|number)?\s*[:=-]\s*\d{9,18}\b/i,
+        /\b(?:bank\s+)?(?:account|a\/c)\s*(?:no\.?|number)?\s*[:=-]\s*\d{9,18}\b/i,
         /\bIFSC\s*(?:code)?\s*[:=-]\s*[A-Z]{4}0[A-Z0-9]{6}\b/i,
         /\b(?:applicant|allottee|buyer|seller|owner|contact person|signature|signed by)\s*(?:name|details|:|-)\s*[:=-]?\s*[A-Z][A-Z .'-]{2,60}/i
     ];
