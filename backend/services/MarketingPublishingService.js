@@ -45,6 +45,9 @@ class MarketingPublishingService {
 
         if (platform === 'facebook' || platform === 'instagram') {
             const mediaUrl = content.mediaUrls?.[0] || null;
+            if (!mediaUrl) {
+                throw new Error(`No approved CRM media asset is attached to this ${platform} post; refusing to substitute a generic image.`);
+            }
             const result = platform === 'facebook'
                 ? await facebookService.postToPage(sanitizedText, mediaUrl, content.metadata?.format || 'post')
                 : await facebookService.postToInstagram(sanitizedText, mediaUrl, content.metadata?.format || 'post');
