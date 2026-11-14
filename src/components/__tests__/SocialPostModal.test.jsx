@@ -302,6 +302,8 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
 
     // Open Visual Prompt Lab
     fireEvent.click(screen.getByText(/Visual Prompt Lab/i));
-    expect(screen.getByText(/DALL-E 3 & Runway v3 Drone Studio Prompt Generator/i)).toBeTruthy();
+    expect(screen.getByText(/Designer Prompt Studio/i)).toBeTruthy();
+    expect(screen.getByText(/APPROVED CRM PDF REFERENCE/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Load approved PDFs/i })).toBeTruthy();
   });
 });
