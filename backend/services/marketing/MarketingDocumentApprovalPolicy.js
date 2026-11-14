@@ -10,7 +10,7 @@ export const MARKETING_SAFE_DOCUMENT_CATEGORIES = Object.freeze([
 export const MARKETING_ALLOWED_ENTITY_TYPES = Object.freeze(['Deal', 'Inventory', 'Project']);
 
 export const normalizeMarketingDocumentCategory = (value) =>
-    String(value || '').normalize('NFKC').trim().replace(/\\s+/g, ' ').toLowerCase();
+    String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 
 export const isMarketingSafeDocumentCategory = (value) =>
     MARKETING_SAFE_DOCUMENT_CATEGORIES.includes(normalizeMarketingDocumentCategory(value));
