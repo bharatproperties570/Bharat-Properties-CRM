@@ -189,6 +189,10 @@ const AuditLogSchema = new mongoose.Schema({
             'canonical_policy_sync_reconciled',
             'authority_canonical_policy_sync_reconciled',
 
+            // Marketing document governance events
+            'marketing_document_approval_granted',
+            'marketing_document_approval_revoked',
+
             // Automation / Reliability Events
             'automation_recovery_exhausted',
             'automation_manual_retry'
