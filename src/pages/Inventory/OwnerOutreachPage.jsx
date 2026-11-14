@@ -46,6 +46,7 @@ export default function OwnerOutreachPage() {
     const [selectedCampaignId, setSelectedCampaignId] = useState('');
     const [campaignDetail, setCampaignDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    const detailRequestRef = useRef(0);
 
     const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
     const audience = useMemo(() => ({
@@ -79,15 +80,19 @@ export default function OwnerOutreachPage() {
     const loadCampaignDetail = useCallback(async (id) => {
         if (!id) return;
         setSelectedCampaignId(id);
+        const requestId = ++detailRequestRef.current;
         setDetailLoading(true);
+        setCampaignDetail(null);
         try {
             const response = await api.get('/owner-outreach/campaigns/' + id);
-            setCampaignDetail(response.data?.data || null);
+            if (requestId === detailRequestRef.current) setCampaignDetail(response.data?.data || null);
         } catch (error) {
-            setCampaignDetail(null);
-            toast.error(error.response?.data?.error || 'Campaign details load nahi hue');
+            if (requestId === detailRequestRef.current) {
+                setCampaignDetail(null);
+                toast.error(error.response?.data?.error || 'Campaign details load nahi hue');
+            }
         } finally {
-            setDetailLoading(false);
+            if (requestId === detailRequestRef.current) setDetailLoading(false);
         }
     }, []);
 
