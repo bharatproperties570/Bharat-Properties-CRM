@@ -1,4 +1,6 @@
 import test from 'node:test';
+import OwnerOutreachService from '../services/OwnerOutreachService.js';
+import Inventory from '../models/Inventory.js';
 import assert from 'node:assert/strict';
 import { buildOwnerOutreachAudience, hashEndpoint, isLikelyBrokerContact, normalizeEmail, OWNER_OUTREACH_BATCH_SIZES } from '../utils/ownerOutreachAudience.js';
 
@@ -54,4 +56,48 @@ test('WhatsApp audience snapshot respects timestamped opt-out and later opt-in',
         owners: [{ _id: 'contact-optin-again', phones: [{ number: '9876543213' }], whatsappOptInAt: new Date('2026-11-03T10:00:00.000Z'), whatsappOptOut: false, whatsappOptOutAt: optedOutAt }]
     }]);
     assert.equal(optedInAgain.endpoints.find((x) => x.channel === 'whatsapp').eligibility, 'ELIGIBLE');
+});
+
+
+test('inventory picker enforces minimum query length without touching the database', async () => {
+    const result = await new OwnerOutreachService().searchInventory({ q: 'x' }, null);
+    assert.deepEqual(result, { items: [], minimumQueryLength: 2 });
+});
+
+test('inventory picker escapes search input, caps result size and returns no owner PII', async () => {
+    const originalFind = Inventory.find;
+    let capturedQuery;
+    let capturedProjection;
+    let capturedLimit;
+    Inventory.find = (query) => {
+        capturedQuery = query;
+        const chain = {
+            select(value) { capturedProjection = value; return this; },
+            sort() { return this; },
+            limit(value) { capturedLimit = value; return this; },
+            async lean() {
+                return [{ _id: 'inventory-1', projectName: 'Sector [3]', unitNo: 'A-12', sizeLabel: '6 Marla', owners: [{ name: 'Must not be returned' }] }];
+            }
+        };
+        return chain;
+    };
+    try {
+        const result = await new OwnerOutreachService().searchInventory({ q: 'Sector [3]', limit: 500 }, null);
+        assert.equal(capturedLimit, 50);
+        assert.equal(capturedProjection, '_id projectName unitNo unitNumber sector sizeLabel');
+        assert.equal(capturedQuery.$and[0]._id, null);
+        const searchCondition = capturedQuery.$and[2].$or.find((condition) => condition.projectName);
+        assert.equal(searchCondition.projectName.test('Sector [3]'), true);
+        assert.equal(searchCondition.projectName.test('Sector 3'), false);
+        assert.deepEqual(result.items, [{
+            id: 'inventory-1',
+            project: 'Sector [3]',
+            unit: 'A-12',
+            size: '6 Marla',
+            label: 'Sector [3] · A-12'
+        }]);
+        assert.equal(JSON.stringify(result).includes('Must not be returned'), false);
+    } finally {
+        Inventory.find = originalFind;
+    }
 });
