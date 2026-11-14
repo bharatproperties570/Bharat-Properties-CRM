@@ -13,6 +13,11 @@ const MarketingDocumentApprovalSchema = new mongoose.Schema({
     approvedAt: { type: Date, required: true },
     revokedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     revokedAt: { type: Date, default: null },
+    reviewAttestation: {
+        publicMarketingAsset: { type: Boolean, required: true },
+        noSensitivePersonalData: { type: Boolean, required: true },
+        rightsCleared: { type: Boolean, required: true }
+    },
     policyVersion: { type: String, required: true, default: 'marketing-document-v1' }
 }, { timestamps: true, versionKey: false });
 
