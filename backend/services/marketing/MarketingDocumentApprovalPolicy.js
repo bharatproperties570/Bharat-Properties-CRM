@@ -15,6 +15,11 @@ export const normalizeMarketingDocumentCategory = (value) =>
 export const isMarketingSafeDocumentCategory = (value) =>
     MARKETING_SAFE_DOCUMENT_CATEGORIES.includes(normalizeMarketingDocumentCategory(value));
 
+export const isValidMarketingDocumentReviewAttestation = (attestation) =>
+    attestation?.publicMarketingAsset === true &&
+    attestation?.noSensitivePersonalData === true &&
+    attestation?.rightsCleared === true;
+
 export const isMarketingEligibleEntityType = (value) =>
     MARKETING_ALLOWED_ENTITY_TYPES.includes(String(value || '').trim());
 
