@@ -75,7 +75,7 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
                     approveDiscount: false,
                     approveStageChange: false,
                     approveListingPublish: false,
-            marketingDocumentUse: false
+                    marketingDocumentUse: false
                 }
             });
         }
