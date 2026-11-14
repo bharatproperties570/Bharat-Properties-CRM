@@ -78,24 +78,24 @@ export default class OwnerOutreachService {
                 visibility,
                 { isDeleted: { $ne: true } },
                 { $or: [
-                    { projectName: matcher }, { sector: matcher },
+                    { projectName: matcher }, { project: matcher }, { sector: matcher },
                     { unitNo: matcher }, { unitNumber: matcher },
                     { sizeLabel: matcher }, { description: matcher }
                 ] }
             ]
         };
         const rows = await Inventory.find(query)
-            .select('_id projectName unitNo unitNumber sector sizeLabel')
+            .select('_id projectName project unitNo unitNumber sector sizeLabel')
             .sort({ updatedAt: -1, _id: -1 })
             .limit(limit)
             .lean();
         return {
             items: rows.map((item) => ({
                 id: String(item._id),
-                project: item.projectName || item.sector || 'Unassigned project',
+                project: item.projectName || item.project || item.sector || 'Unassigned project',
                 unit: item.unitNo || item.unitNumber || 'Unit not specified',
                 size: item.sizeLabel || '',
-                label: [item.projectName || item.sector, item.unitNo || item.unitNumber].filter(Boolean).join(' · ') || String(item._id)
+                label: [item.projectName || item.project || item.sector, item.unitNo || item.unitNumber].filter(Boolean).join(' · ') || String(item._id)
             })),
             limit
         };
@@ -118,7 +118,7 @@ export default class OwnerOutreachService {
         const filters = input.filters || {};
         if (filters.project && filters.project !== 'all') {
             const escaped = String(filters.project).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            query.$and.push({ $or: [{ projectName: new RegExp(escaped, 'i') }, { sector: new RegExp(escaped, 'i') }] });
+            query.$and.push({ $or: [{ projectName: new RegExp(escaped, 'i') }, { project: new RegExp(escaped, 'i') }, { sector: new RegExp(escaped, 'i') }] });
         }
         if (filters.category && mongoose.Types.ObjectId.isValid(filters.category)) {
             query.$and.push({ category: new mongoose.Types.ObjectId(filters.category) });
