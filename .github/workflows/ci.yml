@@ -171,6 +171,11 @@ jobs:
           npm run test:marketing-studio
           npm run test:social-compliance
 
+      - name: Run Marketing OS Truthfulness, CRM Media & Document Approval Regressions
+        run: |
+          cd backend
+          node --test tests/marketing_os_truthfulness.test.js tests/marketing_document_approval_permission.test.js tests/marketing_document_approval_policy.test.js tests/marketing_visual_media.test.js
+
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |
           cd backend
