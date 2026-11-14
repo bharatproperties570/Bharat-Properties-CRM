@@ -4,7 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { 
   LayoutDashboard, Calendar, BarChart3, Bot, Palette, 
   Target, Megaphone, Home, Settings, Search, 
-  Bell, Play, Plus, ChevronRight, Workflow, 
+  Bell, Play, Pause, Copy, Plus, ChevronRight, Workflow, 
   Zap, ListOrdered, Activity, Sparkles, Type,
   Globe, Settings2, Database, Cpu, ShieldCheck,
   Clock, FileText, Trash2, ExternalLink, CheckCircle2, AlertCircle, RefreshCw,
@@ -117,6 +117,8 @@ const formatRs = (val) => {
   if (num >= 100000) return `₹ ${(num / 100000).toFixed(2)} L`;
   return `₹ ${num.toLocaleString('en-IN')}`;
 };
+
+const formatIndianCurrency = formatRs;
 
 const FLOW_STEPS = [
   { id: 1, n: 'Identity' },
