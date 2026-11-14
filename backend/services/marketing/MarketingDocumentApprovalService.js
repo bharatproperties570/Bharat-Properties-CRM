@@ -6,6 +6,7 @@ import MarketingDocumentApproval from '../../models/MarketingDocumentApproval.js
 import AuditLog from '../../models/AuditLog.js';
 import { hasApprovalRight } from '../permission.service.js';
 import { withMongoTransaction } from '../../utils/withMongoTransaction.js';
+import { getVisibilityFilter } from '../../utils/visibility.js';
 import { getService as getDocumentStorageService } from '../storage/index.js';
 import {
     MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION,
@@ -175,46 +176,66 @@ export class MarketingDocumentApprovalService {
 
     async revoke({ user, documentId }) {
         await this._authorizeReviewer(user);
-        const { document, version } = await this._resolveCurrentEligibleDocument(user, documentId);
-        const revokedAt = new Date();
+        if (!documentId || typeof documentId !== 'string') {
+            throw new MarketingDocumentApprovalError('INVALID_DOCUMENT_ID', 400);
+        }
 
+        // Revocation is a compliance action: it must remain possible when a
+        // document becomes inactive, revoked, held, expired or otherwise ineligible.
+        // Still enforce parent-entity visibility before touching approval records.
+        const document = await Document.findOne({ documentId }).lean();
+        if (!document) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
+        const ParentModel = mongoose.models[document.entityType];
+        if (!ParentModel) throw new MarketingDocumentApprovalError('DOCUMENT_PARENT_UNAVAILABLE', 409);
+        const visibilityFilter = await getVisibilityFilter(user);
+        const parentVisible = await ParentModel.exists({
+            _id: document.entityId,
+            ...visibilityFilter
+        });
+        if (!parentVisible) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
+
+        const revokedAt = new Date();
         return withMongoTransaction(async (session) => {
             const current = await Document.findById(document._id).session(session).lean();
-            if (!current || String(current.currentVersionId) !== String(version._id)) {
-                throw new MarketingDocumentApprovalError('DOCUMENT_CHANGED_DURING_REVOCATION', 409);
-            }
-            const approval = await MarketingDocumentApproval.findOne({
+            if (!current) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
+
+            const approvals = await MarketingDocumentApproval.find({
                 documentRef: current._id,
-                versionRef: version._id,
                 status: 'APPROVED'
             }).session(session);
-            if (!approval) throw new MarketingDocumentApprovalError('ACTIVE_APPROVAL_NOT_FOUND', 404);
+            if (!approvals.length) {
+                throw new MarketingDocumentApprovalError('ACTIVE_APPROVAL_NOT_FOUND', 404);
+            }
 
-            approval.status = 'REVOKED';
-            approval.revokedBy = user._id;
-            approval.revokedAt = revokedAt;
-            await approval.save({ session });
-
-            await AuditLog.create([{
-                eventType: 'marketing_document_approval_revoked',
-                userId: user._id,
-                actorId: user._id,
-                targetType: 'other',
-                targetId: current._id,
-                description: 'Marketing-safe document approval revoked',
-                metadata: {
-                    documentId: current.documentId,
-                    versionId: version.versionId,
-                    policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
-                },
-                status: 'success',
-                timestamp: revokedAt
-            }], { session });
+            const auditEvents = [];
+            for (const approval of approvals) {
+                approval.status = 'REVOKED';
+                approval.revokedBy = user._id;
+                approval.revokedAt = revokedAt;
+                await approval.save({ session });
+                auditEvents.push({
+                    eventType: 'marketing_document_approval_revoked',
+                    userId: user._id,
+                    actorId: user._id,
+                    targetType: 'other',
+                    targetId: current._id,
+                    description: 'Marketing-safe document approval revoked',
+                    metadata: {
+                        documentId: current.documentId,
+                        versionId: approval.versionId,
+                        policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
+                    },
+                    status: 'success',
+                    timestamp: revokedAt
+                });
+            }
+            await AuditLog.create(auditEvents, { session });
 
             return {
                 documentId: current.documentId,
-                versionId: version.versionId,
-                status: approval.status,
+                revokedVersions: approvals.map(approval => approval.versionId),
+                revokedCount: approvals.length,
+                status: 'REVOKED',
                 revokedAt
             };
         });
