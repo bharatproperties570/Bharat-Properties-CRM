@@ -1423,8 +1423,15 @@ export const publishMarketingContent = async (req, res) => {
         const { contentId, phoneNumber } = req.body;
         const content = await MarketingContent.findById(contentId);
         if (!content) return res.status(404).json({ success: false, error: 'Content not found' });
-        let result = content.platform?.toLowerCase() === 'whatsapp' ? await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber) : await marketingPublishingService.publishToSocial(contentId);
-        res.json({ success: true, message: result.message });
+        const result = content.platform?.toLowerCase() === 'whatsapp'
+            ? await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber)
+            : await marketingPublishingService.publishToSocial(contentId);
+        res.json({
+            success: Boolean(result?.success && result?.published),
+            published: Boolean(result?.published),
+            mode: result?.mode || 'live',
+            message: result?.message || 'Publishing was not confirmed by the platform.'
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

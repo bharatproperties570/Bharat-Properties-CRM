@@ -40,7 +40,7 @@ class MarketingPublishingService {
 
         // Dry-run is explicitly non-publishing: never mark a simulated post as published.
         if (process.env.MARKETING_DRY_RUN === 'true') {
-            return { success: false, published: false, mode: 'dry_run', message: 'Dry run completed; no platform post was created.' };
+            return { success: true, published: false, mode: 'dry_run', message: 'Dry run completed; no platform post was created.' };
         }
 
         if (platform === 'facebook' || platform === 'instagram') {
@@ -140,7 +140,7 @@ class MarketingPublishingService {
         );
 
         if (process.env.MARKETING_DRY_RUN === 'true') {
-            return { success: false, published: false, mode: 'dry_run', message: 'Dry run completed; no WhatsApp message was sent.' };
+            return { success: true, published: false, mode: 'dry_run', message: 'Dry run completed; no WhatsApp message was sent.' };
         }
 
         throw new Error('WhatsApp publishing is not implemented in MarketingPublishingService; use the approved WhatsApp dispatch workflow.');

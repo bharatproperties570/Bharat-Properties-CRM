@@ -349,7 +349,7 @@ class LinkedInService {
 
             return { 
                 success: true, 
-                postId: response.headers['x-restli-id'] || response.headers['location'] || null 
+                postId: response.headers['x-restli-id'] || response.headers['location'] || 'linkedin_post_success' 
             };
         } catch (err) {
             console.error('[LinkedInService] Post Error:', err.response?.data || err.message);
