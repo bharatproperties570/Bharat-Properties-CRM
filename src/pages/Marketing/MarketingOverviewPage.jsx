@@ -7865,16 +7865,16 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
               </div>
 
-              {/* MODULE 1: Executive KPI Strip */}
+              {/* MODULE 1: Executive KPI Strip - Live Database Telemetry */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '1.25rem' }}>
                 <div className="stat-card glass-card">
                   <div style={{ fontSize: '20px', marginBottom: '4px' }}>💰</div>
                   <div className="stat-label">Total Active Portal Spend</div>
                   <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gold)' }}>
-                    {formatIndianCurrency(portalAnalyticsData?.kpis?.totalSpend || 85000)}
+                    {portalAnalyticsData?.kpis?.totalSpend !== undefined ? formatIndianCurrency(portalAnalyticsData.kpis.totalSpend) : (portalAnalyticsLoading ? '...' : '₹0')}
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
-                    {portalAnalyticsData?.kpis?.activeCampaignsCount || 3} active monthly campaigns
+                    {portalAnalyticsData?.kpis?.activeCampaignsCount !== undefined ? portalAnalyticsData.kpis.activeCampaignsCount : 0} active monthly packages
                   </div>
                 </div>
 
@@ -7882,10 +7882,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ fontSize: '20px', marginBottom: '4px' }}>🎯</div>
                   <div className="stat-label">Total Inbound Portal Leads</div>
                   <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--green)' }}>
-                    {portalAnalyticsData?.kpis?.totalLeads || 48}
+                    {portalAnalyticsData?.kpis?.totalLeads !== undefined ? portalAnalyticsData.kpis.totalLeads : (portalAnalyticsLoading ? '...' : 0)}
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                    Verified buyers from 99acres & Olx
+                    Live verified inquiries in MongoDB
                   </div>
                 </div>
 
@@ -7893,10 +7893,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ fontSize: '20px', marginBottom: '4px' }}>📉</div>
                   <div className="stat-label">Blended CPL (Cost Per Lead)</div>
                   <div style={{ fontSize: '22px', fontWeight: 700, color: '#38bdf8' }}>
-                    ₹{portalAnalyticsData?.kpis?.blendedCPL || 1770}
+                    ₹{portalAnalyticsData?.kpis?.blendedCPL !== undefined ? portalAnalyticsData.kpis.blendedCPL : 0}
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
-                    Package spend ÷ total inbound leads
+                    Total spend ÷ actual portal leads
                   </div>
                 </div>
 
@@ -7904,10 +7904,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ fontSize: '20px', marginBottom: '4px' }}>⚡</div>
                   <div className="stat-label">First Touch Response SLA</div>
                   <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--green)' }}>
-                    {portalAnalyticsData?.kpis?.avgResponseTimeMinutes || 7.8}m
+                    {portalAnalyticsData?.kpis?.avgResponseTimeMinutes !== undefined ? portalAnalyticsData.kpis.avgResponseTimeMinutes : '0.0'}m
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '2px' }}>
-                    Fastest first callback velocity
+                    Average first outreach speed
                   </div>
                 </div>
 
@@ -7915,10 +7915,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ fontSize: '20px', marginBottom: '4px' }}>🏆</div>
                   <div className="stat-label">Top ROI Portal</div>
                   <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gold)' }}>
-                    {portalAnalyticsData?.kpis?.bestRoiPortal || '99acres'}
+                    {portalAnalyticsData?.kpis?.bestRoiPortal || 'N/A'}
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
-                    Highest conversion & lowest CPL
+                    Lowest effective acquisition cost
                   </div>
                 </div>
 
@@ -7926,10 +7926,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div style={{ fontSize: '20px', marginBottom: '4px' }}>📈</div>
                   <div className="stat-label">Pipeline Deal Potential</div>
                   <div style={{ fontSize: '22px', fontWeight: 700, color: '#a78bfa' }}>
-                    {portalAnalyticsData?.kpis?.pipelineValue || '₹14.85Cr'}
+                    {portalAnalyticsData?.kpis?.pipelineValue || '₹0'}
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>
-                    Downstream buyer requirements
+                    Aggregated inbound buyer budgets
                   </div>
                 </div>
               </div>
@@ -8191,7 +8191,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   </div>
                 </div>
 
-                {/* MODULE 4: Listing Slot Quota & Expiry Radar */}
+                {/* MODULE 4: Listing Slot Quota & Expiry Radar - Connected to Live DB */}
                 <div className="card glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
                   <div className="card-header">
                     <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -8199,70 +8199,98 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <span>Listing Slot Quota & Expiry Radar</span>
                     </div>
                     <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
-                      Active advertising slots across verified marketplaces to avoid credit lapse
+                      Live quota consumption & renewal timers for active marketplace packages
                     </div>
                   </div>
 
-                  <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' }}>
-                    {/* Gauge 1: 99acres Featured Ads */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 700, color: '#f97316' }}>🏢 99acres Featured Top Slots</span>
-                        <span style={{ fontWeight: 800 }}>8 / 10 Used (2 Available)</span>
+                  <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px' }}>
+                    {(portalAnalyticsData?.campaigns || []).length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '32px 14px', color: 'var(--text3)' }}>
+                        <div style={{ fontSize: '28px', marginBottom: '6px' }}>📡</div>
+                        <div style={{ fontWeight: 700, color: 'var(--text2)', fontSize: '13px' }}>No Active Portal Packages Configured</div>
+                        <div style={{ fontSize: '11px', marginTop: '4px' }}>Register your marketplace packages to track featured slots, standard listings and renewal timers.</div>
+                        <button 
+                          className="tact-btn primary sm" 
+                          style={{ marginTop: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          onClick={handleOpenCreateCampaignModal}
+                        >
+                          <span>+</span>
+                          <span>Register First Package</span>
+                        </button>
                       </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '80%', height: '100%', background: '#f97316', borderRadius: '4px' }}></div>
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>Package renews in 15 days · High CTR on Sector 4 & 7 plots</div>
-                    </div>
+                    ) : (
+                      (portalAnalyticsData?.campaigns || []).map(camp => {
+                        const portalColor = camp.portal === '99acres' ? '#f97316' : camp.portal === 'Magicbricks' ? '#ef4444' : camp.portal === 'Housing.com' ? '#3b82f6' : camp.portal === 'Olx' ? '#8b5cf6' : 'var(--gold)';
+                        const featuredAllotted = camp.featuredSlotsAllotted || 0;
+                        const featuredUsed = camp.featuredSlotsUsed || 0;
+                        const featuredAvail = Math.max(0, featuredAllotted - featuredUsed);
+                        const featuredPct = featuredAllotted > 0 ? Math.min(100, Math.round((featuredUsed / featuredAllotted) * 100)) : 0;
+                        const daysLeft = camp.endDate ? Math.ceil((new Date(camp.endDate) - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
 
-                    {/* Gauge 2: Magicbricks Platinum */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 700, color: '#ef4444' }}>🏢 Magicbricks Platinum Showcase</span>
-                        <span style={{ fontWeight: 800 }}>5 / 6 Used (1 Available)</span>
-                      </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '83%', height: '100%', background: '#ef4444', borderRadius: '4px' }}></div>
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>Package renews in 20 days · Dedicated to Kurukshetra Luxury Floors</div>
-                    </div>
+                        return (
+                          <div key={camp._id || camp.id} style={{ paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: portalColor, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                🏢 {camp.portal} · {camp.campaignName}
+                              </span>
+                              <span style={{ fontWeight: 800, fontSize: '12px' }}>
+                                {featuredUsed} / {featuredAllotted} Featured ({featuredAvail} Avail)
+                              </span>
+                            </div>
 
-                    {/* Gauge 3: Housing.com Spotlight */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 700, color: '#3b82f6' }}>🏢 Housing.com Spotlight Ads</span>
-                        <span style={{ fontWeight: 800 }}>4 / 5 Used (1 Available)</span>
-                      </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '80%', height: '100%', background: '#3b82f6', borderRadius: '4px' }}></div>
-                      </div>
-                      <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '4px', fontWeight: 600 }}>⚠️ Expiring soon: 8 days remaining</div>
-                    </div>
+                            <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden', margin: '6px 0' }}>
+                              <div style={{ width: `${featuredPct}%`, height: '100%', background: portalColor, borderRadius: '4px', transition: 'width 0.4s ease' }}></div>
+                            </div>
 
-                    {/* Gauge 4: Standard Classifieds */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 700, color: 'var(--gold)' }}>📋 Standard Classified Inventory Slots</span>
-                        <span style={{ fontWeight: 800 }}>45 / 60 Active</span>
-                      </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '75%', height: '100%', background: 'var(--gold)', borderRadius: '4px' }}></div>
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>Shared syndication across Olx, Real Estate India & CommonFloor</div>
-                    </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text3)' }}>
+                              <span>
+                                📋 Standard: <strong>{camp.standardSlotsUsed || 0} / {camp.standardSlotsAllotted || 0} Active</strong>
+                                {camp.focusLocation && ` · ${camp.focusLocation}`}
+                              </span>
+                              <span style={{ fontWeight: 700, color: daysLeft <= 7 ? '#ef4444' : daysLeft <= 15 ? '#f59e0b' : 'var(--green)' }}>
+                                {daysLeft > 0 ? `⏱ Renews in ${daysLeft} days` : '⚠️ Package Expired'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
 
-                    {/* Quick Guidance Box */}
+                    {/* Overall Capacity Summary */}
+                    {portalAnalyticsData?.quotaRadar && (
+                      <div style={{
+                        background: 'rgba(201,146,26,0.08)',
+                        border: '1px solid rgba(201,146,26,0.25)',
+                        borderRadius: '8px',
+                        padding: '10px 14px',
+                        fontSize: '11px',
+                        color: 'var(--text2)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '8px'
+                      }}>
+                        <div>
+                          <strong style={{ color: 'var(--gold)' }}>Total Featured Capacity:</strong> {portalAnalyticsData.quotaRadar.featuredSlotsUsed} / {portalAnalyticsData.quotaRadar.featuredSlotsTotal} Used
+                        </div>
+                        <div>
+                          <strong style={{ color: 'var(--gold)' }}>Total Standard Listings:</strong> {portalAnalyticsData.quotaRadar.standardSlotsUsed} / {portalAnalyticsData.quotaRadar.standardSlotsTotal} Active
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Enterprise Guidance Box */}
                     <div style={{
-                      background: 'rgba(201,146,26,0.08)',
-                      border: '1px solid rgba(201,146,26,0.2)',
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid var(--border)',
                       borderRadius: '8px',
-                      padding: '12px',
+                      padding: '10px 12px',
                       fontSize: '11px',
-                      color: 'var(--text2)',
-                      lineHeight: '1.5'
+                      color: 'var(--text3)',
+                      lineHeight: '1.4'
                     }}>
-                      <strong style={{ color: 'var(--gold)' }}>💡 Enterprise Pro-Tip:</strong> Unused featured slots forfeit upon monthly renewal. Ensure your top luxury inventories in Sector 4 & Sector 7 are assigned to remaining slots before expiration.
+                      <strong style={{ color: 'var(--gold)' }}>💡 Enterprise Pro-Tip:</strong> Unused featured slots forfeit upon monthly renewal. Assign top inventories in Sector 4 & Sector 7 before expiration.
                     </div>
                   </div>
                 </div>
@@ -8401,6 +8429,413 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   {savingPortalConfig ? <span className="spinner-sm"></span> : '💾'}
                   <span>{savingPortalConfig ? 'Saving...' : 'Save & Activate Portal'}</span>
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── REGISTER / EDIT PROPERTY PORTAL CAMPAIGN MODAL ── */}
+      {showPortalCampaignModal && (
+        <div className="modal-backdrop-v2" onClick={() => setShowPortalCampaignModal(false)} style={{ zIndex: 9999 }}>
+          <div className="modal-v2" style={{ maxWidth: '640px', width: '92%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header-v2" style={{ borderBottom: '2px solid var(--gold)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div className="modal-title-v2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🏢</span>
+                  <span>{editingPortalCampaign ? 'Edit Portal Advertising Package' : 'Register New Portal Package & Campaign'}</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
+                  Track commercial packages, featured quotas, CPL yield & renewal timers
+                </div>
+              </div>
+              <button className="modal-close-v2" onClick={() => setShowPortalCampaignModal(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleSavePortalCampaign} style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div className="modal-body-v2" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
+                {/* Row 1: Portal & Tier */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Marketplace Portal *
+                    </label>
+                    <select
+                      value={portalCampaignForm.portal}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, portal: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="99acres">99acres.com</option>
+                      <option value="Magicbricks">Magicbricks</option>
+                      <option value="Housing.com">Housing.com</option>
+                      <option value="Olx">OLX India</option>
+                      <option value="SquareYards">Square Yards</option>
+                      <option value="NoBroker">NoBroker</option>
+                      <option value="CommonFloor">CommonFloor</option>
+                      <option value="Makaan">Makaan</option>
+                      <option value="Real Estate India">Real Estate India</option>
+                      <option value="Other">Other Marketplace</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Package Tier / Plan
+                    </label>
+                    <input
+                      type="text"
+                      value={portalCampaignForm.packageTier}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, packageTier: e.target.value }))}
+                      placeholder="e.g. Developer Pro Pack / Titanium Boost"
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: Campaign Name */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                    Campaign / Package Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={portalCampaignForm.campaignName}
+                    onChange={e => setPortalCampaignForm(prev => ({ ...prev, campaignName: e.target.value }))}
+                    placeholder="e.g. Kurukshetra Sector 4 & 7 Residential Pro Pack"
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: 'var(--white)',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                {/* Row 3: Commercials & Billing */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Package Cost (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      value={portalCampaignForm.packageCost}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, packageCost: e.target.value }))}
+                      placeholder="e.g. 35000"
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--gold)',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Billing Cycle
+                    </label>
+                    <select
+                      value={portalCampaignForm.billingCycle}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, billingCycle: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="QUARTERLY">Quarterly</option>
+                      <option value="ANNUAL">Annual</option>
+                      <option value="ONE_TIME">One-Time / Ad-hoc</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Row 4: Focus Project & Focus Location */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Focus Project (Optional)
+                    </label>
+                    <select
+                      value={portalCampaignForm.focusProject}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, focusProject: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="">No specific project (General)</option>
+                      {dynamicProjects.map(p => (
+                        <option key={p._id || p.id} value={p._id || p.id}>
+                          {p.name || p.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Focus Location / Area
+                    </label>
+                    <input
+                      type="text"
+                      value={portalCampaignForm.focusLocation}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, focusLocation: e.target.value }))}
+                      placeholder="e.g. Sector 4 & 7, Kurukshetra"
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 5: Dates */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={portalCampaignForm.startDate}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, startDate: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Expiry / Renewal Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={portalCampaignForm.endDate}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, endDate: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 6: Slots & Leads Quota */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Target Leads Quota
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={portalCampaignForm.targetLeads}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, targetLeads: e.target.value }))}
+                      placeholder="e.g. 50"
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 10px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Featured Slots Allotted
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={portalCampaignForm.featuredSlotsAllotted}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, featuredSlotsAllotted: e.target.value }))}
+                      placeholder="e.g. 5"
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 10px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                      Standard Slots Allotted
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={portalCampaignForm.standardSlotsAllotted}
+                      onChange={e => setPortalCampaignForm(prev => ({ ...prev, standardSlotsAllotted: e.target.value }))}
+                      placeholder="e.g. 20"
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '8px 10px',
+                        color: 'var(--white)',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 7: Assigned Rep */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                    Assigned Account Executive / Team Member (Optional)
+                  </label>
+                  <select
+                    value={portalCampaignForm.assignedRep}
+                    onChange={e => setPortalCampaignForm(prev => ({ ...prev, assignedRep: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: 'var(--white)',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="">Select team member</option>
+                    {usersData.map(u => (
+                      <option key={u._id || u.id} value={u._id || u.id}>
+                        {[u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Row 8: Notes */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text)', marginBottom: '5px' }}>
+                    Package Notes & Strategy
+                  </label>
+                  <textarea
+                    rows="2"
+                    value={portalCampaignForm.notes}
+                    onChange={e => setPortalCampaignForm(prev => ({ ...prev, notes: e.target.value }))}
+                    placeholder="e.g. Dedicated package for high-ticket plotted developments along Pipli Road."
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: 'var(--white)',
+                      fontSize: '12px',
+                      outline: 'none',
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer-v2" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)' }}>
+                {editingPortalCampaign && (
+                  <button
+                    type="button"
+                    className="tact-btn red-ghost sm"
+                    onClick={() => handleDeleteCampaign(editingPortalCampaign._id || editingPortalCampaign.id, editingPortalCampaign.campaignName)}
+                  >
+                    🗑️ Archive Package
+                  </button>
+                )}
+                <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                  <button
+                    type="button"
+                    className="tact-btn ghost sm"
+                    onClick={() => setShowPortalCampaignModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="tact-btn primary sm"
+                    disabled={isSavingPortalCampaign}
+                  >
+                    {isSavingPortalCampaign ? 'Saving...' : (editingPortalCampaign ? 'Update Package' : 'Register & Save Package')}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

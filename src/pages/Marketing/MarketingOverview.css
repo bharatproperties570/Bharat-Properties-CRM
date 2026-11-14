@@ -5460,3 +5460,31 @@
   color: #854D0E !important;
   border-color: #E2E8F0 !important;
 }
+
+
+/* Modal Form Controls in Light Mode */
+.marketing-os-container.light-mode .modal-v2 input,
+.marketing-os-container.light-mode .modal-v2 select,
+.marketing-os-container.light-mode .modal-v2 textarea {
+  background: #FFFFFF !important;
+  color: #07162B !important;
+  border: 1px solid #CBD5E1 !important;
+}
+.marketing-os-container.light-mode .modal-v2 input:focus,
+.marketing-os-container.light-mode .modal-v2 select:focus,
+.marketing-os-container.light-mode .modal-v2 textarea:focus {
+  border-color: #D97706 !important;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15) !important;
+}
+.marketing-os-container.light-mode .modal-v2 label {
+  color: #07162B !important;
+  font-weight: 700 !important;
+}
+.marketing-os-container.light-mode .modal-v2 {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
+}
+.marketing-os-container.light-mode .modal-title-v2 {
+  color: #07162B !important;
+}
