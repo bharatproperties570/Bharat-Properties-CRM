@@ -354,7 +354,7 @@ class BrandBannerComposer {
                 <!-- Fallback Monogram (visible if avatar image fails to load) -->
                 <circle cx="50" cy="55" r="45" fill="#0B2545" />
                 <text x="50" y="52" font-family="Noto Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#FFD700" text-anchor="middle">BP</text>
-                <text x="50" y="68" font-family="Noto Sans, Arial, sans-serif" font-size="8.5" font-weight="800" fill="#FFF2A3" text-anchor="middle">EST. 1996</text>
+                <text x="50" y="68" font-family="Noto Sans, Arial, sans-serif" font-size="8.5" font-weight="800" fill="#FFF2A3" text-anchor="middle">PROPERTY ADVISORY</text>
 
                 <!-- Executive Text & Badges -->
                 <text x="110" y="38" font-family="Noto Sans, Arial, sans-serif" font-size="18" font-weight="900" fill="#0B2545">${safeDirector}</text>
@@ -526,8 +526,8 @@ class BrandBannerComposer {
                 <!-- Top Right Trust Badge -->
                 <g transform="translate(640, 0)">
                     <rect x="0" y="8" width="320" height="62" rx="31" fill="rgba(255, 255, 255, 0.08)" stroke="url(#goldGradient)" stroke-width="1.5" />
-                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFF" text-anchor="middle" letter-spacing="0.5">TRUSTED REAL ESTATE ADVISOR</text>
-                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFD700" text-anchor="middle">SINCE 1996 • KURUKSHETRA</text>
+                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFF" text-anchor="middle" letter-spacing="0.5">REAL ESTATE ADVISORY</text>
+                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFD700" text-anchor="middle">KURUKSHETRA • HARYANA</text>
                 </g>
             </g>
 
@@ -794,7 +794,7 @@ class BrandBannerComposer {
                     <text x="20" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="900" fill="#FFD700">${safeSize}</text>
                 </g>
 
-                <!-- Center Bottom Verified Ribbon -->
+                <!-- Center Bottom Property Details Ribbon -->
                 <g transform="translate(480, 245)">
                     <rect x="-240" y="0" width="480" height="36" rx="18" fill="rgba(11, 37, 69, 0.95)" stroke="url(#goldPillProp)" stroke-width="1.5" filter="url(#propShadow)" />
                     <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="900" fill="#FFD700" text-anchor="middle" letter-spacing="1.5">PROPERTY DETAILS • VERIFY BEFORE PURCHASE</text>
@@ -814,8 +814,8 @@ class BrandBannerComposer {
                 <g transform="translate(0, 0)">
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#059669" />
-                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Documentation</text>
+                    <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">i</text>
+                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Document Review</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Check original records</text>
                     <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Legal review advised</text>
                 </g>
@@ -836,7 +836,7 @@ class BrandBannerComposer {
                     <circle cx="35" cy="40" r="18" fill="#D97706" />
                     <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
                     <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Financing</text>
-                    <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">SBI / HDFC / PNB</text>
+                    <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Check with lender</text>
                     <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Subject to lender approval</text>
                 </g>
 
@@ -845,7 +845,7 @@ class BrandBannerComposer {
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#7C3AED" />
                     <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Direct Meeting</text>
+                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Seller Coordination</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Face-to-Face</text>
                     <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Subject to seller availability</text>
                 </g>
