@@ -7,6 +7,7 @@ import { marketingAPI, socialAPI } from '../../utils/api';
 vi.mock('../../utils/api', () => ({
   marketingAPI: {
     generateSocial: vi.fn(),
+    generateVisual: vi.fn(),
     broadcastToHub: vi.fn().mockResolvedValue({ success: true, results: { success: ['99acres', 'Magicbricks'] } }),
     getPortalStatuses: vi.fn().mockResolvedValue({
       success: true,
@@ -259,6 +260,32 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
         'post'
       );
     });
+  });
+
+  it('does not attach stale sample media when visual generation fails', async () => {
+    const toast = (await import('react-hot-toast')).default;
+    marketingAPI.generateVisual.mockRejectedValueOnce(new Error('No configured visual provider'));
+
+    render(
+      <SocialPostModal isOpen={true} onClose={() => {}} initialData={mockProjectData} />
+    );
+
+    fireEvent.click(screen.getByText(/Generate AI Image/i));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        'No configured visual provider',
+        expect.any(Object)
+      );
+    });
+    expect(marketingAPI.generateVisual).toHaveBeenCalledWith(expect.objectContaining({
+      dealId: 'proj-12345',
+      type: 'image'
+    }));
+    expect(toast.success).not.toHaveBeenCalledWith(
+      expect.stringMatching(/AI Property Image Generated|AI Drone Reel Attached/i),
+      expect.anything()
+    );
   });
 
   it('renders Visual AI & Brand Studio with Brand Kit and Visual Prompt Lab', async () => {
