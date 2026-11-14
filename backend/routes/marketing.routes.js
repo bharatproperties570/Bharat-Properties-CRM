@@ -42,13 +42,24 @@ import {
     savePortalConfig,
     testPortalConnection,
     syndicateToPortals,
+    getPortalAnalytics,
+    createPortalCampaign,
+    updatePortalCampaign,
+    deletePortalCampaign,
     generateVisualAsset,
     triggerAutonomousCycle,
     getAutopilotConfig,
     saveAutopilotConfig,
     getSocialTelemetry,
     triggerSocialTelemetrySync,
-    getOmnichannelTelemetry
+    getOmnichannelTelemetry,
+    getCampaigns,
+    createCampaign,
+    updateCampaign,
+    updateCampaignStatus,
+    deleteCampaign,
+    getAudienceAggregates,
+    getComplianceTelemetry
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -95,6 +106,15 @@ router.post('/send-manual',         sendManualMatch);     // Manual individual s
 router.post('/activate-drip',       activateDrip);        // BullMQ drip job
 router.get('/job-status/:jobId',    getJobStatus);        // Poll job progress
 
+// ── Enterprise Campaign Engine Lifecycle & Telemetry ────────────────────────
+router.get('/campaigns',            getCampaigns);
+router.post('/campaigns',           createCampaign);
+router.put('/campaigns/:id',        updateCampaign);
+router.put('/campaigns/:id/status', updateCampaignStatus);
+router.delete('/campaigns/:id',     deleteCampaign);
+router.get('/audience-aggregates',  getAudienceAggregates);
+router.get('/compliance-telemetry', getComplianceTelemetry);
+
 // ── Neural Persistence (Content CRUD) ────────────────────────────────────────
 router.get('/content',      getMarketingContent);
 router.post('/content',     saveMarketingContent);
@@ -124,10 +144,14 @@ router.get('/whatsapp/variable-registry', getVariableRegistry);
 router.post('/import-audience', upload.single('file'), importAudience);
 
 // ── Real Estate Portals & Multi-Listing Syndication ────────────────────────────
-router.get('/portals/status',    getPortalStatuses);
-router.post('/portals/config',   savePortalConfig);
-router.post('/portals/test',     testPortalConnection);
-router.post('/portals/syndicate', syndicateToPortals);
+router.get('/portals/status',       getPortalStatuses);
+router.get('/portals/analytics',    getPortalAnalytics);
+router.post('/portals/campaigns',   createPortalCampaign);
+router.put('/portals/campaigns/:id', updatePortalCampaign);
+router.delete('/portals/campaigns/:id', deletePortalCampaign);
+router.post('/portals/config',      savePortalConfig);
+router.post('/portals/test',        testPortalConnection);
+router.post('/portals/syndicate',   syndicateToPortals);
 
 // ── LinkedIn Integration ──────────────────────────────────────────────────────
 router.get('/linkedin/auth-url',    getLinkedInAuthUrl);

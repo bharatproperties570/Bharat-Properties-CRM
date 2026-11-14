@@ -217,6 +217,15 @@ export const marketingAPI = {
     // ── Campaign Launchers (Email / WhatsApp / SMS / RCS) ──
     sendCampaign: (channel, data) =>
         api.post('/marketing/send-campaign', { channel, ...data }).then(res => res.data),
+
+    // ── Enterprise Campaign Engine Lifecycle & Telemetry ──
+    getCampaigns: (params) => api.get('/marketing/campaigns', { params }).then(res => res.data),
+    createCampaignRecord: (data) => api.post('/marketing/campaigns', data).then(res => res.data),
+    updateCampaignRecord: (id, data) => api.put(`/marketing/campaigns/${id}`, data).then(res => res.data),
+    updateCampaignStatus: (id, status) => api.put(`/marketing/campaigns/${id}/status`, { status }).then(res => res.data),
+    deleteCampaignRecord: (id) => api.delete(`/marketing/campaigns/${id}`).then(res => res.data),
+    getAudienceAggregates: () => api.get('/marketing/audience-aggregates').then(res => res.data),
+    getComplianceTelemetry: () => api.get('/marketing/compliance-telemetry').then(res => res.data),
     
     getWhatsAppTemplates: () =>
         api.get('/marketing/whatsapp/templates').then(res => res.data),
@@ -244,6 +253,10 @@ export const marketingAPI = {
     
     // ── Real Estate Portals & Multi-Listing Syndication ──
     getPortalStatuses: () => api.get('/marketing/portals/status').then(res => res.data),
+    getPortalAnalytics: () => api.get('/marketing/portals/analytics').then(res => res.data),
+    createPortalCampaign: (data) => api.post('/marketing/portals/campaigns', data).then(res => res.data),
+    updatePortalCampaign: (id, data) => api.put(`/marketing/portals/campaigns/${id}`, data).then(res => res.data),
+    deletePortalCampaign: (id) => api.delete(`/marketing/portals/campaigns/${id}`).then(res => res.data),
     savePortalConfig: (portalId, config) => api.post('/marketing/portals/config', { portalId, config }).then(res => res.data),
     testPortalConnection: (portalId, config) => api.post('/marketing/portals/test', { portalId, config }).then(res => res.data),
     syndicateToPortals: (payload) => api.post('/marketing/portals/syndicate', payload).then(res => res.data),
