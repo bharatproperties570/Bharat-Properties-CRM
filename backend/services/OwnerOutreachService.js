@@ -71,7 +71,7 @@ export default class OwnerOutreachService {
         if (term.length < 2) return { items: [], minimumQueryLength: 2 };
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 50);
         const visibility = user ? await getVisibilityFilter(user) : { _id: null };
-        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\export default class OwnerOutreachService {
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, (character) => '\\' + character);
 ');
         const matcher = new RegExp(escaped, 'i');
         const query = {
