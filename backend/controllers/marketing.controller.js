@@ -1025,7 +1025,7 @@ export const getSocialTelemetry = async (req, res) => {
 
         const digest = await socialAnalyticsSyncService.getTelemetryDigest(lookbackDays);
         const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-        const posts = await SocialPostMetric.find({ publishedAt: { $gte: since } }).sort({ publishedAt: -1 }).limit(200).lean();
+        const posts = await SocialPostMetric.find({ remotePostIdVerified: true, syncStatus: 'synced', publishedAt: { $gte: since } }).sort({ publishedAt: -1 }).limit(200).lean();
         const payload = { success: true, digest, posts };
         socialTelemetryCache.set(cacheKey, { timestamp: Date.now(), payload });
         res.json(payload);
