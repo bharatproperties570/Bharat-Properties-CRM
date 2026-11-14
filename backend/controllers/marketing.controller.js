@@ -367,7 +367,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                 topProspects: formattedProspects,
                 optimization: {
                     kpis: {
-                        intentConversionRate: totalLeadsCount > 0 ? parseFloat(((nurturedLeadsCount / totalLeadsCount) * 100).toFixed(1)) : null,
+                        intentConversionRate: null,
                         matchRate: null,
                         blendedCPL: null,
                         roiIndex: null,

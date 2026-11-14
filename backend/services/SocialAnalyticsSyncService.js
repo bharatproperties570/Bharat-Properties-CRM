@@ -240,7 +240,7 @@ class SocialAnalyticsSyncService {
             },
             topPerformingPosts: [],
             underperformingPosts: [],
-            peakEngagementTimeSlot: '19:00 - 20:30 IST (Highest evening engagement)',
+            peakEngagementTimeSlot: null,
             lastSyncedAt: new Date().toISOString(),
             dataAuthenticity: metricsList.length > 0 ? 'REAL_INGESTED_TELEMETRY' : 'INITIALIZING_NO_PRIOR_TELEMETRY'
         };
