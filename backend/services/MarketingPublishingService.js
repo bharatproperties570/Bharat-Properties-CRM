@@ -27,7 +27,7 @@ class MarketingPublishingService {
 
         // 🛡️ Enterprise Server-Side Compliance Enforcement
         // Re-extract authoritative facts and sanitize copy before dispatch
-        const entityId = content.dealId || content.metadata?.dealId || content.metadata?.projectId || content.metadata?.inventoryId;
+        const entityId = content.metadata?.projectId || content.metadata?.inventoryId || content.dealId || content.metadata?.dealId;
         const entityType = content.metadata?.projectId ? 'project' : (content.metadata?.inventoryId ? 'inventory' : 'deal');
         const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType, { isSystem: true });
         const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
@@ -134,7 +134,7 @@ class MarketingPublishingService {
         if (!content) throw new Error('Content not found');
 
         // 🛡️ Enterprise Server-Side Compliance Enforcement
-        const entityId = content.dealId || content.metadata?.dealId || content.metadata?.projectId || content.metadata?.inventoryId;
+        const entityId = content.metadata?.projectId || content.metadata?.inventoryId || content.dealId || content.metadata?.dealId;
         const entityType = content.metadata?.projectId ? 'project' : (content.metadata?.inventoryId ? 'inventory' : 'deal');
         const canonicalEntity = await marketingComplianceEnforcementService.resolveAuthoritativeEntity(entityId, entityType, { isSystem: true });
         const { sanitizedText } = marketingComplianceEnforcementService.enforceCompliance(
