@@ -440,19 +440,13 @@ const SocialPostModal = ({
         throw new Error(res?.error || 'Visual generation failed');
       }
     } catch (err) {
-      console.warn('[SocialPostModal] Visual generation fallback:', err);
-      if (assetType === 'video') {
-        const fallbackVid = 'https://api.bharatproperties.co/uploads/file-1794103158366-51719174-gemini_generated_video_10961d17.mp4';
-        setVideoUrl(fallbackVid);
-        setImageUrl('');
-        setFormat('reel');
-        toast.success('🎬 AI Drone Reel Attached!', { id: toastId });
-      } else {
-        const fallbackImg = 'https://api.bharatproperties.co/uploads/file-1794179346959-ai_visual_test.jpg';
-        setImageUrl(fallbackImg);
-        setVideoUrl('');
-        toast.success('✨ AI Property Image Generated!', { id: toastId });
-      }
+      console.warn('[SocialPostModal] Visual generation unavailable:', err);
+      // Never attach a stale sample asset or present a failed generation as success.
+      setImageUrl('');
+      setVideoUrl('');
+      setIsBrandified(false);
+      setBrandedImageUrl('');
+      toast.error(err?.message || 'Visual generation failed. Attach an approved CRM asset or retry.', { id: toastId });
     } finally {
       setIsGeneratingVisual(false);
     }
