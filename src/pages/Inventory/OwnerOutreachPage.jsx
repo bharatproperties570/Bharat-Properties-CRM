@@ -488,7 +488,7 @@ export default function OwnerOutreachPage() {
                         <section style={{ ...card, background: '#fffaf0', borderColor: '#f4dfb3' }}>
                             <strong style={{ fontSize: 13, color: '#854d0e' }}>Consent & Privacy Policy</strong>
                             <p style={{ fontSize: 12, color: '#92400e', lineHeight: 1.55, margin: '6px 0 0' }}>
-                                Endpoints are masked and encrypted with SHA-256 HMAC. All outreach adheres to Indian Real Estate compliance standards.
+                                Endpoints are masked and protected using HMAC-SHA-256 keyed hashing. All outreach adheres to Indian Real Estate compliance standards.
                             </p>
                         </section>
                     </aside>

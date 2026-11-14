@@ -376,4 +376,326 @@ describe('InventoryAutocompletePicker Component', () => {
         // No owner keywords/labels
         expect(html).not.toMatch(/ownerName|phone|mobile|email|contactNumber/i);
     });
+
+    // ─── CODEX REMEDIATION 1: STALE AUTOCOMPLETE REQUEST CANCELLATION ───────────
+
+    it('clears query before debounce fires: cancels pending debounce timer and prevents API call', async () => {
+        render(
+            <InventoryAutocompletePicker
+                selectedItems={[]}
+                onSelect={mockOnSelect}
+                onRemove={mockOnRemove}
+            />
+        );
+
+        const input = screen.getByRole('combobox');
+        fireEvent.change(input, { target: { value: 'Camellias' } });
+
+        // Advance 100ms (less than 250ms debounce threshold)
+        act(() => {
+            vi.advanceTimersByTime(100);
+        });
+
+        // Click Clear button before debounce timer fires
+        const clearBtn = screen.getByRole('button', { name: /Clear search input/i });
+        fireEvent.click(clearBtn);
+
+        // Advance beyond debounce time
+        await act(async () => {
+            vi.advanceTimersByTime(400);
+        });
+
+        expect(api.get).not.toHaveBeenCalled();
+        expect(input.value).toBe('');
+        expect(input).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('clears query while request is in flight: aborts active request and does not repopulate results', async () => {
+        let resolvePromise;
+        const pendingPromise = new Promise((resolve) => {
+            resolvePromise = resolve;
+        });
+        api.get.mockReturnValueOnce(pendingPromise);
+
+        render(
+            <InventoryAutocompletePicker
+                selectedItems={[]}
+                onSelect={mockOnSelect}
+                onRemove={mockOnRemove}
+            />
+        );
+
+        const input = screen.getByRole('combobox');
+        fireEvent.change(input, { target: { value: 'Camellias' } });
+
+        // Advance 250ms so debounce fires and api.get is called
+        act(() => {
+            vi.advanceTimersByTime(250);
+        });
+        expect(api.get).toHaveBeenCalledTimes(1);
+
+        // Clear query while request is in flight
+        const clearBtn = screen.getByRole('button', { name: /Clear search input/i });
+        fireEvent.click(clearBtn);
+
+        expect(input.value).toBe('');
+
+        // Resolve the stale promise with data
+        await act(async () => {
+            resolvePromise({
+                data: {
+                    success: true,
+                    data: { items: sampleItems, limit: 25 }
+                }
+            });
+        });
+
+        // Stale results must NOT be rendered, and dropdown must stay closed
+        expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+        expect(screen.queryByText(/DLF The Camellias · Tower 4 - Unit 12B/i)).not.toBeInTheDocument();
+        expect(input).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('resolves an old request after a newer query has been entered: stale results are discarded', async () => {
+        let resolveFirst;
+        const firstPromise = new Promise((resolve) => {
+            resolveFirst = resolve;
+        });
+
+        const secondItems = [
+            {
+                id: 'inv-201',
+                project: 'Central Park Resorts',
+                unit: 'Tower 2 - 501',
+                size: '2200 sq.ft',
+                label: 'Central Park Resorts · Tower 2 - 501'
+            }
+        ];
+
+        api.get
+            .mockReturnValueOnce(firstPromise)
+            .mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: { items: secondItems, limit: 25 }
+                }
+            });
+
+        render(
+            <InventoryAutocompletePicker
+                selectedItems={[]}
+                onSelect={mockOnSelect}
+                onRemove={mockOnRemove}
+            />
+        );
+
+        const input = screen.getByRole('combobox');
+
+        // Type first query
+        fireEvent.change(input, { target: { value: 'Camellias' } });
+        act(() => {
+            vi.advanceTimersByTime(250);
+        });
+        expect(api.get).toHaveBeenCalledTimes(1);
+
+        // Type second query before first resolves
+        fireEvent.change(input, { target: { value: 'Central Park' } });
+        await act(async () => {
+            vi.advanceTimersByTime(250);
+        });
+        expect(api.get).toHaveBeenCalledTimes(2);
+
+        // Now resolve the old first request
+        await act(async () => {
+            resolveFirst({
+                data: {
+                    success: true,
+                    data: { items: sampleItems, limit: 25 }
+                }
+            });
+        });
+
+        // Old results must NOT overwrite new query results
+        expect(screen.getByText(/Central Park Resorts · Tower 2 - 501/i)).toBeInTheDocument();
+        expect(screen.queryByText(/DLF The Camellias · Tower 4 - Unit 12B/i)).not.toBeInTheDocument();
+    });
+
+    it('confirms loading state is reset when search is cancelled or cleared', async () => {
+        let resolvePending;
+        api.get.mockReturnValueOnce(new Promise((resolve) => {
+            resolvePending = resolve;
+        }));
+
+        render(
+            <InventoryAutocompletePicker
+                selectedItems={[]}
+                onSelect={mockOnSelect}
+                onRemove={mockOnRemove}
+            />
+        );
+
+        const input = screen.getByRole('combobox');
+        fireEvent.change(input, { target: { value: 'Camellias' } });
+
+        act(() => {
+            vi.advanceTimersByTime(250);
+        });
+
+        // Clear input
+        const clearBtn = screen.getByRole('button', { name: /Clear search input/i });
+        fireEvent.click(clearBtn);
+
+        // Dropdown must be closed and no searching spinner in DOM
+        expect(screen.queryByText(/Searching CRM inventory/i)).not.toBeInTheDocument();
+        expect(input).toHaveAttribute('aria-expanded', 'false');
+
+        // Cleanup pending
+        resolvePending({ data: { success: true, data: { items: [] } } });
+    });
+
+    // ─── CODEX REMEDIATION 3: PREVENT UNINTENDED FORM SUBMISSION ────────────────
+
+    it('pressing Enter when dropdown is closed does not submit parent form', () => {
+        const mockFormSubmit = vi.fn((e) => e.preventDefault());
+
+        render(
+            <form onSubmit={mockFormSubmit}>
+                <InventoryAutocompletePicker
+                    selectedItems={[]}
+                    onSelect={mockOnSelect}
+                    onRemove={mockOnRemove}
+                />
+            </form>
+        );
+
+        const input = screen.getByRole('combobox');
+        expect(input).toHaveAttribute('aria-expanded', 'false');
+
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(mockFormSubmit).not.toHaveBeenCalled();
+    });
+
+    it('pressing Enter during pending debounce does not submit parent form', () => {
+        const mockFormSubmit = vi.fn((e) => e.preventDefault());
+
+        render(
+            <form onSubmit={mockFormSubmit}>
+                <InventoryAutocompletePicker
+                    selectedItems={[]}
+                    onSelect={mockOnSelect}
+                    onRemove={mockOnRemove}
+                />
+            </form>
+        );
+
+        const input = screen.getByRole('combobox');
+        fireEvent.change(input, { target: { value: 'Camellias' } });
+
+        // Advance 100ms (debounce still pending, dropdown closed)
+        act(() => {
+            vi.advanceTimersByTime(100);
+        });
+
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(mockFormSubmit).not.toHaveBeenCalled();
+        expect(api.get).not.toHaveBeenCalled();
+    });
+
+    it('pressing Enter with no highlighted option does not submit parent form', async () => {
+        const mockFormSubmit = vi.fn((e) => e.preventDefault());
+
+        api.get.mockResolvedValueOnce({
+            data: {
+                success: true,
+                data: { items: sampleItems, limit: 25 }
+            }
+        });
+
+        render(
+            <form onSubmit={mockFormSubmit}>
+                <InventoryAutocompletePicker
+                    selectedItems={[]}
+                    onSelect={mockOnSelect}
+                    onRemove={mockOnRemove}
+                />
+            </form>
+        );
+
+        const input = screen.getByRole('combobox');
+        fireEvent.change(input, { target: { value: 'DLF' } });
+
+        await act(async () => {
+            vi.advanceTimersByTime(300);
+        });
+
+        // Dropdown is open but no option is highlighted (highlightedIndex is -1)
+        expect(input).toHaveAttribute('aria-expanded', 'true');
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(mockFormSubmit).not.toHaveBeenCalled();
+        expect(mockOnSelect).not.toHaveBeenCalled();
+    });
+
+    it('pressing Enter with a valid highlighted option selects it and does not submit form', async () => {
+        const mockFormSubmit = vi.fn((e) => e.preventDefault());
+
+        api.get.mockResolvedValueOnce({
+            data: {
+                success: true,
+                data: { items: sampleItems, limit: 25 }
+            }
+        });
+
+        render(
+            <form onSubmit={mockFormSubmit}>
+                <InventoryAutocompletePicker
+                    selectedItems={[]}
+                    onSelect={mockOnSelect}
+                    onRemove={mockOnRemove}
+                />
+            </form>
+        );
+
+        const input = screen.getByRole('combobox');
+        fireEvent.change(input, { target: { value: 'DLF' } });
+
+        await act(async () => {
+            vi.advanceTimersByTime(300);
+        });
+
+        // Highlight first option
+        fireEvent.keyDown(input, { key: 'ArrowDown' });
+        expect(input).toHaveAttribute('aria-activedescendant', 'inventory-option-0');
+
+        // Press Enter
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(mockOnSelect).toHaveBeenCalledWith(sampleItems[0]);
+        expect(mockFormSubmit).not.toHaveBeenCalled();
+    });
+
+    it('explicit Save Draft button outside combobox still submits form normally', () => {
+        const mockFormSubmit = vi.fn((e) => e.preventDefault());
+
+        render(
+            <form onSubmit={mockFormSubmit}>
+                <InventoryAutocompletePicker
+                    selectedItems={[]}
+                    onSelect={mockOnSelect}
+                    onRemove={mockOnRemove}
+                />
+                <button type="submit">Save draft only</button>
+            </form>
+        );
+
+        const submitBtn = screen.getByRole('button', { name: /Save draft only/i });
+        fireEvent.click(submitBtn);
+
+        expect(mockFormSubmit).toHaveBeenCalledTimes(1);
+    });
 });

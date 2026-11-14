@@ -475,7 +475,7 @@ export default function CampaignDetailModal({ isOpen, onClose, campaignId }) {
                     {/* Masked Sample Notice */}
                     {recipients.length > 0 && (
                         <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
-                            * Sample endpoints verified masked with SHA-256 HMAC encryption. Zero personal contact data is exposed.
+                            * Sample endpoints verified masked with HMAC-SHA-256 keyed hashing. Zero personal contact data is exposed.
                         </div>
                     )}
                 </div>

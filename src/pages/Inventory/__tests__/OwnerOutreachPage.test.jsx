@@ -235,5 +235,9 @@ describe('OwnerOutreachPage Frontend Component', () => {
         expect(html).not.toMatch(/(\+?91[\s-]?)?[6789]\d{9}/);
         // No personal emails (excluding any potential static info text)
         expect(html).not.toMatch(/[a-zA-Z0-9._%+-]+@gmail\.com/);
+        // Verifies accurate HMAC keyed hashing terminology
+        expect(screen.getByText(/Endpoints are masked and protected using HMAC-SHA-256 keyed hashing/i)).toBeInTheDocument();
+        expect(html).not.toMatch(/encrypted with SHA-256 HMAC/i);
+        expect(html).not.toMatch(/HMAC encryption/i);
     });
 });

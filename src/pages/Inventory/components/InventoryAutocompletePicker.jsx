@@ -34,14 +34,28 @@ export default function InventoryAutocompletePicker({
     const abortControllerRef = useRef(null);
     const debounceTimerRef = useRef(null);
     const justSelectedRef = useRef(false);
+    const requestGenerationRef = useRef(0);
 
-    // Abort inflight requests on unmount
+    // Cancel any active search, clear debounce timer and abort inflight request
+    const cancelSearch = useCallback(() => {
+        requestGenerationRef.current += 1;
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+        }
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        setLoading(false);
+    }, []);
+
+    // Abort inflight requests and clear timers on unmount
     useEffect(() => {
         return () => {
-            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-            if (abortControllerRef.current) abortControllerRef.current.abort();
+            cancelSearch();
         };
-    }, []);
+    }, [cancelSearch]);
 
     // Close dropdown on click outside
     useEffect(() => {
@@ -62,26 +76,27 @@ export default function InventoryAutocompletePicker({
         setError(null);
         setHighlightedIndex(-1);
 
-        if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-        }
-
         const trimmed = value.trim();
         if (trimmed.length < 2) {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
+            cancelSearch();
             setResults([]);
-            setLoading(false);
             setIsOpen(trimmed.length > 0);
             return;
         }
 
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+        }
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+
         setLoading(true);
+        const generation = ++requestGenerationRef.current;
+
         debounceTimerRef.current = setTimeout(async () => {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
             const controller = new AbortController();
             abortControllerRef.current = controller;
 
@@ -91,12 +106,20 @@ export default function InventoryAutocompletePicker({
                     signal: controller.signal
                 });
 
+                // Ignore stale response if a newer request was dispatched or search cancelled
+                if (generation !== requestGenerationRef.current) {
+                    return;
+                }
+
                 const items = response.data?.data?.items || [];
                 setResults(items);
                 setIsOpen(true);
                 setLoading(false);
             } catch (err) {
-                // Ignore aborted requests
+                // Ignore stale response or cancelled requests
+                if (generation !== requestGenerationRef.current) {
+                    return;
+                }
                 if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
                     return;
                 }
@@ -114,6 +137,7 @@ export default function InventoryAutocompletePicker({
         if (!isAlreadySelected && onSelect) {
             onSelect(item);
         }
+        cancelSearch();
         justSelectedRef.current = true;
         setQuery('');
         setResults([]);
@@ -122,9 +146,29 @@ export default function InventoryAutocompletePicker({
         if (inputRef.current) {
             inputRef.current.focus();
         }
-    }, [selectedItems, onSelect]);
+    }, [selectedItems, onSelect, cancelSearch]);
+
+    const handleClear = useCallback(() => {
+        cancelSearch();
+        setQuery('');
+        setResults([]);
+        setError(null);
+        setIsOpen(false);
+        setHighlightedIndex(-1);
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [cancelSearch]);
 
     const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (isOpen && highlightedIndex >= 0 && highlightedIndex < results.length) {
+                handleSelectItem(results[highlightedIndex]);
+            }
+            return;
+        }
+
         if (!isOpen) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 if (results.length > 0 || query.trim().length >= 2) {
@@ -140,11 +184,6 @@ export default function InventoryAutocompletePicker({
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (highlightedIndex >= 0 && highlightedIndex < results.length) {
-                handleSelectItem(results[highlightedIndex]);
-            }
         } else if (e.key === 'Escape') {
             e.preventDefault();
             setIsOpen(false);
@@ -276,12 +315,7 @@ export default function InventoryAutocompletePicker({
                     <button
                         type="button"
                         aria-label="Clear search input"
-                        onClick={() => {
-                            setQuery('');
-                            setResults([]);
-                            setIsOpen(false);
-                            if (inputRef.current) inputRef.current.focus();
-                        }}
+                        onClick={handleClear}
                         style={{
                             position: 'absolute',
                             right: 10,

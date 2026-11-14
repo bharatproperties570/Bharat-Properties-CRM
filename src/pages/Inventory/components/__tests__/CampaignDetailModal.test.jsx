@@ -293,7 +293,7 @@ describe('CampaignDetailModal Component', () => {
         expect(html).not.toMatch(/(\+?91[\s-]?)?[6789]\d{9}/);
         // No email addresses
         expect(html).not.toMatch(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        // Displays verified encrypted HMAC note
-        expect(screen.getByText(/Sample endpoints verified masked with SHA-256 HMAC encryption/i)).toBeInTheDocument();
+        // Displays verified keyed hashing note
+        expect(screen.getByText(/Sample endpoints verified masked with HMAC-SHA-256 keyed hashing/i)).toBeInTheDocument();
     });
 });
