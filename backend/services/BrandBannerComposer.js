@@ -177,6 +177,9 @@ class BrandBannerComposer {
                 }
             }
 
+            // 3. Curated category assets are not property-specific evidence. Never substitute them for a Deal photo.
+            if (pillar === 'ct-project') return null;
+
             // 3. Curated Authentic Category Asset
             let assetName = 'hero_plot.jpg';
             if (pillar === 'ct-festival') {
@@ -228,8 +231,8 @@ class BrandBannerComposer {
             directorName = 'Suraj Keshwar',
             directorTitle = 'FOUNDER & MANAGING DIRECTOR',
             companyName = 'BHARAT PROPERTIES',
-            companyTagline = 'Trusted Real Estate Since 1996',
-            trustPillText = '✓ 100% Clear Title • Direct Owner Meet',
+            companyTagline = 'Real Estate Advisory & Property Services',
+            trustPillText = 'Property details • Independent due diligence advised',
             socialHandles = 'f: @bharatproperties570  |  ig: @bhaaratproperties'
         } = options;
 
@@ -476,7 +479,7 @@ class BrandBannerComposer {
                 <rect x="0" y="0" width="320" height="78" rx="39" fill="#FFFFFF" filter="url(#festDropShadow)" />
                 <text x="85" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#0B2545" letter-spacing="1">BHARAT</text>
                 <text x="175" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#C1121F" letter-spacing="1">PROPERTIES</text>
-                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • SECRECY</text>
+                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • PROFESSIONALISM</text>
 
                 <!-- Top Right Trust Badge -->
                 <g transform="translate(640, 0)">
@@ -538,22 +541,22 @@ class BrandBannerComposer {
                 <g transform="translate(-320, 78)">
                     <circle cx="0" cy="0" r="16" fill="#059669" />
                     <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">100% Clear Registry</text>
-                    <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Verified Land Records</text>
+                    <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Document review</text>
+                    <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Check current official records</text>
                 </g>
 
                 <g transform="translate(0, 78)">
                     <circle cx="0" cy="0" r="16" fill="#2563EB" />
                     <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">HUDA &amp; TCP Approved</text>
-                    <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Prime Sectors Kurukshetra</text>
+                    <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Planning status</text>
+                    <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Verify with competent authority</text>
                 </g>
 
                 <g transform="translate(320, 78)">
                     <circle cx="0" cy="0" r="16" fill="#D97706" />
                     <text x="0" y="6" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Instant Bank Loan</text>
-                    <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Leading Nationalized Banks</text>
+                    <text x="28" y="-3" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="800" fill="#FFFFFF">Financing options</text>
+                    <text x="28" y="15" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" fill="#94A3B8">Subject to lender eligibility</text>
                 </g>
             </g>
 
@@ -611,19 +614,19 @@ class BrandBannerComposer {
             unitHeadline = deal.name || deal.title || 'Prime Property';
         }
 
-        const projName = deal.projectName?.name || deal.projectName || 'Prime Location';
-        let loc = deal.location || deal.locCity || 'Kurukshetra, Haryana';
+        const projName = deal.projectName?.name || deal.projectName || 'Project details on request';
+        let loc = deal.location || deal.locCity || 'Location on request';
         if (typeof loc === 'string') {
             loc = loc.replace(/\b-?\d{1,3}\.\d{4,}\b/g, '').replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim();
             if (!loc || /^[0-9a-fA-F]{24}$/.test(loc)) {
-                loc = 'Kurukshetra, Haryana';
+                loc = 'Location on request';
             }
         }
 
-        const size = deal.sizeLabel || (deal.size ? `${deal.size} ${deal.sizeUnit || 'sq.yd'}` : '10 Marla (250 sq.yd)');
-        const priceStr = deal.price ? `₹${Number(deal.price).toLocaleString('en-IN')}` : 'Best Offer';
+        const size = deal.sizeLabel || (deal.size ? `${deal.size} ${deal.sizeUnit || 'sq.yd'}` : 'Size on request');
+        const priceStr = deal.price ? (typeof deal.price === 'number' ? `₹${deal.price.toLocaleString('en-IN')}` : String(deal.price)) : 'Price on request';
 
-        const facingRoad = [deal.facing ? `${deal.facing} Facing` : null, deal.roadWidth ? `${deal.roadWidth} Road` : null].filter(Boolean).join(' • ') || 'Wide Road Access • Green Belt';
+        const facingRoad = [deal.facing ? `${deal.facing} Facing` : null, deal.roadWidth ? `${deal.roadWidth} Road` : null].filter(Boolean).join(' • ') || 'Specifications on request';
         const safeHeadline = this.escapeXml(`${unitHeadline.toUpperCase()} AVAILABLE FOR SALE`);
         const safeSub = this.escapeXml(`At ${projName}, ${loc}`);
         const safePhone = this.escapeXml(phone);
@@ -632,9 +635,9 @@ class BrandBannerComposer {
         const safePrice = this.escapeXml(priceStr);
         const safeSize = this.escapeXml(size);
         const safeFacingRoad = this.escapeXml(facingRoad);
-        const safePill2Title = this.escapeXml(deal.facing ? `${deal.facing} Facing` : 'HUDA Approved');
-        const safePill2Sub = this.escapeXml(deal.roadWidth ? `${deal.roadWidth} Road` : 'Planned Sector');
-        const safePill2Desc = this.escapeXml(deal.dimensions ? `Dim: ${deal.dimensions}` : 'Sewer, Water, Power');
+        const safePill2Title = this.escapeXml(deal.facing ? `${deal.facing} Facing` : 'Facing not supplied');
+        const safePill2Sub = this.escapeXml(deal.roadWidth ? `${deal.roadWidth} Road` : 'Road width not supplied');
+        const safePill2Desc = this.escapeXml(deal.dimensions ? `Dim: ${deal.dimensions}` : 'Utilities not verified');
 
         // Photographic Hero Scene Loading
         const heroBase64 = await this.getHeroBase64({
@@ -697,13 +700,13 @@ class BrandBannerComposer {
                 <rect x="0" y="0" width="320" height="78" rx="39" fill="#FFFFFF" filter="url(#propShadow)" />
                 <text x="85" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#0B2545" letter-spacing="1">BHARAT</text>
                 <text x="175" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#C1121F" letter-spacing="1">PROPERTIES</text>
-                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • SECRECY</text>
+                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • PROFESSIONALISM</text>
 
                 <!-- Top Right Badge -->
                 <g transform="translate(640, 0)">
                     <rect x="0" y="8" width="320" height="62" rx="31" fill="#C1121F" filter="url(#propShadow)"/>
-                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="900" fill="#FFF" text-anchor="middle" letter-spacing="1">VERIFIED PROPERTY DEAL</text>
-                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFF2A3" text-anchor="middle">100% REGISTRY GUARANTEE</text>
+                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="900" fill="#FFF" text-anchor="middle" letter-spacing="1">PROPERTY LISTING</text>
+                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFF2A3" text-anchor="middle">VERIFY DOCUMENTS BEFORE PURCHASE</text>
                 </g>
             </g>
 
@@ -711,7 +714,7 @@ class BrandBannerComposer {
             <g transform="translate(540, 240)">
                 <!-- Flash Badge -->
                 <rect x="-180" y="-35" width="360" height="36" rx="18" fill="#FFB703" filter="url(#propShadow)"/>
-                <text x="0" y="-11" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="900" fill="#0B2545" text-anchor="middle" letter-spacing="2">★ PRIME INVESTMENT OPPORTUNITY</text>
+                <text x="0" y="-11" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14.5" font-weight="900" fill="#0B2545" text-anchor="middle" letter-spacing="2">PROPERTY SPOTLIGHT</text>
 
                 <!-- Main Bold Title -->
                 <text x="0" y="35" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="44" font-weight="900" fill="#FFFFFF" text-anchor="middle" filter="url(#propShadow)" letter-spacing="1">
@@ -752,14 +755,14 @@ class BrandBannerComposer {
                 <!-- Center Bottom Verified Ribbon -->
                 <g transform="translate(480, 245)">
                     <rect x="-240" y="0" width="480" height="36" rx="18" fill="rgba(11, 37, 69, 0.95)" stroke="url(#goldPillProp)" stroke-width="1.5" filter="url(#propShadow)" />
-                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="900" fill="#FFD700" text-anchor="middle" letter-spacing="1.5">★ READY POSSESSION &amp; DIRECT REGISTRY ★</text>
+                    <text x="0" y="24" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="900" fill="#FFD700" text-anchor="middle" letter-spacing="1.5">PROPERTY DETAILS • VERIFY BEFORE PURCHASE</text>
                 </g>
 
                 <text x="480" y="315" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF" text-anchor="middle" filter="url(#propShadow)">
                     ✦ ${safeFacingRoad} ✦
                 </text>
                 <text x="480" y="342" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="600" fill="#93C5FD" text-anchor="middle">
-                    100% Clear Title • Verified Land Records • Direct Owner Meeting
+                    CRM listing information • Independent due diligence advised
                 </text>
             </g>
 
@@ -770,9 +773,9 @@ class BrandBannerComposer {
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#059669" />
                     <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">100% Clear Title</text>
-                    <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Verified Registry</text>
-                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Zero Encumbrance</text>
+                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Documentation</text>
+                    <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Check original records</text>
+                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Legal review advised</text>
                 </g>
 
                 <!-- Pill 2 -->
@@ -790,9 +793,9 @@ class BrandBannerComposer {
                     <rect x="0" y="0" width="225" height="130" rx="16" fill="#0B2545" stroke="rgba(255, 215, 0, 0.4)" stroke-width="1.2" filter="url(#propShadow)"/>
                     <circle cx="35" cy="40" r="18" fill="#D97706" />
                     <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
-                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Bank Loan</text>
+                    <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Financing</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">SBI / HDFC / PNB</text>
-                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Instant Sanction</text>
+                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Subject to lender approval</text>
                 </g>
 
                 <!-- Pill 4 -->
@@ -802,7 +805,7 @@ class BrandBannerComposer {
                     <text x="35" y="46" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFF" text-anchor="middle">✓</text>
                     <text x="65" y="38" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" fill="#FFF">Direct Meeting</text>
                     <text x="65" y="54" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="500" fill="#94A3B8">Face-to-Face</text>
-                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">With Real Owner</text>
+                    <text x="20" y="95" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#E2E8F0">Subject to seller availability</text>
                 </g>
             </g>
 
@@ -861,7 +864,7 @@ class BrandBannerComposer {
                 bgGradient: 'url(#step1Grad)',
                 icon: '📜',
                 title: 'Jamabandi & Mutation Verification',
-                defaultDesc: 'Match Khasra / Khatoni records directly with Kurukshetra Tehsil portal to confirm authentic ownership.'
+                defaultDesc: 'Compare Khasra / Khatoni details with current official revenue records and consult a qualified professional.'
             },
             {
                 number: '02',
@@ -871,7 +874,7 @@ class BrandBannerComposer {
                 bgGradient: 'url(#step2Grad)',
                 icon: '🏛️',
                 title: 'Town & Country Planning Approvals',
-                defaultDesc: 'Ensure the layout is approved under Haryana TCP / HUDA Master Plan to eliminate demolition risks.'
+                defaultDesc: 'Check applicable land-use and planning approvals with the competent authority; approval status must be verified for each property.'
             },
             {
                 number: '03',
@@ -881,7 +884,7 @@ class BrandBannerComposer {
                 bgGradient: 'url(#step3Grad)',
                 icon: '🛡️',
                 title: 'No Dues Certificate & Clean Title',
-                defaultDesc: 'Secure official NDC from Municipal Corporation / Council to guarantee zero past property tax arrears.'
+                defaultDesc: 'Request current dues information from the relevant municipal authority; do not assume arrears are zero.'
             }
         ];
 
@@ -934,7 +937,7 @@ class BrandBannerComposer {
                 <rect x="0" y="0" width="320" height="78" rx="39" fill="#FFFFFF" filter="url(#eduShadow)" />
                 <text x="85" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#0B2545" letter-spacing="1">BHARAT</text>
                 <text x="175" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#C1121F" letter-spacing="1">PROPERTIES</text>
-                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • SECRECY</text>
+                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • PROFESSIONALISM</text>
 
                 <g transform="translate(640, 0)">
                     <rect x="0" y="8" width="320" height="62" rx="31" fill="#2563EB" filter="url(#eduShadow)"/>
@@ -985,7 +988,7 @@ class BrandBannerComposer {
                         
                         <!-- Step Description -->
                         <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" fill="#E2E8F0">${safePointText}</text>
-                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#94A3B8">Kurukshetra Verified Advisory • Free Legal Consultation Available</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#94A3B8">General buyer education • Consult a qualified legal professional</text>
                     </g>
 
                     <!-- Right Check Pill -->
@@ -1002,7 +1005,7 @@ class BrandBannerComposer {
             <g transform="translate(540, 875)">
                 <rect x="-380" y="-18" width="760" height="34" rx="17" fill="rgba(11, 37, 69, 0.85)" stroke="url(#goldGradientEdu)" stroke-width="1.2" />
                 <text x="0" y="5" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="1">
-                    🛡️ BHARAT PROPERTIES ASSURANCE: ZERO LEGAL DISPUTES • DIRECT REGISTRY
+                    BUYER DUE DILIGENCE • NO LEGAL GUARANTEE IMPLIED
                 </text>
             </g>
 
@@ -1042,9 +1045,9 @@ class BrandBannerComposer {
             website = this.defaultWebsite
         } = options;
 
-        const title = trust.title || '30+ Years of Verified Trust in Kurukshetra';
-        const hook = trust.hook || 'Why Hundreds of Families Trust Bharat Properties';
-        const badge = trust.badge || 'Direct Owner Meetings • Zero Hidden Charges';
+        const title = trust.title || 'A transparent property-search process';
+        const hook = trust.hook || 'Clear communication, documented information and informed decisions';
+        const badge = trust.badge || 'Property enquiries • Site-visit coordination';
 
         const safeTitle = this.escapeXml(title);
         const safeHook = this.escapeXml(hook);
@@ -1087,12 +1090,12 @@ class BrandBannerComposer {
                 <rect x="0" y="0" width="320" height="78" rx="39" fill="#FFFFFF" filter="url(#trustShadow)" />
                 <text x="85" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#0B2545" letter-spacing="1">BHARAT</text>
                 <text x="175" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="900" fill="#C1121F" letter-spacing="1">PROPERTIES</text>
-                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • SECRECY</text>
+                <text x="85" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="10" font-weight="700" fill="#555555" letter-spacing="1">HONESTY • TRANSPARENCY • PROFESSIONALISM</text>
 
                 <g transform="translate(640, 0)">
                     <rect x="0" y="8" width="320" height="62" rx="31" fill="rgba(255, 255, 255, 0.12)" stroke="url(#goldPillTrust)" stroke-width="1.8" filter="url(#trustShadow)"/>
-                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="900" fill="#FFF" text-anchor="middle" letter-spacing="1">ESTABLISHED 1996</text>
-                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFD700" text-anchor="middle">KURUKSHETRA BENCHMARK</text>
+                    <text x="160" y="34" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="900" fill="#FFF" text-anchor="middle" letter-spacing="1">REAL ESTATE ADVISORY</text>
+                    <text x="160" y="52" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#FFD700" text-anchor="middle">BUYER &amp; SELLER SUPPORT</text>
                 </g>
             </g>
 
@@ -1125,11 +1128,11 @@ class BrandBannerComposer {
                     <!-- Text Area -->
                     <g transform="translate(145, 25)">
                         <rect x="0" y="2" width="220" height="24" rx="12" fill="#059669" opacity="0.9" />
-                        <text x="110" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">ZERO BROKER INFLATION</text>
+                        <text x="110" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">TRANSPARENT DISCUSSIONS</text>
 
-                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">100% Direct Owner Meetings</text>
-                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Sit directly across from the registered title holder. Transparent price negotiation with no hidden markups.</text>
-                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Genuine Seller Vetting • Spot Token Verification • Open Token Reciept</text>
+                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">Meeting Coordination</text>
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Seller meetings can be coordinated subject to availability. Confirm ownership and all commercial terms independently.</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Request identity and ownership documents • Record agreed terms</text>
                     </g>
                 </g>
 
@@ -1147,11 +1150,11 @@ class BrandBannerComposer {
                     <!-- Text Area -->
                     <g transform="translate(145, 25)">
                         <rect x="0" y="2" width="240" height="24" rx="12" fill="#2563EB" opacity="0.9" />
-                        <text x="120" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">AUTHENTIC TEHSIL VETTING</text>
+                        <text x="120" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">DOCUMENT REVIEW</text>
 
-                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">Complete Title &amp; Tehsil Legal Search</text>
-                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Every property undergo deep 30-year revenue chain analysis, mutation check, and TCP zoning compliance.</text>
-                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Jamabandi Verification • No Dues Certificate • Zero Litigation Assurance</text>
+                        <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">Independent Document Review</text>
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Review available property documents and verify relevant records with competent authorities or qualified legal counsel.</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Revenue records • Applicable NDC • Litigation checks where available</text>
                     </g>
                 </g>
 
@@ -1172,8 +1175,8 @@ class BrandBannerComposer {
                         <text x="125" y="18" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="11" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="1">STRICT CLIENT CONFIDENTIALITY</text>
 
                         <text x="0" y="55" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="23" font-weight="900" fill="#FFD700">Privacy &amp; Professional Secrecy</text>
-                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">Your personal finances, portfolio requirements, and identity are guarded with ironclad confidentiality.</text>
-                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Trusted by Doctors, NRIs, Industrialists, Senior Advocates &amp; Families</text>
+                        <text x="0" y="84" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="15.5" font-weight="500" fill="#FFFFFF">We handle client enquiries with discretion and follow applicable privacy and data-handling controls.</text>
+                        <text x="0" y="106" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#93C5FD">Professional communication • Informed property decisions</text>
                     </g>
                 </g>
             </g>
@@ -1182,7 +1185,7 @@ class BrandBannerComposer {
             <g transform="translate(540, 882)">
                 <rect x="-380" y="-18" width="760" height="34" rx="17" fill="rgba(11, 37, 69, 0.85)" stroke="url(#goldPillTrust)" stroke-width="1.2" />
                 <text x="0" y="5" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="800" fill="#FFD700" text-anchor="middle" letter-spacing="1">
-                    ✦ 30 YEARS OF FLAWLESS CONVEYANCING • KURUKSHETRA'S MOST REPUTED DESK ✦
+                    ✦ CLEAR INFORMATION • INDEPENDENT DUE DILIGENCE ✦
                 </text>
             </g>
 
