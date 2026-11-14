@@ -47,6 +47,7 @@ export default function OwnerOutreachPage() {
     const [campaignDetail, setCampaignDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const detailRequestRef = useRef(0);
+    const inventorySearchRequestRef = useRef(0);
 
     const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
     const audience = useMemo(() => ({
@@ -110,14 +111,17 @@ export default function OwnerOutreachPage() {
             toast.error('Inventory search ke liye kam se kam 2 characters likhein');
             return;
         }
+        const requestId = ++inventorySearchRequestRef.current;
+        const query = inventoryQuery.trim();
         setInventorySearching(true);
+        setInventoryResults([]);
         try {
-            const response = await api.get('/owner-outreach/inventory-search', { params: { q: inventoryQuery.trim(), limit: 25 } });
-            setInventoryResults(response.data?.data?.items || []);
+            const response = await api.get('/owner-outreach/inventory-search', { params: { q: query, limit: 25 } });
+            if (requestId === inventorySearchRequestRef.current) setInventoryResults(response.data?.data?.items || []);
         } catch (error) {
-            toast.error(error.response?.data?.error || 'Inventory search failed');
+            if (requestId === inventorySearchRequestRef.current) toast.error(error.response?.data?.error || 'Inventory search failed');
         } finally {
-            setInventorySearching(false);
+            if (requestId === inventorySearchRequestRef.current) setInventorySearching(false);
         }
     };
 
@@ -253,7 +257,7 @@ export default function OwnerOutreachPage() {
                                 <span style={{ fontSize: 12, color: '#475569' }}>{selectedInventory.length} selected</span>
                             </div>
                             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                                <input style={{ ...field, flex: 1 }} value={inventoryQuery} onChange={(event) => setInventoryQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); searchInventory(); } }} placeholder='Search project, sector, unit number…' />
+                                <input style={{ ...field, flex: 1 }} value={inventoryQuery} onChange={(event) => { inventorySearchRequestRef.current += 1; setInventorySearching(false); setInventoryResults([]); setInventoryQuery(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); searchInventory(); } }} placeholder='Search project, sector, unit number…' />
                                 <button type='button' disabled={inventorySearching} onClick={searchInventory} style={{ ...button, background: '#1a2744', color: '#fff', borderColor: '#1a2744' }}>{inventorySearching ? 'Searching…' : 'Search'}</button>
                             </div>
                             {inventoryResults.length > 0 && (
