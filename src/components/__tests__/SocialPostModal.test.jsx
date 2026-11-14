@@ -9,6 +9,8 @@ vi.mock('../../utils/api', () => ({
     generateSocial: vi.fn(),
     generateVisual: vi.fn(),
     broadcastToHub: vi.fn().mockResolvedValue({ success: true, results: { success: ['99acres', 'Magicbricks'] } }),
+    getApprovedMarketingDocuments: vi.fn().mockResolvedValue({ success: true, documents: [] }),
+    getApprovedMarketingDocumentContext: vi.fn().mockResolvedValue({ success: true, context: {} }),
     getPortalStatuses: vi.fn().mockResolvedValue({
       success: true,
       statuses: {
@@ -287,6 +289,27 @@ describe('SocialPostModal - Enterprise Promote Studio', () => {
       expect.stringMatching(/AI Property Image Generated|AI Drone Reel Attached/i),
       expect.anything()
     );
+  });
+
+  it.each([
+    ['Project', 'project-record-1'],
+    ['Deal', 'deal-record-1'],
+    ['Inventory', 'inventory-record-1']
+  ])('loads approved marketing PDFs against the canonical %s record type', async (entityType, entityId) => {
+    render(
+      <SocialPostModal
+        isOpen={true}
+        onClose={() => {}}
+        initialData={{ id: entityId, entityType, type: entityType.toLowerCase() }}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/Visual Prompt Lab/i));
+    fireEvent.click(screen.getByRole('button', { name: /Load approved PDFs/i }));
+
+    await waitFor(() => {
+      expect(marketingAPI.getApprovedMarketingDocuments).toHaveBeenCalledWith(entityType, entityId);
+    });
   });
 
   it('renders Visual AI & Brand Studio with Brand Kit and Visual Prompt Lab', async () => {
