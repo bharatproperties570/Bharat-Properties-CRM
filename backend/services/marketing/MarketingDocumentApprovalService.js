@@ -12,6 +12,7 @@ import {
     isMarketingEligibleDocument,
     isMarketingEligiblePdfVersion,
     isMarketingSafeDocumentCategory,
+    isValidMarketingDocumentReviewAttestation
 } from './MarketingDocumentApprovalPolicy.js';
 
 const approvalRight = 'marketingDocumentUse';
@@ -90,9 +91,7 @@ export class MarketingDocumentApprovalService {
 
     async approve({ user, documentId, reviewAttestation }) {
         await this._authorizeReviewer(user);
-        if (reviewAttestation?.publicMarketingAsset !== true ||
-            reviewAttestation?.noSensitivePersonalData !== true ||
-            reviewAttestation?.rightsCleared !== true) {
+        if (!isValidMarketingDocumentReviewAttestation(reviewAttestation)) {
             throw new MarketingDocumentApprovalError('REVIEW_ATTESTATION_REQUIRED', 422);
         }
         const { document, version } = await this._resolveCurrentEligibleDocument(user, documentId);
