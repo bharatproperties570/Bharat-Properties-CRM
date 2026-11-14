@@ -4101,7 +4101,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                               {/* Post Details */}
                               <div style={{ flex: 1, minWidth: '260px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                                  <span style={{ fontWeight: 800, fontSize: '13px', color: '#fff' }}>
+                                  <span style={{ fontWeight: 800, fontSize: '13px', color: isDark ? '#fff' : '#07162B' }}>
                                     {post.title || 'Verified Property Spotlight'}
                                   </span>
                                   <span style={{ 
@@ -4213,7 +4213,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                             ? { label: 'HOT', color: '#ef4444' } 
                             : scoreTotal >= 30 
                             ? { label: 'WARM', color: '#f59e0b' } 
-                            : { label: 'COLD', color: '#64748b' });
+                            : { label: 'COLD', color: isDark ? '#94a3b8' : '#64748b' });
                       const intentLabel = scoreData.intent || (scoreTotal >= 80 ? 'Closing Soon' : scoreTotal >= 60 ? 'High Intent' : scoreTotal >= 30 ? 'Nurture' : 'Incoming Lead');
                       const leadSource = lead.source?.lookup_value || lead.source?.label || (typeof lead.source === 'string' ? lead.source : 'Direct Inbound');
 
@@ -5184,7 +5184,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                 </div>
                 <div ref={termBodyRef} style={{ padding: "14px 18px", maxHeight: "240px", overflowY: "auto", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontSize: "11.5px", lineHeight: 1.75 }}>
                   {terminalLogs.length === 0 ? (
-                    <div style={{ color: "rgba(255,255,255,0.3)", fontStyle: "italic" }}>
+                    <div style={{ color: "rgba(255,255,255,0.72)", fontStyle: "italic" }}>
                       Ready. Click "🚀 Run &amp; Publish Now (Instant)" or trigger any individual agent to see live telemetry and execution logs.
                     </div>
                   ) : (
@@ -8254,12 +8254,12 @@ export default function MarketingOverviewPage({ onNavigate }) {
                       <div
                         key={step.n}
                         onClick={() => isDone && goStep(step.n)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 22px 11px 0', flex: idx === 0 ? 'none' : 'none', marginRight: '4px', borderBottom: isActive ? '2px solid var(--gold)' : '2px solid transparent', marginBottom: '-1px', cursor: isDone ? 'pointer' : 'default', opacity: isActive ? 1 : isDone ? 0.75 : 0.38, transition: 'all 0.2s ease' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 22px 11px 0', flex: idx === 0 ? 'none' : 'none', marginRight: '4px', borderBottom: isActive ? '2px solid var(--gold)' : '2px solid transparent', marginBottom: '-1px', cursor: isDone ? 'pointer' : 'default', opacity: isActive ? 1 : isDone ? 0.85 : 0.65, transition: 'all 0.2s ease' }}
                       >
-                        <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: isDone ? 'var(--gold)' : isActive ? 'var(--gold)' : 'rgba(255,255,255,0.08)', color: (isDone || isActive) ? '#07162B' : 'var(--text3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 900, flexShrink: 0 }}>
+                        <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: isDone ? 'var(--gold)' : isActive ? 'var(--gold)' : (isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0'), color: (isDone || isActive) ? '#07162B' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 900, flexShrink: 0 }}>
                           {isDone ? '✓' : step.n}
                         </div>
-                        <span style={{ fontSize: '10px', fontWeight: 800, color: isActive ? 'var(--gold)' : 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 800, color: isActive ? 'var(--gold)' : 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
                           <i className={step.icon} style={{ marginRight: '5px', fontSize: '9px' }}></i>
                           {step.label}
                         </span>
@@ -8728,7 +8728,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                                       </div>
                                     </div>
                                   ) : (
-                                    <div style={{ textAlign: 'center', padding: '20px 10px', color: '#888', fontSize: '11px' }}>
+                                    <div style={{ textAlign: 'center', padding: '20px 10px', color: 'var(--text2)', fontSize: '11px' }}>
                                       <i className="fas fa-comment-dots" style={{ fontSize: '24px', marginBottom: '8px', display: 'block', opacity: 0.3 }}></i>
                                       Select a template to preview
                                     </div>
