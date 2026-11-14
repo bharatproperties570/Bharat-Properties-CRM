@@ -111,6 +111,14 @@ const SocialPostModal = ({
   const [approvedDocumentContext, setApprovedDocumentContext] = useState(null);
   const [isLoadingApprovedDocuments, setIsLoadingApprovedDocuments] = useState(false);
   const [isLoadingDocumentContext, setIsLoadingDocumentContext] = useState(false);
+
+  useEffect(() => {
+    setApprovedDocuments([]);
+    setSelectedApprovedDocument('');
+    setApprovedDocumentContext(null);
+    setIsLoadingApprovedDocuments(false);
+    setIsLoadingDocumentContext(false);
+  }, [initialData?._id, initialData?.id, isOpen, show]);
   const [previewBrandedMode, setPreviewBrandedMode] = useState(true); // Toggle on phone mirror
 
   // --- TAB 2: PORTALS & SYNDICATION STATE ---
@@ -469,7 +477,7 @@ const SocialPostModal = ({
             : 'Minimalist clean aesthetic, architectural precision, soft diffused daylight';
 
       const approvedReference = approvedDocumentContext?.contextText
-        ? `\\n\\n[APPROVED CRM PDF REFERENCE — ${approvedDocumentContext.category}]\\n${approvedDocumentContext.contextText.slice(0, 5000)}\\nUse this only as source-reference guidance. Do not invent specifications, approvals, prices, amenities or legal claims. Prefer structured CRM Deal/Project fields for all publishable facts.`
+        ? `\n\n[APPROVED CRM PDF REFERENCE — ${approvedDocumentContext.category}]\\n${approvedDocumentContext.contextText.slice(0, 5000)}\nUse this only as source-reference guidance. Do not invent specifications, approvals, prices, amenities or legal claims. Prefer structured CRM Deal/Project fields for all publishable facts.`
         : '';
       const promptStr = `A stunning ${angleDesc} of ${title} in ${cleanLoc}. ${moodDesc}. Architecture emphasizes clear lines with Bharat Properties brand aesthetic: Deep Navy accents with subtle Gold lighting. [BRAND IDENTITY]: Include Bharat Properties emblem. [CONTACT STRIP]: Display Website: www.bharatproperties.co, Contact: ${phone}. Photorealistic, 8k resolution, Unreal Engine 5 render style, perfectly composed for ${aspect}.${approvedReference}`;
 
