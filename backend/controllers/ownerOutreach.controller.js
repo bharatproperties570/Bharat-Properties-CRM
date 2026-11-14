@@ -4,6 +4,15 @@ import OwnerOutreachService from '../services/OwnerOutreachService.js';
 
 const service = new OwnerOutreachService();
 
+export const searchOwnerOutreachInventory = async (req, res) => {
+    try {
+        const data = await service.searchInventory(req.query || {}, req.user);
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+};
+
 export const previewOwnerOutreachAudience = async (req, res) => {
     try {
         const result = await service.preview(req.body || {}, req.user);
@@ -15,6 +24,31 @@ export const previewOwnerOutreachAudience = async (req, res) => {
 
 export const createOwnerOutreachDraft = async (req, res) => {
     try {
+        const providerAccountId = req.body?.providerAccountId;
+        if (!providerAccountId) {
+            return res.status(400).json({ success: false, error: 'A connected WhatsApp account must be selected' });
+        }
+
+        // Never trust the UI account picker as an authorization boundary.
+        // Re-check account ownership/access and provider readiness on every API request.
+        const authorization = await WhatsAppAccountAuthorizationService.assertCanSend(req.user, providerAccountId);
+        if (!authorization.authorized || !authorization.integration) {
+            return res.status(403).json({ success: false, error: 'You are not authorized to use this WhatsApp account' });
+        }
+
+        const account = authorization.integration;
+        const isReady = account.provider === 'BAILEYS'
+            ? account.connectionType === 'QR_SCANNER' && account.onboardingStatus === 'QR_LINKED'
+            : account.provider === 'META' &&
+                ['NEW_API', 'COEXISTENCE'].includes(account.connectionType) &&
+                account.onboardingStatus === 'CONNECTED' &&
+                account.subscriptionStatus === 'SUBSCRIBED' &&
+                ['SUBSCRIBED', 'VERIFIED'].includes(account.webhookStatus);
+
+        if (!isReady) {
+            return res.status(409).json({ success: false, error: 'Selected WhatsApp account is not fully connected and ready' });
+        }
+
         const result = await service.createDraft(req.body || {}, req.user);
         return res.status(201).json({ success: true, data: result });
     } catch (error) {
