@@ -180,27 +180,42 @@ export class MarketingDocumentApprovalService {
             throw new MarketingDocumentApprovalError('INVALID_DOCUMENT_ID', 400);
         }
 
-        // Revocation is a compliance action: it must remain possible when a
-        // document becomes inactive, revoked, held, expired or otherwise ineligible.
-        // Still enforce parent-entity visibility before touching approval records.
-        const document = await Document.findOne({ documentId }).lean();
-        if (!document) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
-        const ParentModel = mongoose.models[document.entityType];
-        if (!ParentModel) throw new MarketingDocumentApprovalError('DOCUMENT_PARENT_UNAVAILABLE', 409);
-        const visibilityFilter = await getVisibilityFilter(user);
-        const parentVisible = await ParentModel.exists({
-            _id: document.entityId,
-            ...visibilityFilter
-        });
-        if (!parentVisible) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
+        // Query approvals first so soft-deleted/inactive/revoked documents can
+        // still have their marketing-use grants explicitly withdrawn.
+        const existingApprovals = await MarketingDocumentApproval.find({
+            documentId,
+            status: 'APPROVED'
+        }).lean();
+        if (!existingApprovals.length) {
+            throw new MarketingDocumentApprovalError('ACTIVE_APPROVAL_NOT_FOUND', 404);
+        }
+
+        const documentRef = existingApprovals[0].documentRef;
+        if (existingApprovals.some(item => String(item.documentRef) !== String(documentRef))) {
+            throw new MarketingDocumentApprovalError('DOCUMENT_APPROVAL_BINDING_CONFLICT', 409);
+        }
+
+        // If the source document still exists (including soft-deleted rows),
+        // enforce its parent visibility. If it was physically purged, the
+        // explicit compliance approval right remains the authority to revoke
+        // the orphaned grant; the consumer must independently fail closed.
+        const sourceDocument = await Document.collection.findOne({ _id: documentRef });
+        if (sourceDocument) {
+            const ParentModel = mongoose.models[sourceDocument.entityType];
+            if (!ParentModel) throw new MarketingDocumentApprovalError('DOCUMENT_PARENT_UNAVAILABLE', 409);
+            const visibilityFilter = await getVisibilityFilter(user);
+            const parentVisible = await ParentModel.exists({
+                _id: sourceDocument.entityId,
+                ...visibilityFilter
+            });
+            if (!parentVisible) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
+        }
 
         const revokedAt = new Date();
         return withMongoTransaction(async (session) => {
-            const current = await Document.findById(document._id).session(session).lean();
-            if (!current) throw new MarketingDocumentApprovalError('DOCUMENT_NOT_FOUND', 404);
-
             const approvals = await MarketingDocumentApproval.find({
-                documentRef: current._id,
+                documentId,
+                documentRef,
                 status: 'APPROVED'
             }).session(session);
             if (!approvals.length) {
@@ -218,10 +233,10 @@ export class MarketingDocumentApprovalService {
                     userId: user._id,
                     actorId: user._id,
                     targetType: 'other',
-                    targetId: current._id,
+                    targetId: documentRef,
                     description: 'Marketing-safe document approval revoked',
                     metadata: {
-                        documentId: current.documentId,
+                        documentId,
                         versionId: approval.versionId,
                         policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
                     },
@@ -232,7 +247,7 @@ export class MarketingDocumentApprovalService {
             await AuditLog.create(auditEvents, { session });
 
             return {
-                documentId: current.documentId,
+                documentId,
                 revokedVersions: approvals.map(approval => approval.versionId),
                 revokedCount: approvals.length,
                 status: 'REVOKED',
