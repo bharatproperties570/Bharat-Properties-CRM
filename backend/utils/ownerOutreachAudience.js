@@ -81,9 +81,14 @@ export function buildOwnerOutreachAudience(inventoryItems, options = {}) {
             current.contactIds.add(contactId);
             current.inventoryIds.add(inventoryId);
             current.relationships.add(`${relationType}:${relationship || relationType}`);
+            // A shared endpoint is suppressed if any linked contact has an active opt-out.
+            // Otherwise, explicit consent from any linked contact upgrades UNKNOWN to CONSENTED.
             if (candidate.optedOut) {
                 current.consentState = 'OPTED_OUT';
                 current.eligibility = 'SUPPRESSED_OPTOUT';
+            } else if (candidate.consented && current.consentState !== 'OPTED_OUT') {
+                current.consentState = 'CONSENTED';
+                current.eligibility = 'ELIGIBLE';
             }
             endpoints.set(key, current);
         }
