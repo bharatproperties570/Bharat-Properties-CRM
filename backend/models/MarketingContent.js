@@ -47,6 +47,7 @@ const marketingContentSchema = new mongoose.Schema({
         provider: String,
         model: String,
         aiAgentId: { type: mongoose.Schema.Types.ObjectId, ref: 'AiAgent' },
+        projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
         platformPostIds: { type: Map, of: String }
     },
     publishedAt: {
