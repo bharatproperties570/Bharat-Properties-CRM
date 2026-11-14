@@ -178,9 +178,9 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             ])
         ]);
 
-        const avgVelocityDays = velocityAggregation?.[0]?.avgDays 
-            ? parseFloat(velocityAggregation[0].avgDays.toFixed(1)) 
-            : 3.4;
+        const avgVelocityDays = velocityAggregation?.[0]?.avgDays
+            ? parseFloat(velocityAggregation[0].avgDays.toFixed(1))
+            : null;
 
         // 3. Automated Drip Sequences & Enrollments Aggregation (Real MongoDB Atlas)
         let dripMetrics = {
@@ -337,7 +337,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
             success: true,
             overview: {
                 funnel: {
-                    totalReach: digest.totalImpressions || (digest.totalReach || 0),
+                    totalReach: digest.totalReach || 0,
                     totalClicks: digest.totalClicks || 0,
                     ctr: digest.totalImpressions > 0 ? parseFloat(((digest.totalClicks / digest.totalImpressions) * 100).toFixed(1)) : 0,
                     totalLeads: totalLeadsCount,
@@ -345,7 +345,8 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                     nurtureRate: totalLeadsCount > 0 ? parseFloat(((nurturedLeadsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
                     totalOpportunities: totalDealsCount,
                     dealConversionRate: totalLeadsCount > 0 ? parseFloat(((totalDealsCount / totalLeadsCount) * 100).toFixed(1)) : 0,
-                    revenueWon: wonDealsCount || convertedLeadsCount,
+                    revenueWon: null,
+                    wonDealsCount,
                     closureRate: totalDealsCount > 0 ? parseFloat(((wonDealsCount / totalDealsCount) * 100).toFixed(1)) : 0,
                     funnelEfficiency: totalLeadsCount > 0 ? parseFloat((((wonDealsCount || convertedLeadsCount) / totalLeadsCount) * 100).toFixed(1)) : 0,
                     leadVelocityDays: avgVelocityDays
@@ -399,7 +400,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                         {
                             tag: 'ROI Angle',
                             color: '#f59e0b',
-                            title: 'Why Kurukshetra Ring Road Plots Beat Fixed Deposits in 2026',
+                            title: 'Location connectivity: factors property buyers can verify',
                             description: 'Use only when a verified project asset and substantiated location facts are available. Do not imply returns or guaranteed appreciation.'
                         },
                         {
@@ -411,7 +412,7 @@ export const getMarketingAnalyticsOverview = async (req, res) => {
                         {
                             tag: 'Urgency Angle',
                             color: '#3b82f6',
-                            title: 'Sector 32 Commercial Plots: Pre-Registry Price Freeze',
+                            title: 'Commercial property due-diligence checklist',
                             description: 'Use only when commercial inventory details and any rental-yield claims are independently substantiated.'
                         }
                     ]
