@@ -54,12 +54,6 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
                     marketingDocumentUse: false,
                     ...(roleData.approvalRights || {})
                 }
-                    approveDeal: false,
-                    approveDiscount: false,
-                    approveStageChange: false,
-                    approveListingPublish: false,
-            marketingDocumentUse: false
-                }
             });
         } else if (!isEdit && isOpen) {
             // Reset for new role
