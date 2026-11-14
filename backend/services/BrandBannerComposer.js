@@ -137,43 +137,77 @@ class BrandBannerComposer {
                 return `data:image/jpeg;base64,${resized.toString('base64')}`;
             }
 
-            // 2. Deal Media / Images
+            // 2. CRM-native media fields. Keep source ordering deterministic and
+            // never treat documents/PDFs or video records as photographic hero assets.
+            const asArray = (value) => Array.isArray(value) ? value : (value ? [value] : []);
             const candidateUrls = [
                 customImageUrl,
-                ...(deal.images || []),
-                ...(deal.media || []),
-                ...(deal.photos || [])
+                deal.featuredImage,
+                deal.websiteMetadata?.featuredImage,
+                ...asArray(deal.broadcastMetadata?.images),
+                ...asArray(deal.images),
+                ...asArray(deal.media),
+                ...asArray(deal.photos),
+                ...asArray(deal.projectImages),
+                ...asArray(deal.inventoryImages),
+                ...asArray(deal.builtupDetails).map(item => item?.imageUrl)
             ].filter(Boolean);
 
             for (const item of candidateUrls) {
-                const urlOrPath = typeof item === 'string' ? item : (item.url || item.path);
-                if (!urlOrPath) continue;
+                const urlOrPath = typeof item === 'string'
+                    ? item
+                    : (item.url || item.path || item.imageUrl || item.secureUrl || item.fileUrl);
+                if (typeof urlOrPath !== 'string' || !urlOrPath.trim()) continue;
+                const source = urlOrPath.trim();
 
-                // Handle local disk path
-                if (fs.existsSync(urlOrPath)) {
-                    const buf = await sharp(urlOrPath)
-                        .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
-                        .jpeg({ quality: 90 })
-                        .toBuffer();
-                    return `data:image/jpeg;base64,${buf.toString('base64')}`;
-                }
+                // Local files are accepted only from known CRM upload/assets roots.
+                const allowedLocalRoots = [
+                    path.resolve(process.cwd(), 'uploads'),
+                    path.resolve(process.cwd(), 'backend/uploads'),
+                    path.resolve('/home/ubuntu/bharat-crm-releases/shared/uploads')
+                ];
+                const isAbsoluteLocalPath = path.isAbsolute(source);
+                const resolvedLocalPath = isAbsoluteLocalPath ? path.resolve(source) : path.resolve(process.cwd(), source);
+                const isAllowedLocalPath = allowedLocalRoots.some(root => resolvedLocalPath === root || resolvedLocalPath.startsWith(root + path.sep));
 
-                // Handle HTTP URL
-                if (urlOrPath.startsWith('http')) {
+                if (isAllowedLocalPath && fs.existsSync(resolvedLocalPath) && fs.statSync(resolvedLocalPath).isFile()) {
                     try {
-                        const resp = await axios.get(urlOrPath, {
-                            responseType: 'arraybuffer',
-                            timeout: 3500,
-                            headers: { 'User-Agent': 'BharatProperties-CRM/1.0' }
-                        });
-                        const buf = await sharp(Buffer.from(resp.data))
+                        const buf = await sharp(resolvedLocalPath)
                             .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
                             .jpeg({ quality: 90 })
                             .toBuffer();
                         return `data:image/jpeg;base64,${buf.toString('base64')}`;
-                    } catch (netErr) {
-                        console.warn('[BrandBannerComposer] Failed to fetch external hero image:', netErr.message);
+                    } catch (fileErr) {
+                        console.warn('[BrandBannerComposer] CRM hero image file could not be decoded:', fileErr.message);
                     }
+                }
+
+                // Only HTTPS remote assets are eligible; reject arbitrary protocols.
+                let parsedUrl;
+                try {
+                    parsedUrl = new URL(source);
+                } catch {
+                    continue;
+                }
+                if (parsedUrl.protocol !== 'https:') continue;
+
+                try {
+                    const resp = await axios.get(parsedUrl.toString(), {
+                        responseType: 'arraybuffer',
+                        timeout: 5000,
+                        maxContentLength: 15 * 1024 * 1024,
+                        maxBodyLength: 15 * 1024 * 1024,
+                        headers: { 'User-Agent': 'BharatProperties-CRM/1.0' }
+                    });
+                    const mimeType = String(resp.headers['content-type'] || '').toLowerCase();
+                    if (!mimeType.startsWith('image/')) continue;
+                    const buf = await sharp(Buffer.from(resp.data))
+                        .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
+                        .jpeg({ quality: 90 })
+                        .toBuffer();
+                    return `data:image/jpeg;base64,${buf.toString('base64')}`;
+                } catch (netErr) {
+                    console.warn('[BrandBannerComposer] Failed to fetch CRM hero image:', netErr.message);
                 }
             }
 
