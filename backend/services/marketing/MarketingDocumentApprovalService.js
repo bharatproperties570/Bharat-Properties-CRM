@@ -12,7 +12,6 @@ import {
     isMarketingEligibleDocument,
     isMarketingEligiblePdfVersion,
     isMarketingSafeDocumentCategory,
-    normalizeMarketingDocumentCategory
 } from './MarketingDocumentApprovalPolicy.js';
 
 const approvalRight = 'marketingDocumentUse';
@@ -28,7 +27,7 @@ class MarketingDocumentApprovalError extends Error {
 
 const resolveCategoryLookup = async (document, session = null) => {
     const raw = document?.metadata?.documentCategory;
-    const rawId = raw && typeof raw === 'object' ? (raw._id || raw.id) : raw;
+    const rawId = raw && typeof raw === 'object' ? (raw._id || raw.id || (mongoose.Types.ObjectId.isValid(String(raw)) ? raw : null)) : raw;
     const rawValue = raw && typeof raw === 'object'
         ? (raw.lookup_value || raw.value || raw.label)
         : raw;
@@ -85,9 +84,7 @@ export class MarketingDocumentApprovalService {
         }
 
         // Reuse the canonical storage ACL and lifecycle boundary; never instantiate an unconfigured registry.
-        await this.storageService.readDocumentStream(user, document.documentId, version.versionId).then(stream => {
-            if (stream && typeof stream.destroy === 'function') stream.destroy();
-        });
+        await this.storageService.accessService.authorizeAccess(user, document.documentId, 'READ', version.versionId);
         return { document, version };
     }
 
