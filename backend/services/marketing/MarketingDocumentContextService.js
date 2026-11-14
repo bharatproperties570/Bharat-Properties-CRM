@@ -155,6 +155,9 @@ export class MarketingDocumentContextService {
             throw new MarketingDocumentContextError('PDF_MIME_MISMATCH', 415);
         }
         const bytes = await collectBounded(stored.stream, MAX_MARKETING_PDF_BYTES);
+        if (bytes.length !== Number(version.sizeBytes)) {
+            throw new MarketingDocumentContextError('PDF_STORED_SIZE_MISMATCH', 409);
+        }
         if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
             throw new MarketingDocumentContextError('PDF_MAGIC_BYTES_INVALID', 415);
         }
