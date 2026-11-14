@@ -26,6 +26,8 @@ import AddLeadModal from '../../components/AddLeadModal';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import PipelineDashboard from '../../components/PipelineDashboard';
 import SocialPostModal from '../../components/SocialPostModal';
+import OwnerOutreachModal from '../Inventory/components/OwnerOutreachModal';
+import CampaignDetailModal from '../Inventory/components/CampaignDetailModal';
 
 
 /* ══════════════════════════════════════════
@@ -391,6 +393,47 @@ export default function MarketingOverviewPage({ onNavigate }) {
   });
   const [complianceTelemetry, setComplianceTelemetry] = useState(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
+
+  // ── Owner Outreach Telemetry & Ledger State ──
+  const [ownerOutreachCampaigns, setOwnerOutreachCampaigns] = useState([]);
+  const [ownerOutreachLoading, setOwnerOutreachLoading] = useState(false);
+  const [selectedOwnerCampaignId, setSelectedOwnerCampaignId] = useState('');
+  const [isOwnerOutreachModalOpen, setIsOwnerOutreachModalOpen] = useState(false);
+  const [ownerOutreachActionBusy, setOwnerOutreachActionBusy] = useState(false);
+
+  const fetchOwnerOutreachCampaigns = useCallback(async (showToast = false) => {
+    setOwnerOutreachLoading(true);
+    try {
+      const res = await api.get('/owner-outreach/campaigns');
+      setOwnerOutreachCampaigns(res.data?.data || []);
+      if (showToast) toast.success('Owner outreach telemetry synchronized');
+    } catch (err) {
+      console.warn('[MarketingOS] Failed to fetch owner outreach campaigns:', err.message);
+      if (showToast) toast.error('Failed to sync owner outreach campaigns');
+    } finally {
+      setOwnerOutreachLoading(false);
+    }
+  }, []);
+
+  const handleOwnerCampaignAction = async (id, action) => {
+    const messages = {
+      approve: 'Approve schedule? Isse sirf schedule ledger create hoga; koi message send nahi hoga.',
+      pause: 'Pause this campaign schedule?',
+      resume: 'Resume this campaign schedule?',
+      cancel: 'Cancel this campaign schedule?'
+    };
+    if (!window.confirm(messages[action])) return;
+    setOwnerOutreachActionBusy(true);
+    try {
+      await api.post(`/owner-outreach/campaigns/${id}/${action}`, action === 'cancel' ? { reason: 'Cancelled from Marketing OS' } : {});
+      toast.success(action === 'approve' ? 'Schedule approved. Dispatch remains disabled.' : `Campaign ${action}d.`);
+      await fetchOwnerOutreachCampaigns();
+    } catch (err) {
+      toast.error(err.response?.data?.error || `Campaign ${action} failed`);
+    } finally {
+      setOwnerOutreachActionBusy(false);
+    }
+  };
 
   // ── AUTONOMOUS MARKETING AUTOPILOT STATE ──
   const [autopilotConfig, setAutopilotConfig] = useState({
@@ -961,17 +1004,21 @@ export default function MarketingOverviewPage({ onNavigate }) {
     fetchOmnichannelData();
     fetchPortalAnalytics();
     fetchCampaignsData();
+    fetchOwnerOutreachCampaigns();
     // 🛡️ Adaptive 60s Cadence: Prevents request stampedes and only runs when tab is active
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchLiveData();
         if (activePage === 'bna') fetchOmnichannelData();
         if (activePage === 'portals') fetchPortalAnalytics();
-        if (activePage === 'campaign') fetchCampaignsData();
+        if (activePage === 'campaign') {
+          fetchCampaignsData();
+          fetchOwnerOutreachCampaigns();
+        }
       }
     }, 60000);
     return () => clearInterval(interval);
-  }, [fetchLiveData, fetchOmnichannelData, fetchPortalAnalytics, fetchCampaignsData, activePage]);
+  }, [fetchLiveData, fetchOmnichannelData, fetchPortalAnalytics, fetchCampaignsData, fetchOwnerOutreachCampaigns, activePage]);
 
   // ══ LIVE COMMAND КPIs DERIVED FROM REAL DATA ══
   const liveKPIs = useMemo(() => {
@@ -6359,6 +6406,9 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <button className={`campaign-tab-btn ${campaignTab === 'roi' ? 'active' : ''}`} onClick={() => setCampaignTab('roi')} style={{ color: 'var(--gold)', borderColor: campaignTab === 'roi' ? 'var(--gold)' : 'transparent' }}>
                     <Activity size={14} /> ROI & Loop Analytics
                   </button>
+                  <button className={`campaign-tab-btn ${campaignTab === 'owner-outreach' ? 'active' : ''}`} onClick={() => setCampaignTab('owner-outreach')} style={{ color: '#f59e0b', borderColor: campaignTab === 'owner-outreach' ? '#f59e0b' : 'transparent' }}>
+                    <Users2 size={14} /> Owner Outreach <span className="tab-badge">{ownerOutreachCampaigns.length}</span>
+                  </button>
                 </div>
 
                 <button 
@@ -7476,6 +7526,272 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {campaignTab === 'owner-outreach' && (
+            <div className="owner-outreach-marketing-view" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header Card */}
+              <div className="card" style={{ marginTop: 0, padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold)', letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                      Marketing OS · Inventory Campaigns
+                    </div>
+                    <h2 style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: 'var(--text1)' }}>
+                      Owner Outreach Campaign Ledger & Monitoring
+                    </h2>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text3)' }}>
+                      Consent-aware WhatsApp campaign planning and immutable batch schedule monitoring.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      className="tact-btn"
+                      onClick={() => fetchOwnerOutreachCampaigns(true)}
+                      disabled={ownerOutreachLoading}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      <RefreshCw size={14} className={ownerOutreachLoading ? 'spin' : ''} />
+                      <span>{ownerOutreachLoading ? 'Syncing...' : 'Refresh'}</span>
+                    </button>
+                    <button
+                      className="tact-btn primary"
+                      onClick={() => setIsOwnerOutreachModalOpen(true)}
+                      style={{
+                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        border: 'none',
+                        color: '#fff',
+                        fontWeight: 700,
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        boxShadow: '0 3px 10px rgba(217, 119, 6, 0.25)'
+                      }}
+                    >
+                      <Plus size={15} />
+                      <span>New Outreach Campaign</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Safe Planning Notice */}
+                <div
+                  style={{
+                    marginTop: '16px',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    borderRadius: '10px',
+                    padding: '12px 16px',
+                    color: 'var(--gold)',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}
+                >
+                  <ShieldCheck size={18} style={{ flexShrink: 0, color: '#16a34a' }} />
+                  <div>
+                    <strong>Safe Planning Mode Active:</strong> Outbound WhatsApp provider dispatch remains strictly disabled (<code>dispatchEnabled: false</code>). All batch executions are recorded in the immutable execution ledger for read-only inspection.
+                  </div>
+                </div>
+
+                {/* KPI Metrics Summary */}
+                <div className="perf-kpi-grid" style={{ marginTop: '16px', marginBottom: 0 }}>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Total Outreach Campaigns</div>
+                    <div className="kpi-val">{ownerOutreachCampaigns.length}</div>
+                    <div className="kpi-sub blue">Inventory Outreach Pipeline</div>
+                  </div>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Active / Approved Schedules</div>
+                    <div className="kpi-val" style={{ color: 'var(--green)' }}>
+                      {ownerOutreachCampaigns.filter(c => ['APPROVED', 'ACTIVE'].includes(c.status)).length}
+                    </div>
+                    <div className="kpi-sub green">Scheduled Batches Ready</div>
+                  </div>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Total Target Recipients</div>
+                    <div className="kpi-val" style={{ color: 'var(--gold)' }}>
+                      {ownerOutreachCampaigns.reduce((acc, c) => acc + (c.totals?.recipients || 0), 0).toLocaleString('en-IN')}
+                    </div>
+                    <div className="kpi-sub gold">HMAC-SHA-256 Masked Endpoints</div>
+                  </div>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Dispatched Messages</div>
+                    <div className="kpi-val">0</div>
+                    <div className="kpi-sub blue">Outbound Sending Disabled</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Campaigns Table Card */}
+              <div className="card" style={{ marginTop: 0, padding: '20px' }}>
+                <div style={{ marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text1)' }}>
+                    Scheduled Campaigns & Execution Ledger
+                  </h3>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text3)' }}>
+                    Track campaign batch progression, scheduled dispatch windows, and inspect detailed batch logs.
+                  </p>
+                </div>
+
+                {ownerOutreachLoading && ownerOutreachCampaigns.length === 0 ? (
+                  <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text3)' }}>
+                    <RefreshCw size={20} className="spin" style={{ marginBottom: '8px' }} />
+                    <p style={{ margin: 0, fontSize: '13px' }}>Loading owner outreach campaigns...</p>
+                  </div>
+                ) : ownerOutreachCampaigns.length === 0 ? (
+                  <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text3)' }}>
+                    <Megaphone size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                    <p style={{ margin: 0, fontSize: '13px' }}>No Owner Outreach campaigns found.</p>
+                    <button
+                      className="tact-btn"
+                      onClick={() => setIsOwnerOutreachModalOpen(true)}
+                      style={{ marginTop: '12px', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Create First Outreach Campaign
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="crm-table">
+                      <thead>
+                        <tr>
+                          <th>Campaign Name</th>
+                          <th>Channel</th>
+                          <th>Frequency</th>
+                          <th>Batch Size</th>
+                          <th>Recipients</th>
+                          <th>Next Run (IST)</th>
+                          <th>Status</th>
+                          <th style={{ textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ownerOutreachCampaigns.map((camp) => (
+                          <tr key={camp._id}>
+                            <td style={{ fontWeight: 700, color: 'var(--text1)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Megaphone size={14} style={{ color: 'var(--gold)' }} />
+                                <span>{camp.name}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <span style={{ textTransform: 'uppercase', fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(59,130,246,0.12)', color: 'var(--blue)' }}>
+                                {(camp.channels || ['whatsapp']).join(', ')}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '12px', color: 'var(--text2)' }}>{camp.frequency}</td>
+                            <td style={{ fontSize: '12px', color: 'var(--text2)' }}>{camp.batchSize} / run</td>
+                            <td style={{ fontWeight: 700, color: 'var(--text1)' }}>
+                              {Number(camp.totals?.recipients || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td style={{ fontSize: '12px', whiteSpace: 'nowrap', color: 'var(--text2)' }}>
+                              {camp.nextRunAt ? new Date(camp.nextRunAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' }) : '—'}
+                            </td>
+                            <td>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                                  color: camp.status === 'APPROVED' || camp.status === 'ACTIVE' ? 'var(--green)' : camp.status === 'PAUSED' ? 'var(--gold)' : camp.status === 'CANCELLED' ? '#ef4444' : 'var(--text3)'
+                                }}
+                              >
+                                {camp.status}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <button
+                                type="button"
+                                className="tact-btn"
+                                onClick={() => setSelectedOwnerCampaignId(camp._id)}
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  background: 'rgba(59, 130, 246, 0.1)',
+                                  color: 'var(--blue)',
+                                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  marginRight: '6px'
+                                }}
+                              >
+                                View Ledger
+                              </button>
+                              {camp.status === 'DRAFT' && (
+                                <button
+                                  type="button"
+                                  className="tact-btn"
+                                  disabled={ownerOutreachActionBusy}
+                                  onClick={() => handleOwnerCampaignAction(camp._id, 'approve')}
+                                  style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', marginRight: '6px', cursor: 'pointer' }}
+                                >
+                                  Approve
+                                </button>
+                              )}
+                              {['APPROVED', 'ACTIVE'].includes(camp.status) && (
+                                <button
+                                  type="button"
+                                  className="tact-btn"
+                                  disabled={ownerOutreachActionBusy}
+                                  onClick={() => handleOwnerCampaignAction(camp._id, 'pause')}
+                                  style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', marginRight: '6px', cursor: 'pointer' }}
+                                >
+                                  Pause
+                                </button>
+                              )}
+                              {camp.status === 'PAUSED' && (
+                                <button
+                                  type="button"
+                                  className="tact-btn"
+                                  disabled={ownerOutreachActionBusy}
+                                  onClick={() => handleOwnerCampaignAction(camp._id, 'resume')}
+                                  style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', marginRight: '6px', cursor: 'pointer' }}
+                                >
+                                  Resume
+                                </button>
+                              )}
+                              {!['CANCELLED', 'COMPLETED'].includes(camp.status) && (
+                                <button
+                                  type="button"
+                                  className="tact-btn"
+                                  disabled={ownerOutreachActionBusy}
+                                  onClick={() => handleOwnerCampaignAction(camp._id, 'cancel')}
+                                  style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', color: '#ef4444', cursor: 'pointer' }}
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Modals */}
+              <CampaignDetailModal
+                isOpen={Boolean(selectedOwnerCampaignId)}
+                onClose={() => setSelectedOwnerCampaignId('')}
+                campaignId={selectedOwnerCampaignId}
+              />
+
+              <OwnerOutreachModal
+                isOpen={isOwnerOutreachModalOpen}
+                onClose={() => setIsOwnerOutreachModalOpen(false)}
+                onSuccess={fetchOwnerOutreachCampaigns}
+              />
             </div>
           )}
 

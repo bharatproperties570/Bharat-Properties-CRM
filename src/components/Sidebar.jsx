@@ -77,14 +77,6 @@ function Sidebar({ currentView, onNavigate }) {
                     <i className="fas fa-warehouse"></i>
                 </a>
                 <a
-                    href="/inventory/owner-outreach"
-                    className={`sidebar-icon ${currentView === 'owner-outreach' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); window.location.assign('/inventory/owner-outreach'); }}
-                    title="Owner Outreach"
-                >
-                    <i className="fas fa-paper-plane"></i>
-                </a>
-                <a
                     href="#"
                     className={`sidebar-icon ${currentView === 'projects' ? 'active' : ''}`}
                     onClick={(e) => { e.preventDefault(); onNavigate('projects'); }}

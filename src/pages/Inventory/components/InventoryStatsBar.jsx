@@ -2,7 +2,7 @@ import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 
-const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiveCount, setCurrentPage, onNavigate }) => {
+const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiveCount, setCurrentPage, onNavigate, onOpenOwnerOutreach }) => {
     const { isDark } = useTheme();
     return (
         <div className="inventory-stats-row" style={{ padding: '8px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}>
@@ -62,11 +62,42 @@ const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiv
                 </div>
             </div>
 
-            {/* DEAL INTAKE ENGINE ICON */}
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+            {/* ACTION BUTTONS: OWNER OUTREACH & DEAL INTAKE ENGINE */}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                    onClick={onOpenOwnerOutreach}
+                    title="Owner Outreach"
+                    aria-label="Owner Outreach"
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '34px',
+                        height: '34px',
+                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        color: '#fff',
+                        border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        boxShadow: '0 3px 10px rgba(217, 119, 6, 0.3)',
+                        zIndex: 10
+                    }}
+                    onMouseOver={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)';
+                        e.currentTarget.style.boxShadow = '0 5px 12px rgba(245, 158, 11, 0.3)';
+                    }}
+                    onMouseOut={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                        e.currentTarget.style.boxShadow = '0 3px 10px rgba(217, 119, 6, 0.2)';
+                    }}
+                >
+                    <i className="fas fa-paper-plane" style={{ fontSize: '0.9rem' }}></i>
+                </button>
                 <button
                     onClick={() => onNavigate('deal-intake')}
                     title="Deal Intake Engine"
+                    aria-label="Deal Intake Engine"
                     style={{
                         display: 'flex',
                         alignItems: 'center',
