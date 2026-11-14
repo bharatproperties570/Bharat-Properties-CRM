@@ -368,6 +368,7 @@ export default function OwnerOutreachPage() {
                                 <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 9 }}>
                                     {[['Total batches', summary.total], ...Object.entries(summary.byStatus || {}).map(([status, count]) => [status.replaceAll('_', ' '), count])].map(([title, value]) => <div key={title} style={{ background: '#f8fafc', border: '1px solid #edf1f6', borderRadius: 9, padding: 12 }}><div style={{ color: '#64748b', fontSize: 11 }}>{title}</div><strong style={{ fontSize: 21 }}>{Number(value || 0).toLocaleString('en-IN')}</strong></div>)}
                                 </div>
+                                {campaignDetail.batchesTruncated && <p role='status' style={{ margin: '12px 0 0', padding: 10, borderRadius: 8, background: '#fffaf0', color: '#854d0e', fontSize: 12 }}>Showing the first 500 schedule rows. Summary counts above include all {summary.total.toLocaleString('en-IN')} batches; refresh or use a future paginated view for older rows.</p>}
                                 <div style={{ marginTop: 14, overflowX: 'auto' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, textAlign: 'left' }}>
                                         <thead><tr>{['Batch', 'Scheduled at (IST)', 'Status', 'Selected', 'Started', 'Completed', 'Error code'].map((title) => <th key={title} style={{ padding: 9, whiteSpace: 'nowrap' }}>{title}</th>)}</tr></thead>
