@@ -88,8 +88,13 @@ export class MarketingDocumentApprovalService {
         return { document, version };
     }
 
-    async approve({ user, documentId }) {
+    async approve({ user, documentId, reviewAttestation }) {
         await this._authorizeReviewer(user);
+        if (reviewAttestation?.publicMarketingAsset !== true ||
+            reviewAttestation?.noSensitivePersonalData !== true ||
+            reviewAttestation?.rightsCleared !== true) {
+            throw new MarketingDocumentApprovalError('REVIEW_ATTESTATION_REQUIRED', 422);
+        }
         const { document, version } = await this._resolveCurrentEligibleDocument(user, documentId);
         const lookup = await resolveCategoryLookup(document);
         if (!lookup) throw new MarketingDocumentApprovalError('DOCUMENT_CATEGORY_NOT_MARKETING_SAFE', 422);
@@ -123,6 +128,11 @@ export class MarketingDocumentApprovalService {
                         status: 'APPROVED',
                         approvedBy: user._id,
                         approvedAt,
+                        reviewAttestation: {
+                            publicMarketingAsset: true,
+                            noSensitivePersonalData: true,
+                            rightsCleared: true
+                        },
                         revokedBy: null,
                         revokedAt: null,
                         policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
@@ -143,6 +153,11 @@ export class MarketingDocumentApprovalService {
                     versionId: currentVersion.versionId,
                     entityType: current.entityType,
                     category: currentLookup.lookup_value,
+                    reviewAttestation: {
+                        publicMarketingAsset: true,
+                        noSensitivePersonalData: true,
+                        rightsCleared: true
+                    },
                     policyVersion: MARKETING_DOCUMENT_APPROVAL_POLICY_VERSION
                 },
                 status: 'success',
