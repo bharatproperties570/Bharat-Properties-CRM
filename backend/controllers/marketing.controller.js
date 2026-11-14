@@ -2822,7 +2822,9 @@ export const createPortalCampaign = async (req, res) => {
             endDate,
             targetLeads,
             featuredSlotsAllotted,
+            featuredSlotsUsed,
             standardSlotsAllotted,
+            standardSlotsUsed,
             assignedRep,
             notes
         } = req.body;
@@ -2831,11 +2833,28 @@ export const createPortalCampaign = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Portal, Campaign Name, and Expiry Date are required.' });
         }
 
+        const PORTAL_ENUMS = [
+            '99acres',
+            'Magicbricks',
+            'Housing.com',
+            'Olx',
+            'SquareYards',
+            'NoBroker',
+            'CommonFloor',
+            'Makaan',
+            'Real Estate India',
+            'Facebook Marketplace',
+            'Other'
+        ];
+        const canonicalPortal = PORTAL_ENUMS.find(p => p.toLowerCase() === portal?.trim().toLowerCase()) || 'Other';
+        const validProject = (focusProject && mongoose.Types.ObjectId.isValid(focusProject)) ? focusProject : null;
+        const validRep = (assignedRep && mongoose.Types.ObjectId.isValid(assignedRep)) ? assignedRep : null;
+
         const campaign = await PortalCampaign.create({
-            portal,
+            portal: canonicalPortal,
             campaignName,
             packageTier: packageTier || 'Standard Pack',
-            focusProject: focusProject || null,
+            focusProject: validProject,
             focusLocation: focusLocation || 'Kurukshetra',
             packageCost: Number(packageCost) || 0,
             billingCycle: billingCycle || 'MONTHLY',
@@ -2846,7 +2865,7 @@ export const createPortalCampaign = async (req, res) => {
             featuredSlotsUsed: Number(featuredSlotsUsed) || 0,
             standardSlotsAllotted: Number(standardSlotsAllotted) || 20,
             standardSlotsUsed: Number(standardSlotsUsed) || 0,
-            assignedRep: assignedRep || null,
+            assignedRep: validRep,
             notes: notes || '',
             createdBy: req.user?._id || null,
             status: 'ACTIVE'
@@ -2866,7 +2885,30 @@ export const createPortalCampaign = async (req, res) => {
 export const updatePortalCampaign = async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
+        const updates = { ...req.body };
+
+        if (updates.portal) {
+            const PORTAL_ENUMS = [
+                '99acres',
+                'Magicbricks',
+                'Housing.com',
+                'Olx',
+                'SquareYards',
+                'NoBroker',
+                'CommonFloor',
+                'Makaan',
+                'Real Estate India',
+                'Facebook Marketplace',
+                'Other'
+            ];
+            updates.portal = PORTAL_ENUMS.find(p => p.toLowerCase() === updates.portal.trim().toLowerCase()) || 'Other';
+        }
+        if ('focusProject' in updates) {
+            updates.focusProject = (updates.focusProject && mongoose.Types.ObjectId.isValid(updates.focusProject)) ? updates.focusProject : null;
+        }
+        if ('assignedRep' in updates) {
+            updates.assignedRep = (updates.assignedRep && mongoose.Types.ObjectId.isValid(updates.assignedRep)) ? updates.assignedRep : null;
+        }
 
         const campaign = await PortalCampaign.findByIdAndUpdate(id, updates, { new: true });
         if (!campaign) {
