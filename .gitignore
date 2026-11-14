@@ -227,3 +227,6 @@ test_file
 .dba_approval_ledger.jsonl.lock
 
 
+
+# Vercel local credentials (never commit)
+.env.vercel
