@@ -81,14 +81,14 @@ const parseInIsolatedWorker = (pdfBytes) => new Promise((resolve, reject) => {
 
 export const sanitizePublicText = (value) => String(value || '')
     .normalize('NFKC')
-    .replace(/(?:\\+?91[\\s-]?)?[6-9]\\d{9}\\b/g, '[REDACTED_PHONE]')
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
-    .replace(/\\b[A-Z]{5}[0-9]{4}[A-Z]\\b/gi, '[REDACTED_ID]')
-    .replace(/\\b[2-9][0-9]{3}[\\s-]?[0-9]{4}[\\s-]?[0-9]{4}\\b/g, '[REDACTED_ID]')
-    .replace(/\\b\\d{9,18}\\b/g, '[REDACTED_NUMBER]')
-    .replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]/g, ' ')
-    .replace(/[ \\t]+/g, ' ')
-    .replace(/\\n{3,}/g, '\\n\\n')
+    .replace(/(?:\+?91[\s-]?)?[6-9]\d{9}\b/g, '[REDACTED_PHONE]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
+    .replace(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi, '[REDACTED_ID]')
+    .replace(/\b[2-9][0-9]{3}[\s-]?[0-9]{4}[\s-]?[0-9]{4}\b/g, '[REDACTED_ID]')
+    .replace(/\b\d{9,18}\b/g, '[REDACTED_NUMBER]')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, MAX_CONTEXT_CHARS);
 
