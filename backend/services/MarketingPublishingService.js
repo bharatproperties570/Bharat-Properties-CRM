@@ -6,6 +6,7 @@ import facebookService from './FacebookService.js';
 import googleBusinessService from './GoogleBusinessService.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import marketingComplianceEnforcementService from './MarketingComplianceEnforcementService.js';
+import { extractProviderPostId } from '../utils/marketingOsTruth.js';
 
 /**
  * MarketingPublishingService.js
@@ -110,7 +111,7 @@ class MarketingPublishingService {
 
                 // 5. Finalize Post with Server-Sanitized Text
                 const result = await linkedInService.postToOrganization(sanitizedText, null, assetUrn);
-                const remotePostId = result?.postId;
+                const remotePostId = extractProviderPostId(result);
                 if (!result?.success || !remotePostId || remotePostId === 'linkedin_post_success') {
                     throw new Error('LinkedIn did not return a verified remote post ID.');
                 }
