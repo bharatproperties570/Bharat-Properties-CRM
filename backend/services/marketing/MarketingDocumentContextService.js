@@ -28,7 +28,7 @@ export class MarketingDocumentContextError extends Error {
     }
 }
 
-const collectBounded = async (stream, limit) => {
+export const collectBounded = async (stream, limit) => {
     if (Buffer.isBuffer(stream) || stream instanceof Uint8Array) {
         const buffer = Buffer.from(stream);
         if (buffer.length > limit) throw new MarketingDocumentContextError('PDF_SIZE_LIMIT_EXCEEDED', 413);
@@ -79,7 +79,7 @@ const parseInIsolatedWorker = (pdfBytes) => new Promise((resolve, reject) => {
     });
 });
 
-const sanitizePublicText = (value) => String(value || '')
+export const sanitizePublicText = (value) => String(value || '')
     .normalize('NFKC')
     .replace(/(?:\\+?91[\\s-]?)?[6-9]\\d{9}\\b/g, '[REDACTED_PHONE]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
