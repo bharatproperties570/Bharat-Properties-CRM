@@ -24,6 +24,7 @@ vi.mock('../../utils/api', () => ({
 
 vi.mock('react-hot-toast', () => ({
   default: {
+    loading: vi.fn(() => 'toast-id'),
     success: vi.fn(),
     error: vi.fn()
   }
