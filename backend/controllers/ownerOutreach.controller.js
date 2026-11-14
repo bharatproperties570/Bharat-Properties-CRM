@@ -4,6 +4,15 @@ import OwnerOutreachService from '../services/OwnerOutreachService.js';
 
 const service = new OwnerOutreachService();
 
+export const searchOwnerOutreachInventory = async (req, res) => {
+    try {
+        const data = await service.searchInventory(req.query || {}, req.user);
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+};
+
 export const previewOwnerOutreachAudience = async (req, res) => {
     try {
         const result = await service.preview(req.body || {}, req.user);
