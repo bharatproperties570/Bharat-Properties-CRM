@@ -31,17 +31,20 @@ const isIsoDate = (str) => typeof str === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:
 const isUuid = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
 const isHexDigest = (str) => typeof str === 'string' && /^[0-9a-fA-F]{32,64}$/.test(str);
 
+export const EMAIL_PII_PATTERN = /[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.*-]+\.[a-zA-Z0-9.*-]{2,}/gi;
+export const EMAIL_STANDALONE_PATTERN = /^[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.*-]+\.[a-zA-Z0-9.*-]{2,}$/i;
+
 export function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
     if (isHexObjectId(text) || isIsoDate(text) || isUuid(text) || isHexDigest(text)) return text;
 
     const trimmed = text.trim();
-    if (/^[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/i.test(trimmed)) {
+    if (EMAIL_STANDALONE_PATTERN.test(trimmed)) {
         return '[EMAIL_MINIMIZED]';
     }
 
     // Mask all emails to [EMAIL_MINIMIZED] (unconditional, centralized, handles raw, partial with *, embedded, mixed-case)
-    let masked = text.replace(/[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, '[EMAIL_MINIMIZED]');
+    let masked = text.replace(EMAIL_PII_PATTERN, '[EMAIL_MINIMIZED]');
 
     // Mask Indian PAN card format (5 letters, 4 digits, 1 letter)
     masked = masked.replace(/\b[a-zA-Z]{5}[0-9]{4}[a-zA-Z]\b/g, '[PAN_MINIMIZED]');
@@ -59,8 +62,8 @@ export function maskScalarPII(text) {
         return match;
     });
 
-    // Mask street/residential address indicators
-    masked = masked.replace(/\b(?:house|flat|plot|kothi|villa|apartment|apt|bungalow|building|premises)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, '[ADDRESS_MINIMIZED]');
+    // Mask street/residential address indicators (requires space or separator so CamelCase identifiers like plotNumber are not mangled)
+    masked = masked.replace(/\b(?:house|flat|plot|kothi|villa|apartment|apt|bungalow|building|premises)(?:\s+(?:no\.?|number)?\s*[:#.-]?|\s*[:#.-])\s*[\w\d/-]+/gi, '[ADDRESS_MINIMIZED]');
     masked = masked.replace(/\b(?:sector\s*\d+[a-zA-Z]?|road|street|gali|lane)\s*(?:no\.?|number)?\s*[:#.-]?\s*[\w\d/-]+/gi, (match) => {
         // Preserve clean canonical sector mentions if not personal address
         if (/^sector\s*\d+[a-zA-Z]?$/i.test(match.trim())) return match;
@@ -68,7 +71,7 @@ export function maskScalarPII(text) {
     });
 
     // Mask postal/residential addresses without House/Flat/Plot keywords (localities, colonies, areas)
-    masked = masked.replace(/\b(?:\d+[\w/-]*,?\s+)?(?:model\s+town|civil\s+lines|urban\s+estate|defence\s+colony|green\s+park|dlf|enclave|vihar|nagar|colony|mohalla|phase\s*\d+|block\s*[a-zA-Z0-9]+)\b(?:[,\s]+[A-Za-z]+)*(?:[,\s]+[1-9][0-9]{5})?/gi, '[ADDRESS_MINIMIZED]');
+    masked = masked.replace(/\b(?:\d+[\w/-]*,?\s+)?(?:model\s+town|civil\s+lines|urban\s+estate|defence\s+colony|green\s+park|dlf|enclave|vihar|nagar|colony|mohalla|phase\s*\d+|block\s+[a-zA-Z0-9]+)\b(?:[,\s]+[A-Za-z]+)*(?:[,\s]+[1-9][0-9]{5})?/gi, '[ADDRESS_MINIMIZED]');
 
     // Mask postal PIN codes and addresses without prefix words (e.g. "134109")
     masked = masked.replace(/(?<!\d|\+)\b[1-9][0-9]{5}\b(?!\d)/g, '[ADDRESS_MINIMIZED]');
@@ -164,6 +167,114 @@ export const CONTROLLED_TARGET_NAMES = new Set([
 
 const CONTROLLED_REASONS = CONTROLLED_AUDIT_REASONS;
 
+export const CANONICAL_AUTHORITY_VERIFICATION_FIELDS = new Set([
+    'propertyId',
+    'fileNumber',
+    'formNumber',
+    'sectorNumber',
+    'phaseCode',
+    'blockCode',
+    'schemeName',
+    'urbanEstate',
+    'estateOffice',
+    'propertyCategory',
+    'propertyType',
+    'propertySize',
+    'propertyAreaValue',
+    'propertyAreaUnit',
+    'allotmentDate',
+    'transferDate',
+    'possessionDate',
+    'allotmentMode',
+    'possessionStatus',
+    'buildingPlanApproved',
+    'occupancyCertificate',
+    'litigationStatus',
+    'mortgageStatus',
+    'authorityStatus',
+    'duesStatus',
+    'leaseRentStatus',
+    'lastVerifiedAt',
+    'authorityCode',
+    'verificationRunId',
+    'verificationSnapshotId',
+    'snapshotContentHash',
+    'rawSnapshotHash',
+    'applyClaimId'
+]);
+
+export function getCanonicalAuthorityFieldName(fieldPath) {
+    if (!fieldPath || typeof fieldPath !== 'string') return null;
+    const clean = fieldPath.trim();
+
+    // Must be exactly 'authorityVerification.<canonicalField>' with no extra segments
+    const parts = clean.split('.');
+    if (parts.length === 2 && parts[0] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[1])) {
+        return parts[1];
+    }
+
+    return null;
+}
+
+export const COMMON_PERSONAL_NAMES = new Set([
+    'rajesh', 'suresh', 'amit', 'kumar', 'ramesh', 'dinesh', 'mahesh', 'naresh',
+    'rakesh', 'mukesh', 'anil', 'sunil', 'deepak', 'rahul', 'rohit', 'vikram',
+    'vijay', 'ajay', 'sanjay', 'manoj', 'ashok', 'alok', 'vinod', 'pramod',
+    'santosh', 'priya', 'devi', 'sharma', 'singh', 'verma', 'gupta', 'neha',
+    'pooja', 'sunita', 'anita', 'kavita', 'meena', 'rekha', 'seema', 'rita',
+    'john', 'kaur', 'patel', 'yadav'
+]);
+
+export function isContextuallyValidatedStructuralPath(key, value, parentObj) {
+    if (!value || typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || trimmed.length > 100) return false;
+
+    // Key must be a structural field/path key
+    if (key !== 'field' && key !== 'canonicalField' && key !== 'path') return false;
+
+    // Parent object context: must be a change or applied/rejected field record
+    const isChangeOrFieldRecord = parentObj && typeof parentObj === 'object' && (
+        'before' in parentObj || 'after' in parentObj ||
+        'from' in parentObj || 'to' in parentObj ||
+        'reason' in parentObj || 'reasonCode' in parentObj ||
+        'claimId' in parentObj || 'canonicalField' in parentObj
+    );
+    if (!isChangeOrFieldRecord) return false;
+
+    // Structural path must strictly be a valid dot-separated identifier without whitespace, control chars or punctuation
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(trimmed)) {
+        return false;
+    }
+
+    // Must not be a personal name or surname token
+    if (COMMON_PERSONAL_NAMES.has(trimmed.toLowerCase())) {
+        return false;
+    }
+
+    // If key is 'canonicalField', it must be an approved canonical field
+    if (key === 'canonicalField') {
+        return CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(trimmed);
+    }
+
+    // For 'field' or 'path': must be an approved canonical authority verification path
+    if (trimmed.startsWith('authorityVerification.')) {
+        return getCanonicalAuthorityFieldName(trimmed) !== null;
+    }
+
+    // Or a bare canonical field
+    if (CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(trimmed)) {
+        return true;
+    }
+
+    // Or an approved top-level inventory/property schema field in change records
+    const APPROVED_SCHEMA_FIELDS = new Set([
+        'status', 'title', 'price', 'description', 'propertyType', 'location',
+        'sector', 'features', 'images', 'documents', 'metadata', 'notes'
+    ]);
+    return APPROVED_SCHEMA_FIELDS.has(trimmed);
+}
+
 const OPERATIONAL_SYSTEM_KEYS = new Set([
     'leaseOwner', 'workerLease', 'workerLeaseToken', 'lastSyncWorkerLease',
     'operationId', 'normalizedOpId', 'correlationId',
@@ -202,11 +313,13 @@ export function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
     for (const key of Object.keys(obj)) {
         if (OPERATIONAL_SYSTEM_KEYS.has(key)) {
             redactedObj[key] = obj[key];
+        } else if (isContextuallyValidatedStructuralPath(key, obj[key], obj)) {
+            redactedObj[key] = obj[key].trim();
         } else if (sensitiveKeys.test(key)) {
             redactedObj[key] = '[REDACTED]';
         } else if (piiKeys.test(key)) {
             redactedObj[key] = '[PII_MINIMIZED]';
-        } else if (key === 'notes' || key === 'reviewNotes') {
+        } else if (key === 'note' || key === 'notes' || key === 'reviewNotes') {
             const raw = String(obj[key] || '').trim();
             if (CONTROLLED_REASONS.has(raw)) {
                 redactedObj[key] = raw;
@@ -345,7 +458,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal', 'authority_canonical_policy']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot', 'authority_portal', 'authority_canonical_policy', 'PropertyVerificationRunItem']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId
@@ -356,6 +469,10 @@ const AuditLogSchema = new mongoose.Schema({
     description: {
         type: String,
         required: true
+    },
+    note: {
+        type: String,
+        required: false
     },
     notes: {
         type: String,
@@ -464,7 +581,7 @@ export const CONTROLLED_AUTHORITY_METADATA_KEYS = new Set([
     'compensationStatus', 'originalAuditId', 'originalStatus', 'compensatedAt', 'purgedCount',
     'compensated', 'compensationClaimId',
     'snapshotId', 'durationMs', 'startTime', 'endTime', 'searchCriteria', 'mode', 'fixtureMode',
-    'retryCount', 'attempt', 'notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText',
+    'retryCount', 'attempt', 'note', 'notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText',
     'description', 'tenantId', 'organizationId', 'changes', 'field', 'action', 'timestamp',
     'identityRequirements', 'permittedFields', 'ratePolicy', 'approvalExpiryDate', 'internalReviewExpiryDate',
     'userReportedEvidence', 'ownerAttestation', 'lastRunId', 'lastRunStatus', 'nextScheduledAt',
@@ -582,8 +699,9 @@ export const CONTROLLED_AUTHORITY_METADATA_SCHEMA = {
     buyerName: { type: 'string', pattern: /^(?:\[REDACTED CITIZEN NAME\]|\[PII_MINIMIZED\])$/ },
 
     // Controlled Text Notes: Free-text is strictly PROHIBITED; only empty string or minimized token
-    notes: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
-    reviewNotes: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
+    note: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\]|[A-Z0-9_]{2,80})$/ },
+    notes: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\]|[A-Z0-9_]{2,80})$/ },
+    reviewNotes: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\]|[A-Z0-9_]{2,80})$/ },
     comments: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
     reviewerComments: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
     freeText: { type: 'string', pattern: /^(?:|\[CONTROLLED_AUDIT_NOTE\]|\[PII_MINIMIZED\])$/ },
@@ -721,7 +839,7 @@ export const CONTROLLED_AUTHORITY_METADATA_SCHEMA = {
 };
 
 const NARRATIVE_PII_PATTERNS = [
-    /\b[6-9]\d{9}\b/, // 10-digit mobile
+    /(?:\+?91[\-\s]?)?[6-9]\d{9}\b/, // 10-digit mobile with optional country code
     /\b[A-Z]{5}[0-9]{4}[A-Z]\b/, // PAN
     /\b\d{4}\s\d{4}\s\d{4}\b/, // Aadhaar
     /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, // Email
@@ -739,6 +857,17 @@ const ALLOWED_ATTESTATION_SCOPES = new Set([
     'RECORD_CONFIRMATION'
 ]);
 
+export const ALLOWED_CONTROLLED_PHRASES = new Set([
+    ...CONTROLLED_AUDIT_REASONS,
+    'System Event', 'Initial Seed', 'Verified Contract',
+    'EVIDENCE_REVIEWED', 'DOCUMENT_VERIFIED', 'OWNER_WRITTEN_CONFIRMATION_ON_FILE',
+    'REPRESENTATIVE_AUTHORIZATION_VERIFIED', 'CLIENT_STATEMENT_RECORDED',
+    'PORTAL_OPERATOR_REPORT_LOGGED', 'BROKER_ATTESTATION_SUBMITTED',
+    'PENDING_MAKER_CHECKER_VERIFICATION', 'UNVERIFIED_SELF_REPORT', 'REPRESENTATIVE_STATEMENT',
+    '[EMAIL_MINIMIZED]', '[PHONE_MINIMIZED]', '[PAN_MINIMIZED]', '[AADHAAR_MINIMIZED]',
+    '[ADDRESS_MINIMIZED]', '[REDACTED]', '[PII_MINIMIZED]', '[CONTROLLED_AUDIT_NOTE]'
+]);
+
 const ALLOWED_UPPERCASE_TOKENS = new Set([
     ...CONTROLLED_AUDIT_REASONS,
     ...CONTROLLED_ROLE_CODES,
@@ -751,6 +880,9 @@ const ALLOWED_UPPERCASE_TOKENS = new Set([
     'OWNER_CONFIRMATION', 'BROKER_SELF_REPORT', 'OPERATOR_SELF_REPORT',
     'CLIENT_STATEMENT', 'BROKER_ATTESTATION', 'OWNER_WRITTEN_CONFIRMATION', 'REPRESENTATIVE_AUTHORIZATION', 'BROKER_REPORT', 'DOCUMENT_VERIFICATION',
     'PENDING_WRITTEN_REFERENCE', 'FULL_VERIFICATION', 'PARTIAL_VERIFICATION', 'IDENTITY_CONFIRMATION', 'AUTHORITY_INTEGRATION', 'RECORD_CONFIRMATION',
+    'EVIDENCE_REVIEWED', 'DOCUMENT_VERIFIED', 'OWNER_WRITTEN_CONFIRMATION_ON_FILE', 'REPRESENTATIVE_AUTHORIZATION_VERIFIED',
+    'CLIENT_STATEMENT_RECORDED', 'PORTAL_OPERATOR_REPORT_LOGGED', 'BROKER_ATTESTATION_SUBMITTED',
+    'PENDING_MAKER_CHECKER_VERIFICATION', 'UNVERIFIED_SELF_REPORT', 'REPRESENTATIVE_STATEMENT',
     'EMAIL_MINIMIZED', 'PHONE_MINIMIZED', 'PAN_MINIMIZED', 'AADHAAR_MINIMIZED', 'ADDRESS_MINIMIZED', 'REDACTED', 'PII_MINIMIZED', 'CONTROLLED_AUDIT_NOTE',
     'NO_LITIGATION', 'LITIGATION_PENDING', 'DISPUTED_TITLE', 'STAY_ORDER',
     'NO_MORTGAGE', 'MORTGAGED', 'UNDER_MORTGAGE', 'BANK_CHARGE',
@@ -777,7 +909,167 @@ const ALLOWED_UPPERCASE_TOKENS = new Set([
     'FREE_TEXT_AUDIT_PROHIBITED', 'METADATA_VALUE_INVALID', 'AUDIT_LOG_IMMUTABLE', 'ACTOR_IMPERSONATION_PROHIBITED', 'ACTOR_UNAUTHORIZED', 'INVALID_REPRESENTATIVE_EVIDENCE', 'UNAUTHORIZED_STATUS_OVERRIDE', 'EVIDENCE_VERSION_REQUIRED'
 ]);
 
-export function validateControlledScalarValue(val, pathStr, isErrorField = false) {
+export const APPROVED_PROPERTY_SIZE_UNITS = '(?:sq(?:uare)?\\.?\\s*(?:yards?|yd|feet|ft|meters?|m)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|sq\\s*ft|sq\\s*yd|sq\\s*m|sq\\s*yards)';
+export const APPROVED_PROPERTY_SIZE_MODES = '(?:Auction|Allotted|Residential|Commercial|Industrial|Institutional|General|Reserved|Private|Government)';
+export const PROPERTY_SIZE_PATTERN = new RegExp(`^[0-9]+(?:\\.[0-9]+)?\\s+${APPROVED_PROPERTY_SIZE_UNITS}(?:\\s*\\(${APPROVED_PROPERTY_SIZE_MODES}\\))?$`, 'i');
+
+export const SECTOR_NUMBER_PATTERN = /^(?:(?:Urban\s+Estate\s+)?Sector\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4}|[A-Za-z])?|[0-9]{1,4}(?:-[A-Za-z0-9]{1,4}|[A-Za-z])?)$/i;
+
+export const PHASE_CODE_PATTERN = /^(?:Phase\s+(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6})|(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6}))$/i;
+
+export const BLOCK_CODE_GRAMMAR = '(?:[A-Za-z]{1,2}(?:-[0-9]{1,3}|[0-9]{1,3})?|[0-9]{1,3}(?:-[A-Za-z]{1,2}|[A-Za-z]{1,2})?|[IVXLCDM]{1,4})';
+export const BLOCK_CODE_PATTERN = new RegExp(`^(?:(?:Block|Pocket)\\s+${BLOCK_CODE_GRAMMAR}|${BLOCK_CODE_GRAMMAR})$`, 'i');
+
+export const APPROVED_LITIGATION_PHRASES = new Set([
+    'Litigation pending in High Court',
+    'Court case pending in High Court',
+    'Litigation pending in District Court',
+    'Court case pending in District Court',
+    'Court case pending in Civil Court',
+    'Court case pending in Revenue Court',
+    'Stay order by High Court',
+    'Stay order by District Court',
+    'Stay order by Supreme Court',
+    'Status quo ordered by court',
+    'No litigation pending',
+    'NO_LITIGATION',
+    'LITIGATION_PENDING',
+    'DISPUTED_TITLE',
+    'STAY_ORDER',
+    'CLEAR',
+    'PENDING',
+    'NONE',
+    'UNDER_REVIEW',
+    'STATUS_QUO'
+]);
+
+export const LITIGATION_STATUS_PATTERN = /^(?:(?:Litigation|Court\s+case)\s+pending\s+in\s+(?:High\s+Court|District\s+Court|Supreme\s+Court|Civil\s+Court|Revenue\s+Court|Sub-Divisional\s+Court)|Stay\s+order\s+by\s+(?:High\s+Court|District\s+Court|Supreme\s+Court)|Status\s+quo\s+ordered\s+by\s+court|No\s+litigation\s+pending|NO_LITIGATION|LITIGATION_PENDING|DISPUTED_TITLE|STAY_ORDER|CLEAR|PENDING|NONE|UNDER_REVIEW|STATUS_QUO)$/i;
+
+export const APPROVED_MORTGAGE_PHRASES = new Set([
+    'Under mortgage with SBI',
+    'Under mortgage with State Bank of India',
+    'Under mortgage with HDFC',
+    'Under mortgage with HDFC Bank',
+    'Under mortgage with ICICI',
+    'Under mortgage with ICICI Bank',
+    'Under mortgage with PNB',
+    'Under mortgage with Punjab National Bank',
+    'Under mortgage with Axis Bank',
+    'Under mortgage with Bank of Baroda',
+    'Under mortgage with Canara Bank',
+    'Under mortgage with Union Bank',
+    'Under mortgage with Kotak Mahindra Bank',
+    'Under mortgage with bank',
+    'Under mortgage with financial institution',
+    'Mortgaged to bank',
+    'Mortgaged to financial institution',
+    'No mortgage recorded',
+    'No mortgage pending',
+    'NO_MORTGAGE',
+    'MORTGAGED',
+    'UNDER_MORTGAGE',
+    'BANK_CHARGE',
+    'CLEAR',
+    'NONE'
+]);
+
+export const MORTGAGE_STATUS_PATTERN = /^(?:Under\s+mortgage\s+with\s+(?:SBI|State\s+Bank\s+of\s+India|HDFC(?:\s+Bank)?|ICICI(?:\s+Bank)?|PNB|Punjab\s+National\s+Bank|Axis\s+Bank|Bank\s+of\s+Baroda|Canara\s+Bank|Union\s+Bank(?:\s+of\s+India)?|Kotak(?:\s+Mahindra)?(?:\s+Bank)?|bank|financial\s+institution)|Mortgaged\s+to\s+(?:bank|financial\s+institution)|No\s+mortgage\s+(?:recorded|pending)|NO_MORTGAGE|MORTGAGED|UNDER_MORTGAGE|BANK_CHARGE|CLEAR|NONE)$/i;
+
+export const APPROVED_PROPERTY_CATEGORIES_AND_TYPES = new Set([
+    'Residential Plot', 'Residential Floor', 'Residential Flat', 'Residential Villa', 'Residential House',
+    'Commercial SCO', 'Commercial Booth', 'Commercial Shop', 'Commercial Office', 'Commercial Plot',
+    'Industrial Plot', 'Industrial Shed', 'Institutional Plot', 'Agricultural Land',
+    'Freehold Residential', 'Freehold Commercial', 'Freehold Industrial', 'Freehold Plot', 'Independent Plot', 'Independent House',
+    'RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'INSTITUTIONAL', 'AGRICULTURAL', 'FREEHOLD',
+    'PLOT', 'SCO', 'BOOTH', 'FLAT', 'FLOOR', 'VILLA', 'SHOP', 'OFFICE', 'HOUSE', 'SHED',
+    'PENTHOUSE', 'DUPLEX', 'STUDIO', 'FARMHOUSE', 'APARTMENT',
+    'Residential', 'Commercial', 'Industrial', 'Institutional', 'Agricultural', 'Freehold',
+    'Plot', 'SCO', 'Booth', 'Flat', 'Floor', 'Villa', 'Shop', 'Office', 'House', 'Shed',
+    'Penthouse', 'Duplex', 'Studio', 'Farmhouse', 'Apartment',
+    'RESIDENTIAL_PLOT', 'COMMERCIAL_SCO', 'COMMERCIAL_BOOTH', 'COMMERCIAL_SHOP', 'COMMERCIAL_OFFICE',
+    'INDUSTRIAL_PLOT', 'INDUSTRIAL_SHED', 'INSTITUTIONAL_PLOT', 'AGRICULTURAL_LAND'
+]);
+
+export const PROPERTY_CATEGORY_TYPE_PATTERN = /^(?:(?:(?:Residential|Commercial|Industrial|Institutional|Agricultural|Freehold|Independent)\s+)?(?:Plot|Floor|Flat|Villa|House|SCO|Booth|Shop|Office|Shed|Land|Penthouse|Duplex|Studio|Farmhouse|Apartment)|(?:Residential|Commercial|Industrial|Institutional|Agricultural|Freehold)|(?:RESIDENTIAL_PLOT|COMMERCIAL_SCO|COMMERCIAL_BOOTH|COMMERCIAL_SHOP|COMMERCIAL_OFFICE|INDUSTRIAL_PLOT|INDUSTRIAL_SHED|INSTITUTIONAL_PLOT|AGRICULTURAL_LAND)|[0-9]+(?:\.[0-9]+)?\s+(?:Marla|Kanal|Sq\s*(?:Yards?|Feet|Ft|Yd|Meters?|M)))$/i;
+
+export const APPROVED_POSSESSION_STATUSES = new Set([
+    'Physical Possession Given', 'Paper Possession Given', 'Possession Delivered', 'Possession Offered',
+    'Not Possessed', 'Offered',
+    'POSSESSION_GIVEN', 'PHYSICAL_POSSESSION', 'PHYSICAL_POSSESSION_GIVEN', 'PAPER_POSSESSION', 'PAPER_POSSESSION_GIVEN',
+    'POSSESSION_DELIVERED', 'POSSESSION_OFFERED', 'NOT_POSSESSED', 'UNDER_OFFER',
+    'PHYSICAL', 'PAPER', 'DELIVERED', 'OFFERED', 'PENDING', 'NONE'
+]);
+
+export const POSSESSION_STATUS_PATTERN = /^(?:(?:Physical|Paper)\s+Possession\s+Given|Possession\s+(?:Delivered|Offered)|Not\s+Possessed|POSSESSION_GIVEN|PHYSICAL_POSSESSION(?:_GIVEN)?|PAPER_POSSESSION(?:_GIVEN)?|POSSESSION_DELIVERED|POSSESSION_OFFERED|NOT_POSSESSED|UNDER_OFFER|PHYSICAL|PAPER|DELIVERED|OFFERED|PENDING|NONE)$/i;
+
+export const APPROVED_ALLOTMENT_MODES = new Set([
+    'Allotment by Auction', 'Direct Allotment', 'Draw of Lots', 'Transfer Allotment',
+    'Freehold Allotment', 'Auction Freehold',
+    'AUCTION', 'eAuction', 'ALLOTMENT', 'ALLOTMENT_BY_AUCTION', 'DIRECT', 'DIRECT_ALLOTMENT',
+    'DRAW_OF_LOTS', 'TRANSFER', 'TRANSFER_ALLOTMENT', 'FREEHOLD', 'LEASEHOLD',
+    'GENERAL', 'RESERVED', 'GOVERNMENT', 'QUOTA',
+    'Auction', 'Allotment', 'Direct', 'Transfer', 'Freehold', 'Leasehold'
+]);
+
+export const ALLOTMENT_MODE_PATTERN = /^(?:Allotment\s+by\s+Auction|Direct\s+Allotment|Draw\s+of\s+Lots|Transfer\s+Allotment|Freehold\s+Allotment|Auction\s+Freehold|AUCTION|eAuction|ALLOTMENT(?:_BY_AUCTION)?|DIRECT(?:_ALLOTMENT)?|DRAW_OF_LOTS|TRANSFER(?:_ALLOTMENT)?|FREEHOLD|LEASEHOLD|GENERAL|RESERVED|GOVERNMENT|QUOTA|Auction|Allotment|Direct|Transfer|Freehold|Leasehold)$/i;
+
+export const APPROVED_DUES_STATUSES = new Set([
+    'Dues Pending', 'No Dues', 'Lease Rent Due', 'No Lease Rent Due',
+    'CLEAR', 'NO_DUES', 'DUES_PENDING', 'LEASE_RENT_DUE', 'NO_LEASE_RENT_DUE',
+    'DEFICIT', 'PAID', 'EXEMPT', 'ACTIVE', 'INACTIVE', 'SUSPENDED',
+    'VERIFIED', 'NOT_VERIFIED', 'PENDING', 'NONE', 'UNKNOWN',
+    'DUE', 'OVERDUE', 'SETTLED', 'NOT_APPLICABLE', 'FAILED', 'ERROR', 'SUCCESS'
+]);
+
+export const DUES_STATUS_PATTERN = /^(?:Dues\s+Pending|No\s+Dues|Lease\s+Rent\s+Due|No\s+Lease\s+Rent\s+Due|CLEAR|NO_DUES|DUES_PENDING|LEASE_RENT_DUE|NO_LEASE_RENT_DUE|DEFICIT|PAID|EXEMPT|ACTIVE|INACTIVE|SUSPENDED|VERIFIED|NOT_VERIFIED|PENDING|NONE|UNKNOWN|DUE|OVERDUE|SETTLED|NOT_APPLICABLE|FAILED|ERROR|SUCCESS)$/i;
+
+export const APPROVED_ESTATE_OFFICE_CITIES = '(?:Gurugram|Gurgaon|Panchkula|Faridabad|Mohali|Chandigarh|Karnal|Rohtak|Hisar|Ambala|Panipat|Sonipat|Rewari|Kurukshetra|Yamunanagar|Bahadurgarh|Palwal|Bhiwani|Sirsa|Jind|Fatehabad|Kaithal|Narnaul|Ludhiana|Jalandhar|Amritsar|Patiala|Bathinda|Hoshiarpur|Moga|Phagwara)';
+
+export const ESTATE_OFFICE_PATTERN = new RegExp(
+    `^(?:(?:Estate\\s+Office|Urban\\s+Estate)\\s+${APPROVED_ESTATE_OFFICE_CITIES}|(?:Chandigarh|GMADA|HSVP|PUDA|GLADA)\\s+Estate\\s+Office|${APPROVED_ESTATE_OFFICE_CITIES}|EO_(?:GURUGRAM|GURGAON|PANCHKULA|FARIDABAD|MOHALI|CHANDIGARH|KARNAL|ROHTAK|HISAR|AMBALA|PANIPAT|SONIPAT|REWARI|KURUKSHETRA|YAMUNANAGAR|LUDHIANA|JALANDHAR|AMRITSAR|PATIALA|BATHINDA|HSVP|GMADA|CHD)|(?:HSVP|GMADA|PUDA|GLADA|CHANDIGARH_EO|CHD_EO|EO_HSVP|EO_GMADA|EO_CHD))$`,
+    'i'
+);
+
+export const APPROVED_URBAN_ESTATE_LOCATIONS = '(?:Faridabad|Gurugram|Gurgaon|Panchkula|Mohali|Chandigarh|Karnal|Rohtak|Hisar|Ambala|Panipat|Sonipat|Rewari|Kurukshetra|Yamunanagar|Bahadurgarh|Palwal|Bhiwani|Sirsa|Jind|Fatehabad|Kaithal|Narnaul|Ludhiana|Jalandhar|Amritsar|Patiala|Bathinda|S\\.?A\\.?S\\.?\\s*Nagar(?:\\s*\\(Mohali\\))?)';
+
+export const URBAN_ESTATE_PATTERN = new RegExp(
+    `^(?:(?:Urban\\s+Estate\\s+)?${APPROVED_URBAN_ESTATE_LOCATIONS}(?:\\s+(?:Phase|Sector)\\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?)?|Urban\\s+Estate\\s+(?:Sector\\s+[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?|Phase\\s+(?:[0-9]{1,3}[A-Za-z]?|[IVXLCDM]{1,6}))|UE[0-9]{2,4}-${APPROVED_URBAN_ESTATE_LOCATIONS}|URBAN_ESTATE_(?:FARIDABAD|GURUGRAM|GURGAON|PANCHKULA|MOHALI|CHANDIGARH|KARNAL|ROHTAK|HISAR|AMBALA|PANIPAT|SONIPAT|REWARI|KURUKSHETRA|YAMUNANAGAR)|UE_(?:FARIDABAD|GURUGRAM|GURGAON|PANCHKULA|MOHALI|CHANDIGARH))$`,
+    'i'
+);
+
+export const SCHEME_NAME_PATTERN = /^(?:(?:Scheme|Sector)\s+(?:No\.?\s*)?[0-9]{1,4}(?:-[A-Za-z0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|Scheme\s+[0-9]{4}(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|Urban\s+(?:Estate|Scheme)(?:\s+(?:Phase\s*(?:-| )?[0-9]{1,3}[A-Za-z]?|Faridabad|Mohali|Panchkula|Gurugram|Gurgaon|[0-9]{1,4}))?|Estate\s+[0-9]{1,4}|(?:Residential|Commercial|Industrial|Institutional)\s+Scheme(?:\s+(?:No\.?\s*)?[0-9]{1,4})?(?:\s+Phase\s+[0-9]{1,3}[A-Za-z]?)?|(?:HSVP|GMADA|PUDA|CHANDIGARH)\s+Scheme(?:\s+[0-9]{4})?|SCHEME_[0-9]{4}(?:_PHASE_[0-9]{1,3})?|SCHEME_NO_[0-9]{1,4})$/i;
+
+export const PROPERTY_AREA_UNIT_PATTERN = /^(?:sq(?:uare)?\.?\s*(?:yards?|yd|feet|ft|foot|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|foot|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards|SQ_(?:YARDS?|YD|FEET|FOOT|FT|METERS?|M|KMS?|KM|INCHES?|IN)|KANAL|MARLA|ACRES?|GAJ|BIGHA|BISWA|HECTARES?)$/i;
+
+export const CONTROLLED_FIELD_SENTINELS = new Set([
+    '[ADDRESS_MINIMIZED]',
+    '[PII_MINIMIZED]',
+    '[REDACTED]',
+    '[CONTROLLED_AUDIT_NOTE]',
+    'Unknown',
+    'UNKNOWN',
+    'Unverified',
+    'UNVERIFIED',
+    'Not Verified',
+    'NOT_VERIFIED',
+    'Pending Verification',
+    'PENDING_VERIFICATION',
+    'NOT_OBTAINED',
+    'Not Obtained',
+    'No record found',
+    'NO_RECORD_FOUND',
+    'RECORD_NOT_FOUND',
+    'NONE',
+    'None',
+    'CLEAR',
+    'PENDING',
+    'NOT_APPLICABLE',
+    'N/A',
+    'NA',
+    'NULL'
+]);
+
+export function validateControlledScalarValue(val, pathStr, isErrorField = false, canonicalField = null) {
     if (val === null || val === undefined) return;
     const t = typeof val;
     if (t === 'boolean' || t === 'number') return;
@@ -797,10 +1089,100 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
             }
         }
         // Reject raw and partially masked emails
-        if (/[a-zA-Z0-9._%*+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(trimmed)) {
+        if (EMAIL_PII_PATTERN.test(trimmed)) {
             const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains prohibited email address.`);
             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
             throw err;
+        }
+
+        // Reject common personal names (single-token or embedded) across all fields
+        const wordTokens = trimmed.toLowerCase().split(/[^a-z0-9]+/);
+        for (const tok of wordTokens) {
+            if (tok && COMMON_PERSONAL_NAMES.has(tok)) {
+                const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains personal name '${tok}'.`);
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
+        }
+
+        // Field-aware canonical authority verification matching (only on legitimate authority changes paths)
+        if (!canonicalField && pathStr && typeof pathStr === 'string') {
+            const parts = pathStr.split('.');
+            if (parts.length === 3 && parts[0] === 'changes' && parts[1] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[2])) {
+                canonicalField = parts[2];
+            } else if (parts.length === 4 && parts[0] === 'changes' && (parts[1] === 'before' || parts[1] === 'after') && parts[2] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[3])) {
+                canonicalField = parts[3];
+            } else if (parts.length === 4 && parts[0] === 'metadata' && parts[1] === 'changes' && parts[2] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[3])) {
+                canonicalField = parts[3];
+            } else if (parts.length === 5 && parts[0] === 'metadata' && parts[1] === 'changes' && (parts[2] === 'before' || parts[2] === 'after') && parts[3] === 'authorityVerification' && CANONICAL_AUTHORITY_VERIFICATION_FIELDS.has(parts[4])) {
+                canonicalField = parts[4];
+            }
+        }
+
+        let isCanonicalMatch = false;
+        if (canonicalField) {
+            if (CONTROLLED_FIELD_SENTINELS.has(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'propertySize' && PROPERTY_SIZE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'sectorNumber' && SECTOR_NUMBER_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'phaseCode' && PHASE_CODE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'blockCode' && BLOCK_CODE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'litigationStatus' && (APPROVED_LITIGATION_PHRASES.has(trimmed) || LITIGATION_STATUS_PATTERN.test(trimmed))) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'mortgageStatus' && (APPROVED_MORTGAGE_PHRASES.has(trimmed) || MORTGAGE_STATUS_PATTERN.test(trimmed))) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'propertyCategory' || canonicalField === 'propertyType') && (APPROVED_PROPERTY_CATEGORIES_AND_TYPES.has(trimmed) || PROPERTY_CATEGORY_TYPE_PATTERN.test(trimmed))) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'possessionStatus' && (APPROVED_POSSESSION_STATUSES.has(trimmed) || POSSESSION_STATUS_PATTERN.test(trimmed))) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'allotmentMode' && (APPROVED_ALLOTMENT_MODES.has(trimmed) || ALLOTMENT_MODE_PATTERN.test(trimmed))) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'authorityStatus' || canonicalField === 'duesStatus' || canonicalField === 'leaseRentStatus') && (APPROVED_DUES_STATUSES.has(trimmed) || DUES_STATUS_PATTERN.test(trimmed))) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'estateOffice' && ESTATE_OFFICE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'urbanEstate' && URBAN_ESTATE_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'schemeName' && SCHEME_NAME_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'propertyAreaUnit' && PROPERTY_AREA_UNIT_PATTERN.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'propertyId' || canonicalField === 'fileNumber' || canonicalField === 'formNumber' || canonicalField === 'verificationRunId' || canonicalField === 'verificationSnapshotId' || canonicalField === 'applyClaimId') && /^[a-zA-Z0-9_-]{2,80}$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'snapshotContentHash' || canonicalField === 'rawSnapshotHash') && /^[a-fA-F0-9]{32,64}$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'authorityCode' && /^(?:HSVP|GMADA|CHD|PUDA|GLADA)$/i.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'allotmentDate' || canonicalField === 'transferDate' || canonicalField === 'possessionDate' || canonicalField === 'lastVerifiedAt') && /^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?Z?)?$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if (canonicalField === 'propertyAreaValue' && /^[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) {
+                isCanonicalMatch = true;
+            } else if ((canonicalField === 'buildingPlanApproved' || canonicalField === 'occupancyCertificate') && /^(?:true|false|yes|no|sanctioned|approved|not_sanctioned|rejected|pending|applied|issued|not_obtained)$/i.test(trimmed)) {
+                isCanonicalMatch = true;
+            }
+        }
+
+        // Canonical authority verification fields must strictly match their canonical patterns
+        if (canonicalField && !isCanonicalMatch) {
+            const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' does not conform to canonical pattern for '${canonicalField}'.`);
+            err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+            throw err;
+        }
+
+        // Reject uncontrolled narrative phrases (multi-word text with whitespace)
+        if (/\s+/.test(trimmed)) {
+            const isMeasurement = /^[0-9]+(?:\.[0-9]+)?\s+(?:sq(?:uare)?\s*(?:yards?|yd|feet|ft|meters?|m|kms?|km|inches?|in)|yards?|yd|feet|ft|meters?|m|kanal|marla|acres?|gaj|bigha|biswa|hectares?|units?|sq\s*ft|sq\s*yd|sq\s*m|sq\s*yards)$/i.test(trimmed);
+            const isErrorFormat = isErrorField && /^(?:[A-Z0-9_]{2,50}(?::\s*[a-zA-Z0-9_ ./:#-]{1,180})?|Simulated [a-zA-Z0-9_ ./:#-]+)$/i.test(trimmed);
+
+            if (!isCanonicalMatch && !isMeasurement && !isErrorFormat && !ALLOWED_CONTROLLED_PHRASES.has(trimmed) && !ALLOWED_UPPERCASE_TOKENS.has(trimmed)) {
+                const err = new Error(`METADATA_VALUE_INVALID: Field '${pathStr}' contains arbitrary free-text narrative '${trimmed}'.`);
+                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                throw err;
+            }
         }
         // Reject personal name with honorifics (e.g. "Shri Rajesh Kumar", "Smt Priya Devi", "Mr. John Doe")
         if (/\b(?:shri|smt|mr|mrs|ms|dr|adv)\.?\s+[a-z]/i.test(trimmed)) {
@@ -828,8 +1210,17 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
                 'high', 'court', 'sq', 'yards', 'yard', 'feet', 'foot', 'meter', 'meters',
                 'floor', 'first', 'second', 'third', 'ground', 'sector', 'plot', 'phase',
                 'urban', 'estate', 'civil', 'suit', 'state', 'bank', 'india', 'punjab',
-                'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali',
-                'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim'
+                'haryana', 'gurugram', 'gurgaon', 'panchkula', 'chandigarh', 'mohali', 'faridabad',
+                'karnal', 'rohtak', 'hisar', 'ambala', 'panipat', 'sonipat', 'rewari', 'kurukshetra',
+                'yamunanagar', 'bahadurgarh', 'palwal', 'bhiwani', 'sirsa', 'jind', 'fatehabad',
+                'kaithal', 'narnaul', 'ludhiana', 'jalandhar', 'amritsar', 'patiala', 'bathinda',
+                'under', 'mortgage', 'pending', 'decision', 'order', 'stay', 'interim',
+                'marla', 'kanal', 'acre', 'auction', 'allotted', 'block', 'pocket', 'case', 'office', 'scheme',
+                'commercial', 'residential', 'industrial', 'institutional', 'agricultural', 'freehold', 'independent',
+                'booth', 'shop', 'house', 'villa', 'flat', 'shed', 'land', 'apartment',
+                'physical', 'paper', 'possession', 'delivered', 'offered', 'given',
+                'direct', 'allotment', 'draw', 'lots', 'transfer',
+                'dues', 'lease', 'rent', 'due', 'clear', 'active', 'verified', 'not', 'no', 'unknown'
             ]);
             for (const nm of nameMatches) {
                 const parts = nm.split(/\s+/);
@@ -846,7 +1237,20 @@ export function validateControlledScalarValue(val, pathStr, isErrorField = false
     }
     if (t === 'object' && !Array.isArray(val)) {
         for (const [k, v] of Object.entries(val)) {
-            validateControlledScalarValue(v, `${pathStr}.${k}`);
+            const isLegitParent = pathStr === 'changes' || pathStr === 'changes.before' || pathStr === 'changes.after' ||
+                                  pathStr === 'metadata.changes' || pathStr === 'metadata.changes.before' || pathStr === 'metadata.changes.after';
+            const isLegitAuthorityParent = pathStr === 'changes.authorityVerification' || 
+                                           pathStr === 'changes.before.authorityVerification' || 
+                                           pathStr === 'changes.after.authorityVerification' ||
+                                           pathStr === 'metadata.changes.authorityVerification' ||
+                                           pathStr === 'metadata.changes.before.authorityVerification' ||
+                                           pathStr === 'metadata.changes.after.authorityVerification';
+
+            const resolvedChild = (isLegitParent && k.startsWith('authorityVerification.'))
+                ? k
+                : (isLegitAuthorityParent ? `authorityVerification.${k}` : null);
+            const childCanonical = getCanonicalAuthorityFieldName(resolvedChild);
+            validateControlledScalarValue(v, `${pathStr}.${k}`, false, childCanonical);
         }
         return;
     }
@@ -873,7 +1277,7 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
 
     // Free text check for prohibited text fields
     if (FREE_TEXT_FIELDS.includes(key)) {
-        if (typeof value === 'string' && value.trim() !== '' && value !== '[CONTROLLED_AUDIT_NOTE]' && value !== '[PII_MINIMIZED]') {
+        if (typeof value === 'string' && value.trim() !== '' && value !== '[CONTROLLED_AUDIT_NOTE]' && value !== '[PII_MINIMIZED]' && !CONTROLLED_REASONS.has(value.trim())) {
             const err = new Error(`FREE_TEXT_AUDIT_PROHIBITED: Arbitrary free-text is prohibited in field '${fullPath}'.`);
             err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
             throw err;
@@ -1255,9 +1659,16 @@ export function validateAuthorityMetadataValue(key, value, fullPath, eventType =
                             }
                         }
                         if (schema.scalarFields) {
+                            const rawField = item.field || item.path || item.canonicalField;
+                            const canonicalField = getCanonicalAuthorityFieldName(rawField);
+                            if (!canonicalField) {
+                                const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}[${i}].field' must be an approved canonical authority verification path.`);
+                                err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                                throw err;
+                            }
                             for (const sf of schema.scalarFields) {
                                 if (sf in item) {
-                                    validateControlledScalarValue(item[sf], `${fullPath}[${i}].${sf}`);
+                                    validateControlledScalarValue(item[sf], `${fullPath}[${i}].${sf}`, false, canonicalField);
                                 }
                             }
                         }
@@ -1614,7 +2025,7 @@ export function isControlledAuthorityDescriptionForEvent(eventType, desc) {
     return isControlledAuthorityDescription(trimmed);
 }
 
-export const FREE_TEXT_FIELDS = ['notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText'];
+export const FREE_TEXT_FIELDS = ['note', 'notes', 'reviewNotes', 'comments', 'reviewerComments', 'freeText'];
 
 export function normalizeDottedObject(obj) {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
@@ -1763,15 +2174,21 @@ export function validateAuditChanges(changes, contextPath = 'changes', eventType
         if (key === 'before' || key === 'after') {
             if (typeof value === 'string') {
                 const trimmed = value.trim();
-                const isObjectId = /^[0-9a-fA-F]{24}$/.test(trimmed);
-                const isControlledRole = CONTROLLED_ROLE_CODES.has(trimmed);
-                const isControlledReason = CONTROLLED_AUDIT_REASONS.has(trimmed);
-                const isControlledStatus = ['PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'UNDER_REVIEW', 'NOT_OBTAINED', 'GRANTED', 'NOT_VERIFIED', 'VERIFIED', 'COMPENSATED', 'FAILED', 'SUCCESS', 'CLAIMED', 'COMPLETED', 'IDLE', 'EXACT_MATCH', 'PARTIAL_MATCH', 'NO_MATCH'].includes(trimmed.toUpperCase());
+                const changeField = changes.field || changes.path || changes.canonicalField;
+                const canonicalField = getCanonicalAuthorityFieldName(changeField);
+                if (canonicalField) {
+                    validateControlledScalarValue(value, fullPath, false, canonicalField);
+                } else {
+                    const isObjectId = /^[0-9a-fA-F]{24}$/.test(trimmed);
+                    const isControlledRole = CONTROLLED_ROLE_CODES.has(trimmed);
+                    const isControlledReason = CONTROLLED_AUDIT_REASONS.has(trimmed);
+                    const isControlledStatus = ['PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'UNDER_REVIEW', 'NOT_OBTAINED', 'GRANTED', 'NOT_VERIFIED', 'VERIFIED', 'COMPENSATED', 'FAILED', 'SUCCESS', 'CLAIMED', 'COMPLETED', 'IDLE', 'EXACT_MATCH', 'PARTIAL_MATCH', 'NO_MATCH'].includes(trimmed.toUpperCase());
 
-                if (!isObjectId && !isControlledRole && !isControlledReason && !isControlledStatus) {
-                    const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
-                    err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
-                    throw err;
+                    if (!isObjectId && !isControlledRole && !isControlledReason && !isControlledStatus) {
+                        const err = new Error(`METADATA_VALUE_INVALID: Field '${fullPath}' does not conform to the controlled metadata value contract.`);
+                        err.code = 'FREE_TEXT_AUDIT_PROHIBITED';
+                        throw err;
+                    }
                 }
             } else if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date) && !value._bsontype) {
                 validateAuditChanges(value, fullPath, eventType);
@@ -1793,7 +2210,17 @@ export function validateAuditChanges(changes, contextPath = 'changes', eventType
             } else if (normalizedKey === 'error' || normalizedKey === 'errorMessage' || normalizedKey === 'applyError' || normalizedKey === 'rollbackReason') {
                 validateControlledScalarValue(value, fullPath, true);
             } else {
-                validateControlledScalarValue(value, fullPath);
+                const isLegitimateAuthorityContext = contextPath === 'changes.authorityVerification' ||
+                                                     contextPath === 'changes.before.authorityVerification' ||
+                                                     contextPath === 'changes.after.authorityVerification';
+                const isLegitimateParentContext = contextPath === 'changes' ||
+                                                  contextPath === 'changes.before' ||
+                                                  contextPath === 'changes.after';
+                const resolvedField = (isLegitimateParentContext && key.startsWith('authorityVerification.'))
+                    ? key
+                    : (isLegitimateAuthorityContext ? `authorityVerification.${key}` : null);
+                const canonicalField = getCanonicalAuthorityFieldName(resolvedField);
+                validateControlledScalarValue(value, fullPath, false, canonicalField);
             }
         } else if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date) && !value._bsontype) {
             validateAuditChanges(value, fullPath, eventType);
@@ -2324,21 +2751,23 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             throw err;
                         }
 
-                        // 5. Target type and identifier validation
-                        const ALLOWED_COMPENSATION_TARGET_TYPES = new Set(['inventory', 'Inventory', 'PropertyVerificationRunItem', 'authority_settings', 'authority_run']);
-                        if (!doc.targetType || !ALLOWED_COMPENSATION_TARGET_TYPES.has(doc.targetType)) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog targetType '${doc.targetType}' is invalid for saga compensation.`);
-                            err.code = 'AUDIT_LOG_IMMUTABLE';
-                            throw err;
-                        }
+                        // 5. Target identifier and type validation
                         if (!doc.targetId) {
                             const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog record is missing target identifier required for saga compensation verification.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }
 
+                        const ALLOWED_COMPENSATION_TARGET_TYPES = new Set(['inventory', 'Inventory', 'PropertyVerificationRunItem', 'authority_run']);
+                        if (!doc.targetType || !ALLOWED_COMPENSATION_TARGET_TYPES.has(doc.targetType)) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog targetType '${doc.targetType}' is invalid for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+
                         const isRunItemTarget = doc.targetType === 'PropertyVerificationRunItem';
                         const isInventoryTarget = doc.targetType === 'inventory' || doc.targetType === 'Inventory';
+                        const isRunTarget = doc.targetType === 'authority_run';
 
                         if (isRunItemTarget) {
                             if (String(matchingRunItem._id) !== String(doc.targetId)) {
@@ -2352,14 +2781,16 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
                             }
-                        } else {
-                            const isMatchingTarget = (matchingRunItem._id && String(matchingRunItem._id) === String(doc.targetId)) ||
-                                                     (matchingRunItem.inventoryId && String(matchingRunItem.inventoryId) === String(doc.targetId));
-                            if (!isMatchingTarget) {
-                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' belongs to RunItem '${matchingRunItem._id}', not matching audit target '${doc.targetId}'.`);
+                        } else if (isRunTarget) {
+                            if (!matchingRunItem.runId || String(matchingRunItem.runId) !== String(doc.targetId)) {
+                                const err = new Error(`AUDIT_LOG_IMMUTABLE: Compensation claim ID '${claimId}' belongs to Run '${matchingRunItem.runId}', not matching audit target '${doc.targetId}'.`);
                                 err.code = 'AUDIT_LOG_IMMUTABLE';
                                 throw err;
                             }
+                        } else {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: Unsupported targetType '${doc.targetType}' for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
                         }
 
                         // 6. Explicit RunItem association
@@ -2370,10 +2801,15 @@ export async function checkAuditImmutability(queryOrFilter, model = null, option
                             throw err;
                         }
 
-                        // 7. Explicit claim association
-                        const auditClaimId = doc.metadata?.claimId || doc.changes?.claimId;
-                        if (auditClaimId && String(auditClaimId) !== String(claimId)) {
-                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog has mismatched claim association (expected '${claimId}', found '${auditClaimId}').`);
+                        // 7. Explicit mandatory claim association
+                        const auditClaimId = doc.metadata?.claimId;
+                        if (!auditClaimId || String(auditClaimId).trim() === '') {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog is missing mandatory metadata.claimId required for saga compensation.`);
+                            err.code = 'AUDIT_LOG_IMMUTABLE';
+                            throw err;
+                        }
+                        if (String(auditClaimId) !== String(claimId)) {
+                            const err = new Error(`AUDIT_LOG_IMMUTABLE: AuditLog has mismatched claim association: metadata.claimId '${auditClaimId}' does not match compensation claim ID '${claimId}'.`);
                             err.code = 'AUDIT_LOG_IMMUTABLE';
                             throw err;
                         }

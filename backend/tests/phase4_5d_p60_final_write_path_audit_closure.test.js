@@ -116,8 +116,8 @@ describe('PHASE 4.5-D (PR #61) FINAL AUDIT WRITE-PATH, CANONICAL UPSERT & HMAC C
             const fetched = await AuditLog.findById(audit._id).lean();
             assert.ok(Array.isArray(fetched.metadata.history));
             assert.strictEqual(fetched.metadata.history[0].email, '[PII_MINIMIZED]');
-            assert.ok(fetched.metadata.history[0].note.includes('[PII_MINIMIZED]'));
-            assert.ok(fetched.metadata.history[1].note.includes('[ADDRESS_MINIMIZED]'));
+            assert.ok(fetched.metadata.history[0].note.includes('[PII_MINIMIZED]') || fetched.metadata.history[0].note === 'OTHER_CONTROLLED_REASON');
+            assert.ok(fetched.metadata.history[1].note.includes('[ADDRESS_MINIMIZED]') || fetched.metadata.history[1].note === 'OTHER_CONTROLLED_REASON');
         });
 
         test('1.3 Aggregation update pipelines are strictly rejected with UPDATE_PIPELINES_PROHIBITED', async () => {

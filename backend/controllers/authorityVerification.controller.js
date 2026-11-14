@@ -3691,7 +3691,8 @@ export const compensateApplySaga = async ({
     compensation,
     errorMsg,
     appliedBy = null,
-    session = null
+    session = null,
+    fenceToken = null
 }) => {
     // 0. Mandatory fail-closed validation BEFORE ANY WRITES
     if (!itemId || !tenantId || !inventoryId || !claimId) {
@@ -3742,13 +3743,38 @@ export const compensateApplySaga = async ({
         return { success: false, reason: 'CLAIM_CONFLICT', preempted: true };
     }
 
+    if (fenceToken !== null && fenceToken !== undefined && itemDoc.applyClaim?.fenceToken !== undefined) {
+        if (Number(fenceToken) < Number(itemDoc.applyClaim.fenceToken)) {
+            console.warn(`[SagaCompensation] Preempted fence token: Caller fenceToken '${fenceToken}' is older than RunItem fenceToken '${itemDoc.applyClaim.fenceToken}'. Skipping stale compensation.`);
+            return { success: false, reason: 'CLAIM_PREEMPTED', preempted: true };
+        }
+    }
+
     let inventoryRevertError = null;
     let auditCompensationError = null;
 
     // 1. Revert Inventory mutation if stage indicates possible or confirmed mutation
     if (stage && ['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(stage)) {
-        if (compensation?.inventoryBefore && typeof compensation.inventoryBefore === 'object') {
+        const persistedCompensation = itemDoc.applyClaim?.compensation?.inventoryBefore;
+        const effectiveSnapshot = persistedCompensation || compensation?.inventoryBefore;
+
+        if (effectiveSnapshot && typeof effectiveSnapshot === 'object') {
             try {
+                // Snapshot Integrity Check: prohibit unauthorized mutation
+                const PROHIBITED_KEYS = new Set(['_id', 'tenantId', 'id', 'ownerId', 'organizationId']);
+                for (const [key, val] of Object.entries(effectiveSnapshot)) {
+                    if (PROHIBITED_KEYS.has(key) || key.startsWith('$')) {
+                        const err = new Error(`INVALID_COMPENSATION_SNAPSHOT: Snapshot contains prohibited field '${key}'. Mutation of _id, tenantId or operator fields is strictly prohibited.`);
+                        err.code = 'INVALID_COMPENSATION_SNAPSHOT';
+                        throw err;
+                    }
+                    if (!key.startsWith('authorityVerification.')) {
+                        const err = new Error(`INVALID_COMPENSATION_SNAPSHOT: Snapshot field '${key}' is unauthorized. Only 'authorityVerification.' fields may be restored.`);
+                        err.code = 'INVALID_COMPENSATION_SNAPSHOT';
+                        throw err;
+                    }
+                }
+
                 // Check whether Inventory was actually tagged/mutated with this claimId
                 const mutatedDoc = await Inventory.findOne({
                     _id: inventoryId,
@@ -3758,7 +3784,7 @@ export const compensateApplySaga = async ({
 
                 if (mutatedDoc) {
                     const revertOps = {};
-                    for (const [key, val] of Object.entries(compensation.inventoryBefore)) {
+                    for (const [key, val] of Object.entries(effectiveSnapshot)) {
                         revertOps[key] = (val === undefined || val === null) ? null : val;
                     }
                     revertOps['authorityVerification.applyClaimId'] = null;
