@@ -14,7 +14,8 @@ export const approveMarketingDocument = async (req, res) => {
     try {
         const data = await marketingDocumentApprovalService.approve({
             user: req.user,
-            documentId: req.params.documentId
+            documentId: req.params.documentId,
+            reviewAttestation: req.body?.reviewAttestation
         });
         return res.status(200).json({ success: true, data });
     } catch (error) {
