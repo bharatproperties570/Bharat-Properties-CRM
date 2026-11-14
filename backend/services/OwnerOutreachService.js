@@ -364,16 +364,22 @@ export default class OwnerOutreachService {
         if (!mongoose.Types.ObjectId.isValid(campaignId)) return null;
         const campaign = await OwnerOutreachCampaign.findOne({ _id: campaignId, createdBy: user._id }).lean();
         if (!campaign) return null;
-        const [byState, recipients, batches] = await Promise.all([
+        const [byState, recipients, batchGroups, batches] = await Promise.all([
             OwnerOutreachRecipient.aggregate([{ $match: { campaignId: campaign._id } }, { $group: { _id: { channel: '$channel', eligibility: '$eligibility', dispatchState: '$dispatchState' }, count: { $sum: 1 } } }]),
             OwnerOutreachRecipient.find({ campaignId: campaign._id }).select('channel maskedEndpoint eligibility dispatchState').sort({ _id: 1 }).limit(200).lean(),
+            OwnerOutreachBatch.aggregate([
+                { $match: { campaignId: campaign._id } },
+                { $group: { _id: '$status', count: { $sum: 1 } } },
+                { $sort: { _id: 1 } }
+            ]),
             OwnerOutreachBatch.find({ campaignId: campaign._id })
                 .select('sequence status scheduledAt counts startedAt completedAt lastErrorCode createdAt updatedAt')
                 .sort({ sequence: 1 }).limit(500).lean()
         ]);
-        const batchSummary = batches.reduce((summary, batch) => {
-            summary.total += 1;
-            summary.byStatus[batch.status] = (summary.byStatus[batch.status] || 0) + 1;
+        // Summary counts cover the complete ledger; the detailed table is a bounded sample.
+        const batchSummary = batchGroups.reduce((summary, group) => {
+            summary.total += group.count;
+            summary.byStatus[group._id] = group.count;
             return summary;
         }, { total: 0, byStatus: {} });
         return {
@@ -382,6 +388,7 @@ export default class OwnerOutreachService {
             recipients,
             batches,
             batchSummary,
+            batchesTruncated: batchSummary.total > batches.length,
             dispatchEnabled: false,
             monitoringMode: 'SCHEDULE_LEDGER_ONLY'
         };
